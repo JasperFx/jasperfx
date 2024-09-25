@@ -5,7 +5,7 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JasperFx", "src\JasperFx\JasperFx.csproj", "{CB6D5B91-E311-4B23-BC0A-0A1C52AF37EE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JasperFxTests", "src\JasperFxTests\JasperFxTests.csproj", "{2DFDC7CF-D52A-4C79-A40C-0E0B8E4B5E14}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreTests", "src\CoreTests\CoreTests.csproj", "{2DFDC7CF-D52A-4C79-A40C-0E0B8E4B5E14}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Widgets", "Widgets", "{CA8A7C59-5834-4637-8F57-CD6F55629861}"
 EndProject

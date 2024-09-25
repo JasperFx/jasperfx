@@ -21,7 +21,7 @@ class Build : NukeBuild
     ///   - Microsoft VisualStudio     https://nuke.build/visualstudio
     ///   - Microsoft VSCode           https://nuke.build/vscode
 
-    public static int Main () => Execute<Build>(x => x.Compile);
+    public static int Main () => Execute<Build>(x => x.Test);
     
     [Solution] readonly Solution Solution;
 
@@ -48,6 +48,17 @@ class Build : NukeBuild
             DotNetBuild(s => s
                 .SetProjectFile(Solution)
                 .SetConfiguration(Configuration)
+                .EnableNoRestore());
+        });
+    
+    Target Test => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile("src/CoreTests")
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
                 .EnableNoRestore());
         });
 
