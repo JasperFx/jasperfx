@@ -20,7 +20,7 @@ public class type_scanning_end_to_end
         });
 
         var container = registry.BuildServiceProvider();
-        
+
         var firstStringFinder = container.GetRequiredService<IFinder<string>>().ShouldBeOfType<StringFinder>();
         var secondStringFinder = container.GetRequiredService<IFinder<string>>().ShouldBeOfType<StringFinder>();
 
@@ -81,7 +81,7 @@ public class type_scanning_end_to_end
             x.AssemblyContainingType<IWidget>();
             x.AddAllTypesOf<IWidget>();
         });
-        
+
         var widgetTypes = services.Where(x => x.ServiceType == typeof(IWidget))
             .Select(x => x.ImplementationType).ToArray();
 
@@ -134,7 +134,6 @@ public class type_scanning_end_to_end
         var container = services.BuildServiceProvider();
 
         container.GetRequiredService<Muppet>().ShouldBeOfType<Grover>();
-
     }
 
     [Theory]
@@ -162,7 +161,7 @@ public class type_scanning_end_to_end
             x.AssemblyContainingType<IShoes>();
             x.WithDefaultConventions();
         });
-        
+
         services.TryFindDefault<IShoes>().ImplementationType.ShouldBe(typeof(Shoes));
         services.TryFindDefault<IShorts>().ImplementationType.ShouldBe(typeof(Shorts));
     }
@@ -196,7 +195,7 @@ public class type_scanning_end_to_end
         });
 
         var container = services.BuildServiceProvider();
-        
+
         services.Single(x => x.ServiceType == typeof(IRanger))
             .ImplementationType.ShouldBe(typeof(RedRanger));
     }
@@ -251,9 +250,11 @@ public class type_scanning_end_to_end
         var scope1 = container.CreateScope();
 
         var scope2 = container.CreateScope();
-        
-        scope1.ServiceProvider.GetServices<IFinder<int>>().ShouldBeSameAs(scope2.ServiceProvider.GetServices<IFinder<int>>());
-        scope1.ServiceProvider.GetServices<IFinder<string>>().ShouldNotBeSameAs(scope2.ServiceProvider.GetServices<IFinder<string>>());
+
+        scope1.ServiceProvider.GetServices<IFinder<int>>()
+            .ShouldBeSameAs(scope2.ServiceProvider.GetServices<IFinder<int>>());
+        scope1.ServiceProvider.GetServices<IFinder<string>>()
+            .ShouldNotBeSameAs(scope2.ServiceProvider.GetServices<IFinder<string>>());
     }
 
     public interface IFinder<T>
@@ -331,7 +332,7 @@ public class SingleImplementationScannerTester
     public SingleImplementationScannerTester()
     {
         var services = new ServiceCollection();
-        
+
         services.Scan(x =>
         {
             x.TheCallingAssembly();
@@ -362,8 +363,8 @@ public class SingleImplementationScannerTester
             x.IncludeNamespaceContainingType<SingleImplementationScannerTester>();
             x.SingleImplementationsOfInterface(lifetime);
         });
-        
-        
+
+
         services.TryFindDefault<IOnlyHaveASingleConcreteImplementation>().Lifetime.ShouldBe(lifetime);
     }
 }
@@ -455,7 +456,6 @@ public class TypeFindingTester
     public class StringOpenGeneric : ConcreteOpenGeneric<string>
     {
     }
-
 }
 
 public interface TypeIWantToFind

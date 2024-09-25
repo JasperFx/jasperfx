@@ -6,7 +6,6 @@ namespace CoreTests.Core;
 
 public class StringExtensionsTester
 {
-
     [Fact]
     public void parent_directory()
     {
@@ -53,7 +52,7 @@ public class StringExtensionsTester
 
         string nullString = null;
         nullString.IsEmpty().ShouldBeTrue();
-        
+
         " ".IsEmpty().ShouldBeFalse();
         "something".IsEmpty().ShouldBeFalse();
     }
@@ -91,14 +90,10 @@ public class StringExtensionsTester
             "1000.1",
             "1,000.1",
             "10,000.1",
-            "100,000.1",
+            "100,000.1"
         };
 
-        foreach (var number in numbers)
-        {
-            number.IsValidNumber(new CultureInfo("en-us")).ShouldBeTrue();
-        }
-
+        foreach (var number in numbers) number.IsValidNumber(new CultureInfo("en-us")).ShouldBeTrue();
     }
 
     [Fact]
@@ -111,14 +106,10 @@ public class StringExtensionsTester
             "1000,1",
             "1.000,1",
             "10.000,1",
-            "100.000,1",
+            "100.000,1"
         };
 
-        foreach (var number in numbers)
-        {
-            number.IsValidNumber(new CultureInfo("de-DE")).ShouldBeTrue();
-        }
-
+        foreach (var number in numbers) number.IsValidNumber(new CultureInfo("de-DE")).ShouldBeTrue();
     }
 
     [Fact]
@@ -129,13 +120,10 @@ public class StringExtensionsTester
             "1,00",
             "100,1",
             "100,1.01",
-            "A,Jun.K",
+            "A,Jun.K"
         };
-        
-        foreach (var number in numbers)
-        {
-            number.IsValidNumber(new CultureInfo("en-us")).ShouldBeFalse();
-        }
+
+        foreach (var number in numbers) number.IsValidNumber(new CultureInfo("en-us")).ShouldBeFalse();
     }
 
     [Fact]
@@ -143,10 +131,10 @@ public class StringExtensionsTester
     {
         "true".ToBool().ShouldBeTrue();
         "True".ToBool().ShouldBeTrue();
-        
+
         "false".ToBool().ShouldBeFalse();
         "False".ToBool().ShouldBeFalse();
-        
+
         "".ToBool().ShouldBeFalse();
 
         string nullString = null;
@@ -164,7 +152,6 @@ e
 ";
 
         text.ReadLines().ShouldHaveTheSameElementsAs("a", "b", "c", "d", "e");
-            
     }
 
     [Fact]
@@ -183,9 +170,8 @@ e
 
 
         text.ReadLines(action);
-            
-        list.ShouldHaveTheSameElementsAs("a", "b", "c", "d", "e");
 
+        list.ShouldHaveTheSameElementsAs("a", "b", "c", "d", "e");
     }
 
     [Fact]
@@ -220,17 +206,7 @@ e
     [Fact]
     public void to_enum_should_throw_if_not_enum()
     {
-        Exception<ArgumentException>.ShouldBeThrownBy(() =>
-        {
-            "a".ToEnum<NotAnEnum>();
-        });
-
-
-    }
-
-    public struct NotAnEnum
-    {
-             
+        Exception<ArgumentException>.ShouldBeThrownBy(() => { "a".ToEnum<NotAnEnum>(); });
     }
 
     [Fact]
@@ -291,7 +267,7 @@ e
     {
         var str1 = Guid.NewGuid().ToString();
         var str2 = Guid.NewGuid().ToString();
-        
+
         str1.GetStableHashCode().ShouldBe(str1.GetStableHashCode());
         str2.GetStableHashCode().ShouldBe(str2.GetStableHashCode());
         str1.GetStableHashCode().ShouldNotBe(str2.GetStableHashCode());
@@ -307,7 +283,7 @@ e
     {
         one.StartsWithIgnoreCase(prefix).ShouldBe(expected);
     }
-    
+
     [Theory]
     [InlineData("foo", "bar", false)]
     [InlineData("foobar", "br", false)]
@@ -317,6 +293,10 @@ e
     public void ends_with_ignore_case(string one, string suffix, bool expected)
     {
         one.EndsWithIgnoreCase(suffix).ShouldBe(expected);
+    }
+
+    public struct NotAnEnum
+    {
     }
 }
 

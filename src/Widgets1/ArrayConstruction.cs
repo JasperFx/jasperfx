@@ -1,40 +1,38 @@
+namespace Widgets1;
 
-namespace Widgets1
+public interface IList
 {
-    public interface IList
+    int Count { get; }
+}
+
+public class StringList : IList
+{
+    public string[] values;
+
+    public StringList(string[] Values)
     {
-        int Count { get; }
+        values = Values;
     }
 
-    public class StringList : IList
+    #region IList Members
+
+    public int Count => values.Length;
+
+    #endregion
+}
+
+public class IntegerList : IList
+{
+    public int[] values;
+
+    public IntegerList(int[] Values)
     {
-        public string[] values;
-
-        public StringList(string[] Values)
-        {
-            values = Values;
-        }
-
-        #region IList Members
-
-        public int Count { get { return values.Length; } }
-
-        #endregion
+        values = Values;
     }
 
-    public class IntegerList : IList
-    {
-        public int[] values;
+    #region IList Members
 
-        public IntegerList(int[] Values)
-        {
-            values = Values;
-        }
+    public int Count => values.Length;
 
-        #region IList Members
-
-        public int Count { get { return values.Length; } }
-
-        #endregion
-    }
+    #endregion
 }

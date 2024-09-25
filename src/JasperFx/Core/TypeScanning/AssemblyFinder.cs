@@ -127,8 +127,6 @@ internal interface IJasperFxAssemblyLoadContext
     Assembly LoadFromAssemblyPath(string assemblyName);
 }
 
-
-
 internal sealed class AssemblyLoadContextWrapper : IJasperFxAssemblyLoadContext
 {
     private readonly AssemblyLoadContext _ctx;
@@ -154,87 +152,88 @@ internal sealed class AssemblyLoadContextWrapper : IJasperFxAssemblyLoadContext
     }
 }
 
-
 internal static class TopologicalSortExtensions
 {
-        /// <summary>
-        /// Find the index within the enumerable of the first item that matches the condition
-        /// </summary>
-        /// <param name="enumerable"></param>
-        /// <param name="condition"></param>
-        /// <typeparam name="T"></typeparam>
-        /// <returns></returns>
-        internal static int GetFirstIndex<T>(this IEnumerable<T> enumerable, Func<T, bool> condition)
+    /// <summary>
+    ///     Find the index within the enumerable of the first item that matches the condition
+    /// </summary>
+    /// <param name="enumerable"></param>
+    /// <param name="condition"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    internal static int GetFirstIndex<T>(this IEnumerable<T> enumerable, Func<T, bool> condition)
+    {
+        var index = -1;
+        foreach (var item in enumerable)
         {
-            var index = -1;
-            foreach (var item in enumerable)
+            index++;
+            if (condition(item))
             {
-                index++;
-                if (condition(item)) return index;
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    internal static IEnumerable<T> TopologicalSort<T>(this IEnumerable<T> source,
+        Func<T, IEnumerable<T>> getDependencies, bool throwOnCycle = true)
+    {
+        return source.TopologicalSort(x => getDependencies(x).ToList().GetEnumerator(), throwOnCycle);
+    }
+
+    internal static IEnumerable<T> TopologicalSort<T>(this IEnumerable<T> source,
+        Func<T, IEnumerator<T>> getDependencies, bool throwOnCycle = true)
+    {
+        var sorted = new List<T>();
+        var visited = new HashSet<T>();
+
+        // These don't strictly need to be kept outside of the loop, but it saves us from having to reallocate them in every Visit call
+        var visiting = new HashSet<T>();
+        var stack = new Stack<(T, IEnumerator<T>)>();
+
+        foreach (var item in source) Visit(item, visited, visiting, sorted, stack, getDependencies, throwOnCycle);
+
+        return sorted;
+    }
+
+    private static void Visit<T>(T root, ISet<T> visited, ISet<T> visiting, ICollection<T> sorted,
+        Stack<(T, IEnumerator<T>)> stack, Func<T, IEnumerator<T>> getDependencies, bool throwOnCycle)
+    {
+        if (!visited.Add(root))
+        {
+            return;
+        }
+
+        stack.Push((root, getDependencies(root)));
+        visiting.Add(root);
+
+        while (stack.Count > 0)
+        {
+            var (parent, enumerator) = stack.Peek();
+            if (!enumerator.MoveNext())
+            {
+                visiting.Remove(parent);
+                sorted.Add(parent);
+                stack.Pop();
+                continue;
             }
 
-            return -1;
-        }
-
-        internal static IEnumerable<T> TopologicalSort<T>(this IEnumerable<T> source,
-            Func<T, IEnumerable<T>> getDependencies, bool throwOnCycle = true)
-        {
-            return source.TopologicalSort(x => getDependencies(x).ToList().GetEnumerator(), throwOnCycle);
-        }
-        
-        internal static IEnumerable<T> TopologicalSort<T>(this IEnumerable<T> source, Func<T, IEnumerator<T>> getDependencies, bool throwOnCycle = true)
-        {
-            var sorted = new List<T>();
-            var visited = new HashSet<T>();
-
-            // These don't strictly need to be kept outside of the loop, but it saves us from having to reallocate them in every Visit call
-            var visiting = new HashSet<T>();
-            var stack = new Stack<(T, IEnumerator<T>)>();
-
-            foreach (var item in source)
+            var child = enumerator.Current;
+            if (!visited.Add(child))
             {
-                Visit(item, visited, visiting, sorted, stack, getDependencies, throwOnCycle);
-            }
-
-            return sorted;
-        }
-
-        private static void Visit<T>(T root, ISet<T> visited, ISet<T> visiting, ICollection<T> sorted, Stack<(T, IEnumerator<T>)> stack, Func<T, IEnumerator<T>> getDependencies, bool throwOnCycle)
-        {
-            if (!visited.Add(root))
-                return;
-
-            stack.Push((root, getDependencies(root)));
-            visiting.Add(root);
-
-            while (stack.Count > 0)
-            {
-                var (parent, enumerator) = stack.Peek();
-                if (!enumerator.MoveNext())
+                if (throwOnCycle && visiting.Contains(child))
                 {
-                    visiting.Remove(parent);
-                    sorted.Add(parent);
-                    stack.Pop();
-                    continue;
+                    throw new Exception("Cyclic dependency found");
                 }
 
-                var child = enumerator.Current;
-                if (!visited.Add(child))
-                {
-                    if (throwOnCycle && visiting.Contains(child))
-                    {
-                        throw new Exception("Cyclic dependency found");
-                    }
-
-                    continue;
-                }
-
-                visiting.Add(child);
-                stack.Push((child, getDependencies(child)));
+                continue;
             }
 
-            visiting.Remove(root);
-
+            visiting.Add(child);
+            stack.Push((child, getDependencies(child)));
         }
 
+        visiting.Remove(root);
+    }
 }

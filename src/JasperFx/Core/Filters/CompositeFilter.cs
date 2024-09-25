@@ -2,15 +2,10 @@
 
 namespace JasperFx.Core.Filters;
 
-public class CompositeFilter<T> : IEnumerable<IFilter<T>> 
+public class CompositeFilter<T> : IEnumerable<IFilter<T>>
 {
     internal List<IFilter<T>> Filters { get; } = new();
-    
-    public bool Matches(T item)
-    {
-        return Filters.Any(x => x.Matches(item));
-    }
-    
+
     public IEnumerator<IFilter<T>> GetEnumerator()
     {
         return Filters.GetEnumerator();
@@ -20,13 +15,18 @@ public class CompositeFilter<T> : IEnumerable<IFilter<T>>
     {
         return GetEnumerator();
     }
-    
+
+    public bool Matches(T item)
+    {
+        return Filters.Any(x => x.Matches(item));
+    }
+
     /// <summary>
-    /// User defined matching condition
+    ///     User defined matching condition
     /// </summary>
     /// <param name="description">Diagnostic description of this condition</param>
     /// <param name="filter"></param>
-    public void WithCondition(string description, Func<T,bool> filter)
+    public void WithCondition(string description, Func<T, bool> filter)
     {
         Filters.Add(new LambdaFilter<T>(description, filter));
     }

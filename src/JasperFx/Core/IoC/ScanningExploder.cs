@@ -23,10 +23,7 @@ internal static class ScanningExploder
 
             registry.RemoveAll(x => x.ServiceType == typeof(AssemblyScanner));
 
-            foreach (var scanner in additional)
-            {
-                scanner.Start();
-            }
+            foreach (var scanner in additional) scanner.Start();
 
             foreach (var operation in operations)
             {
@@ -48,7 +45,7 @@ internal static class ScanningExploder
     internal static Task<(IServiceCollection, AssemblyScanner[])> Explode(IServiceCollection services)
     {
         var scanners = Array.Empty<AssemblyScanner>();
-        IServiceCollection registry = services.ToCollection();
+        var registry = services.ToCollection();
 
         var registriesEncountered = new List<Type>();
 

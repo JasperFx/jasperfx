@@ -1,7 +1,5 @@
-﻿namespace Widgets1
+﻿namespace Widgets1;
+
+public class Widget1Color
 {
-    public class Widget1Color
-    {
-         
-    }
 }

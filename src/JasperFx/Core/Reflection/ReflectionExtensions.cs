@@ -6,7 +6,7 @@ namespace JasperFx.Core.Reflection;
 public static class ReflectionExtensions
 {
     /// <summary>
-    /// Tries to find a custom attribute, and finds the first of the type
+    ///     Tries to find a custom attribute, and finds the first of the type
     /// </summary>
     /// <param name="provider"></param>
     /// <param name="att"></param>
@@ -18,7 +18,7 @@ public static class ReflectionExtensions
 
         return att != null;
     }
-    
+
     public static T? GetAttribute<T>(this MemberInfo provider) where T : Attribute
     {
         var atts = provider.GetCustomAttributes(typeof(T), true);
@@ -180,7 +180,7 @@ public static class ReflectionExtensions
     }
 
     /// <summary>
-    /// Does this type have any constructors with arguments?
+    ///     Does this type have any constructors with arguments?
     /// </summary>
     /// <param name="t"></param>
     /// <returns></returns>
@@ -229,9 +229,9 @@ public static class ReflectionExtensions
 
         return sb.ToString();
     }
-    
+
     /// <summary>
-    /// Is a method asynchronous?
+    ///     Is a method asynchronous?
     /// </summary>
     /// <param name="method"></param>
     /// <returns></returns>
@@ -249,7 +249,7 @@ public static class ReflectionExtensions
 
         return method.ReturnType == typeof(Task) || method.ReturnType.Closes(typeof(Task<>));
     }
-    
+
     public static bool CanBeOverridden(this MethodInfo method)
     {
         if (method.IsAbstract)
@@ -264,5 +264,4 @@ public static class ReflectionExtensions
 
         return false;
     }
-    
 }

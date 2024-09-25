@@ -1,5 +1,4 @@
-﻿#nullable enable
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 
 namespace JasperFx.Core;
 

@@ -1,13 +1,11 @@
+namespace Widgets1;
 
-namespace Widgets1
+public class Decision
 {
-    public class Decision
-    {
-        public Rule[] Rules;
+    public Rule[] Rules;
 
-        public Decision(Rule[] Rules)
-        {
-            this.Rules = Rules;
-        }
+    public Decision(Rule[] Rules)
+    {
+        this.Rules = Rules;
     }
 }

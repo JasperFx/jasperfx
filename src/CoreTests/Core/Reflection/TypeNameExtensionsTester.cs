@@ -14,7 +14,7 @@ public class TypeNameExtensionsTester
     {
         type.ShortNameInCode().ShouldBe(expected);
     }
-    
+
     [Theory]
     [InlineData(typeof(int), "int")]
     [InlineData(typeof(string), "string")]

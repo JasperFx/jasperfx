@@ -9,10 +9,12 @@ namespace JasperFx.Core.Descriptions;
  *
  *
  *
- * 
+ *
  */
 
-public interface IRenderable{};
+public interface IRenderable
+{
+}
 
 public enum HighlightMode
 {
@@ -65,11 +67,12 @@ public enum TextAlign
     Center
 }
 
-
-
 public class Table : IRenderable
 {
     public string? Title { get; set; }
+
+    public List<TableColumn> Columns { get; } = new();
+    public List<TableRow> Rows { get; } = new();
 
     public Table WithColumn(string key, string? header = null, TextAlign textAlign = TextAlign.Left,
         TextAlign headerAlign = TextAlign.Center, HighlightMode highlight = HighlightMode.None)
@@ -81,24 +84,21 @@ public class Table : IRenderable
             TextAlign = textAlign,
             Highlight = highlight
         };
-        
+
         Columns.Add(column);
 
         return this;
     }
-    
-    public List<TableColumn> Columns { get; } = new();
-    public List<TableRow> Rows { get; } = new();
 
     public Table WithRow(params object[] values)
     {
         if (values.Length > Columns.Count)
         {
-            throw new ArgumentOutOfRangeException(nameof(values),"More values than columns");
+            throw new ArgumentOutOfRangeException(nameof(values), "More values than columns");
         }
 
         var row = StartRow();
-        for (int i = 0; i < values.Length; i++)
+        for (var i = 0; i < values.Length; i++)
         {
             var column = Columns[i];
             var raw = values[i];
@@ -126,7 +126,7 @@ public class Table : IRenderable
         }
 
         public Dictionary<string, TableCell> Cells { get; } = new();
-        
+
         public TableRow With(string key, object value, TextAlign? align = null, HighlightMode? highlight = null)
         {
             var column = _parent.Columns.FirstOrDefault(x => x.Key == key);
@@ -159,7 +159,7 @@ public class Table : IRenderable
             return this;
         }
     }
-    
+
     public class TableCell : Fragment
     {
         public TableCell(TableColumn parent, string text)
@@ -192,5 +192,5 @@ public class TableColumn : Fragment
     public Func<object, string> Formatter { get; set; } = x => x.ToString();
     public string Header { get; }
     public TextAlign HeaderAlign { get; set; } = TextAlign.Center;
-    public string Key { get; private set; }
+    public string Key { get; }
 }

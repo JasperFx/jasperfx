@@ -41,7 +41,10 @@
         "Clean",
         "Compile",
         "Restore",
-        "Test"
+        "Test",
+        "TestCodegen",
+        "TestCommandLine",
+        "TestCore"
       ]
     },
     "Verbosity": {

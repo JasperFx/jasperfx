@@ -5,6 +5,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
     </ItemGroup>
 </Project>

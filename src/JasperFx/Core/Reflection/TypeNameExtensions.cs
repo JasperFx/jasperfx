@@ -51,7 +51,7 @@ public static class TypeNameExtensions
         {
             return type.Namespace + "." + type.NameInCode();
         }
-        
+
         if (type.FullName == null)
         {
             return type.Name;

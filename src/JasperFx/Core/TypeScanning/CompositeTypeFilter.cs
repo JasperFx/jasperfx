@@ -1,11 +1,14 @@
-﻿using JasperFx.Core.Reflection;
+﻿using JasperFx.Core.Filters;
+using JasperFx.Core.Reflection;
 
 namespace JasperFx.Core.TypeScanning;
 
-public class CompositeTypeFilter : Filters.CompositeFilter<Type>
+public class CompositeTypeFilter : CompositeFilter<Type>
 {
+    public string Description => Filters.Select(x => x.Description).Join(" or ");
+
     /// <summary>
-    /// Match types that have the designated attribute
+    ///     Match types that have the designated attribute
     /// </summary>
     /// <typeparam name="T"></typeparam>
     public void WithAttribute<T>() where T : Attribute
@@ -14,7 +17,7 @@ public class CompositeTypeFilter : Filters.CompositeFilter<Type>
     }
 
     /// <summary>
-    /// Match types with the given suffix in the type name. This is case sensitive!
+    ///     Match types with the given suffix in the type name. This is case sensitive!
     /// </summary>
     /// <param name="suffix"></param>
     public void WithNameSuffix(string suffix)
@@ -23,7 +26,7 @@ public class CompositeTypeFilter : Filters.CompositeFilter<Type>
     }
 
     /// <summary>
-    /// Match types within the given namespace
+    ///     Match types within the given namespace
     /// </summary>
     /// <param name="ns"></param>
     public void InNamespace(string ns)
@@ -32,7 +35,7 @@ public class CompositeTypeFilter : Filters.CompositeFilter<Type>
     }
 
     /// <summary>
-    /// Match types that implement or inherit from type T
+    ///     Match types that implement or inherit from type T
     /// </summary>
     /// <typeparam name="T"></typeparam>
     public void Implements<T>()
@@ -41,7 +44,7 @@ public class CompositeTypeFilter : Filters.CompositeFilter<Type>
     }
 
     /// <summary>
-    /// Match types that implement or inherit from the designated type
+    ///     Match types that implement or inherit from the designated type
     /// </summary>
     /// <param name="type"></param>
     public void Implements(Type type)
@@ -59,8 +62,6 @@ public class CompositeTypeFilter : Filters.CompositeFilter<Type>
         return Filters.Any(x => x.Matches(type));
     }
 
-    public string Description => Filters.Select(x => x.Description).Join(" or ");
-
     public void IsNotPublic()
     {
         WithCondition("Is not public", t => !t.IsPublic && !t.IsNestedPublic);
@@ -70,6 +71,4 @@ public class CompositeTypeFilter : Filters.CompositeFilter<Type>
     {
         WithCondition("Is Static", t => t.IsStatic());
     }
-
-
 }

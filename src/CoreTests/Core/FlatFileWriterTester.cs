@@ -1,58 +1,56 @@
 using JasperFx.Core;
 
-namespace CoreTests.Core
+namespace CoreTests.Core;
+
+public class FlatFileWriterTester
 {
-    
-    public class FlatFileWriterTester
+    private readonly FlatFileWriter theWriter = new(new List<string>());
+
+
+    [Fact]
+    public void write_property_value_once()
     {
-        private FlatFileWriter theWriter = new FlatFileWriter(new List<string>());
+        theWriter.WriteProperty("key", "value");
 
+        theWriter.List.ShouldHaveTheSameElementsAs("key=value");
+    }
 
-        [Fact]
-        public void write_property_value_once()
-        {
-            theWriter.WriteProperty("key", "value");
+    [Fact]
+    public void overwrite_property_value()
+    {
+        theWriter.WriteProperty("key", "value");
+        theWriter.WriteProperty("key", "different");
 
-            theWriter.List.ShouldHaveTheSameElementsAs("key=value");
-        }
+        theWriter.List.ShouldHaveTheSameElementsAs("key=different");
+    }
 
-        [Fact]
-        public void overwrite_property_value()
-        {
-            theWriter.WriteProperty("key", "value");
-            theWriter.WriteProperty("key", "different");
+    [Fact]
+    public void write_multiple_properties_and_sort()
+    {
+        theWriter.WriteProperty("key2", "value2");
+        theWriter.WriteProperty("key3", "value3");
+        theWriter.WriteProperty("key1", "value1");
 
-            theWriter.List.ShouldHaveTheSameElementsAs("key=different");
-        }
+        theWriter.Sort();
 
-        [Fact]
-        public void write_multiple_properties_and_sort()
-        {
-            theWriter.WriteProperty("key2", "value2");
-            theWriter.WriteProperty("key3", "value3");
-            theWriter.WriteProperty("key1", "value1");
+        theWriter.List.ShouldHaveTheSameElementsAs("key1=value1", "key2=value2", "key3=value3");
+    }
 
-            theWriter.Sort();
+    [Fact]
+    public void write_line()
+    {
+        theWriter.WriteLine("bottle:one");
+        theWriter.List.ShouldHaveTheSameElementsAs("bottle:one");
+    }
 
-            theWriter.List.ShouldHaveTheSameElementsAs("key1=value1", "key2=value2", "key3=value3");
-        }
-
-        [Fact]
-        public void write_line()
-        {
-            theWriter.WriteLine("bottle:one");
-            theWriter.List.ShouldHaveTheSameElementsAs("bottle:one");
-        }
-
-        [Fact]
-        public void write_line_repeatedly_is_idempotent()
-        {
-            theWriter.WriteLine("bottle:one");
-            theWriter.WriteLine("bottle:one");
-            theWriter.WriteLine("bottle:two");
-            theWriter.WriteLine("bottle:two");
-            theWriter.WriteLine("bottle:one");
-            theWriter.List.ShouldHaveTheSameElementsAs("bottle:one", "bottle:two");
-        }
+    [Fact]
+    public void write_line_repeatedly_is_idempotent()
+    {
+        theWriter.WriteLine("bottle:one");
+        theWriter.WriteLine("bottle:one");
+        theWriter.WriteLine("bottle:two");
+        theWriter.WriteLine("bottle:two");
+        theWriter.WriteLine("bottle:one");
+        theWriter.List.ShouldHaveTheSameElementsAs("bottle:one", "bottle:two");
     }
 }

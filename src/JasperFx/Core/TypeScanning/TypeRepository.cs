@@ -104,7 +104,7 @@ public static class TypeRepository
         }
 
         filter ??= _ => true;
-        
+
         var query = new TypeQuery(classification, filter);
         return query.Find(ForAssembly(assembly));
     }

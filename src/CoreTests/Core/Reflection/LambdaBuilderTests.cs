@@ -1,105 +1,103 @@
 ﻿using JasperFx.Core.Reflection;
 using Shouldly;
 
-namespace CoreTests.Core.Reflection
+namespace CoreTests.Core.Reflection;
+
+public class LambdaBuilderTests
 {
-    public class LambdaBuilderTests
+    [Fact]
+    public void can_build_getter_for_property()
     {
-        [Fact]
-        public void can_build_getter_for_property()
-        {
-            var target = new Target() {Number = 5};
-            var prop = ReflectionHelper.GetProperty<Target>(x => x.Number);
+        var target = new Target { Number = 5 };
+        var prop = ReflectionHelper.GetProperty<Target>(x => x.Number);
 
-            var getter = LambdaBuilder.GetProperty<Target, int>(prop);
+        var getter = LambdaBuilder.GetProperty<Target, int>(prop);
 
-            getter(target).ShouldBe(target.Number);
-        }
+        getter(target).ShouldBe(target.Number);
+    }
 
-        public class GuyWithField
-        {
-            public Guid Id = Guid.NewGuid();
-        }
+    [Fact]
+    public void can_build_getter_for_field()
+    {
+        var guy = new GuyWithField();
 
-        [Fact]
-        public void can_build_getter_for_field()
-        {
-            var guy = new GuyWithField();
+        var field = typeof(GuyWithField).GetField("Id");
 
-            var field = typeof(GuyWithField).GetField("Id");
+        var getter = LambdaBuilder.GetField<GuyWithField, Guid>(field);
 
-            var getter = LambdaBuilder.GetField<GuyWithField, Guid>(field);
+        getter(guy).ShouldBe(guy.Id);
+    }
 
-            getter(guy).ShouldBe(guy.Id);
-        }
+    [Fact]
+    public void can_build_setter_for_property()
+    {
+        var target = new Target { Number = 5 };
+        var prop = ReflectionHelper.GetProperty<Target>(x => x.Number);
 
-        [Fact]
-        public void can_build_setter_for_property()
-        {
-            var target = new Target { Number = 5 };
-            var prop = ReflectionHelper.GetProperty<Target>(x => x.Number);
+        var setter = LambdaBuilder.SetProperty<Target, int>(prop);
 
-            var setter = LambdaBuilder.SetProperty<Target, int>(prop);
-
-            setter(target, 11);
+        setter(target, 11);
 
 
-            target.Number.ShouldBe(11);
-        }
-        
-        [Fact]
-        public void can_build_setter_for_nullable_property()
-        {
-            var target = new Target { NullableNumber = 5 };
-            var prop = ReflectionHelper.GetProperty<Target>(x => x.NullableNumber);
+        target.Number.ShouldBe(11);
+    }
 
-            var setter = LambdaBuilder.SetProperty<Target, int>(prop);
+    [Fact]
+    public void can_build_setter_for_nullable_property()
+    {
+        var target = new Target { NullableNumber = 5 };
+        var prop = ReflectionHelper.GetProperty<Target>(x => x.NullableNumber);
 
-            setter(target, 11);
+        var setter = LambdaBuilder.SetProperty<Target, int>(prop);
 
-
-            target.NullableNumber.Value.ShouldBe(11);
-        }
+        setter(target, 11);
 
 
-        [Fact]
-        public void can_build_setter_for_field()
-        {
-            var guy = new GuyWithField();
-
-            var field = typeof(GuyWithField).GetField("Id");
-
-            var setter = LambdaBuilder.SetField<GuyWithField, Guid>(field);
+        target.NullableNumber.Value.ShouldBe(11);
+    }
 
 
-            var newGuid = Guid.NewGuid();
+    [Fact]
+    public void can_build_setter_for_field()
+    {
+        var guy = new GuyWithField();
 
-            setter(guy, newGuid);
+        var field = typeof(GuyWithField).GetField("Id");
 
-            guy.Id.ShouldBe(newGuid);
-        }
+        var setter = LambdaBuilder.SetField<GuyWithField, Guid>(field);
 
 
-        [Fact]
-        public void can_set_a_private_id()
-        {
-            var member = ReflectionHelper.GetProperty<UserWithPrivateId>(x => x.Id);
-            var setter = LambdaBuilder.Setter<UserWithPrivateId, Guid>(member);
+        var newGuid = Guid.NewGuid();
 
-            var newGuid = Guid.NewGuid();
-            var userWithPrivateId = new UserWithPrivateId();
+        setter(guy, newGuid);
 
-            setter(userWithPrivateId, newGuid);
+        guy.Id.ShouldBe(newGuid);
+    }
 
-            userWithPrivateId.Id.ShouldBe(newGuid);
-        }
 
-        public class UserWithPrivateId
-        {
-            public Guid Id { get; private set; }
+    [Fact]
+    public void can_set_a_private_id()
+    {
+        var member = ReflectionHelper.GetProperty<UserWithPrivateId>(x => x.Id);
+        var setter = LambdaBuilder.Setter<UserWithPrivateId, Guid>(member);
 
-            public string UserName { get; set; }
-        }
+        var newGuid = Guid.NewGuid();
+        var userWithPrivateId = new UserWithPrivateId();
 
+        setter(userWithPrivateId, newGuid);
+
+        userWithPrivateId.Id.ShouldBe(newGuid);
+    }
+
+    public class GuyWithField
+    {
+        public Guid Id = Guid.NewGuid();
+    }
+
+    public class UserWithPrivateId
+    {
+        public Guid Id { get; private set; } // Gotta leave the private set here
+
+        public string UserName { get; set; }
     }
 }

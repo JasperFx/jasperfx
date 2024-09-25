@@ -2,6 +2,6 @@
 
 public interface IFilter<T>
 {
-    bool Matches(T item);
     string Description { get; }
+    bool Matches(T item);
 }

@@ -50,13 +50,37 @@ class Build : NukeBuild
                 .SetConfiguration(Configuration)
                 .EnableNoRestore());
         });
+
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCommandLine);
     
-    Target Test => _ => _
+    Target TestCore => _ => _
         .DependsOn(Compile)
         .Executes(() =>
         {
             DotNetTest(c => c
                 .SetProjectFile("src/CoreTests")
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+    
+    Target TestCodegen => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile("src/CodegenTests")
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+    
+    Target TestCommandLine => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile("src/CommandLineTests")
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());

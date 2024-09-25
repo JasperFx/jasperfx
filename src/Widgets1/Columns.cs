@@ -1,67 +1,60 @@
-namespace Widgets1
+namespace Widgets1;
+
+public interface Column
 {
-    public interface Column
+    void Display();
+}
+
+public class BasicColumn : Column
+{
+    #region Column Members
+
+    public void Display()
     {
-        void Display();
     }
 
-    public class BasicColumn : Column
+    #endregion
+}
+
+public class DateColumn : Column
+{
+    public DateColumn(string HeaderName, int Width, string FieldName)
     {
-        #region Column Members
-
-        public void Display()
-        {
-        }
-
-        #endregion
+        this.HeaderName = HeaderName;
+        this.Width = Width;
+        this.FieldName = FieldName;
     }
 
-
-    public class DateColumn : Column
+    /// <summary>
+    ///     Just a shell to test whether the correct constructor is being called
+    /// </summary>
+    /// <param name="HeaderName"></param>
+    public DateColumn(string HeaderName)
     {
-        private readonly string _FieldName;
-        private readonly string _HeaderName;
-        private readonly int _Width;
-
-        public DateColumn(string HeaderName, int Width, string FieldName)
-        {
-            _HeaderName = HeaderName;
-            _Width = Width;
-            _FieldName = FieldName;
-        }
-
-        /// <summary>
-        /// Just a shell to test whether the correct constructor is being called
-        /// </summary>
-        /// <param name="HeaderName"></param>
-        public DateColumn(string HeaderName)
-        {
-        }
-
-        public string HeaderName { get { return _HeaderName; } }
-
-        public int Width { get { return _Width; } }
-
-        public string FieldName { get { return _FieldName; } }
-
-        #region Column Members
-
-        public void Display()
-        {
-        }
-
-        #endregion
     }
 
+    public string HeaderName { get; }
 
-    public class NumberColumn : Column
+    public int Width { get; }
+
+    public string FieldName { get; }
+
+    #region Column Members
+
+    public void Display()
     {
-        #region Column Members
-
-        public void Display()
-        {
-        }
-
-        #endregion
     }
+
+    #endregion
+}
+
+public class NumberColumn : Column
+{
+    #region Column Members
+
+    public void Display()
+    {
+    }
+
+    #endregion
 }

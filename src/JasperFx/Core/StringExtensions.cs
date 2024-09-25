@@ -4,14 +4,13 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System;
 
 namespace JasperFx.Core;
 
 public static class StringExtensions
 {
     /// <summary>
-    /// "Elid" a string longer than the designated length
+    ///     "Elid" a string longer than the designated length
     /// </summary>
     /// <param name="longString"></param>
     /// <param name="length"></param>
@@ -25,17 +24,20 @@ public static class StringExtensions
 
         return longString;
     }
-    
+
     /// <summary>
-    /// If the path is rooted, just returns the path.  Otherwise,
-    /// combines root & path
+    ///     If the path is rooted, just returns the path.  Otherwise,
+    ///     combines root & path
     /// </summary>
     /// <param name="path"></param>
     /// <param name="root"></param>
     /// <returns></returns>
     public static string CombineToPath(this string path, string root)
     {
-        if (Path.IsPathRooted(path)) return path;
+        if (Path.IsPathRooted(path))
+        {
+            return path;
+        }
 
         return Path.Combine(root, path);
     }
@@ -51,11 +53,11 @@ public static class StringExtensions
     public static string ToFullPath(this string path)
     {
         return Path.GetFullPath(path);
-    } 
+    }
 
     /// <summary>
-    /// Retrieve the parent directory of a directory or file
-    /// Shortcut to Path.GetDirectoryName(path)
+    ///     Retrieve the parent directory of a directory or file
+    ///     Shortcut to Path.GetDirectoryName(path)
     /// </summary>
     /// <param name="path"></param>
     /// <returns></returns>
@@ -65,18 +67,18 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Equivalent of FileSystem.Combine( [Union of path, parts] )
+    ///     Equivalent of FileSystem.Combine( [Union of path, parts] )
     /// </summary>
     /// <param name="path"></param>
     /// <param name="parts"></param>
     /// <returns></returns>
     public static string AppendPath(this string path, params string[] parts)
     {
-        return Path.Combine(new string[]{path}.Concat(parts).ToArray());
+        return Path.Combine(new[] { path }.Concat(parts).ToArray());
     }
 
     /// <summary>
-    /// Return a relative path from "path" to the "root"
+    ///     Return a relative path from "path" to the "root"
     /// </summary>
     /// <param name="path"></param>
     /// <param name="root"></param>
@@ -87,7 +89,7 @@ public static class StringExtensions
         var rootParts = root.getPathParts();
 
         var length = pathParts.Count > rootParts.Count ? rootParts.Count : pathParts.Count;
-        for (int i = 0; i < length; i++)
+        for (var i = 0; i < length; i++)
         {
             if (pathParts.First() == rootParts.First())
             {
@@ -100,16 +102,16 @@ public static class StringExtensions
             }
         }
 
-        for (int i = 0; i < rootParts.Count; i++)
+        for (var i = 0; i < rootParts.Count; i++)
         {
             pathParts.Insert(0, "..");
-        }            
+        }
 
         return pathParts.Count > 0 ? Path.Combine(pathParts.ToArray()) : string.Empty;
     }
 
     /// <summary>
-    /// Is the string null or empty?
+    ///     Is the string null or empty?
     /// </summary>
     /// <param name="stringValue"></param>
     /// <returns></returns>
@@ -119,7 +121,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Does the string have a non-null, non empty value?
+    ///     Does the string have a non-null, non empty value?
     /// </summary>
     /// <param name="stringValue"></param>
     /// <returns></returns>
@@ -129,46 +131,51 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Carry out an action against the string if it has a non-null, non-empty value
+    ///     Carry out an action against the string if it has a non-null, non-empty value
     /// </summary>
     /// <param name="stringValue"></param>
     /// <param name="action"></param>
     public static void IsNotEmpty([NotNullWhen(true)] this string? stringValue, Action<string> action)
     {
         if (stringValue.IsNotEmpty())
+        {
             action(stringValue);
+        }
     }
 
     /// <summary>
-    /// Convert a "true" or "false" string to a boolean
+    ///     Convert a "true" or "false" string to a boolean
     /// </summary>
     /// <param name="stringValue"></param>
     /// <returns></returns>
     public static bool ToBool(this string stringValue)
     {
-        if (string.IsNullOrEmpty(stringValue)) return false;
+        if (string.IsNullOrEmpty(stringValue))
+        {
+            return false;
+        }
 
         return bool.Parse(stringValue);
     }
 
     /// <summary>
-    /// Performs a case-insensitive comparison of strings
+    ///     Performs a case-insensitive comparison of strings
     /// </summary>
     public static bool EqualsIgnoreCase(this string thisString, string otherString)
     {
         return thisString.Equals(otherString, StringComparison.CurrentCultureIgnoreCase);
     }
-    
+
     /// <summary>
-    /// Performs a case-insensitive comparison of the first string starting with the second string
+    ///     Performs a case-insensitive comparison of the first string starting with the second string
     /// </summary>
     public static bool StartsWithIgnoreCase(this string thisString, string prefix)
     {
         return thisString.StartsWith(prefix, StringComparison.CurrentCultureIgnoreCase);
     }
-    
+
     /// <summary>
-    /// Performs a case-insensitive comparison of the first string ending with the second string
+    ///     Performs a case-insensitive comparison of the first string ending with the second string
     /// </summary>
     public static bool EndsWithIgnoreCase(this string thisString, string suffix)
     {
@@ -176,22 +183,25 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Converts the string to Title Case
+    ///     Converts the string to Title Case
     /// </summary>
     public static string Capitalize(this string stringValue)
     {
-        StringBuilder result = new StringBuilder(stringValue);
+        var result = new StringBuilder(stringValue);
         result[0] = char.ToUpper(result[0]);
-        for (int i = 1; i < result.Length; ++i)
+        for (var i = 1; i < result.Length; ++i)
         {
             if (char.IsWhiteSpace(result[i - 1]) && !char.IsWhiteSpace(result[i]))
+            {
                 result[i] = char.ToUpper(result[i]);
+            }
         }
+
         return result.ToString();
     }
 
     /// <summary>
-    /// Formats a multi-line string for display on the web
+    ///     Formats a multi-line string for display on the web
     /// </summary>
     /// <param name="plainText"></param>
     public static string ConvertCRLFToBreaks(this string plainText)
@@ -200,7 +210,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Returns a DateTime value parsed from the <paramref name="dateTimeValue"/> parameter.
+    ///     Returns a DateTime value parsed from the <paramref name="dateTimeValue" /> parameter.
     /// </summary>
     /// <param name="dateTimeValue">A valid, parseable DateTime value</param>
     /// <returns>The parsed DateTime value</returns>
@@ -215,7 +225,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Break a comma delimited string into an array of trimmed strings
+    ///     Break a comma delimited string into an array of trimmed strings
     /// </summary>
     /// <param name="content"></param>
     /// <returns></returns>
@@ -225,15 +235,14 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// 
     /// </summary>
     /// <param name="content"></param>
     /// <param name="delimiter"></param>
     /// <returns></returns>
     public static string[] ToDelimitedArray(this string content, char delimiter)
     {
-        string[] array = content.Split(delimiter);
-        for (int i = 0; i < array.Length; i++)
+        var array = content.Split(delimiter);
+        for (var i = 0; i < array.Length; i++)
         {
             array[i] = array[i].Trim();
         }
@@ -248,11 +257,11 @@ public static class StringExtensions
 
     public static bool IsValidNumber(this string number, CultureInfo culture)
     {
-        string _validNumberPattern =
-            @"^-?(?:\d+|\d{1,3}(?:" 
-            + culture.NumberFormat.NumberGroupSeparator + 
-            @"\d{3})+)?(?:\" 
-            + culture.NumberFormat.NumberDecimalSeparator + 
+        var _validNumberPattern =
+            @"^-?(?:\d+|\d{1,3}(?:"
+            + culture.NumberFormat.NumberGroupSeparator +
+            @"\d{3})+)?(?:\"
+            + culture.NumberFormat.NumberDecimalSeparator +
             @"\d+)?$";
 
         return new Regex(_validNumberPattern, RegexOptions.ECMAScript).IsMatch(number);
@@ -260,11 +269,11 @@ public static class StringExtensions
 
     public static IList<string> getPathParts(this string path)
     {
-        return path.Split(new[] {Path.DirectorySeparatorChar}, StringSplitOptions.RemoveEmptyEntries).ToList();
+        return path.Split(new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries).ToList();
     }
 
     /// <summary>
-    /// Reads text and returns an enumerable of strings for each line
+    ///     Reads text and returns an enumerable of strings for each line
     /// </summary>
     /// <param name="text"></param>
     /// <returns></returns>
@@ -279,7 +288,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Reads text and calls back for each line of text
+    ///     Reads text and calls back for each line of text
     /// </summary>
     /// <param name="text"></param>
     /// <returns></returns>
@@ -294,7 +303,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Just uses MD5 to create a repeatable hash
+    ///     Just uses MD5 to create a repeatable hash
     /// </summary>
     /// <param name="text"></param>
     /// <returns></returns>
@@ -305,7 +314,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Splits a camel cased string into seperate words delimitted by a space
+    ///     Splits a camel cased string into seperate words delimitted by a space
     /// </summary>
     /// <param name="str"></param>
     /// <returns></returns>
@@ -315,7 +324,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Splits a pascal cased string into seperate words delimitted by a space
+    ///     Splits a pascal cased string into seperate words delimitted by a space
     /// </summary>
     /// <param name="str"></param>
     /// <returns></returns>
@@ -323,7 +332,7 @@ public static class StringExtensions
     {
         return SplitCamelCase(str);
     }
-        
+
     public static string ToCamelCase(this string s)
     {
         if (string.IsNullOrEmpty(s) || !char.IsUpper(s[0]))
@@ -335,14 +344,14 @@ public static class StringExtensions
         {
             str.CopyTo(span);
 
-            for (int i = 0; i < span.Length; i++)
+            for (var i = 0; i < span.Length; i++)
             {
                 if (i == 1 && !char.IsUpper(span[i]))
                 {
                     break;
                 }
 
-                bool hasNext = (i + 1 < span.Length);
+                var hasNext = i + 1 < span.Length;
                 if (i > 0 && hasNext && !char.IsUpper(span[i + 1]))
                 {
                     break;
@@ -355,14 +364,18 @@ public static class StringExtensions
 
     public static TEnum ToEnum<TEnum>(this string text) where TEnum : struct
     {
-        var enumType = typeof (TEnum);
+        var enumType = typeof(TEnum);
 
-        if(!enumType.GetTypeInfo().IsEnum) throw new ArgumentException($"{enumType.Name} is not an Enum");
+        if (!enumType.GetTypeInfo().IsEnum)
+        {
+            throw new ArgumentException($"{enumType.Name} is not an Enum");
+        }
+
         return Enum.Parse<TEnum>(text, true);
     }
 
     /// <summary>
-    /// Wraps a string with parantheses.  Originally used to file escape file names when making command line calls
+    ///     Wraps a string with parantheses.  Originally used to file escape file names when making command line calls
     /// </summary>
     /// <param name="file"></param>
     /// <returns></returns>
@@ -370,10 +383,10 @@ public static class StringExtensions
     {
         return $"\"{file}\"";
     }
-        
+
     /// <summary>
-    /// Replace only the first instance of the "search" string with the value
-    /// of "replace"
+    ///     Replace only the first instance of the "search" string with the value
+    ///     of "replace"
     /// </summary>
     /// <param name="text"></param>
     /// <param name="search"></param>
@@ -381,7 +394,7 @@ public static class StringExtensions
     /// <returns></returns>
     public static string ReplaceFirst(this string text, string search, string replace)
     {
-        int pos = text.IndexOf(search);
+        var pos = text.IndexOf(search);
         if (pos < 0)
         {
             return text;
@@ -392,7 +405,7 @@ public static class StringExtensions
 
 
     /// <summary>
-    /// string.Contains() with OrdinalIgnoreCase semantics
+    ///     string.Contains() with OrdinalIgnoreCase semantics
     /// </summary>
     /// <param name="source"></param>
     /// <param name="value"></param>
@@ -401,9 +414,9 @@ public static class StringExtensions
     {
         return source.Contains(value, StringComparison.OrdinalIgnoreCase);
     }
-    
+
     /// <summary>
-    /// Concatenates a string between each item in a list of strings
+    ///     Concatenates a string between each item in a list of strings
     /// </summary>
     /// <param name="values">The array of strings to join</param>
     /// <param name="separator">The value to concatenate between items</param>
@@ -414,7 +427,7 @@ public static class StringExtensions
     }
 
     /// <summary>
-    /// Concatenates a string between each item in a sequence of strings
+    ///     Concatenates a string between each item in a sequence of strings
     /// </summary>
     /// <param name="values"></param>
     /// <param name="separator"></param>
@@ -423,9 +436,9 @@ public static class StringExtensions
     {
         return Join(values.ToArray(), separator);
     }
-    
+
     /// <summary>
-    /// Create a stable, nonvariant hash of a string
+    ///     Create a stable, nonvariant hash of a string
     /// </summary>
     /// <param name="str"></param>
     /// <returns></returns>
@@ -450,7 +463,7 @@ public static class StringExtensions
             return hash1 + hash2 * 1566083941;
         }
     }
-    
+
     public static Uri ToUri(this string uriString)
     {
         if (uriString.Contains("://*"))

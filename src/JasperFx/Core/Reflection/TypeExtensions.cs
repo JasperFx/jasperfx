@@ -23,7 +23,19 @@ public static class TypeExtensions
         typeof(uint?),
         typeof(ulong?)
     };
-    
+
+    private static readonly Type[] _tupleTypes =
+    {
+        typeof(ValueTuple<>),
+        typeof(ValueTuple<,>),
+        typeof(ValueTuple<,,>),
+        typeof(ValueTuple<,,,>),
+        typeof(ValueTuple<,,,,>),
+        typeof(ValueTuple<,,,,,>),
+        typeof(ValueTuple<,,,,,,>),
+        typeof(ValueTuple<,,,,,,,>)
+    };
+
     public static bool IsStatic(this Type type)
     {
         return type.IsAbstract && type.IsSealed;
@@ -217,10 +229,12 @@ public static class TypeExtensions
         }
 
         foreach (var @interface in type.GetInterfaces())
+        {
             if (@interface.Closes(openType))
             {
                 return true;
             }
+        }
 
         var baseType = typeInfo.BaseType;
         if (baseType == null)
@@ -387,7 +401,7 @@ public static class TypeExtensions
     }
 
     /// <summary>
-    /// Does the two properties match?
+    ///     Does the two properties match?
     /// </summary>
     /// <param name="prop1"></param>
     /// <param name="prop2"></param>
@@ -398,7 +412,7 @@ public static class TypeExtensions
     }
 
     /// <summary>
-    /// Create an instance of the type and cast to T
+    ///     Create an instance of the type and cast to T
     /// </summary>
     /// <param name="type"></param>
     /// <typeparam name="T"></typeparam>
@@ -409,7 +423,7 @@ public static class TypeExtensions
     }
 
     /// <summary>
-    /// Create an instance of the type
+    ///     Create an instance of the type
     /// </summary>
     /// <param name="type"></param>
     /// <returns></returns>
@@ -440,21 +454,8 @@ public static class TypeExtensions
         throw new Exception($"I don't know how to figure out what this is a collection of. Can you tell me? {type}");
     }
 
-    private static readonly Type[] _tupleTypes = new Type[]
-    {
-        typeof(ValueTuple<>),
-        typeof(ValueTuple<,>),
-        typeof(ValueTuple<,,>),
-        typeof(ValueTuple<,,,>),
-        typeof(ValueTuple<,,,,>),
-        typeof(ValueTuple<,,,,,>),
-        typeof(ValueTuple<,,,,,,>),
-        typeof(ValueTuple<,,,,,,,>)
-
-    };
-
     /// <summary>
-    /// Is the type a .NET tuple?
+    ///     Is the type a .NET tuple?
     /// </summary>
     /// <param name="type"></param>
     /// <returns></returns>
@@ -462,10 +463,10 @@ public static class TypeExtensions
     {
         return type is { IsGenericType: true } && _tupleTypes.Contains(type.GetGenericTypeDefinition());
     }
-    
+
     /// <summary>
-    /// Return the member type regardless of whether this is a Field or Property. Will return
-    /// the inner type in case of being a Nullable<T>
+    ///     Return the member type regardless of whether this is a Field or Property. Will return
+    ///     the inner type in case of being a Nullable<T>
     /// </summary>
     /// <param name="member"></param>
     /// <returns></returns>
@@ -478,13 +479,16 @@ public static class TypeExtensions
             _ => null
         };
 
-        if (rawType == null) return null;
+        if (rawType == null)
+        {
+            return null;
+        }
 
         return rawType.IsNullable() ? rawType.GetInnerTypeFromNullable() : rawType;
     }
 
     /// <summary>
-    /// Gets the raw member type, regardless of whether the member is a field or property
+    ///     Gets the raw member type, regardless of whether the member is a field or property
     /// </summary>
     /// <param name="member"></param>
     /// <returns></returns>
@@ -497,7 +501,4 @@ public static class TypeExtensions
             _ => default
         };
     }
-    
-
 }
-

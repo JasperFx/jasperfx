@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
     {
         return services.LastOrDefault(x => x.ServiceType == typeof(T));
     }
-    
+
     /// <summary>
     ///     Create an isolated type scanning registration policy
     /// </summary>
@@ -28,7 +28,7 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
-    
+
     public static IServiceCollection ToCollection(this IEnumerable<ServiceDescriptor> descriptors)
     {
         var collection = new ServiceCollection();
@@ -36,7 +36,7 @@ public static class ServiceCollectionExtensions
 
         return collection;
     }
-    
+
     public static bool HasScanners(this IEnumerable<ServiceDescriptor> services)
     {
         return services.Any(x => x.ServiceType == typeof(AssemblyScanner));
@@ -72,7 +72,8 @@ public static class ServiceCollectionExtensions
         return false;
     }
 
-    public static ServiceDescriptor? AddType(this IServiceCollection services, Type serviceType, Type implementationType,
+    public static ServiceDescriptor? AddType(this IServiceCollection services, Type serviceType,
+        Type implementationType,
         ServiceLifetime lifetime = ServiceLifetime.Transient)
     {
         var hasAlready = services.Any(x => x.Matches(serviceType, implementationType));

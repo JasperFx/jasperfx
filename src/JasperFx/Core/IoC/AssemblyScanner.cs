@@ -164,7 +164,7 @@ public class AssemblyScanner : IAssemblyScanner
         var convention = new GenericConnectionScanner(openGenericType, t => lifetime);
         With(convention);
     }
-    
+
     public void ConnectImplementationsToTypesClosing(Type openGenericType, Func<Type, ServiceLifetime> lifetimeRule)
     {
         var convention = new GenericConnectionScanner(openGenericType, lifetimeRule);
@@ -288,9 +288,13 @@ public class AssemblyScanner : IAssemblyScanner
 
     public void Start()
     {
-        if (_hasScanned) return;
+        if (_hasScanned)
+        {
+            return;
+        }
+
         _hasScanned = true;
-        
+
         if (!Conventions.Any())
         {
             throw new InvalidOperationException(
@@ -311,20 +315,20 @@ public class AssemblyScanner : IAssemblyScanner
             .Select(assembly => new AssemblyName(assembly.FullName))
             .Any(aName => aName.Name == assemblyName);
     }
-    
+
     internal class CompositePredicate<T>
     {
-        private readonly List<Func<T, bool>> _list = new List<Func<T, bool>>();
-        private Func<T, bool> _matchesAll = (Func<T, bool>) (_ => true);
-        private Func<T, bool> _matchesAny = (Func<T, bool>) (_ => true);
-        private Func<T, bool> _matchesNone = (Func<T, bool>) (_ => false);
+        private readonly List<Func<T, bool>> _list = new();
+        private Func<T, bool> _matchesAll = (Func<T, bool>)(_ => true);
+        private Func<T, bool> _matchesAny = (Func<T, bool>)(_ => true);
+        private Func<T, bool> _matchesNone = (Func<T, bool>)(_ => false);
 
         public void Add(Func<T, bool> filter)
         {
-            this._matchesAll = (Func<T, bool>) (x => this._list.All<Func<T, bool>>((Func<Func<T, bool>, bool>) (predicate => predicate(x))));
-            this._matchesAny = (Func<T, bool>) (x => this._list.Any<Func<T, bool>>((Func<Func<T, bool>, bool>) (predicate => predicate(x))));
-            this._matchesNone = (Func<T, bool>) (x => !this.MatchesAny(x));
-            this._list.Add(filter);
+            _matchesAll = (Func<T, bool>)(x => _list.All((Func<Func<T, bool>, bool>)(predicate => predicate(x))));
+            _matchesAny = (Func<T, bool>)(x => _list.Any((Func<Func<T, bool>, bool>)(predicate => predicate(x))));
+            _matchesNone = (Func<T, bool>)(x => !MatchesAny(x));
+            _list.Add(filter);
         }
 
         public static CompositePredicate<T> operator +(
@@ -335,22 +339,37 @@ public class AssemblyScanner : IAssemblyScanner
             return invokes;
         }
 
-        public bool MatchesAll(T target) => this._matchesAll(target);
+        public bool MatchesAll(T target)
+        {
+            return _matchesAll(target);
+        }
 
-        public bool MatchesAny(T target) => this._matchesAny(target);
+        public bool MatchesAny(T target)
+        {
+            return _matchesAny(target);
+        }
 
-        public bool MatchesNone(T target) => this._matchesNone(target);
+        public bool MatchesNone(T target)
+        {
+            return _matchesNone(target);
+        }
 
-        public bool DoesNotMatchAny(T target) => this._list.Count == 0 || !this.MatchesAny(target);
+        public bool DoesNotMatchAny(T target)
+        {
+            return _list.Count == 0 || !MatchesAny(target);
+        }
     }
-    
+
     internal class CompositeFilter<T>
     {
-        public CompositePredicate<T> Includes { get; set; } = new CompositePredicate<T>();
+        public CompositePredicate<T> Includes { get; set; } = new();
 
-        public CompositePredicate<T> Excludes { get; set; } = new CompositePredicate<T>();
+        public CompositePredicate<T> Excludes { get; set; } = new();
 
-        public bool Matches(T target) => this.Includes.MatchesAny(target) && this.Excludes.DoesNotMatchAny(target);
+        public bool Matches(T target)
+        {
+            return Includes.MatchesAny(target) && Excludes.DoesNotMatchAny(target);
+        }
     }
 }
 
