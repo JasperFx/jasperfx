@@ -10,5 +10,5 @@ public class HasAttributeFilter<T> : IFilter<Type> where T : Attribute
         return type.HasAttribute<T>();
     }
 
-    public string Description => $"Has attribute {typeof(T).GetFullName()}";
+    public string Description => $"Has attribute {typeof(T).FullNameInCode()}";
 }

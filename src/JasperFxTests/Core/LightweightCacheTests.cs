@@ -22,7 +22,7 @@ namespace JasperFxTests.Core
             const string key = "nonexisting key";
 
             Exception<KeyNotFoundException>.ShouldBeThrownBy(() => cache[key].ShouldBe(0)).
-                Message.ShouldBe("Key '{0}' could not be found".ToFormat(key));
+                Message.ShouldBe($"Key '{key}' could not be found");
         }
 
         [Fact]
@@ -92,13 +92,11 @@ namespace JasperFxTests.Core
         }
 
         [Fact]
-        public void WithValue_positive()
+        public void try_find_positive()
         {
             cache["b"] = 2;
 
-            int number = 0;
-
-            cache.WithValue("b", i => number = i);
+            cache.TryFind("b", out var number);
 
             number.ShouldBe(2);
         }

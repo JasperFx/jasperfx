@@ -30,7 +30,7 @@ namespace JasperFxTests.Core
 
             stream.Position = 0;
 
-            (await stream.ReadAllTextAsync().ConfigureAwait(false)).Trim()
+            (await stream.ReadAllTextAsync()).Trim()
                 .ShouldBe("Hello world.");
         }
 
@@ -61,7 +61,7 @@ namespace JasperFxTests.Core
 
             stream.Position = 0;
 
-            var actual = await stream.ReadAllBytesAsync().ConfigureAwait(false);
+            var actual = await stream.ReadAllBytesAsync();
 
             actual.ShouldBe(bytes);
         }

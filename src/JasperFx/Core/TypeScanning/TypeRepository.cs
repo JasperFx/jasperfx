@@ -86,7 +86,11 @@ public static class TypeRepository
         TypeClassification classification, Func<Type, bool>? filter = null)
     {
         var query = new TypeQuery(classification);
-        query.Includes.WithCondition("User defined", filter);
+        if (filter != null)
+        {
+            query.Includes.WithCondition("User defined", filter);
+        }
+
         return assemblies.Select(ForAssembly).SelectMany(query.Find);
     }
 

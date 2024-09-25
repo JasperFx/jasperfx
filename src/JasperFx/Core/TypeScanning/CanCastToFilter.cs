@@ -18,8 +18,8 @@ public class CanCastToFilter : IFilter<Type>
     }
 
     public string Description => _baseType.IsInterface
-        ? $"Implements {_baseType.GetFullName()}"
-        : $"Inherits from {_baseType.GetFullName()}";
+        ? $"Implements {_baseType.FullNameInCode()}"
+        : $"Inherits from {_baseType.FullNameInCode()}";
 }
 
 // Really only tested in integration with other things

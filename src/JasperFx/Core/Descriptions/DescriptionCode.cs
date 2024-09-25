@@ -190,7 +190,6 @@ public class TableColumn : Fragment
     }
 
     public Func<object, string> Formatter { get; set; } = x => x.ToString();
-    public TextAlign TextAlign { get; set; } = TextAlign.Left;
     public string Header { get; }
     public TextAlign HeaderAlign { get; set; } = TextAlign.Center;
     public string Key { get; private set; }

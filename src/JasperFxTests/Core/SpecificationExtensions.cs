@@ -24,7 +24,7 @@ namespace JasperFxTests.Core
             catch (Exception)
             {
                 Debug.WriteLine("Actual values were:");
-                actual.Each(x => Debug.WriteLine((object?)x));
+                actual.Each(x => Debug.WriteLine(x));
                 throw;
             }
         }
@@ -40,24 +40,6 @@ namespace JasperFxTests.Core
             IList expectedList = (expected is IList) ? (IList)expected : expected.ToList();
 
             ShouldHaveTheSameElementsAs(actualList, expectedList);
-        }
-
-        public static void ShouldHaveTheSameElementKeysAs<ELEMENT, KEY>(this IEnumerable<ELEMENT> actual,
-                                                                        IEnumerable expected,
-                                                                        Func<ELEMENT, KEY> keySelector)
-        {
-            actual.ShouldNotBeNull();
-            expected.ShouldNotBeNull();
-
-            ELEMENT[] actualArray = actual.ToArray();
-            object[] expectedArray = expected.Cast<object>().ToArray();
-
-            actualArray.Length.ShouldBe(expectedArray.Length);
-
-            for (int i = 0; i < actual.Count(); i++)
-            {
-                keySelector(actualArray[i]).ShouldBe(expectedArray[i]);
-            }
         }
 
     }

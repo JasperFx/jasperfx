@@ -238,19 +238,19 @@ public class TypeExtensionsTester
     [Fact]
     public void get_name_from_generic()
     {
-        typeof(Service2<int>).GetName().ShouldBe("TypeExtensionsTester.Service2<int>");
+        typeof(Service2<int>).ShortNameInCode().ShouldBe("TypeExtensionsTester.Service2<int>");
     }
 
     [Fact]
     public void get_full_name_from_generic()
     {
-        typeof(Service2<int>).GetFullName().ShouldBe("JasperFxTests.Core.Reflection.TypeExtensionsTester.Service2<int>");
+        typeof(Service2<int>).FullNameInCode().ShouldBe("JasperFxTests.Core.Reflection.TypeExtensionsTester.Service2<int>");
     }
 
     [Fact]
     public void get_full_name()
     {
-        typeof(string).GetFullName().ShouldBe("string");
+        typeof(string).FullNameInCode().ShouldBe("string");
     }
 
     [Fact]

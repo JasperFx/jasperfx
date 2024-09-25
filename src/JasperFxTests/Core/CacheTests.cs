@@ -58,7 +58,7 @@ namespace JasperFxTests.Core
             const string key = "nonexisting key";
 
             Exception<KeyNotFoundException>.ShouldBeThrownBy(() => cache[key].ShouldBe(0)).
-                Message.ShouldBe("Key '{0}' could not be found".ToFormat(key));
+                Message.ShouldBe($"Key '{key}' could not be found");
         }
 
         [Fact]

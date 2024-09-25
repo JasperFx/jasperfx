@@ -154,13 +154,6 @@ public class StringExtensionsTester
     }
 
     [Fact]
-    public void to_format()
-    {
-        "My name is {0} and I was born in {1}, {2}".ToFormat("Jeremy", "Carthage", "Missouri")
-            .ShouldBe("My name is Jeremy and I was born in Carthage, Missouri");
-    }
-
-    [Fact]
     public void read_lines_to_an_enumerable()
     {
         var text = @"a

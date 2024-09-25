@@ -151,12 +151,6 @@ public static class StringExtensions
         return bool.Parse(stringValue);
     }
 
-    [Obsolete("Prefer string interpolation")]
-    public static string ToFormat(this string stringFormat, params object[] args)
-    {
-        return string.Format(stringFormat, args);
-    }
-
     /// <summary>
     /// Performs a case-insensitive comparison of strings
     /// </summary>

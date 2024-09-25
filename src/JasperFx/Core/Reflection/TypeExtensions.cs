@@ -244,19 +244,6 @@ public static class TypeExtensions
         return nullableType.GetGenericArguments()[0];
     }
 
-    [Obsolete("Favor ShortNameInCode(), this is just a passthrough")]
-    public static string GetName(this Type type)
-    {
-        return type.ShortNameInCode();
-    }
-
-    [Obsolete("Favor FullNameInCode(), this is just a passthrough")]
-    public static string? GetFullName(this Type type)
-    {
-        return type.FullNameInCode();
-    }
-
-
     public static bool IsString(this Type type)
     {
         return type == typeof(string);

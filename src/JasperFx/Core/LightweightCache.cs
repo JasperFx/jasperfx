@@ -146,15 +146,5 @@ namespace JasperFx.Core
             _values = ImHashMap<TKey, TValue>.Empty;
         }
 
-        /// <summary>
-        /// Carry out an action against a member of this cache
-        /// </summary>
-        /// <param name="key"></param>
-        /// <param name="action"></param>
-        [Obsolete("This will be removed in future versions. Favor TryFind()")]
-        public void WithValue(TKey key, Action<TValue> action)
-        {
-            action(this[key]);
-        }
     }
 }

@@ -432,8 +432,8 @@ public class TypeFindingTester
             x.AddAllTypesOf<OtherType>(lifetime);
         });
 
-        registry.TryFindDefault<TypeIWantToFind>().Lifetime.ShouldBe(lifetime);
-        registry.TryFindDefault<OtherType>().Lifetime.ShouldBe(lifetime);
+        registry.TryFindDefault<TypeIWantToFind>()!.Lifetime.ShouldBe(lifetime);
+        registry.TryFindDefault<OtherType>()!.Lifetime.ShouldBe(lifetime);
     }
 
     public interface IOpenGeneric<T>
