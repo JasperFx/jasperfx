@@ -1,11 +1,11 @@
 using System.Reflection;
+using JasperFx.CommandLine.Commands;
+using JasperFx.CommandLine.Internal;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.Hosting;
-using Oakton.Commands;
-using Oakton.Internal;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 public static class CommandLineHostingExtensions
 {

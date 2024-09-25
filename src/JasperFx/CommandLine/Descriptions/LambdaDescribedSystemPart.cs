@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 internal class LambdaDescribedSystemPart<T> : IDescribedSystemPart, IRequiresServices
 {

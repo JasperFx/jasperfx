@@ -1,6 +1,6 @@
 using JasperFx.Core;
 
-namespace Oakton.Internal.Conversion;
+namespace JasperFx.CommandLine.Internal.Conversion;
 
 public class Conversions
 {

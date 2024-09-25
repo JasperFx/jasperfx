@@ -1,9 +1,7 @@
-﻿using System;
-using Oakton;
+﻿using JasperFx.CommandLine;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class ActivatorCommandCreatorTests
     {

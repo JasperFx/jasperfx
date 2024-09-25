@@ -1,4 +1,4 @@
-namespace Oakton.Resources;
+namespace JasperFx.Resources;
 
 #region sample_IStatefulResourceSource
 

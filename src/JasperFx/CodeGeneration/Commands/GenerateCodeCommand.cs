@@ -1,7 +1,7 @@
 using JasperFx.CodeGeneration.Model;
+using JasperFx.CommandLine;
 using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
-using Oakton;
 using Spectre.Console;
 
 [assembly: OaktonCommandAssembly]

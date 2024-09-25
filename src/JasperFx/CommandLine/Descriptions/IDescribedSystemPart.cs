@@ -1,7 +1,4 @@
-using System.IO;
-using System.Threading.Tasks;
-
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 #region sample_IDescribedSystemPart
 

@@ -1,4 +1,4 @@
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 /// <summary>
 ///     Optional interface for exposing specialized console output

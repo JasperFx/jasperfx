@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Oakton;
+﻿namespace JasperFx.CommandLine;
 
 public class ActivatorCommandCreator : ICommandCreator
 {

@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using Oakton;
+﻿using JasperFx.CommandLine;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class can_use_fields_as_arguments_and_flags
     {

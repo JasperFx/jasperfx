@@ -1,4 +1,4 @@
-﻿namespace Oakton.Internal.Conversion;
+﻿namespace JasperFx.CommandLine.Internal.Conversion;
 
 // SAMPLE: IConversionProvider
 public interface IConversionProvider

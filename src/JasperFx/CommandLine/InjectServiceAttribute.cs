@@ -1,6 +1,4 @@
-using System;
-
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 /// <summary>
 /// Decorate Oakton commands that are being called by 

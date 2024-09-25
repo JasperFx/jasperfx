@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
 
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 [Description("Writes out a description of your running application to either the console or a file")]
 public class DescribeCommand : OaktonAsyncCommand<DescribeInput>

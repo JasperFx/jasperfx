@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Hosting;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     Interface used to get access to the HostBuilder from command inputs.

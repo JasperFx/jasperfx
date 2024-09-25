@@ -1,8 +1,6 @@
-using System.Linq;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Resources;
+namespace CommandLineTests.Resources;
 
 public class resource_ordering : ResourceCommandContext
 {

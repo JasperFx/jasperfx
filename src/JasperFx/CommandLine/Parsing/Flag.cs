@@ -1,11 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Reflection;
+using JasperFx.CommandLine.Internal.Conversion;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
-using Oakton.Internal.Conversion;
 
-namespace Oakton.Parsing;
+namespace JasperFx.CommandLine.Parsing;
 
 public class Flag : TokenHandlerBase
 {

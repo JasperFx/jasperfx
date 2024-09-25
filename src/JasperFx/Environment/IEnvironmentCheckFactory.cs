@@ -1,4 +1,4 @@
-namespace Oakton.Environment;
+namespace JasperFx.Environment;
 
 public interface IEnvironmentCheckFactory
 {

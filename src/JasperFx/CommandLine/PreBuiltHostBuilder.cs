@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 internal class PreBuiltHostBuilder : IHostBuilder
 {

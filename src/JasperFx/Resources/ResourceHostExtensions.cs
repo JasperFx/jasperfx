@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace Oakton.Resources;
+namespace JasperFx.Resources;
 
 public enum StartupAction
 {

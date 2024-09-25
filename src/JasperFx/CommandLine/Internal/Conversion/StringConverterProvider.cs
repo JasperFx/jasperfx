@@ -1,7 +1,7 @@
 ﻿using System.Linq.Expressions;
 using JasperFx.Core.Reflection;
 
-namespace Oakton.Internal.Conversion;
+namespace JasperFx.CommandLine.Internal.Conversion;
 
 public class StringConverterProvider : IConversionProvider
 {

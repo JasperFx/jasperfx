@@ -23,7 +23,7 @@ public class CallingAssembly
     {
         var currentUiCulture = Thread.CurrentThread.CurrentUICulture;
         Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-        var trace = Environment.StackTrace;
+        var trace = System.Environment.StackTrace;
         Thread.CurrentThread.CurrentUICulture = currentUiCulture;
         return trace;
     }

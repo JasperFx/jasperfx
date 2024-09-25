@@ -1,4 +1,4 @@
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 /// <summary>
 ///     Interface to expose key/value pairs to diagnostic output

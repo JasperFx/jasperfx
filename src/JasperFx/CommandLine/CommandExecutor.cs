@@ -1,8 +1,8 @@
-﻿using JasperFx.Core;
-using Oakton.Parsing;
+﻿using JasperFx.CommandLine.Parsing;
+using JasperFx.Core;
 using Spectre.Console;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     The main entry class for Oakton command line applications

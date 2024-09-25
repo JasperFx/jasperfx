@@ -1,4 +1,4 @@
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 public class DescribeInput : NetCoreInput
 {

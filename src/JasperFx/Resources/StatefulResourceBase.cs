@@ -1,7 +1,7 @@
 ﻿using Spectre.Console;
 using Spectre.Console.Rendering;
 
-namespace Oakton.Resources;
+namespace JasperFx.Resources;
 
 /// <summary>
 ///     Base class with empty implementations for IStatefulResource.

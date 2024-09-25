@@ -1,13 +1,9 @@
-using System;
-using System.IO;
 using System.Reflection;
-using System.Threading.Tasks;
+using JasperFx.CommandLine;
 using JasperFx.Core;
-using Oakton;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     [Collection("SetConsoleOutput")]
     public class CommandExecutorTester

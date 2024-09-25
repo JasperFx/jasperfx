@@ -1,9 +1,7 @@
-using System;
-using Oakton.Internal.Conversion;
+using JasperFx.CommandLine.Internal.Conversion;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Conversion
+namespace CommandLineTests.Conversion
 {
     public class TimeSpanConverterTester
     {

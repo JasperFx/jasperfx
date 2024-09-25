@@ -1,9 +1,7 @@
-using System.Linq;
-using Oakton.Parsing;
+using JasperFx.CommandLine.Parsing;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     
     public class StringTokenizerTester

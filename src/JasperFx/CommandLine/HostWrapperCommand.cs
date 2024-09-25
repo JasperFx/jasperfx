@@ -1,9 +1,9 @@
 using System.Reflection;
+using JasperFx.CommandLine.Help;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton.Help;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 internal class HostWrapperCommand : IOaktonCommand
 {

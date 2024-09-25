@@ -1,18 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using JasperFx.Environment;
+using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
-using Oakton.Environment;
-using Oakton.Resources;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Environment
+namespace CommandLineTests.Environment
 {
     public class ExtensionMethodTests
     {

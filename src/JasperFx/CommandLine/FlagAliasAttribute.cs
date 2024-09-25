@@ -1,4 +1,4 @@
-﻿namespace Oakton;
+﻿namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     Use to override the long and/or short flag keys of a property or field

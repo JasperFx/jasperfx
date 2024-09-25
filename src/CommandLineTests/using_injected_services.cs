@@ -1,15 +1,11 @@
-using System;
-using System.Threading.Tasks;
+using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton;
-using Oakton.Help;
 using Shouldly;
-using Xunit;
 
 [assembly: OaktonCommandAssembly]
 
-namespace Tests;
+namespace CommandLineTests;
 
 public class using_injected_services
 {

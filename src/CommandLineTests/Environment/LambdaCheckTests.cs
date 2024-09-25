@@ -1,10 +1,7 @@
-using System.Threading;
-using System.Threading.Tasks;
-using Oakton.Environment;
+using JasperFx.Environment;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Environment
+namespace CommandLineTests.Environment
 {
     public class LambdaCheckTests
     {

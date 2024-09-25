@@ -1,10 +1,8 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using JasperFx.CommandLine;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton;
-using System;
-using Xunit;
 
-namespace Tests;
+namespace CommandLineTests;
 
 public class HostedCommandsTester
 {

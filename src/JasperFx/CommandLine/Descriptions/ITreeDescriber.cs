@@ -1,6 +1,6 @@
 ﻿using Spectre.Console;
 
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 /// <summary>
 ///     Interface to expose additional diagnostic information to a Spectre tree node

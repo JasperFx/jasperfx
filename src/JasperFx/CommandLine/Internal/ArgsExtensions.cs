@@ -1,4 +1,4 @@
-namespace Oakton.Internal;
+namespace JasperFx.CommandLine.Internal;
 
 public static class ArgsExtensions
 {

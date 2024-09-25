@@ -1,10 +1,8 @@
-using System.Collections.Generic;
 using System.Reflection;
-using Oakton;
+using JasperFx.CommandLine;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class DictionaryFlagTester
     {

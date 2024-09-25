@@ -1,14 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using JasperFx.Environment;
 using Microsoft.Extensions.DependencyInjection;
-using Oakton.Environment;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Environment
+namespace CommandLineTests.Environment
 {
     public class EnvironmentCheckerTests
     {

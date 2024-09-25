@@ -1,8 +1,6 @@
-﻿using System;
-using System.Linq;
-using JasperFx.Core.Reflection;
+﻿using JasperFx.Core.Reflection;
 
-namespace Oakton.Internal.Conversion;
+namespace JasperFx.CommandLine.Internal.Conversion;
 
 public class NullableConvertor : IConversionProvider
 {

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Oakton.Environment;
+namespace JasperFx.Environment;
 
 public static class EnvironmentCheckExtensions
 {

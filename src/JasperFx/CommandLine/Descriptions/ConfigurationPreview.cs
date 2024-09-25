@@ -1,10 +1,7 @@
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Spectre.Console;
 
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 internal class ConfigurationPreview : IDescribedSystemPart, IWriteToConsole
 {

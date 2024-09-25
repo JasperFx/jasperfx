@@ -1,7 +1,6 @@
-using System;
 using JasperFx.Core.Reflection;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     If the CommandExecutor is configured to discover assemblies,

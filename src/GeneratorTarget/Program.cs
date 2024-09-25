@@ -1,9 +1,9 @@
 ﻿using System.Threading.Tasks;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Commands;
+using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton;
 
 [assembly: OaktonCommandAssembly]
 

@@ -1,13 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
+﻿using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using Microsoft.Extensions.Configuration;
-using Oakton.Descriptions;
-using Xunit;
 
-namespace Tests.Descriptions;
+namespace CommandLineTests.Descriptions;
 
 [Collection("SetConsoleOutput")]
 public class ConfigurationPreviewTests

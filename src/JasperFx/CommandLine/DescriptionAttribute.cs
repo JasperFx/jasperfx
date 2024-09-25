@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Oakton;
+﻿namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     Adds a textual description to arguments or flags on input classes, or on a command class

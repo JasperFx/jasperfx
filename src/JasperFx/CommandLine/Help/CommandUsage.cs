@@ -1,8 +1,8 @@
-﻿using JasperFx.Core;
-using Oakton.Parsing;
+﻿using JasperFx.CommandLine.Parsing;
+using JasperFx.Core;
 using Spectre.Console;
 
-namespace Oakton.Help;
+namespace JasperFx.CommandLine.Help;
 
 public class CommandUsage
 {

@@ -1,12 +1,9 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using JasperFx.CommandLine.Help;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
-using Oakton.Help;
+using Microsoft.Extensions.DependencyInjection;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 internal class DependencyInjectionCommandCreator : ICommandCreator
 {

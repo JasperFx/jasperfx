@@ -1,11 +1,8 @@
-﻿using System;
-using System.IO;
+﻿using JasperFx.CommandLine.Parsing;
 using JasperFx.Core;
-using Oakton.Parsing;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class OptionReaderTester
     {

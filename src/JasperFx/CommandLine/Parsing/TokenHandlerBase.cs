@@ -1,7 +1,7 @@
 ﻿using System.Reflection;
 using JasperFx.Core.Reflection;
 
-namespace Oakton.Parsing;
+namespace JasperFx.CommandLine.Parsing;
 
 public abstract class TokenHandlerBase : ITokenHandler
 {

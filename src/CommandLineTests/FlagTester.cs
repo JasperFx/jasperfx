@@ -1,14 +1,11 @@
-using System;
-using System.Collections.Generic;
 using System.Linq.Expressions;
+using JasperFx.CommandLine;
+using JasperFx.CommandLine.Internal.Conversion;
+using JasperFx.CommandLine.Parsing;
 using JasperFx.Core.Reflection;
-using Oakton;
-using Oakton.Internal.Conversion;
-using Oakton.Parsing;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class FlagTester
     {

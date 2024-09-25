@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 public class NetCoreInput : IHostBuilderInput
 {

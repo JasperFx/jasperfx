@@ -1,4 +1,4 @@
-﻿namespace Oakton.Help;
+﻿namespace JasperFx.CommandLine.Help;
 
 public class HelpInput
 {

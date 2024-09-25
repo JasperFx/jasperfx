@@ -1,12 +1,10 @@
-using System;
 using System.Linq.Expressions;
+using JasperFx.CommandLine;
+using JasperFx.CommandLine.Parsing;
 using JasperFx.Core.Reflection;
-using Oakton;
-using Oakton.Parsing;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     
     public class BooleanFlagTester

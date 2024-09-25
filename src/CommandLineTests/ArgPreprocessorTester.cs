@@ -1,7 +1,6 @@
-﻿using Oakton.Parsing;
-using Xunit;
+﻿using JasperFx.CommandLine.Parsing;
 
-namespace Tests
+namespace CommandLineTests
 {
     
     public class ArgPreprocessorTester

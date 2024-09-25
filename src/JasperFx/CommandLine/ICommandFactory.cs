@@ -1,7 +1,7 @@
 ﻿using System.Reflection;
 using Microsoft.Extensions.Hosting;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     Interface that Oakton uses to build command runs during execution. Can be used for custom

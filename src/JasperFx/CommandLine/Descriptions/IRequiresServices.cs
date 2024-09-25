@@ -1,4 +1,4 @@
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 internal interface IRequiresServices
 {

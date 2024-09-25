@@ -1,4 +1,4 @@
-﻿namespace Oakton;
+﻿namespace JasperFx.CommandLine;
 
 public static class OaktonEnvironment
 {

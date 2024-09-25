@@ -1,8 +1,7 @@
-using Oakton.Internal;
+using JasperFx.CommandLine.Internal;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class filtering_launcher_args
     {

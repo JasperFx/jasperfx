@@ -1,14 +1,11 @@
-using System;
-using System.Collections.Generic;
 using System.Linq.Expressions;
+using JasperFx.CommandLine;
+using JasperFx.CommandLine.Help;
+using JasperFx.CommandLine.Parsing;
 using JasperFx.Core.Reflection;
-using Oakton;
-using Oakton.Help;
-using Oakton.Parsing;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     
     public class InputParserTester

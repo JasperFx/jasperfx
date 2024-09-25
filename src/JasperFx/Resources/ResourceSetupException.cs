@@ -1,4 +1,4 @@
-﻿namespace Oakton.Resources;
+﻿namespace JasperFx.Resources;
 
 public class ResourceSetupException : Exception
 {

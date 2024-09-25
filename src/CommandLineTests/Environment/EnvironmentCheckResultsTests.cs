@@ -1,9 +1,7 @@
-using System;
-using Oakton.Environment;
+using JasperFx.Environment;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Environment
+namespace CommandLineTests.Environment
 {
     public class EnvironmentCheckResultsTests
     {

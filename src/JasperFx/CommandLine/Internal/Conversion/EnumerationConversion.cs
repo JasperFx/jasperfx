@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Oakton.Internal.Conversion;
+namespace JasperFx.CommandLine.Internal.Conversion;
 
 // SAMPLE: EnumerationConversion
 public class EnumerationConversion : IConversionProvider

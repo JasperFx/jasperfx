@@ -1,6 +1,6 @@
-﻿using Oakton.Environment;
+﻿using JasperFx.Environment;
 
-namespace Oakton.Resources;
+namespace JasperFx.Resources;
 
 internal class ResourceEnvironmentCheck : IEnvironmentCheck
 {

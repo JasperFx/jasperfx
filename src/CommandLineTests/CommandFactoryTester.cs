@@ -1,12 +1,12 @@
 using System.Reflection;
 using ExtensionCommands;
+using JasperFx.CommandLine;
+using JasperFx.CommandLine.Help;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton;
-using Oakton.Help;
 using Shouldly;
 
-namespace Tests;
+namespace CommandLineTests;
 
 public class CommandFactoryTester
 {

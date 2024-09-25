@@ -1,10 +1,10 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
+using JasperFx.CommandLine.Internal.Conversion;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
-using Oakton.Internal.Conversion;
 
-namespace Oakton.Parsing;
+namespace JasperFx.CommandLine.Parsing;
 
 public static class InputParser
 {

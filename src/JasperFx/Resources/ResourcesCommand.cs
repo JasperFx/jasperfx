@@ -1,15 +1,11 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using JasperFx.CommandLine;
 using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
-namespace Oakton.Resources;
+namespace JasperFx.Resources;
 
 [Description("Check, setup, or teardown stateful resources of this system")]
 public class ResourcesCommand : OaktonAsyncCommand<ResourceInput>

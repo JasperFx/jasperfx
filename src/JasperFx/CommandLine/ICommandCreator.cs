@@ -1,4 +1,4 @@
-﻿namespace Oakton;
+﻿namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     Service locator for command types. The default just uses Activator.CreateInstance().

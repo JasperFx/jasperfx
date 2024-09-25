@@ -1,9 +1,9 @@
 using System.Collections;
 using System.Reflection;
+using JasperFx.CommandLine.Internal.Conversion;
 using JasperFx.Core.Reflection;
-using Oakton.Internal.Conversion;
 
-namespace Oakton.Parsing;
+namespace JasperFx.CommandLine.Parsing;
 
 public class EnumerableFlag : Flag
 {

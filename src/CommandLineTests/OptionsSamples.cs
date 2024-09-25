@@ -1,6 +1,6 @@
-using Oakton;
+using JasperFx.CommandLine;
 
-namespace Tests
+namespace CommandLineTests
 {
     public class OptionsSamples
     {

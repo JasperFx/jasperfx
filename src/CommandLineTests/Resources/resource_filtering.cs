@@ -1,9 +1,6 @@
-﻿using System.Linq;
-using System.Threading.Tasks;
-using Shouldly;
-using Xunit;
+﻿using Shouldly;
 
-namespace Tests.Resources
+namespace CommandLineTests.Resources
 {
     public class resource_filtering : ResourceCommandContext
     {

@@ -1,4 +1,6 @@
-namespace Oakton.Resources;
+using JasperFx.CommandLine;
+
+namespace JasperFx.Resources;
 
 public class ResourceInput : NetCoreInput
 {

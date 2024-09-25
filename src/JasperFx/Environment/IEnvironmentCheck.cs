@@ -1,8 +1,4 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace Oakton.Environment;
+namespace JasperFx.Environment;
 
 #region sample_IEnvironmentCheck
 

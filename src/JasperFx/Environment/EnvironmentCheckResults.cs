@@ -1,6 +1,6 @@
 using JasperFx.Core;
 
-namespace Oakton.Environment;
+namespace JasperFx.Environment;
 
 public class EnvironmentCheckResults
 {

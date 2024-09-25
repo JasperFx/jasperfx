@@ -1,6 +1,6 @@
 ﻿using System.Reflection;
 
-namespace Oakton.Parsing;
+namespace JasperFx.CommandLine.Parsing;
 
 public static class QueueExtensions
 {

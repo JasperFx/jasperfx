@@ -1,14 +1,9 @@
-using System;
 using System.Runtime.Loader;
-using System.Threading;
-using System.Threading.Tasks;
-
+using JasperFx.Environment;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-using Oakton.Environment;
-
-namespace Oakton.Commands;
+namespace JasperFx.CommandLine.Commands;
 
 public class RunInput : NetCoreInput
 {

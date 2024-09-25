@@ -1,6 +1,6 @@
 ﻿using Spectre.Console;
 
-namespace Oakton.Help;
+namespace JasperFx.CommandLine.Help;
 
 [Description("List all the available commands", Name = "help")]
 public class HelpCommand : OaktonCommand<HelpInput>

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 
-namespace Oakton.Descriptions;
+namespace JasperFx.CommandLine.Descriptions;
 
 public static class DescriptionExtensions
 {

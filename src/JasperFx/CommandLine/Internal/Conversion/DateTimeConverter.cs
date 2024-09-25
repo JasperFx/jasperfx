@@ -1,9 +1,7 @@
-using System;
 using System.Globalization;
-using System.Linq;
 using System.Text.RegularExpressions;
 
-namespace Oakton.Internal.Conversion;
+namespace JasperFx.CommandLine.Internal.Conversion;
 
 public class DateTimeConverter
 {

@@ -1,8 +1,8 @@
 using JasperFx.Core;
-using Oakton.Environment;
+using JasperFx.Environment;
 using Spectre.Console;
 
-namespace Oakton.Commands;
+namespace JasperFx.CommandLine.Commands;
 
 public class CheckEnvironmentInput : NetCoreInput
 {

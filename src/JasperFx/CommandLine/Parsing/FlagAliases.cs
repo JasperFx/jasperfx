@@ -1,4 +1,4 @@
-﻿namespace Oakton.Parsing;
+﻿namespace JasperFx.CommandLine.Parsing;
 
 public class FlagAliases
 {

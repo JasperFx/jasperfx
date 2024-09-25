@@ -1,5 +1,5 @@
 using JasperFx.CodeGeneration;
-using Oakton;
+using JasperFx.CommandLine;
 using WebServiceTarget;
 
 var builder = WebApplication.CreateBuilder(args);

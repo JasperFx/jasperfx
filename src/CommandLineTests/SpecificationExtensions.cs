@@ -1,11 +1,8 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections;
 using System.Diagnostics;
-using System.Linq;
 using Shouldly;
 
-namespace Tests
+namespace CommandLineTests
 {
     public static class SpecificationExtensions
     {

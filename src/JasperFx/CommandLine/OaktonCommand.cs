@@ -1,6 +1,6 @@
-﻿using Oakton.Help;
+﻿using JasperFx.CommandLine.Help;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     Base class for all Oakton commands

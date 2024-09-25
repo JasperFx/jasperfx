@@ -1,10 +1,10 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using JasperFx.Resources;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
-using Oakton.Resources;
 using Shouldly;
 
-namespace Tests.Resources;
+namespace CommandLineTests.Resources;
 
 public class ResourceHostExtensionsTests : ResourceCommandContext
 {

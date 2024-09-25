@@ -1,12 +1,10 @@
-using System;
 using System.Linq.Expressions;
+using JasperFx.CommandLine;
+using JasperFx.CommandLine.Internal.Conversion;
 using JasperFx.Core.Reflection;
-using Oakton;
-using Oakton.Internal.Conversion;
 using Shouldly;
-using Xunit;
 
-namespace Tests
+namespace CommandLineTests
 {
     
     public class ArgumentTester

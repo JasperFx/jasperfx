@@ -1,17 +1,12 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
+using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton.Descriptions;
 using Shouldly;
 using Spectre.Console;
-using Xunit;
 
-namespace Tests.Descriptions
+namespace CommandLineTests.Descriptions
 {
     public class DescribeCommandTests
     {

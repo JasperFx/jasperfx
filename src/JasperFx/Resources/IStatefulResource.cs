@@ -1,9 +1,6 @@
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Spectre.Console.Rendering;
 
-namespace Oakton.Resources;
+namespace JasperFx.Resources;
 
 #region sample_IStatefulResourceWithDependencies
 

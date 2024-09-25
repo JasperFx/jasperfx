@@ -1,6 +1,6 @@
 ﻿using JasperFx.Core;
 
-namespace Oakton.Parsing;
+namespace JasperFx.CommandLine.Parsing;
 
 public static class OptionReader
 {

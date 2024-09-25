@@ -4,17 +4,15 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Http.Features;
 #else
 #endif
-using System.Collections.Generic;
+using JasperFx.CommandLine;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton;
 using Shouldly;
-using Xunit;
 using HostBuilder = Microsoft.Extensions.Hosting.HostBuilder;
 
 
-namespace Tests
+namespace CommandLineTests
 {
     public class AspNetCoreInputTests
     {

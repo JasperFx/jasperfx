@@ -1,8 +1,7 @@
-using Oakton;
+using JasperFx.CommandLine;
 using Shouldly;
-using Xunit;
 
-namespace Tests.Bugs
+namespace CommandLineTests.Bugs
 {
     public class bug_24_negative_numbers
     {

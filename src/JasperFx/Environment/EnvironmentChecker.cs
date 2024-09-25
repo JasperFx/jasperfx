@@ -1,8 +1,8 @@
+using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
-using Oakton.Resources;
 using Spectre.Console;
 
-namespace Oakton.Environment;
+namespace JasperFx.Environment;
 
 /// <summary>
 ///     Executes the environment checks registered in an IoC container

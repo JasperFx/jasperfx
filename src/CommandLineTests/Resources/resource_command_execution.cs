@@ -1,11 +1,8 @@
-﻿using System;
-using System.Threading.Tasks;
+﻿using JasperFx.Resources;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
-using Oakton.Resources;
-using Xunit;
 
-namespace Tests.Resources
+namespace CommandLineTests.Resources
 {
 
     public class resource_command_execution : ResourceCommandContext

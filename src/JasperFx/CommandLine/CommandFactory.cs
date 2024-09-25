@@ -1,15 +1,15 @@
 ﻿using System.Reflection;
 using System.Text.RegularExpressions;
+using JasperFx.CommandLine.Help;
+using JasperFx.CommandLine.Parsing;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Core.TypeScanning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Oakton.Help;
-using Oakton.Parsing;
 using Spectre.Console;
 
-namespace Oakton;
+namespace JasperFx.CommandLine;
 
 public class CommandFactory : ICommandFactory
 {
