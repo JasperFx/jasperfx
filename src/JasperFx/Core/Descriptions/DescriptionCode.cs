@@ -1,17 +1,22 @@
+using Spectre.Console.Rendering;
+
 namespace JasperFx.Core.Descriptions;
 
 /*
  * TODOs
- * Everything needs to be serializable as JSON
  * Markdown writer
  * HtmlTag equivalent???
  * Write MarkUp for spectre
  *
  *
  *
- *
+ * Link
+ * Bullet lists
  */
 
+/// <summary>
+/// Marker interface 
+/// </summary>
 public interface IRenderable
 {
 }
@@ -27,7 +32,33 @@ public enum HighlightMode
     None
 }
 
-public abstract class Fragment
+public class Tree : Fragment
+{
+    public string Text { get; }
+
+    public Tree(string text)
+    {
+        Text = text;
+    }
+
+    public List<IRenderable> Items { get; } = new();
+
+    public Tree AddNode(string text)
+    {
+        var span = new Span(text);
+        Items.Add(span);
+        return this;
+    }
+
+    public Tree AddNode(IRenderable renderable)
+    {
+        Items.Add(renderable);
+        return this;
+    }
+}
+
+
+public abstract class Fragment : IRenderable
 {
     public bool Italic { get; set; }
     public bool Bold { get; set; }
@@ -35,7 +66,7 @@ public abstract class Fragment
     public TextAlign TextAlign { get; set; } = TextAlign.Left;
 }
 
-public class Span : Fragment, IRenderable
+public class Span : Fragment
 {
     public Span(string text)
     {
@@ -43,9 +74,10 @@ public class Span : Fragment, IRenderable
     }
 
     public string Text { get; set; }
+    public string? LinkUrl { get; set; }
 }
 
-public class Line : Fragment, IRenderable
+public class Line : Fragment
 {
     public Line(string text)
     {
@@ -55,7 +87,7 @@ public class Line : Fragment, IRenderable
     public string Text { get; set; }
 }
 
-public class Sentence : Fragment, IRenderable
+public class Sentence : Fragment
 {
     public List<Span> Spans { get; } = new();
 }
