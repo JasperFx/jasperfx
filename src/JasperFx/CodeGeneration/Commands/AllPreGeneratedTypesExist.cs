@@ -5,10 +5,12 @@ namespace JasperFx.CodeGeneration.Commands;
 
 public class AllPreGeneratedTypesExist : IEnvironmentCheck
 {
-    public async Task Assert(IServiceProvider services, CancellationToken cancellation)
+    public Task Assert(IServiceProvider services, CancellationToken cancellation)
     {
         var collections = services.GetServices<ICodeFileCollection>().ToArray();
         foreach (var collection in collections) collection.AssertPreBuildTypesExist(services);
+
+        return Task.CompletedTask;
     }
 
     public string Description { get; } =
