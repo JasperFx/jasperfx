@@ -1,4 +1,4 @@
-name: build_net7.0 pg12-plv8 Json.NET
+name: DotNet CI
 
 on:
   push:
