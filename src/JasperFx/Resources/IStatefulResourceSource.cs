@@ -7,7 +7,7 @@ namespace JasperFx.Resources;
 /// </summary>
 public interface IStatefulResourceSource
 {
-    IReadOnlyList<IStatefulResource> FindResources();
+    ValueTask<IReadOnlyList<IStatefulResource>> FindResources();
 }
 
 #endregion

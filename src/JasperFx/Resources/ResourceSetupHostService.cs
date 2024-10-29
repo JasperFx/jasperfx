@@ -33,7 +33,7 @@ public class ResourceSetupHostService : IHostedService
         {
             try
             {
-                resources.AddRange(source.FindResources());
+                resources.AddRange(await source.FindResources());
             }
             catch (Exception e)
             {

@@ -24,7 +24,7 @@ public abstract class ResourceCommandContext
         return Host.CreateDefaultBuilder().ConfigureServices(CopyResources).StartAsync();
     }
         
-    internal IList<IStatefulResource> applyTheResourceFiltering()
+    internal Task<IList<IStatefulResource>> applyTheResourceFiltering()
     {
         theInput.HostBuilder = Host.CreateDefaultBuilder().ConfigureServices(CopyResources);
         var command = new ResourcesCommand();
@@ -106,9 +106,9 @@ public abstract class ResourceCommandContext
             return resource;
         }
 
-        public IReadOnlyList<IStatefulResource> FindResources()
+        ValueTask<IReadOnlyList<IStatefulResource>> IStatefulResourceSource.FindResources()
         {
-            return _resources;
+            return new ValueTask<IReadOnlyList<IStatefulResource>>(_resources);
         }
     }
 }

@@ -14,7 +14,7 @@ public static class EnvironmentChecker
     {
         var results = new EnvironmentCheckResults();
 
-        var checks = services.discoverChecks().ToArray();
+        var checks = await services.DiscoverChecks();
         if (!checks.Any())
         {
             AnsiConsole.WriteLine("No environment checks.");
@@ -25,10 +25,10 @@ public static class EnvironmentChecker
         {
             var task = c.AddTask("[bold]Running Environment Checks[/]", new ProgressTaskSettings
             {
-                MaxValue = checks.Length
+                MaxValue = checks.Count
             });
 
-            for (var i = 0; i < checks.Length; i++)
+            for (var i = 0; i < checks.Count; i++)
             {
                 var check = checks[i];
 
@@ -61,19 +61,27 @@ public static class EnvironmentChecker
         return results;
     }
 
-    private static IEnumerable<IEnvironmentCheck> discoverChecks(this IServiceProvider services)
+    // TODO -- get a unit test on this
+    public static async Task<IList<IEnvironmentCheck>> DiscoverChecks(this IServiceProvider services)
     {
-        foreach (var check in services.GetServices<IEnvironmentCheck>()) yield return check;
+        var list = new List<IEnvironmentCheck>();
+        list.AddRange(services.GetServices<IEnvironmentCheck>());
 
         foreach (var factory in services.GetServices<IEnvironmentCheckFactory>())
-        foreach (var check in factory.Build())
-            yield return check;
-
-        foreach (var resource in services.GetServices<IStatefulResource>())
-            yield return new ResourceEnvironmentCheck(resource);
+        {
+            list.AddRange(factory.Build());
+        }
+        
+        list.AddRange(services.GetServices<IStatefulResource>().Select(x => new ResourceEnvironmentCheck(x)));
 
         foreach (var source in services.GetServices<IStatefulResourceSource>())
-        foreach (var resource in source.FindResources())
-            yield return new ResourceEnvironmentCheck(resource);
+        {
+            foreach (var resource in await source.FindResources())
+            {
+                list.Add(new ResourceEnvironmentCheck(resource));
+            }
+        }
+
+        return list;
     }
 }

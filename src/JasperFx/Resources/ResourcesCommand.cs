@@ -23,7 +23,7 @@ public class ResourcesCommand : OaktonAsyncCommand<ResourceInput>
 
         var cancellation = input.TokenSource.Token;
         using var host = input.BuildHost();
-        var resources = FindResources(input, host);
+        var resources = await FindResources(input, host);
 
         if (!resources.Any())
         {
@@ -86,7 +86,7 @@ public class ResourcesCommand : OaktonAsyncCommand<ResourceInput>
         return true;
     }
 
-    public IList<IStatefulResource> FindResources(ResourceInput input, IHost host)
+    public Task<IList<IStatefulResource>> FindResources(ResourceInput input, IHost host)
     {
         return FindResources(host.Services, input.TypeFlag, input.NameFlag);
     }
@@ -159,13 +159,13 @@ public class ResourcesCommand : OaktonAsyncCommand<ResourceInput>
         return !exceptions.Any();
     }
 
-    internal static IList<IStatefulResource> FindResources(IServiceProvider services, string typeName,
+    internal static async Task<IList<IStatefulResource>> FindResources(IServiceProvider services, string typeName,
         string resourceName)
     {
         var list = services.GetServices<IStatefulResource>().ToList();
         foreach (var source in services.GetServices<IStatefulResourceSource>())
         {
-            var sources = source.FindResources();
+            var sources = await source.FindResources();
             list.AddRange(sources);
         }
 
