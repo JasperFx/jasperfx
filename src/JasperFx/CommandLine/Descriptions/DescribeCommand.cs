@@ -1,9 +1,11 @@
 using System.Reflection;
 using JasperFx.Core;
+using JasperFx.Core.Descriptions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
+using Table = Spectre.Console.Table;
 
 namespace JasperFx.CommandLine.Descriptions;
 
@@ -166,14 +168,15 @@ public class ReferencedAssemblies : IDescribedSystemPart, IWriteToConsole
     // enhanced displays
     public Task WriteToConsole()
     {
-        var table = new Table();
-        table.AddColumn("Assembly Name");
+        var description = new Description("Referenced Assemblies");
+        var table = description.AddTable();
+        table.AddColumn("Assembly Name", textAlign:Justify.Left);
         table.AddColumn("Version");
 
         var referenced = Assembly.GetEntryAssembly().GetReferencedAssemblies();
         foreach (var assemblyName in referenced) table.AddRow(assemblyName.Name, assemblyName.Version.ToString());
 
-        AnsiConsole.Write(table);
+        description.WriteToConsole();
 
         return Task.CompletedTask;
     }
