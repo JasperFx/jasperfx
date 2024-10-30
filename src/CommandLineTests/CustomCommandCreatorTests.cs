@@ -35,7 +35,7 @@ namespace CommandLineTests
             creator.LastCreatedModel.ShouldNotBeNull();
         }
 
-        private class TestCommand : OaktonCommand<object>
+        private class TestCommand : JasperFxCommand<object>
         {
             public TestCommand(string message)
             {

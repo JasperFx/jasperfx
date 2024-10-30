@@ -6,9 +6,9 @@ namespace JasperFx.CommandLine;
 ///     Base class for all Oakton commands
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public abstract class OaktonCommand<T> : IOaktonCommand<T>
+public abstract class JasperFxCommand<T> : IOaktonCommand<T>
 {
-    protected OaktonCommand()
+    protected JasperFxCommand()
     {
         Usages = new UsageGraph(GetType());
     }

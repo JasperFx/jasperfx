@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine;
 using WebServiceTarget;
@@ -31,4 +32,4 @@ app.MapControllerRoute(
     "default",
     "{controller=Home}/{action=Index}/{id?}");
 
-return await app.RunOaktonCommands(args);
+return await app.RunJasperFxCommands(args);

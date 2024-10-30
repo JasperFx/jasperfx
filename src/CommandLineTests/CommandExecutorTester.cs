@@ -122,7 +122,7 @@ namespace CommandLineTests
         public int NumberFlag;
     }
 
-    public class OptionCommand : OaktonCommand<OptionInputs>
+    public class OptionCommand : JasperFxCommand<OptionInputs>
     {
         public override bool Execute(OptionInputs input)
         {
@@ -140,7 +140,7 @@ namespace CommandLineTests
     }
 
     [Description("Say my name", Name = "say-name")]
-    public class SayNameCommand : OaktonCommand<SayName>
+    public class SayNameCommand : JasperFxCommand<SayName>
     {
         public SayNameCommand()
         {
@@ -176,7 +176,7 @@ namespace CommandLineTests
     {
     }
 
-    public class ThrowUpCommand : OaktonCommand<ThrowUp>
+    public class ThrowUpCommand : JasperFxCommand<ThrowUp>
     {
         public override bool Execute(ThrowUp input)
         {

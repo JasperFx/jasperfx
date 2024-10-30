@@ -47,7 +47,7 @@ namespace CommandLineTests
     }
     #endregion
 
-    public class DictCommand : OaktonCommand<DictInput>
+    public class DictCommand : JasperFxCommand<DictInput>
     {
         public override bool Execute(DictInput input)
         {
@@ -61,7 +61,7 @@ namespace CommandLineTests
     }
 
     [Description("SOMETHING", Name = "missingdict")]
-    public class MissingDictCommand : OaktonCommand<MissingInput>
+    public class MissingDictCommand : JasperFxCommand<MissingInput>
     {
         public override bool Execute(MissingInput input)
         {

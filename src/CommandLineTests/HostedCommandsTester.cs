@@ -50,7 +50,7 @@ public class HostedCommandsTester
         }
     }
 
-    public class TestDICommand : OaktonCommand<TestInput>
+    public class TestDICommand : JasperFxCommand<TestInput>
     {
         public static int Value { get; set; } = 0;
         private readonly TestDependency _dep;

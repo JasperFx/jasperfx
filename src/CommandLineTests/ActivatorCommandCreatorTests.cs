@@ -26,7 +26,7 @@ namespace CommandLineTests
         {
         }
 
-        private class NoParamsCommand : OaktonCommand<FakeModel>
+        private class NoParamsCommand : JasperFxCommand<FakeModel>
         {
             public override bool Execute(FakeModel input)
             {
@@ -34,7 +34,7 @@ namespace CommandLineTests
             }
         }
 
-        private class ParamsCommand : OaktonCommand<FakeModel>
+        private class ParamsCommand : JasperFxCommand<FakeModel>
         {
             public ParamsCommand(string testArgument)
             {

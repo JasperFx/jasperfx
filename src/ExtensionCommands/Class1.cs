@@ -33,7 +33,7 @@ namespace ExtensionCommands
     }
     
     [Description("An extension command loaded from another assembly", Name = "extension")]
-    public class ExtensionCommand : OaktonCommand<ExtensionInput>
+    public class ExtensionCommand : JasperFxCommand<ExtensionInput>
     {
         public override bool Execute(ExtensionInput input)
         {
@@ -43,7 +43,7 @@ namespace ExtensionCommands
     }
     
     [Description("A second extension command loaded from another assembly", Name = "extension2")]
-    public class Extension2Command : OaktonCommand<ExtensionInput>
+    public class Extension2Command : JasperFxCommand<ExtensionInput>
     {
         public override bool Execute(ExtensionInput input)
         {

@@ -9,7 +9,7 @@ using Spectre.Console;
 namespace JasperFx.CodeGeneration.Commands;
 
 [Description("Utilities for working with JasperFx.CodeGeneration and JasperFx.RuntimeCompiler", Name = "codegen")]
-public class GenerateCodeCommand : OaktonCommand<GenerateCodeInput>
+public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
 {
     public GenerateCodeCommand()
     {

@@ -78,7 +78,7 @@ namespace CommandLineTests
             public string AliasedFlag ;
         }
 
-        public class FieldCommand : OaktonCommand<FieldModel>
+        public class FieldCommand : JasperFxCommand<FieldModel>
         {
             public FieldCommand()
             {

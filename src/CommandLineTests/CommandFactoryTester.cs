@@ -392,7 +392,7 @@ public class NulloInput
 {
 }
 
-public class NoArgCommand : OaktonCommand<NulloInput>
+public class NoArgCommand : JasperFxCommand<NulloInput>
 {
     public override bool Execute(NulloInput input)
     {
@@ -400,7 +400,7 @@ public class NoArgCommand : OaktonCommand<NulloInput>
     }
 }
 
-public class RebuildAuthorizationCommand : OaktonCommand<MyCommandInput>
+public class RebuildAuthorizationCommand : JasperFxCommand<MyCommandInput>
 {
     public override bool Execute(MyCommandInput input)
     {
@@ -408,7 +408,7 @@ public class RebuildAuthorizationCommand : OaktonCommand<MyCommandInput>
     }
 }
 
-public class SillyCommand : OaktonCommand<MyCommandInput>
+public class SillyCommand : JasperFxCommand<MyCommandInput>
 {
     public override bool Execute(MyCommandInput input)
     {
@@ -416,7 +416,7 @@ public class SillyCommand : OaktonCommand<MyCommandInput>
     }
 }
 
-public class MyCommand : OaktonCommand<MyCommandInput>
+public class MyCommand : JasperFxCommand<MyCommandInput>
 {
     public override bool Execute(MyCommandInput input)
     {
@@ -429,7 +429,7 @@ public class OnlyFlagsInput
     public bool VerboseFlag { get; set; }
 }
 
-public class OnlyFlagsCommand : OaktonCommand<OnlyFlagsInput>
+public class OnlyFlagsCommand : JasperFxCommand<OnlyFlagsInput>
 {
     public override bool Execute(OnlyFlagsInput input)
     {
@@ -438,7 +438,7 @@ public class OnlyFlagsCommand : OaktonCommand<OnlyFlagsInput>
 }
 
 [Description("something")]
-public class My2Command : OaktonCommand<MyCommandInput>
+public class My2Command : JasperFxCommand<MyCommandInput>
 {
     public override bool Execute(MyCommandInput input)
     {
@@ -447,7 +447,7 @@ public class My2Command : OaktonCommand<MyCommandInput>
 }
 
 [Description("this", Name = "this")]
-public class DecoratedCommand : OaktonCommand<MyCommandInput>
+public class DecoratedCommand : JasperFxCommand<MyCommandInput>
 {
     public override bool Execute(MyCommandInput input)
     {
@@ -461,7 +461,7 @@ public static class ConfigureMe
 }
 
 [Description("Depends on some static state, e.g. configuring DI container based on inputs.", Name = "depends-static")]
-public class DependsOnStaticCommand : OaktonCommand<NulloInput>
+public class DependsOnStaticCommand : JasperFxCommand<NulloInput>
 {
     public override bool Execute(NulloInput input)
     {
@@ -487,7 +487,7 @@ public class OptionalArgumentsInput
     public bool WithBinariesFlag { get; set; }
 }
 
-public class OptionalArgumentsCommand : OaktonCommand<OptionalArgumentsInput>
+public class OptionalArgumentsCommand : JasperFxCommand<OptionalArgumentsInput>
 {
     public OptionalArgumentsCommand()
     {
@@ -502,7 +502,7 @@ public class OptionalArgumentsCommand : OaktonCommand<OptionalArgumentsInput>
 }
 
 // Not exported to avoid breaking other tests that use assembly-wide command registration.
-internal class NoDefaultConstructorCommand : OaktonCommand<OptionalArgumentsInput>
+internal class NoDefaultConstructorCommand : JasperFxCommand<OptionalArgumentsInput>
 {
     public NoDefaultConstructorCommand(string _)
     {

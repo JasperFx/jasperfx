@@ -121,7 +121,7 @@ namespace CommandLineTests
     }
 
     [Description("does complex thing")]
-    public class ComplexCommand : OaktonCommand<ComplexInput>
+    public class ComplexCommand : JasperFxCommand<ComplexInput>
     {
         public override bool Execute(ComplexInput input)
         {
@@ -187,7 +187,7 @@ namespace CommandLineTests
     }
 
     [Description("Manage links", Name = "List the links")]
-    public class FakeLinkCommand : OaktonCommand<FakeLinkInput>
+    public class FakeLinkCommand : JasperFxCommand<FakeLinkInput>
     {
         public FakeLinkCommand()
         {
@@ -211,7 +211,7 @@ namespace CommandLineTests
 
 
     [Description("does simple thing")]
-    public class SimpleCommand : OaktonCommand<SimpleInput>
+    public class SimpleCommand : JasperFxCommand<SimpleInput>
     {
         public override bool Execute(SimpleInput input)
         {

@@ -1,4 +1,5 @@
 ﻿using System.Threading.Tasks;
+using JasperFx;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Commands;
 using JasperFx.CommandLine;
@@ -21,6 +22,6 @@ internal static class Program
 
                 services.AssertAllExpectedPreBuiltTypesExistOnStartUp();
             })
-            .RunOaktonCommands(args);
+            .RunJasperFxCommands(args);
     }
 }

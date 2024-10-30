@@ -440,7 +440,7 @@ namespace CommandLineTests
         public string Flag { get; set; }
     }
 
-    public class InputCommand : OaktonCommand<InputModel>
+    public class InputCommand : JasperFxCommand<InputModel>
     {
         public InputCommand()
         {

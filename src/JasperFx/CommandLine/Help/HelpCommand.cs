@@ -3,7 +3,7 @@
 namespace JasperFx.CommandLine.Help;
 
 [Description("List all the available commands", Name = "help")]
-public class HelpCommand : OaktonCommand<HelpInput>
+public class HelpCommand : JasperFxCommand<HelpInput>
 {
     public HelpCommand()
     {

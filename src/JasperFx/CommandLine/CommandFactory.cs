@@ -172,7 +172,7 @@ public class CommandFactory : ICommandFactory
             }
 
             AnsiConsole.MarkupLine(
-                $"[red]Unable to apply Oakton extensions. Try adding IHostBuilder.{nameof(CommandLineHostingExtensions.ApplyOaktonExtensions)}(); to your bootstrapping code to apply Oakton extension loading[/]");
+                $"[red]Unable to apply JasperFx extensions. Try adding IHostBuilder.{nameof(CommandLineHostingExtensions.ApplyJasperFxExtensions)}(); to your bootstrapping code to apply Oakton extension loading[/]");
         }
     }
 
@@ -292,7 +292,7 @@ public class CommandFactory : ICommandFactory
             return false;
         }
 
-        return type.Closes(typeof(OaktonCommand<>)) || type.Closes(typeof(OaktonAsyncCommand<>));
+        return type.Closes(typeof(JasperFxCommand<>)) || type.Closes(typeof(OaktonAsyncCommand<>));
     }
 
 

@@ -13,7 +13,7 @@ namespace CommandLineTests.Bugs
             public int NumFlag { get; set; }
         }
         
-        class MyCommand : OaktonCommand<MyInput>
+        class MyCommand : JasperFxCommand<MyInput>
         {
             
             public override bool Execute(MyInput input)

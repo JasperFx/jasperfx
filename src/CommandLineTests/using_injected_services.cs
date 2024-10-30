@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -18,7 +19,7 @@ public class using_injected_services
                 services.AddScoped<MyService>();
                 services.AddScoped<OtherService>();
             })
-            .RunOaktonCommands(new string[] { "injected", "Bob Marley" });
+            .RunJasperFxCommands(new string[] { "injected", "Bob Marley" });
         
         success.ShouldBe(0);
         
@@ -39,7 +40,7 @@ public class InjectedInput
 }
 
 [Description("Injected command", Name = "injected")]
-public class InjectedCommand : OaktonCommand<InjectedInput>
+public class InjectedCommand : JasperFxCommand<InjectedInput>
 {
     [InjectService]
     public MyService One { get; set; }
