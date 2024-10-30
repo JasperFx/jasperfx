@@ -16,7 +16,7 @@ public class registering_the_options
     public void register_all_defaults()
     {
         var services = new ServiceCollection();
-        services.JasperFxDefaults();
+        services.AddJasperFx();
         services.AddSingleton(theEnvironment);
 
         theEnvironment.EnvironmentName.Returns("Production");
@@ -34,7 +34,7 @@ public class registering_the_options
     public void pick_up_development_mode()
     {
         var services = new ServiceCollection();
-        services.JasperFxDefaults(x =>
+        services.AddJasperFx(x =>
         {
             x.Development.AutoCreate = AutoCreate.All;
         });
@@ -56,7 +56,7 @@ public class registering_the_options
     public void pick_up_development_mode_with_alternative_environment_name()
     {
         var services = new ServiceCollection();
-        services.JasperFxDefaults(x =>
+        services.AddJasperFx(x =>
         {
             x.Development.AutoCreate = AutoCreate.All;
             x.DevelopmentEnvironmentName = "weird";
@@ -81,7 +81,7 @@ public class registering_the_options
     public void pick_up_production_mode()
     {
         var services = new ServiceCollection();
-        services.JasperFxDefaults(x =>
+        services.AddJasperFx(x =>
         {
             x.Development.AutoCreate = AutoCreate.All;
 
@@ -110,7 +110,7 @@ public class registering_the_options
         using var host = Host.CreateDefaultBuilder(Array.Empty<string>())
             .ConfigureServices(services =>
             {
-                services.JasperFxDefaults(opts =>
+                services.AddJasperFx(opts =>
                 {
                     opts.SetApplicationProject(GetType().Assembly);
                 });
@@ -130,7 +130,7 @@ public class registering_the_options
         var builder = Host.CreateApplicationBuilder();
         
         // This would apply to both Marten, Wolverine, and future critters....
-        builder.Services.JasperFxDefaults(x =>
+        builder.Services.AddJasperFx(x =>
         {
             // This expands in importance to be the master "AutoCreate"
             // over every resource at runtime and not just databases

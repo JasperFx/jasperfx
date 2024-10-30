@@ -1,37 +1,10 @@
 using System.Reflection;
 using JasperFx.CodeGeneration;
+using JasperFx.CommandLine;
 using JasperFx.Core;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 namespace JasperFx;
-
-public static class JasperFxServiceCollectionExtensions
-{
-    /// <summary>
-    /// Configure JasperFx and Critter Stack tool behavior for resource management at runtime
-    /// </summary>
-    /// <param name="services"></param>
-    /// <param name="configure">Optional configuration of the JasperFxDefaults for resource management</param>
-    /// <returns></returns>
-    public static IServiceCollection JasperFxDefaults(this IServiceCollection services, Action<JasperFxOptions>? configure = null)
-    {
-        var optionsBuilder = services.AddOptions<JasperFxOptions>();
-        if (configure != null)
-        {
-            optionsBuilder.Configure(configure!);
-        }
-        
-        optionsBuilder.PostConfigure<IHostEnvironment>((o, e) => o.ReadHostEnvironment(e));
-        services.AddSingleton<JasperFxOptions>(s =>
-        {
-            return s.GetRequiredService<IOptions<JasperFxOptions>>().Value;
-        });
-
-        return services;
-    }
-}
 
 public class JasperFxOptions
 {
@@ -147,6 +120,20 @@ public class JasperFxOptions
 
         GeneratedCodeOutputPath = path.AppendPath("Internal", "Generated");
     }
+    
+    
+    public string? OptionsFile { get; set; }
+    
+    /// <summary>
+    /// Optional 
+    /// </summary>
+    public Action<CommandFactory>? Factory { get; set; }
+    
+    /// <summary>
+    /// Default command name to execute from just "dotnet run" or if you omit the
+    /// JasperFx command name. The default is "run"
+    /// </summary>
+    public string DefaultCommand { get; set; } = "run";
 }
 
 public class Profile

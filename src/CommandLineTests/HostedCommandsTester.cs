@@ -1,4 +1,5 @@
-﻿using JasperFx.CommandLine;
+﻿using JasperFx;
+using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -13,7 +14,7 @@ public class HostedCommandsTester
             .ConfigureServices(services =>
             {
                 services.AddScoped<TestDependency>();
-                services.AddJasperFxCommands(options =>
+                services.AddJasperFx(options =>
                 {
                     options.Factory = factory =>
                     {

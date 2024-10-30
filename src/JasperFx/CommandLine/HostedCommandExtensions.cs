@@ -11,30 +11,6 @@ namespace JasperFx.CommandLine;
 public static class HostedCommandExtensions
 {
     /// <summary>
-    ///     Register JasperFx commands and services with the application's service collection.
-    /// </summary>
-    /// <param name="services"></param>
-    public static void AddJasperFxCommands(this IServiceCollection services, Action<OaktonOptions>? options = null)
-    {
-        services.Configure(options);
-
-        services.TryAddScoped<ICommandCreator, DependencyInjectionCommandCreator>();
-
-        services.TryAddScoped<ICommandFactory>(ctx =>
-        {
-            var creator = ctx.GetRequiredService<ICommandCreator>();
-            var oaktonOptions = ctx.GetRequiredService<IOptions<OaktonOptions>>().Value;
-
-            var factory = new CommandFactory(creator);
-            factory.ApplyFactoryDefaults(Assembly.GetEntryAssembly());
-            oaktonOptions.Factory?.Invoke(factory);
-            return factory;
-        });
-
-        services.TryAddScoped<CommandExecutor>();
-    }
-    
-    /// <summary>
     ///     Execute the extended Oakton command line support for your configured IHost.
     ///     This method would be called within the Task&lt;int&gt; Program.Main(string[] args) method
     ///     of your AspNetCore application. This usage is appropriate for WebApplication bootstrapping.
@@ -47,7 +23,7 @@ public static class HostedCommandExtensions
         try
         {
             using var scope = host.Services.CreateScope();
-            var options = scope.ServiceProvider.GetRequiredService<IOptions<OaktonOptions>>().Value;
+            var options = scope.ServiceProvider.GetRequiredService<IOptions<JasperFxOptions>>().Value;
             args = ApplyArgumentDefaults(args, options);
 
             var executor = scope.ServiceProvider.GetRequiredService<CommandExecutor>();
@@ -74,7 +50,7 @@ public static class HostedCommandExtensions
         }
     }
 
-    private static string[] ApplyArgumentDefaults(string[] args, OaktonOptions options)
+    private static string[] ApplyArgumentDefaults(string[] args, JasperFxOptions options)
     {
         // Workaround for IISExpress / VS2019 erroneously putting crap arguments
         args = args.FilterLauncherArgs();
