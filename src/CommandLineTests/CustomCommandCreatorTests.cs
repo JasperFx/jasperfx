@@ -66,7 +66,7 @@ namespace CommandLineTests
 
             public TestOptions LastCreatedModel { get; private set; }
 
-            public IOaktonCommand CreateCommand(Type commandType)
+            public IJasperFxCommand CreateCommand(Type commandType)
             {
                 LastCreatedCommand = new TestCommand("created command");
                 return LastCreatedCommand;

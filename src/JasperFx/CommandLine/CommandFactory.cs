@@ -113,19 +113,19 @@ public class CommandFactory : ICommandFactory
     }
 
     /// <summary>
-    ///     Add all the IOaktonCommand classes in the given assembly to the command runner
+    ///     Add all the IJasperFxCommand classes in the given assembly to the command runner
     /// </summary>
     /// <param name="assembly"></param>
     public void RegisterCommands(Assembly assembly)
     {
         foreach (var type in assembly
                      .GetExportedTypes()
-                     .Where(IsOaktonCommandType))
+                     .Where(IsJasperFxCommandType))
             _commandTypes[CommandNameFor(type)] = type;
 
-        if (assembly.HasAttribute<OaktonCommandAssemblyAttribute>())
+        if (assembly.HasAttribute<JasperFxAssemblyAttribute>())
         {
-            var att = assembly.GetAttribute<OaktonCommandAssemblyAttribute>();
+            var att = assembly.GetAttribute<JasperFxAssemblyAttribute>();
             if (att.ExtensionType != null)
             {
                 _extensionTypes.Add(att.ExtensionType);
@@ -133,7 +133,7 @@ public class CommandFactory : ICommandFactory
         }
     }
 
-    public IEnumerable<IOaktonCommand> BuildAllCommands()
+    public IEnumerable<IJasperFxCommand> BuildAllCommands()
     {
         return _commandTypes.Select(x => _commandCreator.CreateCommand(x));
     }
@@ -172,7 +172,7 @@ public class CommandFactory : ICommandFactory
             }
 
             AnsiConsole.MarkupLine(
-                $"[red]Unable to apply JasperFx extensions. Try adding IHostBuilder.{nameof(CommandLineHostingExtensions.ApplyJasperFxExtensions)}(); to your bootstrapping code to apply Oakton extension loading[/]");
+                $"[red]Unable to apply JasperFx extensions. Try adding IHostBuilder.{nameof(CommandLineHostingExtensions.ApplyJasperFxExtensions)}(); to your bootstrapping code to apply JasperFx extension loading[/]");
         }
     }
 
@@ -276,27 +276,27 @@ public class CommandFactory : ICommandFactory
     /// </summary>
     public void RegisterCommand(Type type)
     {
-        if (!IsOaktonCommandType(type))
+        if (!IsJasperFxCommandType(type))
         {
             throw new ArgumentOutOfRangeException(nameof(type),
-                $"Type '{type.FullName}' does not inherit from either OaktonCommannd or OaktonAsyncCommand");
+                $"Type '{type.FullName}' does not inherit from either JasperFxCommannd or JasperFxAsyncCommand");
         }
 
         _commandTypes[CommandNameFor(type)] = type;
     }
 
-    public static bool IsOaktonCommandType(Type type)
+    public static bool IsJasperFxCommandType(Type type)
     {
         if (!type.IsConcrete())
         {
             return false;
         }
 
-        return type.Closes(typeof(JasperFxCommand<>)) || type.Closes(typeof(OaktonAsyncCommand<>));
+        return type.Closes(typeof(JasperFxCommand<>)) || type.Closes(typeof(JasperFxAsyncCommand<>));
     }
 
 
-    public IOaktonCommand Build(string commandName)
+    public IJasperFxCommand Build(string commandName)
     {
         return _commandCreator.CreateCommand(_commandTypes[commandName.ToLower()]);
     }
@@ -369,15 +369,15 @@ public class CommandFactory : ICommandFactory
     }
 
     /// <summary>
-    ///     Automatically discover any Oakton commands in assemblies marked as
-    ///     [assembly: OaktonCommandAssembly]. Also
+    ///     Automatically discover any JasperFx commands in assemblies marked as
+    ///     [assembly: JasperFxCommandAssembly]. Also
     /// </summary>
     public void RegisterCommandsFromExtensionAssemblies()
     {
         var assemblies = AssemblyFinder
-            .FindAssemblies(a => a.HasAttribute<OaktonCommandAssemblyAttribute>() && !a.IsDynamic)
+            .FindAssemblies(a => a.HasAttribute<JasperFxAssemblyAttribute>() && !a.IsDynamic)
             .Concat(AppDomain.CurrentDomain.GetAssemblies())
-            .Where(a => a.HasAttribute<OaktonCommandAssemblyAttribute>() && !a.IsDynamic)
+            .Where(a => a.HasAttribute<JasperFxAssemblyAttribute>() && !a.IsDynamic)
             .Distinct()
             .ToArray();
 

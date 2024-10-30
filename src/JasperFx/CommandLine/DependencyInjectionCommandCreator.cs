@@ -13,14 +13,14 @@ internal class DependencyInjectionCommandCreator : ICommandCreator
         _serviceProvider = serviceProvider;
     }
 
-    public IOaktonCommand CreateCommand(Type commandType)
+    public IJasperFxCommand CreateCommand(Type commandType)
     {
         if (commandType.GetProperties().Any(x => x.HasAttribute<InjectServiceAttribute>()))
         {
-            return new WrappedOaktonCommand(_serviceProvider, commandType);
+            return new WrappedJasperFxCommand(_serviceProvider, commandType);
         }
         
-        return ActivatorUtilities.CreateInstance(_serviceProvider, commandType) as IOaktonCommand;
+        return ActivatorUtilities.CreateInstance(_serviceProvider, commandType) as IJasperFxCommand;
     }
 
     public object CreateModel(Type modelType)
@@ -29,15 +29,15 @@ internal class DependencyInjectionCommandCreator : ICommandCreator
     }
 }
 
-internal class WrappedOaktonCommand : IOaktonCommand
+internal class WrappedJasperFxCommand : IJasperFxCommand
 {
     private readonly IServiceScope _scope;
-    private readonly IOaktonCommand _inner;
+    private readonly IJasperFxCommand _inner;
 
-    public WrappedOaktonCommand(IServiceProvider provider, Type commandType)
+    public WrappedJasperFxCommand(IServiceProvider provider, Type commandType)
     {
         _scope = provider.CreateScope();
-        _inner = (IOaktonCommand)_scope.ServiceProvider.GetRequiredService(commandType);
+        _inner = (IJasperFxCommand)_scope.ServiceProvider.GetRequiredService(commandType);
     }
 
     public Type InputType => _inner.InputType;

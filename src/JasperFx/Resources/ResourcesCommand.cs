@@ -8,7 +8,7 @@ using Spectre.Console.Rendering;
 namespace JasperFx.Resources;
 
 [Description("Check, setup, or teardown stateful resources of this system")]
-public class ResourcesCommand : OaktonAsyncCommand<ResourceInput>
+public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
 {
     public ResourcesCommand()
     {
@@ -19,7 +19,7 @@ public class ResourcesCommand : OaktonAsyncCommand<ResourceInput>
     public override async Task<bool> Execute(ResourceInput input)
     {
         AnsiConsole.Write(
-            new FigletText("Oakton"){Justification = Justify.Left});
+            new FigletText("JasperFx"){Justification = Justify.Left});
 
         var cancellation = input.TokenSource.Token;
         using var host = input.BuildHost();

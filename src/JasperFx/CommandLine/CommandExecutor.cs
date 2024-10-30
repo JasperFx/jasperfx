@@ -5,7 +5,7 @@ using Spectre.Console;
 namespace JasperFx.CommandLine;
 
 /// <summary>
-///     The main entry class for Oakton command line applications
+///     The main entry class for JasperFx command line applications
 /// </summary>
 public class CommandExecutor
 {
@@ -19,7 +19,7 @@ public class CommandExecutor
     }
 
     /// <summary>
-    ///     Directs Oakton to look for an options file at this location.
+    ///     Directs JasperFx to look for an options file at this location.
     /// </summary>
     public string OptionsFile { get; set; }
 
@@ -59,11 +59,11 @@ public class CommandExecutor
     /// <typeparam name="T"></typeparam>
     /// <param name="args"></param>
     /// <param name="optsFile">
-    ///     If chosen, Oakton will look at this file location for options and apply any found to the command
+    ///     If chosen, JasperFx will look at this file location for options and apply any found to the command
     ///     line arguments
     /// </param>
     /// <returns></returns>
-    public static int ExecuteCommand<T>(string[] args, string optsFile = null) where T : IOaktonCommand
+    public static int ExecuteCommand<T>(string[] args, string optsFile = null) where T : IJasperFxCommand
     {
         var factory = new CommandFactory();
         factory.RegisterCommand<T>();
@@ -83,11 +83,11 @@ public class CommandExecutor
     /// <typeparam name="T"></typeparam>
     /// <param name="args"></param>
     /// <param name="optsFile">
-    ///     If chosen, Oakton will look at this file location for options and apply any found to the command
+    ///     If chosen, JasperFx will look at this file location for options and apply any found to the command
     ///     line arguments
     /// </param>
     /// <returns></returns>
-    public static Task<int> ExecuteCommandAsync<T>(string[] args, string optsFile = null) where T : IOaktonCommand
+    public static Task<int> ExecuteCommandAsync<T>(string[] args, string optsFile = null) where T : IJasperFxCommand
     {
         var factory = new CommandFactory();
         factory.RegisterCommand<T>();
@@ -161,7 +161,7 @@ public class CommandExecutor
     }
 
     /// <summary>
-    ///     Execute with the command line arguments. Useful for testing Oakton applications
+    ///     Execute with the command line arguments. Useful for testing JasperFx applications
     /// </summary>
     /// <param name="commandLine"></param>
     /// <returns></returns>
@@ -181,7 +181,7 @@ public class CommandExecutor
     }
 
     /// <summary>
-    ///     Execute asynchronously with the command line arguments. Useful for testing Oakton applications
+    ///     Execute asynchronously with the command line arguments. Useful for testing JasperFx applications
     /// </summary>
     /// <param name="commandLine"></param>
     /// <returns></returns>

@@ -4,13 +4,13 @@ namespace JasperFx.CommandLine;
 
 /// <summary>
 ///     If the CommandExecutor is configured to discover assemblies,
-///     this attribute on an assembly will cause Oakton to search for
+///     this attribute on an assembly will cause JasperFx to search for
 ///     command types within this assembly
 /// </summary>
 [AttributeUsage(AttributeTargets.Assembly)]
-public class OaktonCommandAssemblyAttribute : Attribute
+public class JasperFxAssemblyAttribute : Attribute
 {
-    public OaktonCommandAssemblyAttribute()
+    public JasperFxAssemblyAttribute()
     {
     }
 
@@ -20,7 +20,7 @@ public class OaktonCommandAssemblyAttribute : Attribute
     ///     commands
     /// </summary>
     /// <param name="extensionType"></param>
-    public OaktonCommandAssemblyAttribute(Type extensionType)
+    public JasperFxAssemblyAttribute(Type extensionType)
     {
         if (extensionType.HasDefaultConstructor() && extensionType.CanBeCastTo<IServiceRegistrations>())
         {

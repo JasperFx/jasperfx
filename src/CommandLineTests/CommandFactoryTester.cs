@@ -517,7 +517,7 @@ internal class NoDefaultConstructorCommand : JasperFxCommand<OptionalArgumentsIn
 
 public class NoDefaultConstructorCommandCreator : ICommandCreator
 {
-    public IOaktonCommand CreateCommand(Type commandType)
+    public IJasperFxCommand CreateCommand(Type commandType)
     {
         return new NoDefaultConstructorCommand("required parameter");
     }

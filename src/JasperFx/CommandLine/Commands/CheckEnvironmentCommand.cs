@@ -11,12 +11,12 @@ public class CheckEnvironmentInput : NetCoreInput
 }
 
 [Description("Execute all environment checks against the application", Name = "check-env")]
-public class CheckEnvironmentCommand : OaktonAsyncCommand<CheckEnvironmentInput>
+public class CheckEnvironmentCommand : JasperFxAsyncCommand<CheckEnvironmentInput>
 {
     public override async Task<bool> Execute(CheckEnvironmentInput input)
     {
         AnsiConsole.Write(
-            new FigletText("Oakton") { Justification = Justify.Left });
+            new FigletText("JasperFx") { Justification = Justify.Left });
 
 
         using var host = input.BuildHost();

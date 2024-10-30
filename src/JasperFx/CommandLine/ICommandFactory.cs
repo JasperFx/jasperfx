@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 namespace JasperFx.CommandLine;
 
 /// <summary>
-///     Interface that Oakton uses to build command runs during execution. Can be used for custom
+///     Interface that JasperFx uses to build command runs during execution. Can be used for custom
 ///     command activation
 /// </summary>
 public interface ICommandFactory
@@ -13,7 +13,7 @@ public interface ICommandFactory
     CommandRun BuildRun(IEnumerable<string> args);
     void RegisterCommands(Assembly assembly);
 
-    IEnumerable<IOaktonCommand> BuildAllCommands();
+    IEnumerable<IJasperFxCommand> BuildAllCommands();
 
     void ApplyExtensions(IHostBuilder builder);
 }

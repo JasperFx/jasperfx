@@ -11,10 +11,10 @@ namespace JasperFx.CommandLine;
 public static class HostedCommandExtensions
 {
     /// <summary>
-    ///     Register Oakton commands and services with the application's service collection.
+    ///     Register JasperFx commands and services with the application's service collection.
     /// </summary>
     /// <param name="services"></param>
-    public static void AddOakton(this IServiceCollection services, Action<OaktonOptions>? options = null)
+    public static void AddJasperFxCommands(this IServiceCollection services, Action<OaktonOptions>? options = null)
     {
         services.Configure(options);
 
@@ -33,20 +33,7 @@ public static class HostedCommandExtensions
 
         services.TryAddScoped<CommandExecutor>();
     }
-
-    /// <summary>
-    ///     Execute the extended Oakton command line support for your configured IHost.
-    ///     This method would be called within the Task&lt;int&gt; Program.Main(string[] args) method
-    ///     of your AspNetCore application. This usage is appropriate for WebApplication bootstrapping
-    /// </summary>
-    /// <param name="host">An already built IHost</param>
-    /// <param name="args"></param>
-    /// <returns></returns>
-    public static int RunHostedOaktonCommands(this IHost host, string[] args)
-    {
-        return RunHostedOaktonCommandsAsync(host, args).GetAwaiter().GetResult();
-    }
-
+    
     /// <summary>
     ///     Execute the extended Oakton command line support for your configured IHost.
     ///     This method would be called within the Task&lt;int&gt; Program.Main(string[] args) method
@@ -55,7 +42,7 @@ public static class HostedCommandExtensions
     /// <param name="host">An already built IHost</param>
     /// <param name="args"></param>
     /// <returns></returns>
-    public static async Task<int> RunHostedOaktonCommandsAsync(this IHost host, string[] args)
+    public static async Task<int> RunJasperFxCommands(this IHost host, string[] args)
     {
         try
         {

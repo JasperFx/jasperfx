@@ -27,7 +27,7 @@ public static class CommandLineHostingExtensions
     }
 
     /// <summary>
-    ///     Execute the extended Oakton command line support for your configured WebHostBuilder.
+    ///     Execute the extended JasperFx command line support for your configured WebHostBuilder.
     ///     This method would be called within the Task&lt;int&gt; Program.Main(string[] args) method
     ///     of your AspNetCore application
     /// </summary>
@@ -96,7 +96,7 @@ public static class CommandLineHostingExtensions
 
     private static CommandExecutor buildExecutor(IHostBuilder source, Assembly? applicationAssembly)
     {
-        if (OaktonEnvironment.AutoStartHost && source is PreBuiltHostBuilder b)
+        if (JasperFxEnvironment.AutoStartHost && source is PreBuiltHostBuilder b)
         {
             b.Host.Start();
         }

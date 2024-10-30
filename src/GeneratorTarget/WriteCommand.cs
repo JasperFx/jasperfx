@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace GeneratorTarget;
 
-public class WriteCommand : OaktonAsyncCommand<NetCoreInput>
+public class WriteCommand : JasperFxAsyncCommand<NetCoreInput>
 {
     public override async Task<bool> Execute(NetCoreInput input)
     {

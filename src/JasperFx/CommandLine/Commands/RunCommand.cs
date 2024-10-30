@@ -12,7 +12,7 @@ public class RunInput : NetCoreInput
 }
 
 [Description("Start and run this .Net application")]
-public class RunCommand : OaktonAsyncCommand<RunInput>
+public class RunCommand : JasperFxAsyncCommand<RunInput>
 {
     public override async Task<bool> Execute(RunInput input)
     {

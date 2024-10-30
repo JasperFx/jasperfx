@@ -1,7 +1,7 @@
 namespace JasperFx.CommandLine;
 
 /// <summary>
-/// Decorate Oakton commands that are being called by 
+/// Decorate JasperFx commands that are being called by 
 /// </summary>
 [AttributeUsage(AttributeTargets.Property)]
 public class InjectServiceAttribute : Attribute

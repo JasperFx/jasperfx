@@ -4,7 +4,7 @@ using JasperFx.CommandLine;
 using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
 
-[assembly:OaktonCommandAssembly(typeof(ExtensionServices))]
+[assembly:JasperFxAssembly(typeof(ExtensionServices))]
 
 namespace ExtensionCommands
 {

@@ -7,13 +7,13 @@ namespace CommandLineTests;
 public class HostedCommandsTester
 {
     [Fact]
-    public void CanInjectServicesIntoCommands()
+    public async Task CanInjectServicesIntoCommands()
     {
         var builder = Host.CreateDefaultBuilder()
             .ConfigureServices(services =>
             {
                 services.AddScoped<TestDependency>();
-                services.AddOakton(options =>
+                services.AddJasperFxCommands(options =>
                 {
                     options.Factory = factory =>
                     {
@@ -25,7 +25,7 @@ public class HostedCommandsTester
 
         var app = builder.Build();
 
-        app.RunHostedOaktonCommands(Array.Empty<string>());
+        await app.RunJasperFxCommands(Array.Empty<string>());
 
         Assert.Equal(1, TestDICommand.Value);
     }

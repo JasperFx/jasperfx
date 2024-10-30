@@ -2,9 +2,9 @@
 
 public class ActivatorCommandCreator : ICommandCreator
 {
-    public IOaktonCommand CreateCommand(Type commandType)
+    public IJasperFxCommand CreateCommand(Type commandType)
     {
-        return (IOaktonCommand)Activator.CreateInstance(commandType);
+        return (IJasperFxCommand)Activator.CreateInstance(commandType);
     }
 
     public object CreateModel(Type modelType)

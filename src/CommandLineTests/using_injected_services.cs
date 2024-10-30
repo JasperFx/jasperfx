@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Shouldly;
 
-[assembly: OaktonCommandAssembly]
+[assembly: JasperFxAssembly]
 
 namespace CommandLineTests;
 
@@ -104,7 +104,7 @@ public class MyInput
 
 #region sample_MyDbCommand
 
-public class MyDbCommand : OaktonAsyncCommand<MyInput>
+public class MyDbCommand : JasperFxAsyncCommand<MyInput>
 {
     [InjectService]
     public MyDbContext DbContext { get; set; }

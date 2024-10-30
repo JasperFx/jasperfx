@@ -5,13 +5,13 @@ using Microsoft.Extensions.Hosting;
 
 namespace JasperFx.CommandLine;
 
-internal class HostWrapperCommand : IOaktonCommand
+internal class HostWrapperCommand : IJasperFxCommand
 {
     private readonly Func<IHost> _hostSource;
-    private readonly IOaktonCommand _inner;
+    private readonly IJasperFxCommand _inner;
     private readonly PropertyInfo[] _props;
 
-    public HostWrapperCommand(IOaktonCommand inner, Func<IHost> hostSource, PropertyInfo[] props)
+    public HostWrapperCommand(IJasperFxCommand inner, Func<IHost> hostSource, PropertyInfo[] props)
     {
         _inner = inner;
         _hostSource = hostSource;

@@ -4,7 +4,7 @@ using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 
-[assembly: OaktonCommandAssembly]
+[assembly: JasperFxAssembly]
 
 namespace JasperFx.CodeGeneration.Commands;
 

@@ -3,12 +3,12 @@
 namespace JasperFx.CommandLine;
 
 /// <summary>
-///     Base class for all Oakton commands
+///     Base class for all JasperFx commands
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public abstract class OaktonAsyncCommand<T> : IOaktonCommand<T>
+public abstract class JasperFxAsyncCommand<T> : IJasperFxCommand<T>
 {
-    protected OaktonAsyncCommand()
+    protected JasperFxAsyncCommand()
     {
         Usages = new UsageGraph(GetType());
     }
@@ -17,7 +17,7 @@ public abstract class OaktonAsyncCommand<T> : IOaktonCommand<T>
 
     public Type InputType => typeof(T);
 
-    Task<bool> IOaktonCommand.Execute(object input)
+    Task<bool> IJasperFxCommand.Execute(object input)
     {
         return Execute((T)input);
     }

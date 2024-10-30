@@ -10,7 +10,7 @@ using Table = Spectre.Console.Table;
 namespace JasperFx.CommandLine.Descriptions;
 
 [Description("Writes out a description of your running application to either the console or a file")]
-public class DescribeCommand : OaktonAsyncCommand<DescribeInput>
+public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 {
     public override async Task<bool> Execute(DescribeInput input)
     {

@@ -6,7 +6,7 @@ namespace JasperFx.CommandLine.Descriptions;
 public static class DescriptionExtensions
 {
     /// <summary>
-    ///     Register an Oakton part description for console diagnostics
+    ///     Register a JasperFx part description for console diagnostics
     /// </summary>
     /// <param name="services"></param>
     /// <param name="described"></param>
@@ -37,7 +37,7 @@ public static class DescriptionExtensions
     }
 
     /// <summary>
-    ///     Register an Oakton part description for console diagnostics
+    ///     Register an JasperFx part description for console diagnostics
     /// </summary>
     /// <param name="services"></param>
     /// <typeparam name="T"></typeparam>
@@ -47,7 +47,7 @@ public static class DescriptionExtensions
     }
 
     /// <summary>
-    ///     Register an Oakton part description for console diagnostics
+    ///     Register an JasperFx part description for console diagnostics
     /// </summary>
     /// <param name="services"></param>
     /// <param name="title"></param>
@@ -63,7 +63,7 @@ public static class DescriptionExtensions
     }
 
     /// <summary>
-    ///     Register an Oakton part description for console diagnostics
+    ///     Register an JasperFx part description for console diagnostics
     /// </summary>
     /// <param name="services"></param>
     /// <param name="title"></param>

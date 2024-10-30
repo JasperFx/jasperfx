@@ -6,7 +6,7 @@ using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-[assembly: OaktonCommandAssembly]
+[assembly: JasperFxAssembly]
 
 namespace GeneratorTarget;
 

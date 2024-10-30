@@ -156,7 +156,7 @@ namespace CommandLineTests
 
     #region sample_async_command_sample
     [Description("Say my name", Name = "say-async-name")]
-    public class AsyncSayNameCommand : OaktonAsyncCommand<SayName>
+    public class AsyncSayNameCommand : JasperFxAsyncCommand<SayName>
     {
         public AsyncSayNameCommand()
         {
@@ -184,7 +184,7 @@ namespace CommandLineTests
         }
     }
 
-    public class ThrowUpAsyncCommand : OaktonAsyncCommand<ThrowUp>
+    public class ThrowUpAsyncCommand : JasperFxAsyncCommand<ThrowUp>
     {
         public override Task<bool> Execute(ThrowUp input)
         {

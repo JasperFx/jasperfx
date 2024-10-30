@@ -32,4 +32,4 @@ app.MapControllerRoute(
     "default",
     "{controller=Home}/{action=Index}/{id?}");
 
-return await app.RunJasperFxCommands(args);
+return await CommandLineHostingExtensions.RunJasperFxCommands(app, args);

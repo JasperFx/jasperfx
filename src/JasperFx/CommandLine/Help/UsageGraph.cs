@@ -16,7 +16,7 @@ public class UsageGraph
 
     public UsageGraph(Type commandType)
     {
-        _inputType = commandType.FindInterfaceThatCloses(typeof(IOaktonCommand<>)).GetTypeInfo()
+        _inputType = commandType.FindInterfaceThatCloses(typeof(IJasperFxCommand<>)).GetTypeInfo()
             .GetGenericArguments().First();
 
         CommandName = CommandFactory.CommandNameFor(commandType);

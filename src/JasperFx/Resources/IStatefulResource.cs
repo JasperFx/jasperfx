@@ -10,7 +10,7 @@ namespace JasperFx.Resources;
 public interface IStatefulResourceWithDependencies : IStatefulResource
 {
     // Given all the known stateful resources in your system -- including the current resource!
-    // tell Oakton which resources are dependencies of this resource that should be setup first
+    // tell JasperFx which resources are dependencies of this resource that should be setup first
     IEnumerable<IStatefulResource> FindDependencies(IReadOnlyList<IStatefulResource> others);
 }
 
@@ -19,8 +19,8 @@ public interface IStatefulResourceWithDependencies : IStatefulResource
 #region sample_IStatefulResource
 
 /// <summary>
-///     Adapter interface used by Oakton enabled applications to allow
-///     Oakton to setup/teardown/clear the state/check on stateful external
+///     Adapter interface used by JasperFx enabled applications to allow
+///     JasperFx to setup/teardown/clear the state/check on stateful external
 ///     resources of the system like databases or messaging queues
 /// </summary>
 public interface IStatefulResource
