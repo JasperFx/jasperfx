@@ -103,6 +103,8 @@ public static class WalkReferencedAssemblies
             while (stack.Count > 0)
             {
                 var current = stack.Pop();
+                if (current == null) yield break;
+                
                 yield return current.Assembly;
 
                 if (!current.IsGenericType || current.IsGenericTypeDefinition)

@@ -210,7 +210,7 @@ public class Event<T> : IEvent<T> where T : notnull
     /// </summary>
     public DateTimeOffset Timestamp { get; set; }
 
-    public string TenantId { get; set; } = TenancyConstants.DefaultTenantId;
+    public string TenantId { get; set; } = StorageConstants.DefaultTenantId;
 
     /// <summary>
     ///     Optional metadata describing the causation id
