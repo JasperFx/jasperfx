@@ -30,11 +30,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
         _commandBlock = new ActionBlock<Command>(Apply, _cancellation.Token.SequentialOptions());
 
-        ProjectionShardIdentity = name.Identity;
-        if (_execution.DatabaseName != "Marten")
-        {
-            ProjectionShardIdentity += $"@{_execution.DatabaseName}";
-        }
+        ProjectionShardIdentity = execution.ShardIdentity;
     }
 
     public AsyncOptions Options { get; }

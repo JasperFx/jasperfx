@@ -9,6 +9,7 @@ public interface ISubscriptionExecution: IAsyncDisposable
 
     string DatabaseName { get; }
     ShardExecutionMode Mode { get; set; }
+    string ShardIdentity { get; }
 
     bool TryBuildReplayExecutor(out IReplayExecutor executor);
 }
