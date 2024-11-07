@@ -132,7 +132,7 @@ public static class CommandLineHostingExtensions
 
         #endregion
     }
-    
+
     /// <summary>
     ///     Execute the extended Oakton command line support for your configured IHost.
     ///     This method would be called within the Task&lt;int&gt; Program.Main(string[] args) method

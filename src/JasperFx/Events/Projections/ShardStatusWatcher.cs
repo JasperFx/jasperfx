@@ -5,7 +5,7 @@ namespace JasperFx.Events.Projections;
 /// <summary>
 ///     Used mostly by tests to listen for expected shard events or progress
 /// </summary>
-internal class ShardStatusWatcher: IObserver<ShardState>
+internal class ShardStatusWatcher : IObserver<ShardState>
 {
     private readonly TaskCompletionSource<ShardState> _completion;
     private readonly Func<ShardState, bool> _condition;
