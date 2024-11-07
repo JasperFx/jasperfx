@@ -1,6 +1,8 @@
 #nullable enable
 namespace JasperFx.Events.Projections;
 
+// NOTES -- this will be wrapped around MartenDatabase & DocumentStore
+
 public interface IProjectionStorage
 {
     /// <summary>
@@ -25,4 +27,12 @@ public interface IProjectionStorage
     Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, CancellationToken token);
     
     string StorageIdentifier { get; }
+}
+
+// NOTES -- maybe just have this implemented by ProjectionDocumentSession as is
+
+public interface IProjectionStorageSession
+{
+    void DeleteForType(Type documentType);
+    void DeleteNamedResource(string resourceName);
 }
