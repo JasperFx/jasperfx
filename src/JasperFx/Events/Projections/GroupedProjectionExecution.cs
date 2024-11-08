@@ -248,7 +248,10 @@ public class GroupedProjectionExecution<TBatch, TDatabase, TGroup>: ISubscriptio
                 "Subscription {Name} failed while creating a SQL batch for updates for events from {Floor} to {Ceiling}",
                 ProjectionShardIdentity, group.Range.SequenceFloor, group.Range.SequenceCeiling);
 
-            await batch!.DisposeAsync().ConfigureAwait(false);
+            if (batch != null)
+            {
+                await batch!.DisposeAsync().ConfigureAwait(false);
+            }
 
             throw;
         }
