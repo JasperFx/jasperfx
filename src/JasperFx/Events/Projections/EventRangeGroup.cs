@@ -28,6 +28,7 @@ public abstract class EventRangeGroup<TBatch, TDatabase>: IDisposable
     ///     Teardown any existing state. Used to clean off existing work
     ///     before doing retries
     /// </summary>
+    [Obsolete("Get rid of this. Wrong place for this responsibility")]
     public void Reset()
     {
         Attempts++;
