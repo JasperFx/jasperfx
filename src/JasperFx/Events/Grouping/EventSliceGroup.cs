@@ -2,6 +2,16 @@ using JasperFx.Core;
 
 namespace JasperFx.Events.Grouping;
 
+// public interface IEventSlicer<TDoc, TId>
+// {
+//     /// <summary>
+//     ///     This is called by the asynchronous projection runner
+//     /// </summary>
+//     /// <param name="events"></param>
+//     /// <returns></returns>
+//     ValueTask<IReadOnlyList<EventSliceGroup<TDoc, TId>>> SliceAsyncEvents(IReadOnlyList<IEvent> events);
+// }
+
 /// <summary>
 /// Structure to hold and help organize events in "slices" by identity to apply
 /// to the matching aggregate document TDoc
