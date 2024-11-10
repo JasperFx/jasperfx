@@ -1,13 +1,9 @@
 namespace JasperFx.Events.Projections;
 
-public abstract class EventRangeGroup<TBatch, TDatabase>: IDisposable
+public abstract class EventRangeGroup<TBatch>: IDisposable
 {
-    private readonly CancellationToken _parent;
-    private CancellationTokenSource _cancellationTokenSource;
-
-    protected EventRangeGroup(EventRange range, CancellationToken parent)
+    protected EventRangeGroup(EventRange range)
     {
-        _parent = parent;
         Range = range;
         Agent = range.Agent ?? throw new ArgumentOutOfRangeException(nameof(range), "Agent cannot be null");
     }
@@ -33,16 +29,14 @@ public abstract class EventRangeGroup<TBatch, TDatabase>: IDisposable
     {
         Attempts++;
         WasAborted = false;
-        _cancellationTokenSource = new CancellationTokenSource();
 
-        Cancellation =
-            CancellationTokenSource.CreateLinkedTokenSource(_parent, _cancellationTokenSource.Token).Token;
         reset();
     }
 
+    [Obsolete("Get rid of this. Wrong place for this responsibility")]
     protected abstract void reset();
 
     public abstract Task ConfigureUpdateBatch(TBatch batch);
-    public abstract ValueTask SkipEventSequence(long eventSequence, TDatabase database);
+    public abstract ValueTask SkipEventSequence(long eventSequence);
 }
 

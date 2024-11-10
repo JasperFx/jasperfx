@@ -1,21 +1,24 @@
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
+using JasperFx.Events.Grouping;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Trace;
 
 namespace JasperFx.Events.Projections;
 
-public class GroupedProjectionExecution<TBatch, TDatabase, TGroup>: ISubscriptionExecution
-    where TGroup : EventRangeGroup<TBatch, TDatabase>
+
+
+public class GroupedProjectionExecution<TBatch, TGroup>: ISubscriptionExecution
+    where TGroup : EventRangeGroup<TBatch>
     where TBatch : IProjectionBatch
 {
     private readonly ActionBlock<TGroup> _building;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly TransformBlock<EventRange, TGroup> _grouping;
     private readonly ILogger _logger;
-    private readonly IGroupedProjectionRunner<TBatch, TDatabase, TGroup> _runner;
+    private readonly IGroupedProjectionRunner<TBatch, TGroup> _runner;
 
-    public GroupedProjectionExecution(IGroupedProjectionRunner<TBatch, TDatabase, TGroup> runner, ILogger logger)
+    public GroupedProjectionExecution(IGroupedProjectionRunner<TBatch, TGroup> runner, ILogger logger)
     {
         _logger = logger;
 
@@ -221,7 +224,7 @@ public class GroupedProjectionExecution<TBatch, TDatabase, TGroup>: ISubscriptio
             }
             catch (ApplyEventException e)
             {
-                await group.SkipEventSequence(e.Event.Sequence, _runner.Database).ConfigureAwait(false);
+                await group.SkipEventSequence(e.Event.Sequence).ConfigureAwait(false);
                 await group.Agent.RecordDeadLetterEventAsync(new DeadLetterEvent(e.Event, group.Range.ShardName, e))
                     .ConfigureAwait(false);
             }

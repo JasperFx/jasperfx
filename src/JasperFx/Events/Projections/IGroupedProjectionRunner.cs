@@ -1,7 +1,10 @@
+using JasperFx.Events.Grouping;
+using Microsoft.Extensions.Logging;
+
 namespace JasperFx.Events.Projections;
 
-public interface IGroupedProjectionRunner<TBatch, TDatabase, TGroup> : IAsyncDisposable
- where TGroup : EventRangeGroup<TBatch, TDatabase>
+public interface IGroupedProjectionRunner<TBatch, TGroup> : IAsyncDisposable
+ where TGroup : EventRangeGroup<TBatch>
  where TBatch : IProjectionBatch
 {
     Task<TBatch> BuildBatchAsync(TGroup group);
@@ -11,11 +14,22 @@ public interface IGroupedProjectionRunner<TBatch, TDatabase, TGroup> : IAsyncDis
         EventRange range,
         CancellationToken cancellationToken);
 
-    TDatabase Database { get; }
     string ProjectionShardIdentity { get; }
     string ShardIdentity { get; }
     string DatabaseIdentifier { get; }
 
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
     Task EnsureStorageExists(CancellationToken token);
+}
+
+public class AggregationExecution<TDoc, TId> : GroupedProjectionExecution<IAggregation, TenantedSliceGroup<TDoc, TId>>
+{
+    public AggregationExecution(IAggregationProjectionRunner<TDoc, TId> runner, ILogger logger) : base(runner, logger)
+    {
+    }
+}
+
+public interface IAggregationProjectionRunner<TDoc, TId> : IGroupedProjectionRunner<IAggregation, TenantedSliceGroup<TDoc, TId>>
+{
+    
 }
