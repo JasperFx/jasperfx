@@ -24,4 +24,8 @@
         <PackageReference Include="System.Threading.Tasks.Dataflow" Version="8.0.0"/>
         <PackageReference Include="OpenTelemetry.API" Version="1.8.0"/>
     </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Events\Aggregation\" />
+    </ItemGroup>
 </Project>
