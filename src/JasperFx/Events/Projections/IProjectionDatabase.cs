@@ -1,8 +1,7 @@
 #nullable enable
 namespace JasperFx.Events.Projections;
 
-// NOTES -- this will be wrapped around MartenDatabase & DocumentStore
-
+[Obsolete("Merge this into IEventDatabase")]
 public interface IProjectionStorage
 {
     /// <summary>

@@ -69,17 +69,17 @@ public interface ISubscriptionSource<TStore, TDatabase>
 {
     public AsyncOptions Options { get; }
     // TODO -- might need to make this be async
-    IReadOnlyList<IAsyncShard<TStore, TDatabase>> AsyncProjectionShards();
+    IReadOnlyList<IAsyncShard<TDatabase>> AsyncProjectionShards();
 
     public string Name { get; }
     public uint Version { get; }
 }
 
 // Assuming that DocumentStore et al will be embedded into this
-public interface IAsyncShard<TStore, TDatabase>
+public interface IAsyncShard<TDatabase>
 {
     ShardRole Role { get; }
-    ISubscriptionExecution BuildExecution(TStore store, TDatabase database, ILogger logger);
+    ISubscriptionExecution BuildExecution(TDatabase database, ILogger logger);
     ShardName Name { get; }
 }
 
@@ -102,4 +102,12 @@ public interface IAggregationRuntime<TOperations, TDoc, TId>: IAggregationRuntim
 
     TId IdentityFromEvent(IEvent e);
 }
+*/
+
+/* TODO
+Start work on pulling over ProjectionDaemon
+Add an interface to IDocumentStore & IMartenDatabase that can be used by all the elements of the JasperFx pieces
+New generic version of ProjectionDaemon
+
+
 */
