@@ -9,7 +9,7 @@ namespace JasperFx.Events.NewStuff;
 /// <summary>
 ///     Interface for projections applied "Inline" as part of saving a transaction
 /// </summary>
-public interface IInlineProjection<T>
+public interface IInlineProjection<TOperations>
 {
     /// <summary>
     ///     Apply inline projections during asynchronous operations
@@ -18,14 +18,14 @@ public interface IInlineProjection<T>
     /// <param name="streams"></param>
     /// <param name="cancellation"></param>
     /// <returns></returns>
-    Task ApplyAsync(T operations, IReadOnlyList<StreamAction> streams,
+    Task ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams,
         CancellationToken cancellation);
 }
 
 /// <summary>
 /// Main entry point for non-aggregation projections
 /// </summary>
-public interface IProjection<T>
+public interface IProjection<TOperations>
 {
     /// <summary>
     ///     Apply inline projections during asynchronous operations
@@ -34,7 +34,7 @@ public interface IProjection<T>
     /// <param name="events"></param>
     /// <param name="cancellation"></param>
     /// <returns></returns>
-    Task ApplyAsync(T operations, IReadOnlyList<IEvent> events, CancellationToken cancellation);
+    Task ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events, CancellationToken cancellation);
 }
 
 
@@ -59,45 +59,27 @@ public interface IAggregatorSource<TQuerySession>
 /// Sources of projections are used to define the behavior how a projection is built for a given projection type
 /// Optimized for async usage
 /// </summary>
-public interface IProjectionSource: IReadOnlyProjectionData
+public interface IProjectionSource<TStore, TDatabase>: IReadOnlyProjectionData, ISubscriptionSource<TStore, TDatabase>
 {
-    AsyncOptions Options { get; }
-
-    /// <summary>
-    ///     This is *only* a hint to Marten about what projected document types
-    ///     are published by this projection to aid the "generate ahead" model
-    /// </summary>
-    /// <returns></returns>
-    IEnumerable<Type> PublishedTypes();
-
-    // TODO -- might need to make this be async
-    IReadOnlyList<IAsyncShard> AsyncProjectionShards();
-
-    /// <summary>
-    /// Specify that this projection is a non 1 version of the original projection definition to opt
-    /// into Marten's parallel blue/green deployment of this projection.
-    /// </summary>
-    uint ProjectionVersion { get; }
-
     // TODO -- might need to make this be async
     bool TryBuildReplayExecutor(string databaseName, out IReplayExecutor executor);
 }
 
-public interface ISubscriptionSource
+public interface ISubscriptionSource<TStore, TDatabase>
 {
     public AsyncOptions Options { get; }
     // TODO -- might need to make this be async
-    IReadOnlyList<IAsyncShard> AsyncProjectionShards();
+    IReadOnlyList<IAsyncShard<TStore, TDatabase>> AsyncProjectionShards();
 
-    public string SubscriptionName { get; }
-    public uint SubscriptionVersion { get; }
+    public string Name { get; }
+    public uint Version { get; }
 }
 
 // Assuming that DocumentStore et al will be embedded into this
-public interface IAsyncShard
+public interface IAsyncShard<TStore, TDatabase>
 {
     ShardRole Role { get; }
-    ISubscriptionExecution BuildExecution(ILogger logger);
+    ISubscriptionExecution BuildExecution(TStore store, TDatabase database, ILogger logger);
     ShardName Name { get; }
 }
 
