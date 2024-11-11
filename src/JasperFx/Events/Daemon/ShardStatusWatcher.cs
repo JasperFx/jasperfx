@@ -1,6 +1,7 @@
 using System.Diagnostics;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 /// <summary>
 ///     Used mostly by tests to listen for expected shard events or progress

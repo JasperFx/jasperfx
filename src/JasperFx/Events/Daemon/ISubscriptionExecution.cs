@@ -1,4 +1,6 @@
-namespace JasperFx.Events.Projections;
+using JasperFx.Events.Projections;
+
+namespace JasperFx.Events.Daemon;
 
 public interface ISubscriptionExecution: IAsyncDisposable
 {

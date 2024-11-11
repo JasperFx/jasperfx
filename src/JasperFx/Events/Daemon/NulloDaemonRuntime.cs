@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public class NulloDaemonRuntime: IDaemonRuntime
 {

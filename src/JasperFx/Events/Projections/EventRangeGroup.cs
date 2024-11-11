@@ -1,3 +1,5 @@
+using JasperFx.Events.Daemon;
+
 namespace JasperFx.Events.Projections;
 
 public abstract class EventRangeGroup<TBatch>: IDisposable

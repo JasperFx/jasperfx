@@ -1,7 +1,8 @@
 #nullable enable
 using System.Diagnostics;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public interface ISubscriptionMetrics
 {

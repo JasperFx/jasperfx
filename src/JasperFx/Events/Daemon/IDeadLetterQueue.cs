@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public interface IDaemonRuntime
 {

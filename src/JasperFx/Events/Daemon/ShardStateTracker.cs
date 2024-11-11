@@ -1,9 +1,10 @@
 using System.Collections.Immutable;
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 /// <summary>
 ///     Observable for progress and action updates for all running asynchronous projection shards

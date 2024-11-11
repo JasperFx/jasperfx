@@ -1,7 +1,8 @@
 using JasperFx.Events.Grouping;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public interface IGroupedProjectionRunner<TBatch, TGroup> : IAsyncDisposable
  where TGroup : EventRangeGroup<TBatch>

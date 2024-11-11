@@ -1,8 +1,9 @@
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 {

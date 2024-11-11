@@ -1,4 +1,4 @@
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public enum ShardAction
 {

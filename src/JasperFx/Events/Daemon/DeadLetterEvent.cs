@@ -1,6 +1,7 @@
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 public class DeadLetterEvent
 {

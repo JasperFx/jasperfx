@@ -1,3 +1,5 @@
+using JasperFx.Events.Daemon;
+
 namespace JasperFx.Events.Projections;
 
 public enum ShardMode

@@ -1,6 +1,7 @@
 using JasperFx.Core;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 /// <summary>
 ///     Governs the advanced behavior of a projection shard running

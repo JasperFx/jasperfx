@@ -1,10 +1,10 @@
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
-using JasperFx.Events.Grouping;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Trace;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Daemon;
 
 
 
