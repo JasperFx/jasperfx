@@ -1,4 +1,3 @@
-using System.Diagnostics.Metrics;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -8,34 +7,6 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
-public interface IEventStorage<TDatabase> where TDatabase : IEventDatabase
-{
-    string DefaultDatabaseName { get; }
-    ErrorHandlingOptions ContinuousErrors { get; }
-    ErrorHandlingOptions RebuildErrors { get; }
-
-    IReadOnlyList<IAsyncShard<TDatabase>> AllShards();
-    
-    Meter Metrics { get; }
-}
-
-public interface IEventDatabase : IProjectionStorage
-{
-    /// <summary>
-    ///     Identifying name for infrastructure and logging
-    /// </summary>
-    string Identifier { get; }
-    
-    /// <summary>
-    ///     *If* a projection daemon has been started for this database, this
-    ///     is the ShardStateTracker for the running daemon. This is useful in testing
-    ///     scenarios
-    /// </summary>
-    ShardStateTracker Tracker { get; }
-
-    Task StoreDeadLetterEventAsync(DeadLetterEvent deadLetterEvent, CancellationToken token);
-}
-/*
 public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, IDaemonRuntime
     where TStorage : IEventStorage<TDatabase>
     where TDatabase : IEventDatabase
@@ -49,7 +20,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public AsyncDaemon(IEventStorage<TDatabase> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
+    public AsyncDaemon(IEventStorage<TDatabase> store, TDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
     {
         Database = database;
         _store = store;
@@ -74,7 +45,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
         }, Logger, _cancellation.Token);
     }
 
-    internal IEventDatabase Database { get; }
+    internal TDatabase Database { get; }
 
     public ILogger Logger { get; }
 
@@ -117,8 +88,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
 
             if (position.ShouldUpdateProgressFirst)
             {
-                await rewindAgentProgress(agent.Name.Identity, _cancellation.Token, position.Floor)
-                    .ConfigureAwait(false);
+                await _store.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, position.Floor).ConfigureAwait(false);
             }
 
             var errorOptions = mode == ShardExecutionMode.Continuous
@@ -179,11 +149,9 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
             throw new ArgumentOutOfRangeException(nameof(shardName),
                 $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
         }
-        
-        
-        
-        
-        var agent = _factory.BuildProjectionAgentForShard(shardName, Database);
+
+        var agent = buildAgentForShard(shard);
+
         var didStart = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
 
         if (!didStart && agent is IAsyncDisposable d)
@@ -191,6 +159,25 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
             // Could not be started
             await d.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    private SubscriptionAgent buildAgentForShard(IAsyncShard<TDatabase> shard)
+    {
+        var execution = shard.BuildExecution(Database, _loggerFactory);
+        var loader = shard.BuildEventLoader(Database, _loggerFactory);
+        
+        var metricsNaming = new MetricsNaming
+        {
+            DatabaseName = Database.Identifier,
+            DefaultDatabaseName = _store.DefaultDatabaseName,
+            MetricsPrefix = _store.MetricsPrefix
+        };
+        
+        var metrics = new SubscriptionMetrics(_store.ActivitySource, _store.Meter, shard.Name, metricsNaming);
+        
+        var agent = new SubscriptionAgent(shard.Name, shard.Options, _store.TimeProvider, loader, execution,
+            Database.Tracker, metrics, _loggerFactory.CreateLogger<SubscriptionAgent>());
+        return agent;
     }
 
     private async Task stopIfRunningAsync(string shardIdentity)
@@ -262,7 +249,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
             await StartHighWaterDetectionAsync().ConfigureAwait(false);
         }
 
-        var agents = _factory.BuildAllProjectionAgents(Database);
+        var agents = _store.AllShards().Select(buildAgentForShard);
         foreach (var agent in agents)
         {
             await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
@@ -316,7 +303,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
 
     public async Task StartHighWaterDetectionAsync()
     {
-        if (_store.Options.AutoCreateSchemaObjects != AutoCreate.None)
+        if (_store.AutoCreateSchemaObjects != AutoCreate.None)
         {
             await Database.EnsureStorageExistsAsync(typeof(IEvent), _cancellation.Token).ConfigureAwait(false);
         }
@@ -428,43 +415,45 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
 
     public Task RebuildProjectionAsync(Type projectionType, TimeSpan shardTimeout, CancellationToken token)
     {
-        if (projectionType.CanBeCastTo<IProjection>())
-        {
-            var projectionName = projectionType.FullNameInCode();
-            return RebuildProjectionAsync(projectionName, shardTimeout, token);
-        }
-
-        if (projectionType.CanBeCastTo<IProjectionSource>())
-        {
-            try
-            {
-                var projection = Activator.CreateInstance(projectionType);
-                if (projection is IProjectionSource wrapper)
-                    return RebuildProjectionAsync(wrapper.ProjectionName, shardTimeout, token);
-
-                throw new ArgumentOutOfRangeException(nameof(projectionType),
-                    $"Type {projectionType.FullNameInCode()} is not a valid projection type");
-            }
-            catch (Exception e)
-            {
-                throw new ArgumentOutOfRangeException(nameof(projectionType), e,
-                    $"No public default constructor for projection type {projectionType.FullNameInCode()}, you may need to supply the projection name instead");
-            }
-        }
-
-        // Assume this is an aggregate type name
-        return RebuildProjectionAsync(projectionType.NameInCode(), shardTimeout, token);
+        throw new NotImplementedException("Redo when combining this with Marten again");
+        // if (projectionType.CanBeCastTo<IProjection>())
+        // {
+        //     var projectionName = projectionType.FullNameInCode();
+        //     return RebuildProjectionAsync(projectionName, shardTimeout, token);
+        // }
+        //
+        // if (projectionType.CanBeCastTo<IProjectionSource>())
+        // {
+        //     try
+        //     {
+        //         var projection = Activator.CreateInstance(projectionType);
+        //         if (projection is IProjectionSource wrapper)
+        //             return RebuildProjectionAsync(wrapper.ProjectionName, shardTimeout, token);
+        //
+        //         throw new ArgumentOutOfRangeException(nameof(projectionType),
+        //             $"Type {projectionType.FullNameInCode()} is not a valid projection type");
+        //     }
+        //     catch (Exception e)
+        //     {
+        //         throw new ArgumentOutOfRangeException(nameof(projectionType), e,
+        //             $"No public default constructor for projection type {projectionType.FullNameInCode()}, you may need to supply the projection name instead");
+        //     }
+        // }
+        //
+        // // Assume this is an aggregate type name
+        // return RebuildProjectionAsync(projectionType.NameInCode(), shardTimeout, token);
     }
 
     public Task RebuildProjectionAsync(string projectionName, TimeSpan shardTimeout, CancellationToken token)
     {
-        if (!_store.Options.Projections.TryFindProjection(projectionName, out var projection))
-        {
-            throw new ArgumentOutOfRangeException(nameof(projectionName),
-                $"No registered projection matches the name '{projectionName}'. Available names are {_store.Options.Projections.AllProjectionNames().Join(", ")}");
-        }
-
-        return rebuildProjection(projection, shardTimeout, token);
+        throw new NotImplementedException("Redo in conjunction with Marten");
+        // if (!_store.Options.Projections.TryFindProjection(projectionName, out var projection))
+        // {
+        //     throw new ArgumentOutOfRangeException(nameof(projectionName),
+        //         $"No registered projection matches the name '{projectionName}'. Available names are {_store.Options.Projections.AllProjectionNames().Join(", ")}");
+        // }
+        //
+        // return rebuildProjection(projection, shardTimeout, token);
     }
 
     public Task RebuildProjectionAsync<TView>(TimeSpan shardTimeout, CancellationToken token)
@@ -479,7 +468,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
     }
 
         // TODO -- ZOMG, this is awful
-    private async Task rebuildProjection(IProjectionSource source, TimeSpan shardTimeout, CancellationToken token)
+    private async Task rebuildProjection(IProjectionSource<TStorage, TDatabase> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
 
@@ -503,15 +492,15 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
 
         if (token.IsCancellationRequested) return;
 
-        var agents = _factory.BuildAgents(subscriptionName, Database);
+        var agents = buildAgentsForSubscription(subscriptionName);
 
         foreach (var agent in agents)
         {
             Tracker.MarkAsRestarted(agent.Name);
         }
 
-        // Teardown the current state
-       await teardownExistingProjectionProgress(source, token, agents).ConfigureAwait(false);
+        // Tear down the current state
+        await _store.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
 
         if (token.IsCancellationRequested)
         {
@@ -522,7 +511,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
 
         // Is the shard count the optimal DoP here?
         await Parallel.ForEachAsync(agents,
-            new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = agents.Count },
+            new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = agents.Count() },
             async (agent, cancellationToken) =>
             {
                 Tracker.MarkAsRestarted(agent.Name);
@@ -566,29 +555,6 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
     }
 
 
-    private async Task teardownExistingProjectionProgress(IProjectionSource source, CancellationToken token,
-        IReadOnlyList<ISubscriptionAgent> agents)
-    {
-        var sessionOptions = SessionOptions.ForDatabase(Database);
-        sessionOptions.AllowAnyTenant = true;
-        await using var session = _store.LightweightSession(sessionOptions);
-
-        if (source.Options.TeardownDataOnRebuild)
-        {
-            source.Options.RegisterTeardownActions((IProjectionStorageSession)session);
-        }
-
-        foreach (var agent in agents)
-        {
-            session.QueueOperation(new DeleteProjectionProgress(_store.Events, agent.Name.Identity));
-        }
-
-        // Rewind previous DeadLetterEvents because you're going to replay them all anyway
-        session.DeleteWhere<DeadLetterEvent>(x => x.ProjectionName == source.ProjectionName);
-
-        await session.SaveChangesAsync(token).ConfigureAwait(false);
-    }
-
     public async Task PrepareForRebuildsAsync()
     {
         if (_highWater.IsRunning)
@@ -614,57 +580,27 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
 
         if (_cancellation.IsCancellationRequested) return;
 
-        var agents = _factory.BuildAgents(subscriptionName, Database);
+        await _store.RewindSubscriptionProgressAsync(Database, subscriptionName, token, sequenceFloor).ConfigureAwait(false);
 
-        await rewindSubscriptionProgress(subscriptionName, token, sequenceFloor, agents).ConfigureAwait(false);
-
+        var agents = buildAgentsForSubscription(subscriptionName);
+        
         foreach (var agent in agents)
         {
             Tracker.MarkAsRestarted(agent.Name);
-            var errorOptions = _store.Options.Projections.RebuildErrors;
+            var errorOptions = _store.RebuildErrors;
             await agent.StartAsync(new SubscriptionExecutionRequest(sequenceFloor.Value, ShardExecutionMode.Continuous,
                 errorOptions, this)).ConfigureAwait(false);
             agent.MarkHighWater(HighWaterMark());
         }
     }
 
-    private async Task rewindAgentProgress(string shardName, CancellationToken token, long sequenceFloor)
+    private SubscriptionAgent[] buildAgentsForSubscription(string subscriptionName)
     {
-        var sessionOptions = SessionOptions.ForDatabase(Database);
-        sessionOptions.AllowAnyTenant = true;
-        await using var session = _store.LightweightSession(sessionOptions);
-
-        if (sequenceFloor > 0)
-        {
-            session.QueueSqlCommand($"insert into {_store.Options.EventGraph.ProgressionTable} (name, last_seq_id) values (?, ?) on conflict (name) do update set last_seq_id = ?", shardName, sequenceFloor, sequenceFloor);
-        }
-
-        await session.SaveChangesAsync(token).ConfigureAwait(false);
-    }
-
-    private async Task rewindSubscriptionProgress(string subscriptionName, CancellationToken token, long? sequenceFloor,
-        IReadOnlyList<ISubscriptionAgent> agents)
-    {
-        var sessionOptions = SessionOptions.ForDatabase(Database);
-        sessionOptions.AllowAnyTenant = true;
-        await using var session = _store.LightweightSession(sessionOptions);
-
-        foreach (var agent in agents)
-        {
-            if (sequenceFloor.Value == 0)
-            {
-                session.QueueSqlCommand($"delete from {_store.Options.EventGraph.ProgressionTable} where name = ?", agent.Name.Identity);
-            }
-            else
-            {
-                session.QueueSqlCommand($"update {_store.Options.EventGraph.ProgressionTable} set last_seq_id = ? where name = ?", sequenceFloor, agent.Name.Identity);
-            }
-        }
-
-        // Rewind previous DeadLetterEvents because you're going to replay them all anyway
-        session.DeleteWhere<DeadLetterEvent>(x => x.ProjectionName == subscriptionName && x.EventSequence >= sequenceFloor);
-
-        await session.SaveChangesAsync(token).ConfigureAwait(false);
+        var agents = _store
+            .AllShards()
+            .Where(x => x.Name.ProjectionName.EqualsIgnoreCase(subscriptionName))
+            .Select(buildAgentForShard).ToArray();
+        return agents;
     }
 }
-*/
+

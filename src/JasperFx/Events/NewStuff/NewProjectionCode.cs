@@ -78,9 +78,11 @@ public interface ISubscriptionSource<TStore, TDatabase>
 // Assuming that DocumentStore et al will be embedded into this
 public interface IAsyncShard<TDatabase>
 {
+    AsyncOptions Options { get; }
     ShardRole Role { get; }
-    ISubscriptionExecution BuildExecution(TDatabase database, ILogger logger);
+    ISubscriptionExecution BuildExecution(TDatabase database, ILoggerFactory loggerFactory);
     ShardName Name { get; }
+    IEventLoader BuildEventLoader(TDatabase database, ILoggerFactory loggerFactory);
 }
 
 
