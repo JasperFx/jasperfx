@@ -61,8 +61,7 @@ public interface IAggregatorSource<TQuerySession>
 /// </summary>
 public interface IProjectionSource<TStore, TDatabase>: IReadOnlyProjectionData, ISubscriptionSource<TStore, TDatabase>
 {
-    // TODO -- might need to make this be async
-    bool TryBuildReplayExecutor(string databaseName, out IReplayExecutor executor);
+    bool TryBuildReplayExecutor(TStore store, TDatabase database, out IReplayExecutor executor);
 }
 
 public interface ISubscriptionSource<TStore, TDatabase>
