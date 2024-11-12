@@ -9,21 +9,6 @@ using JasperFx.Events.NewStuff;
 
 namespace JasperFx.Events.Projections;
 
-/*
- * Notes
- * Valid return types are void & Task
- * Valid argument types are the TOperations, IEvent, IEvent<T>, and the event type. CancellationToken
- *
- * Validation rules:
- * No usage of Project() if in a service wrapper
- * No usage of Project() or other methods if there are any methods
- *
- * Use TypeOf, IfThen
- *
- * Find "Project", "Create", or "Transform"
- */
-
-
 public enum TenancyBehavior
 {
     /// <summary>
@@ -115,3 +100,5 @@ public abstract class ProjectionSource<TOperations, TStore, TDatabase> : Project
         //_projectMethods.AddLambda(project, typeof(TEvent));
     }
 }
+
+
