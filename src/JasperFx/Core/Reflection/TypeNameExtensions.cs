@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace JasperFx.Core.Reflection;
 
@@ -205,5 +206,21 @@ public static class TypeNameExtensions
         var prefix = type.Name.Split('`').First();
         var hash = Math.Abs(type.FullNameInCode().GetStableHashCode());
         return $"{prefix}{suffix}{hash}".Replace("-", "");
+    }
+    
+    public static string Sanitize(this string value)
+    {
+        return Regex.Replace(value, @"[\#\<\>\,\.\]\[\`\+\-]", "_").Replace(" ", "");
+    }
+
+    public static string ToTypeNamePart(this Type type)
+    {
+        if (type.IsGenericType)
+        {
+            return type.Name.Split('`').First() + "_of_" +
+                   type.GetGenericArguments().Select(x => x.ToTypeNamePart()).Join("_");
+        }
+
+        return type.Name;
     }
 }

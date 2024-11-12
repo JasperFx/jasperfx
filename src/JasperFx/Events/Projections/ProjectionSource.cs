@@ -102,4 +102,16 @@ public abstract class ProjectionSource<TOperations, TStore, TDatabase> : Project
         // TODO -- make this use the Project<T> stuff. Order by most specific first
         return Task.CompletedTask;
     }
+    
+    [JasperFxIgnore]
+    public void Project<TEvent>(Action<TEvent, TOperations> project)
+    {
+        //_projectMethods.AddLambda(project, typeof(TEvent));
+    }
+
+    [JasperFxIgnore]
+    public void ProjectAsync<TEvent>(Func<TEvent, TOperations, Task> project)
+    {
+        //_projectMethods.AddLambda(project, typeof(TEvent));
+    }
 }
