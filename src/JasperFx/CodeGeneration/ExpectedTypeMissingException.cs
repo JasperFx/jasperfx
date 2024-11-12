@@ -1,6 +1,4 @@
-using System;
-
-namespace JasperFx.RuntimeCompiler;
+namespace JasperFx.CodeGeneration;
 
 /// <summary>
 ///     Denotes an expected set of pre-built, generated types

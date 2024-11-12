@@ -17,7 +17,7 @@ namespace JasperFx.RuntimeCompiler
 	/// <summary>
 	/// Use to compile C# code to in memory assemblies using the Roslyn compiler
 	/// </summary>
-	public class AssemblyGenerator
+	public class AssemblyGenerator : IAssemblyGenerator
 	{
 
 		private readonly IList<MetadataReference> _references = new List<MetadataReference>();

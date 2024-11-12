@@ -1,18 +1,20 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace JasperFx.RuntimeCompiler
+namespace JasperFx.CodeGeneration
 {
     public static class CodeFileExtensions
     {
-        public static async Task Initialize(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
+        public static async Task Initialize(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider services)
         {
+            if (services == null)
+            {
+                throw new ArgumentNullException(nameof(services));
+            }
+
             var @namespace = parent.ToNamespace(rules);
             
             if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
@@ -22,8 +24,8 @@ namespace JasperFx.RuntimeCompiler
                 var generatedAssembly = parent.StartAssembly(rules);
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = parent is ICodeFileCollectionWithServices ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource : null;
-                        
-                var compiler = new AssemblyGenerator();
+
+                var compiler = services.GetRequiredService<IAssemblyGenerator>();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
 
@@ -47,9 +49,9 @@ namespace JasperFx.RuntimeCompiler
                 var generatedAssembly = parent.StartAssembly(rules);
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
-                
-                
-                var compiler = new AssemblyGenerator();
+
+
+                var compiler = services.GetRequiredService<IAssemblyGenerator>();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
@@ -75,9 +77,14 @@ namespace JasperFx.RuntimeCompiler
         /// <param name="parent"></param>
         /// <param name="services"></param>
         /// <exception cref="ExpectedTypeMissingException"></exception>
-        public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
+        public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider services)
         {
-            var logger = services?.GetService(typeof(ILogger<AssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
+            if (services == null)
+            {
+                throw new ArgumentNullException(nameof(services));
+            }
+
+            var logger = services?.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
             var @namespace = parent.ToNamespace(rules);
             
             if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
@@ -90,8 +97,8 @@ namespace JasperFx.RuntimeCompiler
                 var generatedAssembly = parent.StartAssembly(rules);
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = parent is ICodeFileCollectionWithServices ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource : null;
-                        
-                var compiler = new AssemblyGenerator();
+
+                var compiler = services.GetRequiredService<IAssemblyGenerator>();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
 
@@ -115,8 +122,8 @@ namespace JasperFx.RuntimeCompiler
                 var generatedAssembly = parent.StartAssembly(rules);
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
-                
-                var compiler = new AssemblyGenerator();
+
+                var compiler = services.GetRequiredService<IAssemblyGenerator>();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 
                 file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
