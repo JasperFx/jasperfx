@@ -29,7 +29,7 @@ public interface ITabulator
 public class AEvent : ITabulator
 {
     // Necessary for a couple tests. Let it go.
-    public Guid Id { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
 
     public void Apply(MyAggregate aggregate)
     {
@@ -41,6 +41,8 @@ public class AEvent : ITabulator
 
 public class BEvent : ITabulator
 {
+    public Guid Id { get; set; } = Guid.NewGuid();
+    
     public void Apply(MyAggregate aggregate)
     {
         aggregate.BCount++;

@@ -1,4 +1,6 @@
+using System.Linq.Expressions;
 using System.Reflection;
+using FastExpressionCompiler;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -12,8 +14,13 @@ namespace JasperFx.Events.Projections;
  * Valid return types are void & Task
  * Valid argument types are the TOperations, IEvent, IEvent<T>, and the event type. CancellationToken
  *
+ * Validation rules:
+ * No usage of Project() if in a service wrapper
+ * No usage of Project() or other methods if there are any methods
  *
  * Use TypeOf, IfThen
+ *
+ * Find "Project", "Create", or "Transform"
  */
 
 
@@ -34,7 +41,7 @@ public enum TenancyBehavior
 /// <summary>
 /// Base class for creating adhoc projections
 /// </summary>
-public abstract class ProjectionSource<TOperations, TStore, TDatabase> : ProjectionBase, IProjectionSource<TStore, TDatabase>
+public abstract class ProjectionSource<TOperations, TStore, TDatabase> : ProjectionBase, IProjectionSource<TOperations, TStore, TDatabase>
 {
     protected ProjectionSource()
     {
@@ -68,6 +75,18 @@ public abstract class ProjectionSource<TOperations, TStore, TDatabase> : Project
         throw new NotImplementedException();
     }
 
+    public IInlineProjection<TOperations> BuildForInline()
+    {
+        throw new NotImplementedException();
+    }
+
+    // TODO -- this needs to be cached or memoized
+    public IProjection<TOperations> BuildProjection()
+    {
+        throw new NotImplementedException();
+    }
+    
+
     string ISubscriptionSource<TStore, TDatabase>.Name => ProjectionName;
     uint ISubscriptionSource<TStore, TDatabase>.Version => ProjectionVersion;
     
@@ -83,58 +102,4 @@ public abstract class ProjectionSource<TOperations, TStore, TDatabase> : Project
         // TODO -- make this use the Project<T> stuff. Order by most specific first
         return Task.CompletedTask;
     }
-    
-    [JasperFxIgnore]
-    public void Project<TEvent>(Action<TEvent, TOperations> project)
-    {
-        //_projectMethods.AddLambda(project, typeof(TEvent));
-    }
-
-    [JasperFxIgnore]
-    public void ProjectAsync<TEvent>(Func<TEvent, TOperations, CancellationToken, Task> project)
-    {
-        //_projectMethods.AddLambda(project, typeof(TEvent));
-    }
-}
-
-internal interface IEventHandler<TOperations>
-{
-    Type EventType { get; }
-}
-
-internal class SyncLambdaEventHandler<TOperations, TEvent> : IEventHandler<TOperations>
-{
-    private readonly Action<TEvent, TOperations> _project;
-
-    public SyncLambdaEventHandler(Action<TEvent, TOperations> project)
-    {
-        _project = project;
-    }
-
-    public Type EventType => typeof(TEvent).UnwrapEventType();
-}
-
-internal class AsyncLambdaEventHandler<TOperations, TEvent> : IEventHandler<TOperations>
-{
-    private readonly Func<TEvent, TOperations, CancellationToken, Task> _project;
-
-    public AsyncLambdaEventHandler(Func<TEvent, TOperations, CancellationToken, Task> project)
-    {
-        _project = project;
-    }
-    
-    public Type EventType => typeof(TEvent).UnwrapEventType();
-}
-
-internal class EventHandler<TOperations> : MethodCall
-{
-    public EventHandler(Type handlerType, string methodName) : base(handlerType, methodName)
-    {
-    }
-
-    public EventHandler(Type handlerType, MethodInfo method) : base(handlerType, method)
-    {
-    }
-    
-    public Type EventType => Method.GetEventType(null).UnwrapEventType();
 }

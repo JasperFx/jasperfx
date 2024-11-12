@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
-public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, IDaemonRuntime
+public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<ShardState>, IDaemonRuntime
     where TStorage : IEventStorage<TDatabase>
     where TDatabase : IEventDatabase
 {
@@ -468,7 +468,7 @@ public partial class AsyncDaemon<TStorage, TDatabase> : IObserver<ShardState>, I
     }
 
         // TODO -- ZOMG, this is awful
-    private async Task rebuildProjection(IProjectionSource<TStorage, TDatabase> source, TimeSpan shardTimeout, CancellationToken token)
+    private async Task rebuildProjection(IProjectionSource<TOperations, TStorage, TDatabase> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
 
