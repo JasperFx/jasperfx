@@ -229,20 +229,3 @@ public class Event<T> : IEvent<T> where T : notnull
 
     #endregion
 }
-
-public static class EventExtensions
-{
-    public static IEvent<T> WithData<T>(this IEvent @event, T eventData) where T : notnull
-    {
-        return new Event<T>(eventData)
-        {
-            Id = @event.Id,
-            Sequence = @event.Sequence,
-            TenantId = @event.TenantId,
-            Version = @event.Version,
-            StreamId = @event.StreamId,
-            StreamKey = @event.StreamKey,
-            Timestamp = @event.Timestamp
-        };
-    }
-}

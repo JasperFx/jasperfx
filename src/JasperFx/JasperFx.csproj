@@ -26,6 +26,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Events\Aggregation\" />
+      <Compile Remove="Events\CodeGeneration\MethodSlot.cs" />
+      <Compile Remove="Events\CodeGeneration\MethodCollection.cs" />
     </ItemGroup>
 </Project>

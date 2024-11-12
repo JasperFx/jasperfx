@@ -35,3 +35,4 @@ public class JasperFxAssemblyAttribute : Attribute
 
     public Type ExtensionType { get; set; }
 }
+
