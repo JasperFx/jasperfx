@@ -1,7 +1,9 @@
 #nullable enable
+using JasperFx.CodeGeneration;
+
 namespace JasperFx.Events;
 
-public interface IEventGraph
+public interface IEventGraph : ICodeFileCollection
 {
     IEvent BuildEvent(object eventData);
     EventAppendMode AppendMode { get; set; }

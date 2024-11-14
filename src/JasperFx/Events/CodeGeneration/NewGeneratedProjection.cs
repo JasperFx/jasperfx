@@ -4,8 +4,45 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events.CodeGeneration;
 
-/*
+
+public interface IStore<TOptions>
+{
+    TOptions Options { get; }
+    GenerationRules GenerationRules { get; }
+    IEventGraph Events { get; }
+}
+
+public class GeneratedEventProjection<TOperations, TStore, TDatabase, TOptions> : NewGeneratedProjection<TOperations, TStore,
+    TDatabase, TOptions>
+    where TStore : IStore<TOptions>
+{
+    private readonly ProjectMethodCollection _projectMethods;
+    private readonly CreateDocumentMethodCollection _createMethods;
+
+    public GeneratedEventProjection(Type projectionType) : base(projectionType)
+    {
+        _projectMethods = new ProjectMethodCollection(projectionType, typeof(TOperations));
+        _createMethods = new CreateDocumentMethodCollection(projectionType, typeof(TOperations));
+    }
+
+    protected override void assembleTypes(GeneratedAssembly assembly, TOptions options)
+    {
+        throw new NotImplementedException();
+    }
+
+    protected override bool tryAttachTypes(Assembly assembly, TOptions options)
+    {
+        throw new NotImplementedException();
+    }
+
+    protected override bool needsSettersGenerated()
+    {
+        throw new NotImplementedException();
+    }
+}
+
 public abstract class NewGeneratedProjection<TOperations, TStore, TDatabase, TOptions> : ICodeFile
+    where TStore : IStore<TOptions>
 {
     private readonly Type _projectionType;
     private bool _hasGenerated;
@@ -71,9 +108,9 @@ public abstract class NewGeneratedProjection<TOperations, TStore, TDatabase, TOp
         void generateIfNecessaryLocked()
         {
             StoreOptions = store.Options;
-            var rules = store.Options.CreateGenerationRules();
+            var rules = store.GenerationRules;
             rules.ReferenceTypes(GetType());
-            this.As<ICodeFile>().InitializeSynchronously(rules, store.Options.EventGraph, null);
+            this.As<ICodeFile>().InitializeSynchronously(rules, store.Events, null);
 
             if (!needsSettersGenerated())
             {
@@ -98,4 +135,3 @@ public abstract class NewGeneratedProjection<TOperations, TStore, TDatabase, TOp
 
 
 }
-*/
