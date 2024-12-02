@@ -1,7 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-    <PropertyGroup>
-        <TargetFrameworks>net7.0;net8.0</TargetFrameworks>
-    </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
     </ItemGroup>

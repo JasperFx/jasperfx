@@ -42,6 +42,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionItems", "SolutionIt
 		.github\workflows\docs-prs.yml = .github\workflows\docs-prs.yml
 		.github\workflows\docs.yml = .github\workflows\docs.yml
 		.github\workflows\on-manual-do-nuget-publish.yml = .github\workflows\on-manual-do-nuget-publish.yml
+		Directory.Build.props = Directory.Build.props
 	EndProjectSection
 EndProject
 Global
