@@ -294,6 +294,20 @@ e
     {
         one.EndsWithIgnoreCase(suffix).ShouldBe(expected);
     }
+    
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("foo=bar", 1)]
+    [InlineData("foo=bar;", 1)]
+    [InlineData("foo=bar;zap=42;", 2)]
+    [InlineData("foo=bar;zap=42", 2)]
+    public void removes_empty_entries_when_splitting_strings_into_array(string one, int expectedCount)
+    {
+        var array = one.ToDelimitedArray(';');
+
+        array.Length.ShouldBe(expectedCount);
+        array.All(x => x.IsNotEmpty()).ShouldBeTrue();
+    }
 
     public struct NotAnEnum
     {

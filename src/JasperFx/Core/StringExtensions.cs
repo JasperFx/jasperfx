@@ -241,7 +241,7 @@ public static class StringExtensions
     /// <returns></returns>
     public static string[] ToDelimitedArray(this string content, char delimiter)
     {
-        var array = content.Split(delimiter);
+        var array = content.Split(delimiter, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         for (var i = 0; i < array.Length; i++)
         {
             array[i] = array[i].Trim();
