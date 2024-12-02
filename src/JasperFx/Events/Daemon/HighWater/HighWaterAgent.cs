@@ -1,7 +1,10 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Timers;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Trace;
 using Timer = System.Timers.Timer;
 
 namespace JasperFx.Events.Daemon.HighWater;
@@ -17,9 +20,12 @@ public class HighWaterAgent: IDisposable
     private HighWaterStatistics _current;
     private Task<Task> _loop;
     private CancellationToken _token;
+    private readonly string _spanName;
+    private readonly Counter<int> _skipping;
 
     // ReSharper disable once ContextualLoggerProblem
-    public HighWaterAgent(IHighWaterDetector detector, ShardStateTracker tracker, ILogger logger,
+    public HighWaterAgent(Meter meter, IHighWaterDetector detector, ShardStateTracker tracker,
+        ILogger logger,
         DaemonSettings settings, CancellationToken token)
     {
         _detector = detector;
@@ -30,6 +36,11 @@ public class HighWaterAgent: IDisposable
 
         _timer = new Timer(_settings.HealthCheckPollingTime.TotalMilliseconds) { AutoReset = true };
         _timer.Elapsed += TimerOnElapsed;
+
+        _spanName = detector.DatabaseName.EqualsIgnoreCase("Marten") ? "marten.daemon.highwatermark" : $"marten.{_detector.DatabaseName.ToLowerInvariant()}.daemon.highwatermark";
+
+        var meterName = detector.DatabaseName.EqualsIgnoreCase("Marten") ? "marten.daemon.skipping" : $"marten.{_detector.DatabaseName.ToLowerInvariant()}.daemon.skipping";
+        _skipping = meter.CreateCounter<int>(meterName);
     }
 
     public bool IsRunning { get; private set; }
@@ -88,6 +99,10 @@ public class HighWaterAgent: IDisposable
                 break;
             }
 
+            // TODO -- See https://github.com/JasperFx/jasperfx/issues/21
+            Activity? activity = null;
+            //using var activity = MartenTracing.StartActivity(_spanName);
+
             HighWaterStatistics statistics = null;
             try
             {
@@ -102,17 +117,21 @@ public class HighWaterAgent: IDisposable
 
                 _logger.LogError(ex, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseName);
                 await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+
+                activity?.RecordException(ex);
+
                 continue;
 
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseName);
+                activity?.RecordException(e);
                 await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
                 continue;
             }
 
-            var status = statistics.InterpretStatus(_current);
+            var status = tagActivity(statistics, activity);
 
             switch (status)
             {
@@ -140,13 +159,33 @@ public class HighWaterAgent: IDisposable
                         "High Water agent is stale after threshold of {DelayInSeconds} seconds, skipping gap to events marked after {SafeHarborTime} for database {Name}",
                         _settings.StaleSequenceThreshold.TotalSeconds, safeHarborTime, _detector.DatabaseName);
 
+                    activity?.SetTag("skipped", "true");
+
+                    var lastKnown = statistics.CurrentMark;
+
                     statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);
+
+                    status = tagActivity(statistics, activity);
+                    activity?.SetTag("last.mark", lastKnown);
+
+                    _skipping.Add(1);
+
                     await markProgressAsync(statistics, _settings.FastPollingTime, status).ConfigureAwait(false);
                     break;
             }
         }
 
         _logger.LogInformation("HighWaterAgent has detected a cancellation and has stopped polling for database {Name}", _detector.DatabaseName);
+    }
+
+    private HighWaterStatus tagActivity(HighWaterStatistics statistics, Activity activity)
+    {
+        var status = statistics.InterpretStatus(_current);
+
+        activity?.AddTag("sequence", statistics.HighestSequence);
+        activity?.AddTag("status", status.ToString());
+        activity?.AddTag("current.mark", statistics.CurrentMark);
+        return status;
     }
 
     private async Task markProgressAsync(HighWaterStatistics statistics, TimeSpan delayTime, HighWaterStatus status)

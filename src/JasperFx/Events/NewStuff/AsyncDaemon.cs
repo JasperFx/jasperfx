@@ -27,7 +27,7 @@ public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<S
         _loggerFactory = loggerFactory;
         Logger = loggerFactory.CreateLogger(GetType());
         Tracker = Database.Tracker;
-        _highWater = new HighWaterAgent(detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), settings, _cancellation.Token);
+        _highWater = new HighWaterAgent(store.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), settings, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
