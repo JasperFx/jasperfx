@@ -35,6 +35,15 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ExtensionCommands", "src\Ex
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "EventStoreTests", "src\EventStoreTests\EventStoreTests.csproj", "{45D6225F-7EF6-4631-AB6E-DFE6EBA4C2C2}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionItems", "SolutionItems", "{CD895186-7FFF-43EA-B54F-C63A08701EAE}"
+	ProjectSection(SolutionItems) = preProject
+		.github\FUNDING.yml = .github\FUNDING.yml
+		.github\workflows\dotnet.yml = .github\workflows\dotnet.yml
+		.github\workflows\docs-prs.yml = .github\workflows\docs-prs.yml
+		.github\workflows\docs.yml = .github\workflows\docs.yml
+		.github\workflows\on-manual-do-nuget-publish.yml = .github\workflows\on-manual-do-nuget-publish.yml
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
