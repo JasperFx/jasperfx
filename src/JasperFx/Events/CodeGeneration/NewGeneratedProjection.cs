@@ -132,6 +132,4 @@ public abstract class NewGeneratedProjection<TOperations, TStore, TDatabase, TOp
     protected static object _assembleLocker = new();
     
     protected abstract bool needsSettersGenerated();
-
-
 }

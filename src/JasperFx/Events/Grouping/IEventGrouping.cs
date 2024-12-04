@@ -44,6 +44,7 @@ public interface IEventGrouping<TId>
     /// <param name="singleIdSource"></param>
     /// <param name="events"></param>
     /// <typeparam name="TEvent"></typeparam>
+    [Obsolete("Combine with the overloads that take the identity source")]
     void AddEventsWithMetadata<TEvent>(Func<IEvent<TEvent>, TId> singleIdSource, IEnumerable<IEvent> events);
 
 
@@ -64,4 +65,22 @@ public interface IEventGrouping<TId>
     /// <param name="events"></param>
     /// <typeparam name="TEvent"></typeparam>
     void AddEventsWithMetadata<TEvent>(Func<IEvent<TEvent>, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events);
+}
+
+
+public interface IEventGrouping2<TId>
+{
+    void AddEvent(TId id, IEvent @event);
+
+    void AddEvents(TId id, IEnumerable<IEvent> events);
+
+    // This time it would be smart enough to wall paper over a T of either
+    // InvoiceAdded or IEvent<InvoiceAdded>
+    void AddEvents<TEvent>(Func<TEvent, TId> singleIdSource, IEnumerable<IEvent> events);
+
+    // This time it would be smart enough to wall paper over a T of either
+    // InvoiceAdded or IEvent<InvoiceAdded>
+    void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events);
+    
+    void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc);
 }
