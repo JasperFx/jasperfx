@@ -1,4 +1,4 @@
-namespace JasperFx.Events;
+namespace JasperFx.Events.Grouping;
 
 public static class EventListExtensions
 {
