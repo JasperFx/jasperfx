@@ -146,7 +146,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
     IEnumerable<object> IEventSlice<TDoc>.PublishedMessages()
     {
-        throw new NotImplementedException();
+        return PublishedMessages ?? [];
     }
 
     /// <summary>
@@ -195,7 +195,10 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         // Need to do this first before applying the fanout rules
         reorderEvents();
 
-        foreach (var rule in rules) rule.Apply(_events);
+        foreach (var rule in rules)
+        {
+            rule.Apply(_events);
+        }
     }
 
     private void reorderEvents()
@@ -203,5 +206,17 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         var events = _events.Distinct().OrderBy(x => x.Sequence).ToArray();
         _events.Clear();
         _events.AddRange(events);
+    }
+
+    /// <summary>
+    /// Mostly for testing, adds an event by the event data
+    /// </summary>
+    /// <param name="data"></param>
+    /// <typeparam name="T"></typeparam>
+    public IEvent<T> AddEventByData<T>(T data)
+    {
+        var e = new Event<T>(data);
+        _events.Add(e);
+        return e;
     }
 }

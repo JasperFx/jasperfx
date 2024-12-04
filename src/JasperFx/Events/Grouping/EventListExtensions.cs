@@ -15,7 +15,7 @@ public static class EventListExtensions
         foreach (var source in matches)
         {
             var index = events.IndexOf(source, starting);
-            var range = fanOutFunc(source).Select(x => source.WithData(x)).ToArray();
+            var range = fanOutFunc(source).Select(x => source.CloneEventWithNewData(x)).ToArray();
 
             events.InsertRange(index + 1, range);
 

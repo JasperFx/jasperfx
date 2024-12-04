@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using EventStoreTests.TestingSupport;
 using JasperFx.Core.Reflection;
 using JasperFx.Events;
 using Shouldly;
@@ -22,6 +23,26 @@ public class EventExtensionsTests
     {
         var method = ReflectionHelper.GetMethod(expression);
         return method.GetEventType(typeof(MyAggregate));
+    }
+
+    [Fact]
+    public void clone_event_with_new_data()
+    {
+        var parent = new Event<Travel>(Travel.Random(1));
+        parent.StreamId = Guid.NewGuid();
+        parent.StreamKey = Guid.NewGuid().ToString();
+        parent.TenantId = Guid.NewGuid().ToString();
+        parent.Timestamp = DateTime.Today; // always use low fidelity dates for comparisons
+        parent.Version = 3;
+        parent.Sequence = 15;
+
+        var child = parent.CloneEventWithNewData(parent.Data.Movements.First());
+        child.StreamId.ShouldBe(parent.StreamId);
+        child.StreamKey.ShouldBe(parent.StreamKey);
+        child.TenantId.ShouldBe(parent.TenantId);
+        child.Timestamp.ShouldBe(parent.Timestamp);
+        child.Version.ShouldBe(parent.Version);
+        child.Sequence.ShouldBe(parent.Sequence);
     }
 
     [Fact]
