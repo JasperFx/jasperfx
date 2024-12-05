@@ -12,7 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Nuke.Common" Version="8.1.0" />
+    <PackageReference Include="Nuke.Common" Version="8.1.4" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.1" />
   </ItemGroup>
 
 </Project>

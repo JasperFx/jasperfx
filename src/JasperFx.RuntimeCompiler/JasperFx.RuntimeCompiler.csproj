@@ -3,16 +3,28 @@
         <Description>Runtime Roslyn Compilation and Code Generation Chicanery</Description>
         <PackageId>JasperFx.RuntimeCompiler</PackageId>
         <LangVersion>latest</LangVersion>
-        <TargetFrameworks>net7.0;net8.0</TargetFrameworks>
+        <TargetFrameworks>net7.0;net8.0;net9.0</TargetFrameworks>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.CodeAnalysis" Version="4.11.0"/>
         <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0"/>
         <PackageReference Include="Microsoft.CodeAnalysis.Scripting" Version="4.11.0"/>
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="[7.0.0, 9.0.0)"/>
     </ItemGroup>
 
-    <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net7.0'">
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="7.0.0"/>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2"/>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1"/>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0"/>
+  </ItemGroup>
+
+  <ItemGroup>
         <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
     </ItemGroup>
 </Project>

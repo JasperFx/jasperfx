@@ -1,33 +1,36 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="6.0.0"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0"/>
-        <PackageReference Include="NSubstitute" Version="5.1.0"/>
-        <PackageReference Include="Shouldly" Version="4.2.1"/>
-        <PackageReference Include="xunit" Version="2.5.3"/>
-        <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3"/>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0"/>
+        <PackageReference Include="coverlet.collector" Version="6.0.0" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+        <PackageReference Include="NSubstitute" Version="5.1.0" />
+        <PackageReference Include="Shouldly" Version="4.2.1" />
+        <PackageReference Include="xunit" Version="2.9.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="Xunit"/>
+        <Using Include="Xunit" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
-        <ProjectReference Include="..\Widgets1\Widgets1.csproj"/>
-        <ProjectReference Include="..\Widgets2\Widgets2.csproj"/>
-        <ProjectReference Include="..\Widgets3\Widgets3.csproj"/>
-        <ProjectReference Include="..\Widgets4\Widgets4.csproj"/>
-        <ProjectReference Include="..\Widgets5\Widgets5.csproj"/>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\Widgets1\Widgets1.csproj" />
+        <ProjectReference Include="..\Widgets2\Widgets2.csproj" />
+        <ProjectReference Include="..\Widgets3\Widgets3.csproj" />
+        <ProjectReference Include="..\Widgets4\Widgets4.csproj" />
+        <ProjectReference Include="..\Widgets5\Widgets5.csproj" />
     </ItemGroup>
 
 </Project>

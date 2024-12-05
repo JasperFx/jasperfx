@@ -10,21 +10,21 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="6.0.0"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0"/>
-        <PackageReference Include="xunit" Version="2.5.3"/>
-        <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3"/>
-        <PackageReference Include="NSubstitute" Version="5.1.0"/>
-        <PackageReference Include="Shouldly" Version="4.2.1"/>
+        <PackageReference Include="coverlet.collector" Version="6.0.0" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+        <PackageReference Include="xunit" Version="2.9.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+        <PackageReference Include="NSubstitute" Version="5.1.0" />
+        <PackageReference Include="Shouldly" Version="4.2.1" />
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="Xunit"/>
+        <Using Include="Xunit" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\ExtensionCommands\ExtensionCommands.csproj" />
-        <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
     </ItemGroup>
 
 </Project>
