@@ -5,31 +5,38 @@ namespace JasperFx.Events.Grouping;
 
 /// <summary>
 /// Structure to hold and help organize events in "slices" by identity to apply
-/// to the matching aggregate document TDoc
+/// to the matching aggregate document TDoc. Note that TDoc might be a marker type.
 /// </summary>
 /// <typeparam name="TDoc"></typeparam>
 /// <typeparam name="TId"></typeparam>
-public class EventSliceGroup<TDoc, TId>: IEventGrouping<TId>
+public class SliceGroup<TDoc, TId>
 {
     public LightweightCache<TId, EventSlice<TDoc, TId>> Slices { get; }
     
     public string TenantId { get; }
 
-    public EventSliceGroup(string tenantId)
+    public SliceGroup(string tenantId)
     {
         TenantId = tenantId;
         Slices = new LightweightCache<TId, EventSlice<TDoc, TId>>(id => new EventSlice<TDoc, TId>(id, tenantId));
     }
 
-    public EventSliceGroup(string tenantId, IEnumerable<EventSlice<TDoc, TId>> slices) : this(tenantId)
+    public SliceGroup(string tenantId, IEnumerable<EventSlice<TDoc, TId>> slices) : this(tenantId)
     {
         foreach (var slice in slices) Slices[slice.Id] = slice;
     }
 
-    public EventSliceGroup() : this(StorageConstants.DefaultTenantId)
+    public SliceGroup() : this(StorageConstants.DefaultTenantId)
     {
     }
     
+    /// <summary>
+    ///     Add events to streams where each event of type TEvent applies to only
+    ///     one stream
+    /// </summary>
+    /// <param name="singleIdSource"></param>
+    /// <param name="events"></param>
+    /// <typeparam name="TEvent"></typeparam>
     public void AddEvents<TEvent>(Func<TEvent, TId> singleIdSource, IEnumerable<IEvent> events)
     {
         if (typeof(TEvent).Closes(typeof(IEvent<>)))
@@ -52,7 +59,14 @@ public class EventSliceGroup<TDoc, TId>: IEventGrouping<TId>
         }
     }
 
-
+    /// <summary>
+    ///     Apply "fan out" operations to the given TSource type that inserts an enumerable of TChild events right behind the
+    ///     parent
+    ///     event in the event stream just after any instance of the parent
+    /// </summary>
+    /// <param name="fanOutFunc"></param>
+    /// <typeparam name="TSource"></typeparam>
+    /// <typeparam name="TChild"></typeparam>
     public void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc)
     {
         foreach (var slice in Slices)
@@ -61,6 +75,13 @@ public class EventSliceGroup<TDoc, TId>: IEventGrouping<TId>
         }
     }
 
+    /// <summary>
+    ///     Add events to multiple slices where each event of type TEvent may be related to many
+    ///     different aggregates
+    /// </summary>
+    /// <param name="multipleIdSource"></param>
+    /// <param name="events"></param>
+    /// <typeparam name="TEvent"></typeparam>
     public void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events)
     {
         if (typeof(TEvent).Closes(typeof(IEvent<>)))
@@ -87,6 +108,11 @@ public class EventSliceGroup<TDoc, TId>: IEventGrouping<TId>
         }
     }
 
+    /// <summary>
+    ///     Add a single event to a single event slice by id
+    /// </summary>
+    /// <param name="id">The aggregate id</param>
+    /// <param name="event"></param>
     public void AddEvent(TId id, IEvent @event)
     {
         if (id != null)
@@ -96,6 +122,11 @@ public class EventSliceGroup<TDoc, TId>: IEventGrouping<TId>
 
     }
 
+    /// <summary>
+    ///     Add many events to a single event slice by aggregate id
+    /// </summary>
+    /// <param name="id">The aggregate id</param>
+    /// <param name="events"></param>
     public void AddEvents(TId id, IEnumerable<IEvent> events)
     {
         if (id != null)

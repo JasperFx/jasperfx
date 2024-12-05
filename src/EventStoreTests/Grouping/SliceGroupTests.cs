@@ -4,7 +4,7 @@ using Shouldly;
 
 namespace EventStoreTests.Grouping;
 
-public class EventSliceGroupTests
+public class SliceGroupTests
 {
     [Fact]
     public void just_add_events()
@@ -14,7 +14,7 @@ public class EventSliceGroupTests
         events.Added(2, "blue");
         events.Added(3, "blue");
 
-        var group = new EventSliceGroup<SimpleAggregate, Guid>();
+        var group = new SliceGroup<SimpleAggregate, Guid>();
         var streamId = Guid.NewGuid();
         group.AddEvents(streamId, events.All);
         
@@ -32,7 +32,7 @@ public class EventSliceGroupTests
         var e5 = events.Added(5, "red");
         var e6 = events.Added(6, "green");
 
-        var group = new EventSliceGroup<SimpleAggregate, string>();
+        var group = new SliceGroup<SimpleAggregate, string>();
         group.AddEvents<IColorEvent>(e => e.Color, events.All);
         
         group.Slices["blue"].Events().ShouldBe([e1, e4]);
@@ -56,7 +56,7 @@ public class EventSliceGroupTests
             e.StreamKey = "a";
         }
         
-        var group = new EventSliceGroup<SimpleAggregate, string>();
+        var group = new SliceGroup<SimpleAggregate, string>();
         group.AddEvents<IEvent<IColorEvent>>(e => $"{e.StreamKey}:{e.Data.Color}", events.All);
         
         group.Slices["a:blue"].Events().ShouldBe([e1, e4]);
@@ -75,7 +75,7 @@ public class EventSliceGroupTests
         var e5 = events.Started("pink", "green");
         var e6 = events.Started("orange", "blue", "pink");
         
-        var group = new EventSliceGroup<SimpleAggregate, string>();
+        var group = new SliceGroup<SimpleAggregate, string>();
         group.AddEvents<ITaggedEvent>(e => e.Tags, events.All);
         
         group.Slices["blue"].Events().ShouldBe([e1, e2, e4, e6]);
@@ -94,7 +94,7 @@ public class EventSliceGroupTests
         var e5 = events.Started("pink", "green");
         var e6 = events.Started("orange", "blue", "pink");
         
-        var group = new EventSliceGroup<SimpleAggregate, string>();
+        var group = new SliceGroup<SimpleAggregate, string>();
         group.AddEvents<IEvent<ITaggedEvent>>(e => e.Data.Tags, events.All);
         
         group.Slices["blue"].Events().ShouldBe([e1, e2, e4, e6]);

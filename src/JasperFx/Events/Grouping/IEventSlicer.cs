@@ -13,7 +13,7 @@ public class NulloEventSlicer : IEventSlicer
     }
 }
 
-public class TenantedEventSlicer : IEventSlicer
+public class ByTenantSlicer : IEventSlicer
 {
     public ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events)
     {
@@ -46,12 +46,39 @@ public class TenantGroup
     }
 }
 
+public class TenantedEventSlicer<TDoc, TId> : IEventSlicer
+{
+    private readonly IEventSlicer<TDoc, TId> _inner;
+
+    public TenantedEventSlicer(IEventSlicer<TDoc, TId> inner)
+    {
+        _inner = inner;
+    }
+
+    public async ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events)
+    {
+        var groups = new List<object>();
+        var byTenant = ByTenantSlicer.Group(events);
+        foreach (var tenantGroup in byTenant)
+        {
+            var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId);
+            await _inner.SliceAsync(tenantGroup.Events, group);
+            
+            groups.Add(group);
+        }
+
+        return groups;
+    }
+} 
+
 public interface IEventSlicer<TDoc, TId>
 {
     /// <summary>
     ///     This is called by the asynchronous projection runner
     /// </summary>
-    /// <param name="events"></param>
+    /// <param name="events">Enumerable of new events within the current event range (page) that is currently being processed by the projection</param>
+    /// <param name="grouping"></param>
     /// <returns></returns>
-    ValueTask<IReadOnlyList<EventSliceGroup<TDoc, TId>>> SliceAsyncEvents(List<IEvent> events);
+    ValueTask SliceAsync(IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping);
 }
+
