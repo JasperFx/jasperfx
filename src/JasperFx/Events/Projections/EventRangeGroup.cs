@@ -2,7 +2,8 @@ using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Projections;
 
-public abstract class EventRangeGroup<TBatch>: IDisposable
+[Obsolete("Going to fold all of this into just EventRange")]
+public abstract class EventRangeGroup: IDisposable
 {
     protected EventRangeGroup(EventRange range)
     {
@@ -22,23 +23,10 @@ public abstract class EventRangeGroup<TBatch>: IDisposable
 
     public abstract void Dispose();
 
-    /// <summary>
-    ///     Teardown any existing state. Used to clean off existing work
-    ///     before doing retries
-    /// </summary>
-    [Obsolete("Get rid of this. Wrong place for this responsibility")]
-    public void Reset()
-    {
-        Attempts++;
-        WasAborted = false;
-
-        reset();
-    }
 
     [Obsolete("Get rid of this. Wrong place for this responsibility")]
     protected abstract void reset();
 
-    public abstract Task ConfigureUpdateBatch(TBatch batch);
     public abstract ValueTask SkipEventSequence(long eventSequence);
 }
 

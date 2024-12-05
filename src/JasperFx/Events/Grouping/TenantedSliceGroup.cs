@@ -3,7 +3,9 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Grouping;
 
-public class TenantedSliceGroup<TDoc, TId> : EventRangeGroup<IAggregation>
+
+// TODO -- this could do per tenant slicing!
+public class TenantedSliceGroup<TDoc, TId> : EventRangeGroup
 {
     private readonly IEventSlicer<TDoc, TId> _slicer;
 
@@ -37,7 +39,7 @@ public class TenantedSliceGroup<TDoc, TId> : EventRangeGroup<IAggregation>
     {
     }
 
-    public override async Task ConfigureUpdateBatch(IAggregation aggregation)
+    public async Task ConfigureUpdateBatch(IAggregation aggregation)
     {
         await Parallel.ForEachAsync(_groups, CancellationToken.None,
                 async (group, _) =>
@@ -51,6 +53,8 @@ public class TenantedSliceGroup<TDoc, TId> : EventRangeGroup<IAggregation>
         Range.SkipEventSequence(eventSequence);
         
         _groups.Clear();
+        
+        // TODO -- WHOA, should this screen first for events in a specific tenant id?????????
         var groups = await _slicer.SliceAsyncEvents(Range.Events);
         foreach (var group in groups)
         {

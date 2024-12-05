@@ -1,19 +1,23 @@
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
-using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public interface IGroupedProjectionRunner<TBatch, TGroup> : IAsyncDisposable
- where TGroup : EventRangeGroup<TBatch>
- where TBatch : IProjectionBatch
+public enum SliceBehavior
 {
-    Task<TBatch> BuildBatchAsync(TGroup group);
+    None,
+    Preprocess,
+    JustInTime
+}
+
+public interface IGroupedProjectionRunner : IAsyncDisposable
+{
+    SliceBehavior SliceBehavior { get; }
+    
+    Task<IProjectionBatch> BuildBatchAsync(EventRange range);
     bool TryBuildReplayExecutor(out IReplayExecutor executor);
 
-    ValueTask<TGroup> GroupEvents(
-        EventRange range,
-        CancellationToken cancellationToken);
+    IEventSlicer Slicer { get; }
 
     string ProjectionShardIdentity { get; }
     string ShardIdentity { get; }
@@ -21,16 +25,4 @@ public interface IGroupedProjectionRunner<TBatch, TGroup> : IAsyncDisposable
 
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
     Task EnsureStorageExists(CancellationToken token);
-}
-
-public class AggregationExecution<TDoc, TId> : GroupedProjectionExecution<IAggregation, TenantedSliceGroup<TDoc, TId>>
-{
-    public AggregationExecution(IAggregationProjectionRunner<TDoc, TId> runner, ILogger logger) : base(runner, logger)
-    {
-    }
-}
-
-public interface IAggregationProjectionRunner<TDoc, TId> : IGroupedProjectionRunner<IAggregation, TenantedSliceGroup<TDoc, TId>>
-{
-    
 }

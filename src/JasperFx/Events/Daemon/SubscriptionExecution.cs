@@ -77,9 +77,8 @@ public class SubscriptionExecution: ISubscriptionExecution
     {
         if (_cancellation.IsCancellationRequested) return;
 
-        var range = new EventRange(subscriptionAgent.Name, page.Floor, page.Ceiling)
+        var range = new EventRange(subscriptionAgent, page.Floor, page.Ceiling)
         {
-            Agent = subscriptionAgent,
             Events = page
         };
 

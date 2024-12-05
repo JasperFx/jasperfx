@@ -1,4 +1,5 @@
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Grouping;
 
 namespace JasperFx.Events.Projections;
 
@@ -8,16 +9,18 @@ namespace JasperFx.Events.Projections;
 /// </summary>
 public class EventRange
 {
-    public EventRange(ShardName shardName, long floor, long ceiling)
+    public EventRange(ISubscriptionAgent agent, long floor, long ceiling)
     {
-        ShardName = shardName;
+        ShardName = agent.Name;
+        Agent = agent;
         SequenceFloor = floor;
         SequenceCeiling = ceiling;
     }
 
-    public EventRange(ShardName shardName, long ceiling)
+    public EventRange(ISubscriptionAgent agent, long ceiling)
     {
-        ShardName = shardName;
+        ShardName = agent.Name;
+        Agent = agent;
         SequenceCeiling = ceiling;
     }
 
@@ -48,9 +51,21 @@ public class EventRange
     /// </summary>
     public int Size => Events?.Count ?? (int)(SequenceCeiling - SequenceFloor);
 
-    // TODO -- make this come through the constructor later
-    [Obsolete("This property will be removed in Marten 8 in favor of passing in the ISubscriptionController")]
-    public ISubscriptionAgent Agent { get; set; }
+    public ISubscriptionAgent Agent { get; }
+
+    public IEventSlicer Slicer { get; private set; } = new NulloEventSlicer();
+
+    public async ValueTask SliceAsync(IEventSlicer slicer)
+    {
+        var groups = await slicer.SliceAsync(Events);
+        _groups.Clear();
+        _groups.AddRange(groups);
+        Slicer = slicer;
+    }
+
+    private readonly List<object> _groups = new();
+
+    public IReadOnlyList<object> Groups => _groups;
 
     protected bool Equals(EventRange other)
     {
@@ -94,18 +109,13 @@ public class EventRange
         return $"Event range of '{ShardName}', {SequenceFloor} to {SequenceCeiling}";
     }
 
-    public void SkipEventSequence(long eventSequence)
+    public async ValueTask SkipEventSequence(long eventSequence)
     {
         var events = Events.ToList();
         events.RemoveAll(e => e.Sequence == eventSequence);
         Events = events;
+
+        await SliceAsync(Slicer);
     }
 
-    public static EventRange CombineShallow(params EventRange[] ranges)
-    {
-        var floor = ranges.Min(x => x.SequenceFloor);
-        var ceiling = ranges.Max(x => x.SequenceCeiling);
-
-        return new EventRange(ranges[0].ShardName, floor, ceiling);
-    }
 }
