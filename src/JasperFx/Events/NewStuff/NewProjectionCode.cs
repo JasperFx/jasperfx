@@ -64,6 +64,7 @@ public interface IProjectionSource<TOperations, TStore, TDatabase>: IReadOnlyPro
     bool TryBuildReplayExecutor(TStore store, TDatabase database, out IReplayExecutor executor);
 
     IInlineProjection<TOperations> BuildForInline();
+    
 }
 
 public interface ISubscriptionSource<TStore, TDatabase>
@@ -77,7 +78,7 @@ public interface ISubscriptionSource<TStore, TDatabase>
 }
 
 // Assuming that DocumentStore et al will be embedded into this
-public interface IAsyncShard<TDatabase>
+public interface IAsyncShard<TDatabase> // might have a subclass for projections
 {
     AsyncOptions Options { get; }
     ShardRole Role { get; }

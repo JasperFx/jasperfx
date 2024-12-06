@@ -9,6 +9,13 @@ namespace JasperFx.Events.Projections;
 /// </summary>
 public class EventRange
 {
+    public EventRange(ShardName name, long floor, long ceiling)
+    {
+        ShardName = name;
+        SequenceFloor = floor;
+        SequenceCeiling = ceiling;
+    }
+    
     public EventRange(ISubscriptionAgent agent, long floor, long ceiling)
     {
         ShardName = agent.Name;
@@ -21,6 +28,12 @@ public class EventRange
     {
         ShardName = agent.Name;
         Agent = agent;
+        SequenceCeiling = ceiling;
+    }
+    
+    public EventRange(ShardName shardName, long ceiling)
+    {
+        ShardName = shardName;
         SequenceCeiling = ceiling;
     }
 
@@ -64,6 +77,7 @@ public class EventRange
     }
 
     private readonly List<object> _groups = new();
+
 
     public IReadOnlyList<object> Groups => _groups;
 
