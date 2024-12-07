@@ -264,4 +264,65 @@ public static class ReflectionExtensions
 
         return false;
     }
+
+    /// <summary>
+    /// Try to find a constructor with the matching argument types
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="ctor"></param>
+    /// <param name="arguments"></param>
+    /// <returns></returns>
+    public static bool TryFindConstructor(this Type type, out ConstructorInfo ctor, params Type[] arguments)
+    {
+        ctor = type.GetConstructor(arguments);
+        return ctor != null;
+    }
+
+    /// <summary>
+    /// Try to find a method with the suppied name and a parameter of the
+    /// supplied type
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="methodName"></param>
+    /// <param name="method"></param>
+    /// <param name="argumentType"></param>
+    /// <returns></returns>
+    public static bool TryFindMethod(this Type type, string methodName, out MethodInfo method, Type argumentType)
+    {
+        if (type == null)
+        {
+            method = default;
+            return false;
+        }
+        
+        method = type
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)
+            .Where(x => x.Name == methodName)
+            .FirstOrDefault(x => x.GetParameters().Any(p => p.ParameterType == argumentType));
+        return method != null;
+    }
+    
+    /// <summary>
+    /// Try to find a method with the suppied name and a parameter of the
+    /// supplied type
+    /// </summary>
+    /// <param name="type"></param>
+    /// <param name="methodName"></param>
+    /// <param name="method"></param>
+    /// <param name="argumentType"></param>
+    /// <returns></returns>
+    public static bool TryFindStaticMethod(this Type type, string methodName, out MethodInfo method, Type argumentType)
+    {
+        if (type == null)
+        {
+            method = default;
+            return false;
+        }
+        
+        method = type
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            .Where(x => x.Name == methodName)
+            .FirstOrDefault(x => x.GetParameters().Any(p => p.ParameterType == argumentType));
+        return method != null;
+    }
 }
