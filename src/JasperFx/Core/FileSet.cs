@@ -93,7 +93,7 @@ public class FileSet
     {
         if (pattern.IsEmpty())
         {
-            return new string[0];
+            return Array.Empty<string>();
         }
 
         return pattern.Split(';').SelectMany(x =>
@@ -116,11 +116,11 @@ public class FileSet
             {
                 return directory.Exists
                     ? Directory.GetFiles(fullPath, filePattern, searchOption)
-                    : new string[0];
+                    : [];
             }
             catch (DirectoryNotFoundException)
             {
-                return new string[0];
+                return Array.Empty<string>();
             }
         }).Distinct();
     }

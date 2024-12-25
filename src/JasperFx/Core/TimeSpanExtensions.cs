@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace JasperFx.Core
 {
-    public static class TimeSpanExtensions
+    public static partial class TimeSpanExtensions
     {
         /// <summary>
         /// Values are 0 to 2359
@@ -11,13 +11,12 @@ namespace JasperFx.Core
         /// <returns></returns>
         public static TimeSpan ToTime(this int minutes)
         {
-            var text = minutes.ToString().PadLeft(4, '0');
+            var text = minutes.ToString("D4");
             return text.ToTime();
         }
 
         public static TimeSpan ToTime(this string timeString)
         {
-            
             return GetTimeSpan(timeString);
         }
 
@@ -32,7 +31,7 @@ $                   # match the entire string";
 
         public static TimeSpan GetTimeSpan(string timeString)
         {
-            var match = Regex.Match(timeString.Trim(), TIMESPAN_PATTERN, RegexOptions.IgnorePatternWhitespace);
+            var match = TimespanRegex().Match(timeString.Trim());
             if (!match.Success)
             {
                 return TimeSpan.Parse(timeString);
@@ -64,7 +63,7 @@ $                   # match the entire string";
                     return TimeSpan.FromDays(number);
             }
 
-            if (timeString.Length == 4 && !timeString.Contains(":"))
+            if (timeString.Length == 4 && !timeString.Contains(':'))
             {
                 int hours = int.Parse(timeString.Substring(0, 2));
                 int minutes = int.Parse(timeString.Substring(2, 2));
@@ -72,7 +71,7 @@ $                   # match the entire string";
                 return new TimeSpan(hours, minutes, 0);
             }
 
-            if (timeString.Length == 5 && timeString.Contains(":"))
+            if (timeString.Length == 5 && timeString.Contains(':'))
             {
                 var parts = timeString.Split(':');
                 int hours = int.Parse(parts.ElementAt(0));
@@ -111,5 +110,8 @@ $                   # match the entire string";
         {
             return TimeSpan.FromMilliseconds(number);
         }
+
+        [GeneratedRegex(TIMESPAN_PATTERN, RegexOptions.IgnorePatternWhitespace)]
+        private static partial Regex TimespanRegex();
     }
 }

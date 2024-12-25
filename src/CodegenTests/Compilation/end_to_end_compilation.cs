@@ -24,7 +24,7 @@ public class end_to_end_compilation
         var multiplier = assembly.AddType("Multiplier", typeof(INumberGenerator));
         multiplier.MethodFor(nameof(INumberGenerator.Generate))
             .Frames.Append<MultiplyFrame>();
-
+        
         assembly.CompileAll();
 
         Activator.CreateInstance(adder.CompiledType)
@@ -35,8 +35,9 @@ public class end_to_end_compilation
             .As<INumberGenerator>()
             .Generate(3, 4).ShouldBe(12);
 
-        adder.SourceCode.ShouldContain("public class Adder");
-        multiplier.SourceCode.ShouldContain("public class Multiplier");
+        adder.SourceCode.ShouldContain("System.CodeDom.Compiler.GeneratedCode");
+        adder.SourceCode.ShouldContain("public sealed class Adder");
+        multiplier.SourceCode.ShouldContain("public sealed class Multiplier");
     }
 }
 
