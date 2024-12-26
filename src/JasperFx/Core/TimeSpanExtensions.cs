@@ -31,7 +31,7 @@ $                   # match the entire string";
 
         public static TimeSpan GetTimeSpan(string timeString)
         {
-            var match = TimespanRegex().Match(timeString.Trim());
+            var match = TimespanRegex().Match(timeString);
             if (!match.Success)
             {
                 return TimeSpan.Parse(timeString);
@@ -62,20 +62,21 @@ $                   # match the entire string";
                 case "days":
                     return TimeSpan.FromDays(number);
             }
+            
+            var timeSpan = timeString.AsSpan();
 
             if (timeString.Length == 4 && !timeString.Contains(':'))
             {
-                int hours = int.Parse(timeString.Substring(0, 2));
-                int minutes = int.Parse(timeString.Substring(2, 2));
+                int hours = int.Parse(timeSpan.Slice(0, 2));
+                int minutes = int.Parse(timeSpan.Slice(2, 2));
 
                 return new TimeSpan(hours, minutes, 0);
             }
 
             if (timeString.Length == 5 && timeString.Contains(':'))
             {
-                var parts = timeString.Split(':');
-                int hours = int.Parse(parts.ElementAt(0));
-                int minutes = int.Parse(parts.ElementAt(1));
+                int hours = int.Parse(timeSpan.Slice(0, 2));
+                int minutes = int.Parse(timeSpan.Slice(3));
 
                 return new TimeSpan(hours, minutes, 0);
             }
