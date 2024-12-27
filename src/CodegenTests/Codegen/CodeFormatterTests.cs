@@ -22,6 +22,29 @@ public class CodeFormatterTests
     }
 
     [Fact]
+    public void write_string_array()
+    {
+        CodeFormatter.Write(new string[]{"Hello!", "Bad", "Good"})
+            .ShouldBe("new string[]{\"Hello!\", \"Bad\", \"Good\"}");
+    }
+
+    [Fact]
+    public void write_int_array()
+    {
+        CodeFormatter.Write(new int[]{1, 2, 4})
+            .ShouldBe("new int[]{1, 2, 4}");
+        
+        CodeFormatter.Write(new int[]{1, 2})
+            .ShouldBe("new int[]{1, 2}");
+        
+        CodeFormatter.Write(new int[]{1})
+            .ShouldBe("new int[]{1}");
+        
+        CodeFormatter.Write(new int[]{})
+            .ShouldBe("new int[]{}");
+    }
+
+    [Fact]
     public void write_enum()
     {
         CodeFormatter.Write(Numbers.one)
