@@ -26,7 +26,7 @@ public interface ISourceWriter
     ///     and decrements the current block level
     /// </summary>
     /// <param name="extra"></param>
-    void FinishBlock(string? extra = null);
+    void FinishBlock(ReadOnlySpan<char> extra = default);
 
 
     /// <summary>
@@ -35,4 +35,18 @@ public interface ISourceWriter
     /// </summary>
     /// <param name="text"></param>
     void WriteLine(string text);
+
+    /// <summary>
+    ///     Writes a single line with this content to the code
+    ///     at the current block level
+    /// </summary>
+    /// <param name="text"></param>
+    void WriteLine(ReadOnlySpan<char> value);
+
+    /// <summary>
+    ///     Writes a single line with this content to the code
+    ///     at the current block level
+    /// </summary>
+    /// <param name="text"></param>
+    void WriteLine(char value);
 }

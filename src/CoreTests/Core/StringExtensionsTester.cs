@@ -301,6 +301,7 @@ e
     [InlineData("foo=bar;", 1)]
     [InlineData("foo=bar;zap=42;", 2)]
     [InlineData("foo=bar;zap=42", 2)]
+    [InlineData("foo=bar ;zap=42 ", 2)]
     public void removes_empty_entries_when_splitting_strings_into_array(string one, int expectedCount)
     {
         var array = one.ToDelimitedArray(';');

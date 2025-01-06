@@ -1,32 +1,29 @@
+using System.Text;
 using JasperFx.Core;
 
 namespace JasperFx.CodeGeneration;
 
 public class SourceWriter : ISourceWriter, IDisposable
 {
-    private readonly StringWriter _writer = new();
-    private string _leadingSpaces = "";
+    private readonly StringBuilder _builder;
 
-    private int _level;
+    public SourceWriter()
+    {
+        _builder = CodeGenerationObjectPool.StringBuilderPool.Get();
+    }
+
+    private const int IndentSize = 4;
 
     public void Dispose()
     {
-        _writer?.Dispose();
+        CodeGenerationObjectPool.StringBuilderPool.Return(_builder);
     }
 
-    public int IndentionLevel
-    {
-        get => _level;
-        set
-        {
-            _level = value;
-            _leadingSpaces = "".PadRight(_level * 4);
-        }
-    }
+    public int IndentionLevel { get; set; }
 
     public void BlankLine()
     {
-        _writer.WriteLine();
+        _builder.AppendLine();
     }
 
     public void Write(string? text = null)
@@ -47,12 +44,12 @@ public class SourceWriter : ISourceWriter, IDisposable
             }
             else if (line.StartsWith("BLOCK:"))
             {
-                WriteLine(line.Substring(6));
+                WriteLine(line.AsSpan(6));
                 StartBlock();
             }
             else if (line.StartsWith("END"))
             {
-                FinishBlock(line.Substring(3));
+                FinishBlock(line.AsSpan(3));
             }
             else
             {
@@ -63,10 +60,31 @@ public class SourceWriter : ISourceWriter, IDisposable
 
     public void WriteLine(string text)
     {
-        _writer.WriteLine(_leadingSpaces + text);
+        Indent();
+        _builder.AppendLine(text);
     }
 
-    public void FinishBlock(string? extra = null)
+    public void WriteLine(ReadOnlySpan<char> value)
+    {
+        Indent();
+        _builder.Append(value);
+        _builder.AppendLine();
+    }
+
+    public void WriteLine(char value)
+    {
+        Indent();
+        _builder.Append(value);
+        _builder.AppendLine();
+    }
+    
+
+    private void Indent()
+    {
+        _builder.Append(' ', IndentionLevel * IndentSize);
+    }
+
+    public void FinishBlock(ReadOnlySpan<char> extra = default)
     {
         if (IndentionLevel == 0)
         {
@@ -75,13 +93,13 @@ public class SourceWriter : ISourceWriter, IDisposable
 
         IndentionLevel--;
 
-        if (extra.IsEmpty())
+        if (extra.IsEmpty)
         {
-            WriteLine("}");
+            WriteLine('}');
         }
         else
         {
-            WriteLine("}" + extra);
+            WriteLine($"}}{extra}");
         }
 
 
@@ -90,13 +108,13 @@ public class SourceWriter : ISourceWriter, IDisposable
 
     private void StartBlock()
     {
-        WriteLine("{");
+        WriteLine('{');
         IndentionLevel++;
     }
 
     public string Code()
     {
-        return _writer.ToString();
+        return _builder.ToString();
     }
 
     internal class BlockMarker : IDisposable

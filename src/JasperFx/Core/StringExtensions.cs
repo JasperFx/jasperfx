@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 namespace JasperFx.Core;
 
-public static class StringExtensions
+public static partial class StringExtensions
 {
     /// <summary>
     ///     "Elid" a string longer than the designated length
@@ -206,8 +206,12 @@ public static class StringExtensions
     /// <param name="plainText"></param>
     public static string ConvertCRLFToBreaks(this string plainText)
     {
-        return new Regex("(\r\n|\n)").Replace(plainText, "<br/>");
+        return CRLFToBreaksRegex().Replace(plainText, "<br/>");
     }
+    
+    
+    [GeneratedRegex("(\r\n|\n)")]
+    private static partial Regex CRLFToBreaksRegex();
 
     /// <summary>
     ///     Returns a DateTime value parsed from the <paramref name="dateTimeValue" /> parameter.
@@ -241,18 +245,12 @@ public static class StringExtensions
     /// <returns></returns>
     public static string[] ToDelimitedArray(this string content, char delimiter)
     {
-        var array = content.Split(delimiter, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        for (var i = 0; i < array.Length; i++)
-        {
-            array[i] = array[i].Trim();
-        }
-
-        return array;
+        return content.Split(delimiter, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     public static bool IsValidNumber(this string number)
     {
-        return IsValidNumber(number, CultureInfo.CurrentCulture);
+        return number.IsValidNumber(CultureInfo.CurrentCulture);
     }
 
     public static bool IsValidNumber(this string number, CultureInfo culture)
@@ -269,7 +267,7 @@ public static class StringExtensions
 
     public static IList<string> getPathParts(this string path)
     {
-        return path.Split(new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries).ToList();
+        return path.Split([Path.DirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries).ToList();
     }
 
     /// <summary>
@@ -320,8 +318,15 @@ public static class StringExtensions
     /// <returns></returns>
     public static string SplitCamelCase(this string str)
     {
-        return Regex.Replace(Regex.Replace(str, @"(\P{Ll})(\P{Ll}\p{Ll})", "$1 $2"), @"(\p{Ll})(\P{Ll})", "$1 $2");
+        return SplitCamelCaseOuter().Replace(SplitCamelCaseInner().Replace(str, "$1 $2"), "$1 $2");
     }
+    
+    [GeneratedRegex("(\\p{Ll})(\\P{Ll})")]
+    private static partial Regex SplitCamelCaseOuter();
+    
+    [GeneratedRegex("(\\P{Ll})(\\P{Ll}\\p{Ll})")]
+    private static partial Regex SplitCamelCaseInner();
+    
 
     /// <summary>
     ///     Splits a pascal cased string into seperate words delimitted by a space
@@ -330,7 +335,7 @@ public static class StringExtensions
     /// <returns></returns>
     public static string SplitPascalCase(this string str)
     {
-        return SplitCamelCase(str);
+        return str.SplitCamelCase();
     }
 
     public static string ToCamelCase(this string s)
@@ -434,7 +439,7 @@ public static class StringExtensions
     /// <returns></returns>
     public static string Join(this IEnumerable<string> values, string separator)
     {
-        return Join(values.ToArray(), separator);
+        return values.ToArray().Join(separator);
     }
 
     /// <summary>
@@ -451,13 +456,13 @@ public static class StringExtensions
 
             for (var i = 0; i < str.Length && str[i] != '\0'; i += 2)
             {
-                hash1 = ((hash1 << 5) + hash1) ^ str[i];
+                hash1 = (hash1 << 5) + hash1 ^ str[i];
                 if (i == str.Length - 1 || str[i + 1] == '\0')
                 {
                     break;
                 }
 
-                hash2 = ((hash2 << 5) + hash2) ^ str[i + 1];
+                hash2 = (hash2 << 5) + hash2 ^ str[i + 1];
             }
 
             return hash1 + hash2 * 1566083941;
@@ -496,16 +501,17 @@ public static class StringExtensions
 
             for (var i = 0; i < stringValue.Length; i += 2)
             {
-                hash1 = ((hash1 << 5) + hash1) ^ stringValue[i];
+                hash1 = (hash1 << 5) + hash1 ^ stringValue[i];
                 if (i == stringValue.Length - 1)
                 {
                     break;
                 }
 
-                hash2 = ((hash2 << 5) + hash2) ^ stringValue[i + 1];
+                hash2 = (hash2 << 5) + hash2 ^ stringValue[i + 1];
             }
 
             return hash1 + hash2 * 1566083941;
         }
     }
+
 }

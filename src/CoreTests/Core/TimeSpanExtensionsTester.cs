@@ -19,6 +19,7 @@ public class TimeSpanExtensionsTester
         "0700".ToTime().ShouldBe(new TimeSpan(7, 0, 0));
         "1700".ToTime().ShouldBe(new TimeSpan(17, 0, 0));
         "1850".ToTime().ShouldBe(new TimeSpan(18, 50, 0));
+        "19:05".ToTime().ShouldBe(new TimeSpan(19, 05, 00));
     }
 
     [Fact]

@@ -22,6 +22,9 @@ public static class StreamExtensions
     /// <returns></returns>
     public static byte[] ReadAllBytes(this Stream stream)
     {
+        if (stream is MemoryStream ms)
+            return ms.ToArray();
+        
         using var content = new MemoryStream();
         stream.CopyTo(content);
         return content.ToArray();
@@ -33,10 +36,10 @@ public static class StreamExtensions
     /// </summary>
     /// <param name="stream"></param>
     /// <returns></returns>
-    public static Task<string> ReadAllTextAsync(this Stream stream)
+    public static async Task<string> ReadAllTextAsync(this Stream stream)
     {
         using var sr = new StreamReader(stream, leaveOpen: true);
-        return sr.ReadToEndAsync();
+        return await sr.ReadToEndAsync();
     }
 
     /// <summary>
@@ -47,6 +50,9 @@ public static class StreamExtensions
     /// <returns></returns>
     public static async Task<byte[]> ReadAllBytesAsync(this Stream stream)
     {
+        if (stream is MemoryStream ms)
+            return ms.ToArray();
+        
         using var content = new MemoryStream();
         await stream.CopyToAsync(content).ConfigureAwait(false);
         return content.ToArray();
@@ -65,7 +71,7 @@ public static class StreamExtensions
         int current;
         do
         {
-            current = await stream.ReadAsync(buffer, totalRead, buffer.Length - totalRead).ConfigureAwait(false);
+            current = await stream.ReadAsync(buffer.AsMemory(totalRead, buffer.Length - totalRead)).ConfigureAwait(false);
             totalRead += current;
         } while (totalRead < length && current > 0);
 
