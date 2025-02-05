@@ -86,4 +86,22 @@ class Build : NukeBuild
                 .EnableNoRestore());
         });
 
+    Target Pack => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            var projects = new[]
+            {
+                "./src/JasperFx",
+                "./src/JasperFx.RuntimeCompiler"
+            };
+
+            foreach (var project in projects)
+            {
+                DotNetPack(s => s
+                    .SetProject(project)
+                    .SetOutputDirectory("./artifacts")
+                    .SetConfiguration(Configuration.Release));
+            }
+        });
 }

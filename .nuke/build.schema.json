@@ -40,6 +40,7 @@
       "enum": [
         "Clean",
         "Compile",
+        "Pack",
         "Restore",
         "Test",
         "TestCodegen",
