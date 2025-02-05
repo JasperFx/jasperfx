@@ -78,13 +78,8 @@ namespace JasperFx.RuntimeCompiler
         /// <param name="parent"></param>
         /// <param name="services"></param>
         /// <exception cref="ExpectedTypeMissingException"></exception>
-        public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider services)
+        public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-
             var logger = services.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
             var @namespace = parent.ToNamespace(rules);
             
@@ -99,7 +94,7 @@ namespace JasperFx.RuntimeCompiler
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = parent is ICodeFileCollectionWithServices ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource : null;
 
-                var compiler = services.GetRequiredService<IAssemblyGenerator>();
+                var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
 
@@ -124,7 +119,7 @@ namespace JasperFx.RuntimeCompiler
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
 
-                var compiler = services.GetRequiredService<IAssemblyGenerator>();
+                var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 
                 file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
