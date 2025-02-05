@@ -28,6 +28,64 @@ namespace JasperFx.Core
 (?<units>[a-z]*)    # units is expressed as a word
 $                   # match the entire string";
 
+        /// <summary>
+        /// Return a string description of a time span in the format
+        /// [# day(s), ][# hour(s)], [# minute(s)], [# second(s)], [# millisecond(s)]
+        /// </summary>
+        /// <param name="time"></param>
+        /// <returns></returns>
+        public static string ToDisplay(this TimeSpan time)
+        {
+            // Just not terribly worried about efficiency here
+            var parts = new List<string>();
+            
+            if (time.Days == 1)
+            {
+                parts.Add("1 day");
+            }
+            else if (time.Days > 1)
+            {
+                parts.Add($"{time.Days} days");
+            }
+            
+            if (time.Hours == 1)
+            {
+                parts.Add("1 hour");
+            }
+            else if (time.Hours > 1)
+            {
+                parts.Add($"{time.Hours} hours");
+            }
+
+            if (time.Minutes == 1)
+            {
+                parts.Add("1 minute");
+            }
+            else if (time.Minutes > 1)
+            {
+                parts.Add($"{time.Minutes} minutes");
+            }
+
+            if (time.Seconds == 1)
+            {
+                parts.Add("1 second");
+            }
+            else if (time.Seconds > 1)
+            {
+                parts.Add($"{time.Seconds} seconds");
+            }
+            
+            if (time.Milliseconds == 1)
+            {
+                parts.Add("1 millisecond");
+            }
+            else if (time.Milliseconds > 1)
+            {
+                parts.Add($"{time.Milliseconds} milliseconds");
+            }
+
+            return parts.Join(", ");
+        }
 
         public static TimeSpan GetTimeSpan(string timeString)
         {
