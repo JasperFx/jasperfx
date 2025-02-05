@@ -257,15 +257,15 @@ public class GeneratedType : IVariableSource, IGeneratedType
     private void writeDeclaration(ISourceWriter writer)
     {
         var implemented = implements().ToArray();
-
+        writer.WriteLine("[global::System.CodeDom.Compiler.GeneratedCode(\"JasperFx\", \"1.0.0\")]");
         if (implemented.Any())
         {
             writer.Write(
-                $"BLOCK:public class {TypeName} : {implemented.Select(x => x.FullNameInCode()).Join(", ")}");
+                $"BLOCK:public sealed class {TypeName} : {implemented.Select(x => x.FullNameInCode()).Join(", ")}");
         }
         else
         {
-            writer.Write($"BLOCK:public class {TypeName}");
+            writer.Write($"BLOCK:public sealed class {TypeName}");
         }
     }
 
