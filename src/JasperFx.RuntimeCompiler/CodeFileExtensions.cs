@@ -9,13 +9,8 @@ namespace JasperFx.RuntimeCompiler
 {
     public static class CodeFileExtensions
     {
-        public static async Task Initialize(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider services)
+        public static async Task Initialize(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-
             var @namespace = parent.ToNamespace(rules);
             
             if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
@@ -26,7 +21,7 @@ namespace JasperFx.RuntimeCompiler
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = parent is ICodeFileCollectionWithServices ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource : null;
 
-                var compiler = services.GetRequiredService<IAssemblyGenerator>();
+                var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
 
@@ -52,7 +47,7 @@ namespace JasperFx.RuntimeCompiler
                 var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
 
 
-                var compiler = services.GetRequiredService<IAssemblyGenerator>();
+                var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
@@ -80,7 +75,7 @@ namespace JasperFx.RuntimeCompiler
         /// <exception cref="ExpectedTypeMissingException"></exception>
         public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
         {
-            var logger = services.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
+            var logger = services?.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
             var @namespace = parent.ToNamespace(rules);
             
             if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
