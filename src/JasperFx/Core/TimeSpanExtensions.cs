@@ -169,13 +169,8 @@ $                   # match the entire string";
         {
             return TimeSpan.FromMilliseconds(number);
         }
-<<<<<<< HEAD
 
         [GeneratedRegex(TIMESPAN_PATTERN, RegexOptions.IgnorePatternWhitespace)]
         private static partial Regex TimespanRegex();
-=======
-        
-        
->>>>>>> 314719d (Brought up to speed with JasperFx.Core latest, reorganized code a bit for CoreTests)
     }
 }

@@ -34,11 +34,11 @@ public static class JasperFxServiceCollectionExtensions
         services.TryAddScoped<ICommandFactory>(ctx =>
         {
             var creator = ctx.GetRequiredService<ICommandCreator>();
-            var oaktonOptions = ctx.GetRequiredService<IOptions<JasperFxOptions>>().Value;
+            var options = ctx.GetRequiredService<IOptions<JasperFxOptions>>().Value;
 
             var factory = new CommandFactory(creator);
             factory.ApplyFactoryDefaults(Assembly.GetEntryAssembly());
-            oaktonOptions.Factory?.Invoke(factory);
+            options.Factory?.Invoke(factory);
             return factory;
         });
 
