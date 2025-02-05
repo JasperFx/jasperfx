@@ -1,10 +1,11 @@
+using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace JasperFx.CodeGeneration
+namespace JasperFx.RuntimeCompiler
 {
     public static class CodeFileExtensions
     {
@@ -84,7 +85,7 @@ namespace JasperFx.CodeGeneration
                 throw new ArgumentNullException(nameof(services));
             }
 
-            var logger = services?.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
+            var logger = services.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
             var @namespace = parent.ToNamespace(rules);
             
             if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
