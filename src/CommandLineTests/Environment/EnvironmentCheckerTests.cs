@@ -92,9 +92,9 @@ namespace CommandLineTests.Environment
     {
         public readonly IList<IEnvironmentCheck> Checks = new List<IEnvironmentCheck>();
 
-        public IEnvironmentCheck[] Build()
+        public ValueTask<IReadOnlyList<IEnvironmentCheck>> Build()
         {
-            return Checks.ToArray();
+            return new ValueTask<IReadOnlyList<IEnvironmentCheck>>(Checks.ToArray());
         }
 
         public void Success(string description)

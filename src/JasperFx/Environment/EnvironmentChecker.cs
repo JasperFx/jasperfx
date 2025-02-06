@@ -69,7 +69,7 @@ public static class EnvironmentChecker
 
         foreach (var factory in services.GetServices<IEnvironmentCheckFactory>())
         {
-            list.AddRange(factory.Build());
+            list.AddRange(await factory.Build());
         }
         
         list.AddRange(services.GetServices<IStatefulResource>().Select(x => new ResourceEnvironmentCheck(x)));

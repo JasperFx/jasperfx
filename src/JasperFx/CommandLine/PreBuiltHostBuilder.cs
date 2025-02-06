@@ -13,7 +13,7 @@ internal class PreBuiltHostBuilder : IHostBuilder
     {
         Host = host;
         _notSupportedMessage =
-            $"The IHost ({Host}) is already constructed. See https://jasperfx.github.io/oakton for alternative bootstrapping to enable this feature.";
+            $"The IHost ({Host}) is already constructed. See https://jasperfx.github.io/JasperFx for alternative bootstrapping to enable this feature.";
     }
 
     public IHost Host { get; }
