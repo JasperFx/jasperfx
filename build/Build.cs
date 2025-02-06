@@ -9,11 +9,10 @@ using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
 using Nuke.Common.Utilities.Collections;
 using static Nuke.Common.EnvironmentInfo;
-using static Nuke.Common.IO.FileSystemTasks;
 using static Nuke.Common.IO.PathConstruction;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
-class Build : NukeBuild
+partial class Build : NukeBuild
 {
     /// Support plugins are available for:
     ///   - JetBrains ReSharper        https://nuke.build/resharper
@@ -23,7 +22,7 @@ class Build : NukeBuild
 
     public static int Main () => Execute<Build>(x => x.Test);
     
-    [Solution] readonly Solution Solution;
+    [Solution(GenerateProjects = true)] readonly Solution Solution;
 
     [Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")]
     readonly Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
@@ -58,7 +57,7 @@ class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile("src/CoreTests")
+                .SetProjectFile(Solution.CoreTests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -69,7 +68,7 @@ class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile("src/CodegenTests")
+                .SetProjectFile(Solution.CodegenTests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -80,28 +79,46 @@ class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile("src/CommandLineTests")
+                .SetProjectFile(Solution.CommandLineTests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
         });
 
-    Target Pack => _ => _
+    AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";
+    
+    Target NugetPack => _ => _
         .DependsOn(Compile)
         .Executes(() =>
         {
             var projects = new[]
             {
-                "./src/JasperFx",
-                "./src/JasperFx.RuntimeCompiler"
+                Solution.JasperFx,
+                Solution.JasperFx_RuntimeCompiler
             };
 
             foreach (var project in projects)
             {
                 DotNetPack(s => s
                     .SetProject(project)
-                    .SetOutputDirectory("./artifacts")
+                    .SetOutputDirectory(ArtifactsDirectory)
                     .SetConfiguration(Configuration.Release));
             }
+        });
+    
+    
+    [Parameter("Nuget Api Key")] [Secret] readonly string NugetApiKey;
+
+    Target NugetPush => _ => _
+        .DependsOn(NugetPack)
+        .Requires(() => !string.IsNullOrEmpty(NugetApiKey))
+        .Executes(() =>
+        {
+            DotNetNuGetPush(_ => _
+                .SetSource("https://api.nuget.org/v3/index.json")
+                .SetTargetPath(ArtifactsDirectory / "*.nupkg")
+                .EnableSkipDuplicate()
+                .EnableNoSymbols()
+                .SetApiKey(NugetApiKey));
         });
 }
