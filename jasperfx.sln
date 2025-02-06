@@ -43,6 +43,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionItems", "SolutionIt
 		Directory.Build.props = Directory.Build.props
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Build", "build\Build.csproj", "{EDAEBCBE-A1CC-4E13-8478-916373713051}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -104,6 +106,10 @@ Global
 		{FF028635-81D8-46E6-ABD0-9F68416A8608}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FF028635-81D8-46E6-ABD0-9F68416A8608}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FF028635-81D8-46E6-ABD0-9F68416A8608}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EDAEBCBE-A1CC-4E13-8478-916373713051}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EDAEBCBE-A1CC-4E13-8478-916373713051}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EDAEBCBE-A1CC-4E13-8478-916373713051}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EDAEBCBE-A1CC-4E13-8478-916373713051}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{04D0572A-2906-429A-8249-512B89468DC2} = {CA8A7C59-5834-4637-8F57-CD6F55629861}
