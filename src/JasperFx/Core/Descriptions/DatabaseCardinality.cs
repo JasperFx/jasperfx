@@ -127,5 +127,5 @@ public interface IDatabaseUser
     /// </summary>
     /// <param name="token"></param>
     /// <returns></returns>
-    ValueTask<IReadOnlyList<DatabaseDescriptor>> DescribeDatabasesAsync(CancellationToken token);
+    ValueTask<DatabaseUsage> DescribeDatabasesAsync(CancellationToken token);
 }
