@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -21,7 +23,7 @@ namespace JasperFx.RuntimeCompiler
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = parent is ICodeFileCollectionWithServices ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource : null;
 
-                var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
+                var compiler = new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
 
@@ -47,7 +49,7 @@ namespace JasperFx.RuntimeCompiler
                 var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
 
 
-                var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
+                var compiler = new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
                 
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
@@ -146,6 +148,51 @@ namespace JasperFx.RuntimeCompiler
                 Console.WriteLine("Unable to write code file for " + file.FileName);
                 Console.WriteLine(e.ToString());
             }  
+        }
+        
+        /// <summary>
+        ///     Validate all of the Wolverine configuration of this Wolverine application.
+        ///     This checks that all of the known generated code elements are valid
+        /// </summary>
+        /// <param name="host"></param>
+        public static void AssertAllGeneratedCodeCanCompile(this IHost host)
+        {
+            var exceptions = new List<Exception>();
+            var failures = new List<string>();
+        
+            var collections = host.Services.GetServices<ICodeFileCollection>().ToArray();
+
+            var services = host.Services.GetService<IServiceVariableSource>();
+
+            foreach (var collection in collections)
+            {
+                foreach (var file in collection.BuildFiles())
+                {
+                    var fileName = collection.ChildNamespace.Replace(".", "/").AppendPath(file.FileName);
+                
+                    try
+                    {
+                        var assembly = new GeneratedAssembly(collection.Rules);
+                        file.AssembleTypes(assembly);
+                        new AssemblyGenerator().Compile(assembly, services);
+                    
+                        Debug.WriteLine($"U+2713 {fileName} ");
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.WriteLine($"Failed: {fileName}");
+                        Debug.WriteLine(e);
+                    
+                        failures.Add(fileName);
+                        exceptions.Add(e);
+                    }
+                }
+            }
+
+            if (failures.Any())
+            {
+                throw new AggregateException($"Compilation failures for:\n{failures.Join("\n")}", exceptions);
+            }
         }
     }
 }
