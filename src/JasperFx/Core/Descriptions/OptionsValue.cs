@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text.Json.Serialization;
 using JasperFx.Core.Reflection;
 
 namespace JasperFx.Core.Descriptions;
@@ -28,7 +29,7 @@ public class OptionsValue
     public string Name { get; set; }
     public PropertyType Type { get; set; }
     
-    // Maybe don't serialize this
+    [JsonIgnore]
     public object RawValue { get; set; }
     public string Value { get; set; }
 
