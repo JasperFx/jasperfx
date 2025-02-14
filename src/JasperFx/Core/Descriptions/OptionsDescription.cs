@@ -71,6 +71,11 @@ public class OptionsDescription
     {
     }
 
+    public override string ToString()
+    {
+        return $"{nameof(Subject)}: {Subject}";
+    }
+
     public OptionsDescription(object subject)
     {
         ReadProperties(subject);

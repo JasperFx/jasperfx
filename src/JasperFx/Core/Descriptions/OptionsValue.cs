@@ -111,4 +111,10 @@ public class OptionsValue
         }
         
     }
+
+    public override string ToString()
+    {
+        return
+            $"{nameof(Subject)}: {Subject}, {nameof(Name)}: {Name}, {nameof(Type)}: {Type}, {nameof(Value)}: {Value}";
+    }
 }
