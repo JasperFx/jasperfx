@@ -155,5 +155,5 @@ public class OptionsDescription
     
     public Dictionary<string, string> Tags = new();
 
-    public List<MetricDescription> Metrics { get; set; } = new();
+    public List<MetricDescriptor> Metrics { get; set; } = new();
 }

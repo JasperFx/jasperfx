@@ -7,12 +7,12 @@ public enum MetricsType
     ObservableGauge
 }
 
-public class MetricDescription
+public class MetricDescriptor
 {
     public string Name { get; }
     public MetricsType Type { get; }
 
-    public MetricDescription(string name, MetricsType type)
+    public MetricDescriptor(string name, MetricsType type)
     {
         Name = name;
         Type = type;

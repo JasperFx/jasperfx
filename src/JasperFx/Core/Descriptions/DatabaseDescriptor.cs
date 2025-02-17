@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace JasperFx.Core.Descriptions;
 
 /// <summary>
@@ -5,6 +7,7 @@ namespace JasperFx.Core.Descriptions;
 /// </summary>
 public class DatabaseDescriptor : OptionsDescription
 {
+    [JsonConstructor]
     public DatabaseDescriptor()
     {
     }
