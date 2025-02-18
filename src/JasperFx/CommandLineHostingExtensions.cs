@@ -143,14 +143,19 @@ public static class CommandLineHostingExtensions
     /// <returns></returns>
     public static async Task<int> RunJasperFxCommands(this IHost host, string[] args)
     {
+        var options = host.Services.GetService<IOptions<JasperFxOptions>>()?.Value;
+        if (options == null)
+        {
+            return await execute(new PreBuiltHostBuilder(host), null, args, null);
+        }
+        
         try
         {
             using var scope = host.Services.CreateScope();
-            var options = scope.ServiceProvider.GetRequiredService<IOptions<JasperFxOptions>>().Value;
             args = ApplyArgumentDefaults(args, options);
-
+    
             var executor = scope.ServiceProvider.GetRequiredService<CommandExecutor>();
-
+    
             if (executor.Factory is CommandFactory factory)
             {
                 var originalConfigureRun = factory.ConfigureRun;
@@ -160,11 +165,11 @@ public static class CommandLineHostingExtensions
                     {
                         i.HostBuilder = new PreBuiltHostBuilder(host);
                     }
-
+    
                     originalConfigureRun?.Invoke(cmd);
                 };
             }
-
+    
             return await executor.ExecuteAsync(args);
         }
         finally
