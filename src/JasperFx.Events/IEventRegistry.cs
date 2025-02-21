@@ -81,8 +81,8 @@ public abstract class EventTypeData
     protected EventTypeData(Type eventType)
     {
         EventType = eventType;
-        EventType = eventType;
-        DotNetTypeName = $"{eventType.FullNameInCode()}, {eventType.Assembly.GetName().Name}";
+        EventTypeName = eventType.GetEventTypeName();
+        DotNetTypeName = $"{eventType.FullName}, {eventType.Assembly.GetName().Name}";
     }
 
     public Type EventType { get; }
