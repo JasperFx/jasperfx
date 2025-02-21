@@ -36,13 +36,13 @@ public class JasperFxOptions
         SourceCodeWritingEnabled = true
     };
     
-    public Profile ActiveProfile { get; private set; } 
-    
+    public Profile ActiveProfile { get; private set; }
+
     /// <summary>
     /// Use to override the environment name that JasperFx "thinks" means that you are in
     /// development mode. Default is to use "Development"
     /// </summary>
-    public string? DevelopmentEnvironmentName { get; set; }
+    public string? DevelopmentEnvironmentName { get; set; } = "Development";
     
     /// <summary>
     ///     The main application assembly. By default this is the entry assembly for the application,
