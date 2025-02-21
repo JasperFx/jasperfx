@@ -513,5 +513,16 @@ public static partial class StringExtensions
             return hash1 + hash2 * 1566083941;
         }
     }
+    
+    /// <summary>
+    /// Converts a pascal cased string to snake case for
+    /// naming for database tables
+    /// </summary>
+    /// <param name="name"></param>
+    /// <returns></returns>
+    public static string ToTableAlias(this string name)
+    {
+        return name.SplitPascalCase().ToLower().Replace(" ", "_");
+    }
 
 }

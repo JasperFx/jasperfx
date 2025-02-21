@@ -6,4 +6,5 @@ public interface IEventType
     string DotNetTypeName { get; set; }
     string EventTypeName { get; set; }
     string Alias { get; }
+    IEvent Wrap(object eventData);
 }
