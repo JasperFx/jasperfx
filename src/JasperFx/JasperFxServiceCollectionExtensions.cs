@@ -3,6 +3,7 @@ using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Options;
 
 namespace JasperFx;
@@ -22,6 +23,8 @@ public static class JasperFxServiceCollectionExtensions
         {
             optionsBuilder.Configure(configure!);
         }
+        
+        services.TryAddSingleton<IHostEnvironment, HostingEnvironment>();
         
         optionsBuilder.PostConfigure<IHostEnvironment>((o, e) => o.ReadHostEnvironment(e));
         services.AddSingleton<JasperFxOptions>(s =>

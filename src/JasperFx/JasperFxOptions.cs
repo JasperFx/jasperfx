@@ -53,7 +53,7 @@ public class JasperFxOptions
     /// <summary>
     ///     Root folder where generated code should be placed. By default, this is the IHostEnvironment.ContentRootPath + "Internal/Generated"
     /// </summary>
-    public string? GeneratedCodeOutputPath { get; set; }
+    public string? GeneratedCodeOutputPath { get; set; } 
     
     internal void ReadHostEnvironment(IHostEnvironment environment)
     {
@@ -160,5 +160,11 @@ public class Profile
     /// types from code generation already exist in the application assembly. Default is false.
     /// </summary>
     public bool AssertAllPreGeneratedTypesExist { get; set; } = false;
-    
+
+    /// <summary>
+    ///     Root folder where generated code should be placed. By default, this is the IHostEnvironment.ContentRootPath
+    /// </summary>
+    public string? GeneratedCodeOutputPath { get; set; } = AppContext.BaseDirectory
+        .AppendPath("Internal", "Generated");
+
 }
