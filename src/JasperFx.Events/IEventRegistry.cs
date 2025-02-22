@@ -18,6 +18,13 @@ public enum EventAppendMode
     Quick
 }
 
+public interface IEventStorageBuilder<T>
+{
+    T QuickAppendEventWithVersion(StreamAction action, IEvent @event);
+    T UpdateStreamVersion(StreamAction action);
+    T QuickAppendEvents(StreamAction action);
+}
+
 public interface IEventRegistry
 {
     IEvent BuildEvent(object eventData);
@@ -29,10 +36,15 @@ public interface IEventRegistry
     /// </summary>
     TimeProvider TimeProvider { get; set; }
 
+    /// <summary>
+    ///     Configure whether event streams are identified with Guid or strings
+    /// </summary>
+    StreamIdentity StreamIdentity { get; set; }
+
     Type AggregateTypeFor(string aggregateTypeName);
     string AggregateAliasFor(Type aggregateType);
-    
-    
+
+    IEventType EventMappingFor(Type eventType);
 }
 
 public class EventRegistry : IEventRegistry
@@ -49,6 +61,8 @@ public class EventRegistry : IEventRegistry
         var info = EventMappingFor(eventData.GetType());
         return info.Wrap(eventData);
     }
+
+    public StreamIdentity StreamIdentity { get; set; } = StreamIdentity.AsGuid;
 
     public IEventType EventMappingFor(Type eventType)
     {

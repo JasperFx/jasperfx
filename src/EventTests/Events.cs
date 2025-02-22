@@ -1,3 +1,5 @@
+using JasperFx;
+
 namespace EventTests;
 
 public class MyAggregate
@@ -113,3 +115,47 @@ public class CreateEvent
         D = d;
     }
 }
+
+public class SimpleAggregate : IRevisioned
+{
+    // This will be the aggregate version
+    public int Version { get; set; }
+
+    public Guid Id { get;
+        set; }
+
+    public int ACount { get; set; }
+    public int BCount { get; set; }
+    public int CCount { get; set; }
+    public int DCount { get; set; }
+    public int ECount { get; set; }
+
+    public void Apply(AEvent _)
+    {
+        ACount++;
+    }
+
+    public void Apply(BEvent _)
+    {
+        BCount++;
+    }
+
+    public void Apply(CEvent _)
+    {
+        CCount++;
+    }
+
+    public void Apply(DEvent _)
+    {
+        DCount++;
+    }
+
+    public void Apply(EEvent _)
+    {
+        ECount++;
+    }
+
+}
+
+
+

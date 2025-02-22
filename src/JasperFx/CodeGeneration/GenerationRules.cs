@@ -53,13 +53,6 @@ public class GenerationRules
 
     public string GeneratedNamespace { get; set; } = "Internal.Generated";
 
-    [Obsolete("Use GeneratedNamespace instead")]
-    public string ApplicationNamespace
-    {
-        get => GeneratedNamespace;
-        set => GeneratedNamespace = value;
-    }
-
     public TypeLoadMode TypeLoadMode { get; set; } = TypeLoadMode.Dynamic;
 
     public string GeneratedCodeOutputPath { get; set; } = "Internal/Generated";
