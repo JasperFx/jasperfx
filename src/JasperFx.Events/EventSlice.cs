@@ -4,6 +4,7 @@ using JasperFx.Events.Slicing;
 
 namespace JasperFx.Events;
 
+
 public interface IEventSlice
 {
     string TenantId { get; }

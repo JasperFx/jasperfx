@@ -6,6 +6,13 @@ namespace EventTests.Projections;
 
 public class AggregateApplicationTests
 {
+    /*
+     * TODOs
+     * Try ShouldDelete
+     * Use validation
+     * Use base types for events
+     */
+    
     [Fact]
     public async Task use_ctor_that_takes_the_event_data_type()
     {
@@ -118,6 +125,17 @@ public class AggregateApplicationTests
         copy.DCount.ShouldBe(1);
         copy.Session.ShouldBeSameAs(session);
     }
+
+    [Fact]
+    public async Task using_should_delete()
+    {
+        var session = new Session();
+        var application = new AggregateApplication<LetterCounts, Session>();
+        var counts = new LetterCounts();
+        
+        (await application.ApplyByDataAsync(counts, new FullStop(false), session)).ShouldBeSameAs(counts);
+        (await application.ApplyByDataAsync(counts, new FullStop(true), session)).ShouldBeNull();
+    }
     
 }
 
@@ -191,7 +209,11 @@ public class LetterCounts
     public int BCount { get; set; }
     public int CCount { get; set; }
     public int DCount { get; set; }
+
+    public bool ShouldDelete(FullStop stop) => stop.ShouldStop;
 }
+
+public record FullStop(bool ShouldStop);
 
 public class LetterCounts2
 {

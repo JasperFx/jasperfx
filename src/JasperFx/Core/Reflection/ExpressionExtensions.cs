@@ -5,14 +5,14 @@ namespace JasperFx.Core.Reflection;
 public static class ExpressionExtensions
 {
     // Meant to wrap Task, then return the aggregate
-    internal static async ValueTask<T> WrapTask<T>(Task task, T returnValue)
+    public static async ValueTask<T> WrapTask<T>(Task task, T returnValue)
     {
         await task;
         return returnValue;
     }
     
     // Meant to wrap ValueTask, then return the aggregate
-    internal static async ValueTask<T> WrapValueTask<T>(ValueTask task, T returnValue)
+    public static async ValueTask<T> WrapValueTask<T>(ValueTask task, T returnValue)
     {
         await task;
         return returnValue;
@@ -35,7 +35,7 @@ public static class ExpressionExtensions
         var taskType = typeof(Task<T>);
         if (expression.Type == taskType)
         {
-            var ctor = valueTaskType.GetConstructor([typeof(T)]);
+            var ctor = valueTaskType.GetConstructor([taskType]);
             return Expression.New(ctor, expression);
         }
 
@@ -43,7 +43,7 @@ public static class ExpressionExtensions
             $"No known way to convert type {expression.Type} to {valueTaskType.ShortNameInCode()}");
     }
     
-    public static Expression ReturnWithValueTask<T>(this Expression expression, ParameterExpression argument)
+    public static Expression ReturnWithValueTask<T>(this Expression expression, Expression argument)
     {
         var valueTaskType = typeof(ValueTask<T>);
 
@@ -65,19 +65,19 @@ public static class ExpressionExtensions
         var taskType = typeof(Task<T>);
         if (expression.Type == taskType)
         {
-            var ctor = valueTaskType.GetConstructor([typeof(T)]);
+            var ctor = valueTaskType.GetConstructor([taskType]);
             return Expression.New(ctor, expression);
         }
 
         if (expression.Type == typeof(Task))
         {
-            var method = typeof(ExpressionExtensions).GetMethod(nameof(ExpressionExtensions.WrapTask));
+            var method = typeof(ExpressionExtensions).GetMethod(nameof(ExpressionExtensions.WrapTask)).MakeGenericMethod(typeof(T));
             return Expression.Call(null, method, expression, argument);
         }
         
         if (expression.Type == typeof(ValueTask))
         {
-            var method = typeof(ExpressionExtensions).GetMethod(nameof(ExpressionExtensions.WrapValueTask));
+            var method = typeof(ExpressionExtensions).GetMethod(nameof(ExpressionExtensions.WrapValueTask)).MakeGenericMethod(typeof(T));
             return Expression.Call(null, method, expression, argument);
         }
         
