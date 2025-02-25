@@ -42,7 +42,7 @@ public static class ExpressionExtensions
         throw new ArgumentOutOfRangeException(nameof(expression),
             $"No known way to convert type {expression.Type} to {valueTaskType.ShortNameInCode()}");
     }
-    
+
     public static Expression ReturnWithValueTask<T>(this Expression expression, Expression argument)
     {
         var valueTaskType = typeof(ValueTask<T>);

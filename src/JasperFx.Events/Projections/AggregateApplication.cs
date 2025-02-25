@@ -47,7 +47,6 @@ public partial class AggregateApplication<TAggregate, TQuerySession> : IAggregat
 
     public IEnumerable<Type> AllEventTypes()
     {
-        // TODO -- also get lambdas that are explicitly added
         return MethodCollection
             .AllEventTypes(_applyMethods, _createMethods, _shouldDeleteMethods)
             .Concat(_creators.Enumerate().Select(x => x.Key))
