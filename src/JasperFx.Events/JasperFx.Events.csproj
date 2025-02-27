@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
+        <Description>Foundational Event Store Abstractions and Projections for the Critter Stack</Description>
+        <PackageId>JasperFx.Events</PackageId>
+        <Version>0.1.0</Version>
     </PropertyGroup>
 
     <ItemGroup>

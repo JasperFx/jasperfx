@@ -42,7 +42,9 @@ public class AggregateApplicationTests
         var snapshot = await application.CreateByData(new AEvent(), new Session());
         
         snapshot.ShouldNotBeNull();
-        snapshot.ACount.ShouldBe(0);
+        
+        // Should use Apply() on this 
+        snapshot.ACount.ShouldBe(1);
         snapshot.BCount.ShouldBe(0);
     }
     

@@ -105,7 +105,8 @@ partial class Build : NukeBuild
             var projects = new[]
             {
                 Solution.JasperFx,
-                Solution.JasperFx_RuntimeCompiler
+                Solution.JasperFx_RuntimeCompiler,
+                Solution.JasperFx_Events
             };
 
             foreach (var project in projects)
