@@ -1,4 +1,4 @@
-namespace JasperFx.Events.Slicing;
+namespace JasperFx.Events.Grouping;
 
 /// <summary>
 ///     When does the fanout rule apply?

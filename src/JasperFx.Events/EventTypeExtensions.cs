@@ -99,4 +99,29 @@ public static class EventTypeExtensions
     {
         return GetEventTypeNameWithSuffix(eventTypeName, $"v{schemaVersion}");
     }
+    
+    
+    /// <summary>
+    /// Create a new IEvent object carrying the original metadata as the original
+    /// event, but with a different data body. This is used within "fan out"
+    /// operations within event slicing for multi-stream projections
+    /// </summary>
+    /// <param name="event"></param>
+    /// <param name="eventData"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public static IEvent<T> CloneEventWithNewData<T>(this IEvent @event, T eventData) where T : notnull
+    {
+        return new Event<T>(eventData)
+        {
+            Id = @event.Id,
+            Sequence = @event.Sequence,
+            TenantId = @event.TenantId,
+            Version = @event.Version,
+            StreamId = @event.StreamId,
+            StreamKey = @event.StreamKey,
+            Timestamp = @event.Timestamp
+        };
+    }
+
 }

@@ -1,5 +1,6 @@
 #nullable enable
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Grouping;
 using JasperFx.Events.Slicing;
 
 namespace JasperFx.Events;

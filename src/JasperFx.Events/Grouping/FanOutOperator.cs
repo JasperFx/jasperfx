@@ -1,4 +1,4 @@
-namespace JasperFx.Events.Slicing;
+namespace JasperFx.Events.Grouping;
 
 public abstract class FanOutOperator<TSource>: IFanOutRule
 {

@@ -39,15 +39,6 @@ public interface IEventGrouping<TId>
     void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events);
 
     /// <summary>
-    ///     Add events to the grouping based on the outer IEvent<TEvent> envelope type
-    /// </summary>
-    /// <param name="singleIdSource"></param>
-    /// <param name="events"></param>
-    /// <typeparam name="TEvent"></typeparam>
-    void AddEventsWithMetadata<TEvent>(Func<IEvent<TEvent>, TId> singleIdSource, IEnumerable<IEvent> events);
-
-
-    /// <summary>
     ///     Apply "fan out" operations to the given TSource type that inserts an enumerable of TChild events right behind the
     ///     parent
     ///     event in the event stream just after any instance of the parent
@@ -57,11 +48,4 @@ public interface IEventGrouping<TId>
     /// <typeparam name="TChild"></typeparam>
     void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc);
 
-    /// <summary>
-    ///     Add events to the grouping based on the outer IEvent<TEvent> envelope type
-    /// </summary>
-    /// <param name="singleIdSource"></param>
-    /// <param name="events"></param>
-    /// <typeparam name="TEvent"></typeparam>
-    void AddEventsWithMetadata<TEvent>(Func<IEvent<TEvent>, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events);
 }
