@@ -6,6 +6,16 @@ namespace JasperFx.Events.Projections;
 
 public static class CodeGenerationExtensions
 {
+    public static Type? UnwrapEventType(this Type type)
+    {
+        if (type.Closes(typeof(IEvent<>))) return type.GetGenericArguments()[0];
+        if (type.Closes(typeof(Event<>))) return type.GetGenericArguments()[0];
+
+        if (type == typeof(IEvent)) return null;
+
+        return type;
+    }
+    
     public static Type GetEventType(this MethodInfo method, Type aggregateType)
     {
         var candidate = method.GetParameters().Where(x => x.ParameterType.Closes(typeof(IEvent<>)));
