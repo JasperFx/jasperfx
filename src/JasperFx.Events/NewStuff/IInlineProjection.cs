@@ -3,8 +3,10 @@ using JasperFx.Events.Grouping;
 
 namespace JasperFx.Events.NewStuff;
 
+// This was effectively IProjection in Marten
+
 /// <summary>
-///     Interface for projections applied "Inline" as part of saving a transaction
+/// Interface for projections applied "Inline" as part of saving a transaction
 /// </summary>
 public interface IInlineProjection<TOperations>
 {
@@ -18,5 +20,3 @@ public interface IInlineProjection<TOperations>
     Task ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams,
         CancellationToken cancellation);
 }
-
-// Leave public for codegen!

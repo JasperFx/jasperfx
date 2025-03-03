@@ -11,7 +11,7 @@ public class ShardName
     {
         ProjectionName = projectionName;
         Key = key;
-
+        Version = version;
 
         if (version > 1)
         {
@@ -24,7 +24,7 @@ public class ShardName
 
     }
 
-    public ShardName(string projectionName, string key) : this(projectionName, key, 1)
+    public ShardName(string projectionName, string key) : this(projectionName, key, 1u)
     {
 
     }
@@ -32,6 +32,13 @@ public class ShardName
     public ShardName(string projectionName): this(projectionName, All, 1)
     {
     }
+
+    public ShardName CloneForDatabase(Uri database)
+    {
+        return new ShardName(ProjectionName, Key, Version) { Database = database };
+    }
+
+    public Uri Database { get; set; } = new Uri("database://default");
 
     /// <summary>
     ///     Parent projection name

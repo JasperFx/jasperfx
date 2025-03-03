@@ -9,10 +9,7 @@ public interface ISubscriptionExecution: IAsyncDisposable
     Task HardStopAsync();
     Task EnsureStorageExists();
 
-    string DatabaseName { get; }
     ShardExecutionMode Mode { get; set; }
-    string ShardIdentity { get; }
-
     bool TryBuildReplayExecutor(out IReplayExecutor executor);
 }
 

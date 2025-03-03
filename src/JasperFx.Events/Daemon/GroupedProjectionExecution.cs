@@ -11,11 +11,13 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     private readonly ActionBlock<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly TransformBlock<EventRange, EventRange> _grouping;
+    private readonly ShardName _shardName;
     private readonly ILogger _logger;
     private readonly IGroupedProjectionRunner _runner;
 
-    public GroupedProjectionExecution(IGroupedProjectionRunner runner, ILogger logger)
+    public GroupedProjectionExecution(ShardName shardName, IGroupedProjectionRunner runner, ILogger logger)
     {
+        _shardName = shardName;
         _logger = logger;
 
         var singleFileOptions = _cancellation.Token.SequentialOptions();
@@ -26,18 +28,12 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         _runner = runner;
     }
 
-    public string ProjectionShardIdentity => _runner.ProjectionShardIdentity;
-
-    public string ShardIdentity => _runner.ShardIdentity;
-
     public ShardExecutionMode Mode { get; set; }
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
         return _runner.TryBuildReplayExecutor(out executor);
     }
-
-    public string DatabaseName => _runner.DatabaseIdentifier;
 
     public Task EnsureStorageExists()
     {
@@ -103,7 +99,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
                 {
                     _logger.LogDebug(
                         "Subscription {Name} successfully grouped {Number} events with a floor of {Floor} and ceiling of {Ceiling}",
-                        ProjectionShardIdentity, range.Events.Count, range.SequenceFloor, range.SequenceCeiling);
+                        _shardName.Identity, range.Events.Count, range.SequenceFloor, range.SequenceCeiling);
                 }
             }
 
@@ -113,7 +109,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         {
             activity?.RecordException(e);
             _logger.LogError(e, "Failure trying to group events for {Name} from {Floor} to {Ceiling}",
-                ProjectionShardIdentity, range.SequenceFloor, range.SequenceCeiling);
+                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
 
             return null;
@@ -151,7 +147,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
             activity?.RecordException(e);
             _logger.LogError(e,
                 "Error trying to build and apply changes to event subscription {Name} from {Floor} to {Ceiling}",
-                ProjectionShardIdentity, range.SequenceFloor, range.SequenceCeiling);
+                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
         finally
@@ -172,8 +168,8 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
             if (Mode == ShardExecutionMode.Continuous)
             {
-                _logger.LogInformation("Shard '{ProjectionShardIdentity}': Executed updates for {Range}",
-                    ProjectionShardIdentity, range);
+                _logger.LogInformation("Shard '{_shardName.Identity}': Executed updates for {Range}",
+                    _shardName.Identity, range);
             }
         }
         catch (Exception e)
@@ -181,8 +177,8 @@ public class GroupedProjectionExecution: ISubscriptionExecution
             if (!_cancellation.IsCancellationRequested)
             {
                 _logger.LogError(e,
-                    "Failure in shard '{ProjectionShardIdentity}' trying to execute an update batch for {Range}",
-                    ProjectionShardIdentity,
+                    "Failure in shard '{_shardName.Identity}' trying to execute an update batch for {Range}",
+                    _shardName.Identity,
                     range);
                 throw;
             }
@@ -230,7 +226,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
             _logger.LogError(e,
                 "Subscription {Name} failed while creating a SQL batch for updates for events from {Floor} to {Ceiling}",
-                ProjectionShardIdentity, range.SequenceFloor, range.SequenceCeiling);
+                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
 
             if (batch != null)
             {

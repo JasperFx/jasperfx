@@ -19,9 +19,7 @@ public interface IGroupedProjectionRunner : IAsyncDisposable
 
     IEventSlicer Slicer { get; }
 
-    string ProjectionShardIdentity { get; }
-    string ShardIdentity { get; }
-    string DatabaseIdentifier { get; }
+    ShardName Name { get; }
 
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
     Task EnsureStorageExists(CancellationToken token);
