@@ -26,3 +26,4 @@ public interface IGroupedProjectionRunner : IAsyncDisposable
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
     Task EnsureStorageExists(CancellationToken token);
 }
+

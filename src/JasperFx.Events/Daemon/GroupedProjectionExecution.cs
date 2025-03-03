@@ -46,11 +46,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
     public async ValueTask DisposeAsync()
     {
-#if NET8_0_OR_GREATER
         await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-        _cancellation.Cancel();
-#endif
 
         _grouping.Complete();
         _building.Complete();
@@ -77,21 +73,13 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         await _grouping.Completion.ConfigureAwait(false);
         _building.Complete();
         await _building.Completion.ConfigureAwait(false);
-
-#if NET8_0_OR_GREATER
+        
         await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-        _cancellation.Cancel();
-#endif
     }
 
     public async Task HardStopAsync()
     {
-#if NET8_0_OR_GREATER
         await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-        _cancellation.Cancel();
-#endif
         _grouping.Complete();
         _building.Complete();
     }

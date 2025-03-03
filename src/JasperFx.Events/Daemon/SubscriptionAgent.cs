@@ -61,11 +61,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
     {
         try
         {
-#if NET8_0_OR_GREATER
             await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-            _cancellation.Cancel();
-#endif
             await _execution.HardStopAsync().ConfigureAwait(false);
             PausedTime = _timeProvider.GetUtcNow();
             Status = AgentStatus.Paused;
@@ -95,12 +91,8 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
             // Let the command block finish first
             _commandBlock.Complete();
             await _commandBlock.Completion.ConfigureAwait(false);
-
-#if NET8_0_OR_GREATER
+            
             await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-            _cancellation.Cancel();
-#endif
 
             await _execution.StopAndDrainAsync(token).ConfigureAwait(false);
         }
@@ -200,11 +192,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-#if NET8_0_OR_GREATER
         await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-        _cancellation.Cancel();
-#endif
         _commandBlock.Complete();
         await _execution.DisposeAsync().ConfigureAwait(false);
     }

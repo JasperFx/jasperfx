@@ -89,21 +89,13 @@ public class SubscriptionExecution: ISubscriptionExecution
     {
         _executionBlock.Complete();
         await _executionBlock.Completion.ConfigureAwait(false);
-#if NET8_0_OR_GREATER
         await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-        _cancellation.Cancel();
-#endif
     }
 
     public async Task HardStopAsync()
     {
         _executionBlock.Complete();
-#if NET8_0_OR_GREATER
         await _cancellation.CancelAsync().ConfigureAwait(false);
-#else
-        _cancellation.Cancel();
-#endif
     }
 
     public Task EnsureStorageExists()
