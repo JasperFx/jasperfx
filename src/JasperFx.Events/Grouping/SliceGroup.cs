@@ -4,8 +4,6 @@ using JasperFx.Events.Slicing;
 
 namespace JasperFx.Events.Grouping;
 
-// TODO -- make sure the methods can handle IEvent too because duh
-
 /// <summary>
 /// Structure to hold and help organize events in "slices" by identity to apply
 /// to the matching aggregate document TDoc. Note that TDoc might be a marker type.

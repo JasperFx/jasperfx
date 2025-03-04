@@ -1,3 +1,5 @@
+using JasperFx.Events.NewStuff;
+
 namespace JasperFx.Events.Grouping;
 
 public interface IEventSlicer
@@ -71,7 +73,7 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer
     }
 } 
 
-public interface IEventSlicer<TDoc, TId>
+public interface IEventSlicer<TDoc, TId> 
 {
     /// <summary>
     ///     This is called by the asynchronous projection runner
@@ -80,5 +82,15 @@ public interface IEventSlicer<TDoc, TId>
     /// <param name="grouping"></param>
     /// <returns></returns>
     ValueTask SliceAsync(IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping);
+}
+
+public interface ISingleStreamSlicer
+{
+
+}
+
+public interface ISingleStreamSlicer<TId> : ISingleStreamSlicer
+{
+    void ArchiveStream(IEventDatabase eventDatabase, TId id);
 }
 

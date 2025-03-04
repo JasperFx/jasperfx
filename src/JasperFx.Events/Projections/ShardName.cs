@@ -21,6 +21,11 @@ public class ShardName
         {
             Identity = $"{projectionName}:{key}";
         }
+        
+        if (projectionName == ShardState.HighWaterMark)
+        {
+            Identity = ShardState.HighWaterMark;
+        }
 
     }
 

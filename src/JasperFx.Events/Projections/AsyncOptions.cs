@@ -1,7 +1,16 @@
-using JasperFx.Core;
-using JasperFx.Events.Projections;
+#nullable enable
 
-namespace JasperFx.Events.Daemon;
+using JasperFx.Core;
+using JasperFx.Events.Daemon;
+using JasperFx.Events.NewStuff;
+
+namespace JasperFx.Events.Projections;
+
+public interface IProjectionCleanupActions;
+
+public record DeleteDocuments(Type DocumentType): IProjectionCleanupActions;
+
+public record DeleteTableData(string TableIdentifier): IProjectionCleanupActions;
 
 /// <summary>
 ///     Governs the advanced behavior of a projection shard running
@@ -9,9 +18,9 @@ namespace JasperFx.Events.Daemon;
 /// </summary>
 public class AsyncOptions
 {
-    private readonly List<Action<IProjectionStorageSession>> _actions = new();
+    private readonly List<IProjectionCleanupActions> _cleanups = new();
 
-    private readonly List<IPositionStrategy> _strategies = new();
+    public IReadOnlyList<IProjectionCleanupActions> CleanUps => _cleanups;
 
     /// <summary>
     ///     The maximum range of events fetched at one time
@@ -32,12 +41,19 @@ public class AsyncOptions
     public List<Type> StorageTypes { get; } = new();
 
     /// <summary>
-    ///     Enable the identity map mechanics to reuse documents within the session by their identity
-    ///     if a projection needs to make subsequent changes to the same document at one time. Default is no tracking
+    /// Enable the identity map mechanics to reuse documents within the session by their identity
+    /// if a projection needs to make subsequent changes to the same document at one time. Default is no tracking
     /// </summary>
     public bool EnableDocumentTrackingByIdentity { get; set; }
 
     public bool TeardownDataOnRebuild { get; set; } = true;
+
+    /// <summary>
+    /// If more than 0 (the default), this is the maximum number of aggregates
+    /// that will be cached in a 2nd level, most recently used cache during async
+    /// projection. Use this to potentially improve async projection throughput
+    /// </summary>
+    public int CacheLimitPerTenant { get; set; } = 0;
 
     /// <summary>
     ///     Add explicit teardown rule to delete all documents of type T
@@ -56,7 +72,7 @@ public class AsyncOptions
     /// <param name="type"></param>
     public void DeleteViewTypeOnTeardown(Type type)
     {
-        _actions.Add(x => x.DeleteForType(type));
+        _cleanups.Add(new DeleteDocuments(type));
         StorageTypes.Add(type);
     }
 
@@ -67,37 +83,31 @@ public class AsyncOptions
     /// <param name="name"></param>
     public void DeleteDataInTableOnTeardown(string tableIdentifier)
     {
-        _actions.Add(x => x.DeleteNamedResource(tableIdentifier));
+        _cleanups.Add(new DeleteTableData(tableIdentifier));
     }
 
-    public void RegisterTeardownActions(IProjectionStorageSession operations)
-    {
-        foreach (var action in _actions) action(operations);
-    }
-
-    public Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
-        IProjectionStorage database,
+    internal Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
+        IEventDatabase database,
         CancellationToken token)
     {
         var strategy = matchStrategy(database);
         return strategy.DetermineStartingPositionAsync(highWaterMark, name, mode, database, token);
     }
 
-    private IPositionStrategy matchStrategy(IProjectionStorage database)
+    private IPositionStrategy matchStrategy(IEventDatabase database)
     {
-        return _strategies.Where(x => x.DatabaseName.IsNotEmpty())
-                   .FirstOrDefault(x => x.DatabaseName!.EqualsIgnoreCase(database.StorageIdentifier))
-               ?? _strategies.FirstOrDefault(x => x.DatabaseName.IsEmpty()) ?? CatchUp.Instance;
+        return _strategies.Where(x => x.DatabaseName.IsNotEmpty()).FirstOrDefault(x => x.DatabaseName!.EqualsIgnoreCase(database.Identifier))
+                       ?? _strategies.FirstOrDefault(x => x.DatabaseName.IsEmpty()) ?? CatchUp.Instance;
     }
 
+    private readonly List<IPositionStrategy> _strategies = new();
+
     /// <summary>
-    ///     Direct that this subscription or projection should only start from events that are appended
-    ///     after the subscription is started
+    /// Direct that this subscription or projection should only start from events that are appended
+    /// after the subscription is started
     /// </summary>
-    /// <param name="databaseIdentifier">
-    ///     Optionally applies this rule to *only* the named database in the case of
-    ///     using a multi-tenancy per multiple databases strategy
-    /// </param>
+    /// <param name="databaseIdentifier">Optionally applies this rule to *only* the named database in the case of
+    /// using a multi-tenancy per multiple databases strategy</param>
     /// <returns></returns>
     public AsyncOptions SubscribeFromPresent(string? databaseIdentifier = null)
     {
@@ -106,14 +116,12 @@ public class AsyncOptions
     }
 
     /// <summary>
-    ///     Direct that this subscription or projection should only start from events that have a timestamp
-    ///     greater than the supplied eventTimestampFloor
+    /// Direct that this subscription or projection should only start from events that have a timestamp
+    /// greater than the supplied eventTimestampFloor
     /// </summary>
     /// <param name="eventTimestampFloor">The floor time of the events where this subscription should be started</param>
-    /// <param name="databaseIdentifier">
-    ///     Optionally applies this rule to *only* the named database in the case of
-    ///     using a multi-tenancy per multiple databases strategy
-    /// </param>
+    /// <param name="databaseIdentifier">Optionally applies this rule to *only* the named database in the case of
+    /// using a multi-tenancy per multiple databases strategy</param>
     /// <returns></returns>
     public AsyncOptions SubscribeFromTime(DateTimeOffset eventTimestampFloor, string? databaseIdentifier = null)
     {
@@ -122,41 +130,74 @@ public class AsyncOptions
     }
 
     /// <summary>
-    ///     Direct that this subscription or projection should only start from events that have a sequence
-    ///     greater than the supplied sequenceFloor
+    /// Direct that this subscription or projection should only start from events that have a sequence
+    /// greater than the supplied sequenceFloor
     /// </summary>
     /// <param name="sequenceFloor"></param>
-    /// <param name="databaseIdentifier">
-    ///     Optionally applies this rule to *only* the named database in the case of
-    ///     using a multi-tenancy per multiple databases strategy
-    /// </param>
+    /// <param name="databaseIdentifier">Optionally applies this rule to *only* the named database in the case of
+    /// using a multi-tenancy per multiple databases strategy</param>
     /// <returns></returns>
     public AsyncOptions SubscribeFromSequence(long sequenceFloor, string? databaseIdentifier = null)
     {
         _strategies.Add(new FromSequence(databaseIdentifier, sequenceFloor));
         return this;
     }
+
+    /// <summary>
+    /// Use this option to prevent having to rebuild a projection when you are
+    /// simply changing the projection lifecycle from "Inline" to "Async" but are
+    /// making no other changes that would force a rebuild
+    ///
+    /// Direct that this projection had previously been running with an "Inline"
+    /// lifecycle now run as "Async". This will cause Marten to first check if there
+    /// is any previous async progress, and if not, start the projection from the highest
+    /// event sequence for the system.
+    /// </summary>
+    /// <returns></returns>
+    public AsyncOptions SubscribeAsInlineToAsync()
+    {
+        _strategies.Add(new InlineToAsync());
+        return this;
+    }
 }
 
-public record Position(long Floor, bool ShouldUpdateProgressFirst);
+internal record Position(long Floor, bool ShouldUpdateProgressFirst);
 
 internal interface IPositionStrategy
 {
-    string? DatabaseName { get; }
+    string? DatabaseName { get;}
 
     Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
-        IProjectionStorage database,
+        IEventDatabase database,
         CancellationToken token);
 }
 
-internal class FromSequence(string? databaseName, long sequence) : IPositionStrategy
+internal class InlineToAsync(): IPositionStrategy
 {
-    public long Sequence { get; } = sequence;
+    public string? DatabaseName => null;
+
+    public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
+        IEventDatabase database, CancellationToken token)
+    {
+        var current = await database.ProjectionProgressFor(name, token).ConfigureAwait(false);
+        if (current > 0)
+        {
+            return new Position(current, false);
+        }
+
+        var highest = await database.FetchHighestEventSequenceNumber(token).ConfigureAwait(false);
+        return new Position(highest, true);
+    }
+}
+
+internal class FromSequence(string? databaseName, long sequence): IPositionStrategy
+{
     public string? DatabaseName { get; } = databaseName;
+    public long Sequence { get; } = sequence;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
         ShardExecutionMode mode,
-        IProjectionStorage database, CancellationToken token)
+        IEventDatabase database, CancellationToken token)
     {
         if (mode == ShardExecutionMode.Rebuild)
         {
@@ -171,14 +212,14 @@ internal class FromSequence(string? databaseName, long sequence) : IPositionStra
     }
 }
 
-internal class FromTime(string? databaseName, DateTimeOffset time) : IPositionStrategy
+internal class FromTime(string? databaseName, DateTimeOffset time): IPositionStrategy
 {
-    public DateTimeOffset EventFloorTime { get; } = time;
     public string? DatabaseName { get; } = databaseName;
+    public DateTimeOffset EventFloorTime { get; } = time;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
         ShardExecutionMode mode,
-        IProjectionStorage database, CancellationToken token)
+        IEventDatabase database, CancellationToken token)
     {
         var floor = await database.FindEventStoreFloorAtTimeAsync(EventFloorTime, token).ConfigureAwait(false) ?? 0;
 
@@ -193,30 +234,28 @@ internal class FromTime(string? databaseName, DateTimeOffset time) : IPositionSt
     }
 }
 
-internal class FromPresent(string? databaseName) : IPositionStrategy
+internal class FromPresent(string? databaseName): IPositionStrategy
 {
     public string? DatabaseName { get; } = databaseName;
 
     public Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
-        IProjectionStorage database, CancellationToken token)
+        IEventDatabase database, CancellationToken token)
     {
         return Task.FromResult(new Position(highWaterMark, true));
     }
 }
 
-internal class CatchUp : IPositionStrategy
+internal class CatchUp: IPositionStrategy
 {
     internal static CatchUp Instance = new();
 
-    private CatchUp()
-    {
-    }
+    private CatchUp(){}
 
     public string? DatabaseName { get; set; } = null;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
         ShardExecutionMode mode,
-        IProjectionStorage database,
+        IEventDatabase database,
         CancellationToken token)
     {
         return mode == ShardExecutionMode.Continuous
@@ -226,3 +265,4 @@ internal class CatchUp : IPositionStrategy
             : new Position(0, true);
     }
 }
+

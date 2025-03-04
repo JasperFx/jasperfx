@@ -206,10 +206,10 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         _events.AddRange(events);
     }
 
-    public IEnumerable<T> BuildOperations<T>(IEventRegistry eventGraph,
-        IEventStorageBuilder<T> storage, bool isSingleStream)
+    public void BuildOperations(IEventRegistry eventGraph,
+        IEventStorageBuilder storage, bool isSingleStream)
     {
-        if (RaisedEvents == null) yield break;
+        if (RaisedEvents == null) return;
 
         foreach (var e in RaisedEvents)
         {
@@ -239,17 +239,17 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
                     foreach (var @event in RaisedEvents)
                     {
                         @event.Version = ++version;
-                        yield return storage.QuickAppendEventWithVersion(action, @event);
+                        storage.QuickAppendEventWithVersion(action, @event);
                     }
 
                     action.Version = version;
 
-                    yield return storage.UpdateStreamVersion(action);
+                    storage.UpdateStreamVersion(action);
                 }
                 else
                 {
                     action.TenantId = TenantId;
-                    yield return storage.QuickAppendEvents(action);
+                    storage.QuickAppendEvents(action);
                 }
             }
         }
@@ -271,17 +271,17 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
                     foreach (var @event in RaisedEvents)
                     {
                         @event.Version = ++version;
-                        yield return storage.QuickAppendEventWithVersion(action, @event);
+                        storage.QuickAppendEventWithVersion(action, @event);
                     }
 
                     action.Version = version;
 
-                    yield return storage.UpdateStreamVersion(action);
+                    storage.UpdateStreamVersion(action);
                 }
                 else
                 {
                     action.TenantId = TenantId;
-                    yield return storage.QuickAppendEvents(action);
+                    storage.QuickAppendEvents(action);
                 }
             }
         }
