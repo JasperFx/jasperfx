@@ -7,6 +7,8 @@ namespace JasperFx.Events.NewStuff;
 
 public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession
 {
+    IEventRegistry Registry { get; }
+    
     string DefaultDatabaseName { get; }
     ErrorHandlingOptions ContinuousErrors { get; }
     ErrorHandlingOptions RebuildErrors { get; }
@@ -33,5 +35,6 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
     Task TeardownExistingProjectionProgressAsync(IEventDatabase database, string subscriptionName,
         CancellationToken token);
 
-    ValueTask<IProjectionBatch<TOperations, TQuerySession>> StartProjectionBatchAsync(EventRange range, IEventDatabase database, CancellationToken token);
+    ValueTask<IProjectionBatch<TOperations, TQuerySession>> StartProjectionBatchAsync(EventRange range,
+        IEventDatabase database, ShardExecutionMode mode, CancellationToken token);
 }

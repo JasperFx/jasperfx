@@ -135,7 +135,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
             await using var batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
-                : await buildBatchAsync(range).ConfigureAwait(false);
+                : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
 
             // Executing the SQL commands for the ProjectionUpdateBatch
             await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
@@ -197,7 +197,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         {
             try
             {
-                batch = await buildBatchAsync(range).ConfigureAwait(false);
+                batch = await buildBatchAsync(range, cancellationToken).ConfigureAwait(false);
             }
             catch (ApplyEventException e)
             {
@@ -210,12 +210,12 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         return batch;
     }
 
-    private async Task<IProjectionBatch> buildBatchAsync(EventRange range)
+    private async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
     {
         IProjectionBatch batch = default;
         try
         {
-            batch = await _runner.BuildBatchAsync(range).ConfigureAwait(false);
+            batch = await _runner.BuildBatchAsync(range, Mode, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e)
         {

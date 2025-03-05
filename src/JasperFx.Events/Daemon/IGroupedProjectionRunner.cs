@@ -14,7 +14,7 @@ public interface IGroupedProjectionRunner : IAsyncDisposable
 {
     SliceBehavior SliceBehavior { get; }
     
-    Task<IProjectionBatch> BuildBatchAsync(EventRange range);
+    Task<IProjectionBatch> BuildBatchAsync(EventRange range, ShardExecutionMode mode, CancellationToken cancellation);
     bool TryBuildReplayExecutor(out IReplayExecutor executor);
 
     IEventSlicer Slicer { get; }

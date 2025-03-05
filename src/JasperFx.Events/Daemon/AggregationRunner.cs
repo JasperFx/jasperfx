@@ -1,3 +1,4 @@
+using System.Threading.Tasks.Dataflow;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.NewStuff;
 using JasperFx.Events.Projections;
@@ -19,26 +20,30 @@ public interface IAggregationProjection<TDoc, TOperations>
     
     bool MatchesAnyDeleteType(IEventSlice slice);
     TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
+    
+    IEventSlicer Slicer { get; }
 }
 
 public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession
 {
-    private readonly IEventRegistry _events;
+    private readonly IEventStorage<TOperations, TQuerySession> _storage;
+    private readonly IEventDatabase _database;
     private readonly AggregateApplication<TDoc, TQuerySession> _application;
-    private readonly IEventSlicer<TDoc,TId> _slicer;
 
     // TODO -- do something to abstract AggregateApplication. 
-    public AggregationRunner(IEventRegistry events, IAggregationProjection<TDoc, TOperations> projection, AggregateApplication<TDoc, TQuerySession> application, SliceBehavior sliceBehavior, IEventSlicer<TDoc, TId> slicer)
+    public AggregationRunner(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+        IAggregationProjection<TDoc, TOperations> projection, AggregateApplication<TDoc, TQuerySession> application,
+        SliceBehavior sliceBehavior)
     {
         Projection = projection;
         SliceBehavior = sliceBehavior;
-        _events = events;
+        _storage = storage;
+        _database = database;
         _application = application;
 
-        _slicer = slicer;
     }
 
-    public IReadOnlyList<Type> DeleteTypes { get; }
+    public IEventSlicer Slicer => Projection.Slicer;
 
     public async ValueTask DisposeAsync()
     {
@@ -47,33 +52,50 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
     public IAggregationProjection<TDoc, TOperations> Projection { get; }
     public SliceBehavior SliceBehavior { get; }
-    public async Task<IProjectionBatch> BuildBatchAsync(EventRange range)
+    public async Task<IProjectionBatch> BuildBatchAsync(EventRange range, ShardExecutionMode mode,
+        CancellationToken cancellation)
     {
-        /*
-         * Notes:
-         * Start by adding a progression operation. See EventRangeExtensions.BuildProgressionOperation
-         *    - Add to IProjectionBatch interface
-         * Pull in TenantSliceRange.ConfigureUpdateBatch
-         * Get TenantSliceGroup.Start
-         *
-         *
-         * 
-         */
+        // TODO -- the projection batch wrapper will really need to know how to dispose all sessions built
+        var batch = await _storage.StartProjectionBatchAsync(range, _database, mode, cancellation);
 
-        var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
+        if (SliceBehavior == SliceBehavior.JustInTime)
+        {
+            // TODO -- instrument this maybe?
+            // This will need to pass in the database somehow for slicers that use a Marten database
+            await range.SliceAsync(Projection.Slicer);
+        }
+
+        var builder = new ActionBlock<EventSliceExecution>(async execution =>
+        {
+            if (cancellation.IsCancellationRequested) return;
+
+            await ApplyChangesAsync(mode, execution.Slice, execution.Storage, cancellation);
+        }, new ExecutionDataflowBlockOptions{CancellationToken = cancellation});
         
+        var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
+        foreach (var group in groups)
+        {
+            var storage = batch.ProjectionStorageFor<TDoc>(group.TenantId);
+            foreach (var slice in group.Slices)
+            {
+                builder.Post(new EventSliceExecution(slice, storage));
+            }
+        }
+        
+        builder.Complete();
+        await builder.Completion.ConfigureAwait(false);
 
-        throw new NotImplementedException();
+        return batch;
     }
+
+    private record EventSliceExecution(EventSlice<TDoc, TId> Slice, IProjectionStorage<TDoc, TOperations> Storage);
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
         throw new NotImplementedException();
     }
 
-    // This will be a wrapper I guess.
-    public IEventSlicer Slicer { get; }
-
+    // TODO -- push this down to IEventStorage
     public ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode)
     {
         throw new NotImplementedException();
@@ -89,6 +111,10 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     // THIS IS ONLY USED FOR ASYNC!!!
     public async Task ApplyChangesAsync(ShardExecutionMode mode, EventSlice<TDoc, TId> slice, IProjectionStorage<TDoc, TOperations> storage, CancellationToken cancellation)
     {
+        if (slice.TenantId != storage.TenantId)
+            throw new InvalidOperationException(
+                $"TenantId does not match from the slice '{slice.TenantId}' and storage '{storage.TenantId}'");
+        
         if (Projection.MatchesAnyDeleteType(slice))
         {
             if (mode == ShardExecutionMode.Continuous)
@@ -164,7 +190,9 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
            session.QueueOperation(storageOperation);
          */
-        storage.StoreForAsync(aggregate, lastEvent, Slicer is ISingleStreamSlicer);
+        
+        // TODO -- just ask IAggregationProjection if it's single stream
+        storage.StoreForAsync(aggregate, lastEvent, Projection.Slicer is ISingleStreamSlicer);
 
 
     }
@@ -202,7 +230,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         if (slice.RaisedEvents != null)
         {
             // TODO -- change this to usage storage to just enqueue
-            slice.BuildOperations(_events, storage, Projection.IsSingleStream());
+            slice.BuildOperations(_storage.Registry, storage, Projection.IsSingleStream());
         }
 
         if (slice.PublishedMessages != null)
