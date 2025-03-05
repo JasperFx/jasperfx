@@ -208,7 +208,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     }
 
     public void BuildOperations(IEventRegistry eventGraph,
-        IEventStorageBuilder storage, AggregationType aggregationType)
+        IEventStorageBuilder storage, AggregationScope aggregationScope)
     {
         if (RaisedEvents == null) return;
 
@@ -232,7 +232,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
                 var action = StreamAction.Append(group.Key, RaisedEvents.ToArray());
                 action.TenantId = TenantId;
 
-                if (aggregationType == AggregationType.SingleStream && ActionType == StreamActionType.Start)
+                if (aggregationScope == AggregationScope.SingleStream && ActionType == StreamActionType.Start)
                 {
                     var version = _events.Count;
                     action.ExpectedVersionOnServer = version;
@@ -264,7 +264,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
                 var action = StreamAction.Append(group.Key, RaisedEvents.ToArray());
                 action.TenantId = TenantId;
 
-                if (aggregationType == AggregationType.SingleStream && ActionType == StreamActionType.Start)
+                if (aggregationScope == AggregationScope.SingleStream && ActionType == StreamActionType.Start)
                 {
                     var version = _events.Count;
                     action.ExpectedVersionOnServer = version;

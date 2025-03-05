@@ -9,8 +9,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
-
-    // TODO -- do something to abstract AggregateApplication. 
+    
     public AggregationRunner(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
         IAggregationProjection<TDoc, TId, TOperations> projection,
         SliceBehavior sliceBehavior)
@@ -127,14 +126,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 storage.MarkDeleted(slice.Id);
                 break;
             case ActionType.Store:
-                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationType);
+                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationScope);
                 break;
             case ActionType.HardDelete:
                 storage.HardDelete(snapshot);
                 break;
             case ActionType.UnDeleteAndStore:
                 storage.UnDelete(snapshot);
-                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationType);
+                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationScope);
                 break;
         }
 
@@ -171,7 +170,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     
     private void maybeArchiveStream(IProjectionStorage<TDoc, TOperations> storage, EventSlice<TDoc, TId> slice)
     {
-        if (Projection.AggregationType == AggregationType.SingleStream)
+        if (Projection.AggregationScope == AggregationScope.SingleStream)
         {
             storage.ArchiveStream(slice.Id);
         }
@@ -184,7 +183,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         
         if (slice.RaisedEvents != null)
         {
-            slice.BuildOperations(_storage.Registry, storage, Projection.AggregationType);
+            slice.BuildOperations(_storage.Registry, storage, Projection.AggregationScope);
         }
 
         if (slice.PublishedMessages != null)

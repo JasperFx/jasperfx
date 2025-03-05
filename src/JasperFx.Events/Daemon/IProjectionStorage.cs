@@ -40,6 +40,6 @@ public interface IProjectionStorage<TDoc, TOperations> : IProjectionStorage<TDoc
            op.IgnoreConcurrencyViolation = true;
        }
      */
-    void StoreForAsync(TDoc aggregate, IEvent? lastEvent, AggregationType isSingleStream);
+    void StoreForAsync(TDoc aggregate, IEvent? lastEvent, AggregationScope isSingleStream);
     void ArchiveStream<TId>(TId sliceId);
 }

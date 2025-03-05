@@ -7,6 +7,8 @@ public abstract class ProjectionBase : EventFilterable
 {
     private readonly List<Type> _publishedTypes = new();
 
+    public AsyncOptions Options { get; } = new();
+
     /// <summary>
     ///     Descriptive name for this projection in the async daemon. The default is the type name of the projection
     /// </summary>
