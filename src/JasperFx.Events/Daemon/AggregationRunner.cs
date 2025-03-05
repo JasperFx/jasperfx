@@ -18,7 +18,7 @@ public interface IAggregationProjection<TDoc, TOperations>
     bool IsSingleStream();
     
     bool MatchesAnyDeleteType(IEventSlice slice);
-    TDoc ApplyMetadata<TDoc>(TDoc aggregate, IEvent @event);
+    TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
 }
 
 public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession
@@ -28,7 +28,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     private readonly IEventSlicer<TDoc,TId> _slicer;
 
     // TODO -- do something to abstract AggregateApplication. 
-    public AggregationRunner(IEventRegistry events, IAggregationProjection<TDoc, TOperations> projection, AggregateApplication<TDoc, TQuerySession> application, SliceBehavior sliceBehavior, IEventSlicer<TDoc, TId> slicer, IReadOnlyList<Type> deleteTypes)
+    public AggregationRunner(IEventRegistry events, IAggregationProjection<TDoc, TOperations> projection, AggregateApplication<TDoc, TQuerySession> application, SliceBehavior sliceBehavior, IEventSlicer<TDoc, TId> slicer)
     {
         Projection = projection;
         SliceBehavior = sliceBehavior;
@@ -36,7 +36,6 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         _application = application;
 
         _slicer = slicer;
-        DeleteTypes = deleteTypes;
     }
 
     public IReadOnlyList<Type> DeleteTypes { get; }

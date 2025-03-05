@@ -55,7 +55,7 @@ public abstract class ProjectionSource<TOperations, TStore, TDatabase> : Project
     public Type ProjectionType => GetType();
     public AsyncOptions Options { get; } = new();
     
-    public IReadOnlyList<IAsyncShard<TDatabase>> AsyncProjectionShards()
+    public IReadOnlyList<IAsyncShard> AsyncProjectionShards()
     {
         throw new NotImplementedException();
     }

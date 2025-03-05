@@ -4,13 +4,13 @@ using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.NewStuff;
 
-public interface IEventStorage<TDatabase> where TDatabase : IEventDatabase
+public interface IEventStorage
 {
     string DefaultDatabaseName { get; }
     ErrorHandlingOptions ContinuousErrors { get; }
     ErrorHandlingOptions RebuildErrors { get; }
 
-    IReadOnlyList<IAsyncShard<TDatabase>> AllShards();
+    IReadOnlyList<IAsyncShard> AllShards();
     
     Meter Meter { get; }
     
@@ -25,8 +25,10 @@ public interface IEventStorage<TDatabase> where TDatabase : IEventDatabase
     string MetricsPrefix { get;}
     AutoCreate AutoCreateSchemaObjects { get; }
 
-    Task RewindSubscriptionProgressAsync(TDatabase database, string subscriptionName, CancellationToken token, long? sequenceFloor);
+    Task RewindSubscriptionProgressAsync(IEventDatabase database, string subscriptionName, CancellationToken token, long? sequenceFloor);
 
-    Task RewindAgentProgressAsync(TDatabase database, string shardName, CancellationToken token, long sequenceFloor);
-    Task TeardownExistingProjectionProgressAsync<TDatabase>(TDatabase database, string subscriptionName, CancellationToken token) where TDatabase : IEventDatabase;
+    Task RewindAgentProgressAsync(IEventDatabase database, string shardName, CancellationToken token, long sequenceFloor);
+
+    Task TeardownExistingProjectionProgressAsync(IEventDatabase database, string subscriptionName,
+        CancellationToken token);
 }

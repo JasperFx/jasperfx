@@ -8,10 +8,10 @@ using Microsoft.Extensions.Logging;
 namespace JasperFx.Events.NewStuff;
 
 public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<ShardState>, IDaemonRuntime
-    where TStorage : IEventStorage<TDatabase>
+    where TStorage : IEventStorage
     where TDatabase : IEventDatabase
 {
-    private readonly IEventStorage<TDatabase> _store;
+    private readonly IEventStorage _store;
     private readonly ILoggerFactory _loggerFactory;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
     private CancellationTokenSource _cancellation = new();
@@ -20,7 +20,7 @@ public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<S
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public AsyncDaemon(IEventStorage<TDatabase> store, TDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
+    public AsyncDaemon(IEventStorage store, TDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
     {
         Database = database;
         _store = store;
@@ -161,7 +161,7 @@ public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<S
         }
     }
 
-    private SubscriptionAgent buildAgentForShard(IAsyncShard<TDatabase> shard)
+    private SubscriptionAgent buildAgentForShard(IAsyncShard shard)
     {
         var execution = shard.BuildExecution(Database, _loggerFactory);
         var loader = shard.BuildEventLoader(Database, _loggerFactory);
