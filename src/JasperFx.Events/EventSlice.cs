@@ -1,5 +1,6 @@
 #nullable enable
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Slicing;
 
@@ -207,7 +208,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     }
 
     public void BuildOperations(IEventRegistry eventGraph,
-        IEventStorageBuilder storage, bool isSingleStream)
+        IEventStorageBuilder storage, AggregationType aggregationType)
     {
         if (RaisedEvents == null) return;
 
@@ -231,7 +232,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
                 var action = StreamAction.Append(group.Key, RaisedEvents.ToArray());
                 action.TenantId = TenantId;
 
-                if (isSingleStream && ActionType == StreamActionType.Start)
+                if (aggregationType == AggregationType.SingleStream && ActionType == StreamActionType.Start)
                 {
                     var version = _events.Count;
                     action.ExpectedVersionOnServer = version;
@@ -263,7 +264,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
                 var action = StreamAction.Append(group.Key, RaisedEvents.ToArray());
                 action.TenantId = TenantId;
 
-                if (isSingleStream && ActionType == StreamActionType.Start)
+                if (aggregationType == AggregationType.SingleStream && ActionType == StreamActionType.Start)
                 {
                     var version = _events.Count;
                     action.ExpectedVersionOnServer = version;

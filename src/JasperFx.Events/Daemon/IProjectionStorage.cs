@@ -2,7 +2,15 @@ using JasperFx.Events.NewStuff;
 
 namespace JasperFx.Events.Daemon;
 
-public interface IProjectionStorage<TDoc, TOperations> : IEventStorageBuilder
+public interface IProjectionStorage<TDoc>
+{
+    void HardDelete<T>(T snapshot);
+    void UnDelete<T>(T snapshot);
+    void Store<T>(T snapshot);
+    void DeleteForId<TId>(TId identity);
+}
+
+public interface IProjectionStorage<TDoc, TOperations> : IProjectionStorage<TDoc>, IEventStorageBuilder
 {
     // This will wrap ProjectionUpdateBatch & the right DocumentSession
     
@@ -32,6 +40,6 @@ public interface IProjectionStorage<TDoc, TOperations> : IEventStorageBuilder
            op.IgnoreConcurrencyViolation = true;
        }
      */
-    void StoreForAsync(TDoc aggregate, IEvent? lastEvent, bool isSingleStream);
+    void StoreForAsync(TDoc aggregate, IEvent? lastEvent, AggregationType isSingleStream);
     void ArchiveStream<TId>(TId sliceId);
 }

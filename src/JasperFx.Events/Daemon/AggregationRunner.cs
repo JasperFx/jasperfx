@@ -5,52 +5,31 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Daemon;
 
-public interface IAggregationProjection<TDoc, TOperations>
-{
-    /// <summary>
-    /// Use to create "side effects" when running an aggregation (single stream, custom projection, multi-stream)
-    /// asynchronously in a continuous mode (i.e., not in rebuilds)
-    /// </summary>
-    /// <param name="operations"></param>
-    /// <param name="slice"></param>
-    /// <returns></returns>
-    ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice);
-
-    bool IsSingleStream();
-    
-    bool MatchesAnyDeleteType(IEventSlice slice);
-    TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
-    
-    IEventSlicer Slicer { get; }
-}
-
 public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
-    private readonly AggregateApplication<TDoc, TQuerySession> _application;
 
     // TODO -- do something to abstract AggregateApplication. 
     public AggregationRunner(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
-        IAggregationProjection<TDoc, TOperations> projection, AggregateApplication<TDoc, TQuerySession> application,
+        IAggregationProjection<TDoc, TId, TOperations> projection,
         SliceBehavior sliceBehavior)
     {
         Projection = projection;
         SliceBehavior = sliceBehavior;
         _storage = storage;
         _database = database;
-        _application = application;
 
     }
 
     public IEventSlicer Slicer => Projection.Slicer;
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        throw new NotImplementedException();
+        return new ValueTask();
     }
 
-    public IAggregationProjection<TDoc, TOperations> Projection { get; }
+    public IAggregationProjection<TDoc, TId, TOperations> Projection { get; }
     public SliceBehavior SliceBehavior { get; }
     public async Task<IProjectionBatch> BuildBatchAsync(EventRange range, ShardExecutionMode mode,
         CancellationToken cancellation)
@@ -126,57 +105,37 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             storage.MarkDeleted(slice.Id);
             return;
         }
-        
-        var aggregate = slice.Aggregate;
-        
-        // Does the aggregate already exist before the events are applied?
-        var exists = aggregate != null;
 
-        foreach (var @event in slice.Events())
-        {
-            if (@event is IEvent<Archived>) break;
+        var action = await Projection.ApplyAsync(slice.Aggregate, slice.Id, slice.Events());
+        if (action.Type == ActionType.Nothing) return;
 
-            try
-            {
-                if (aggregate == null)
-                {
-                    aggregate = await _application.Create(@event, storage.Operations, cancellation).ConfigureAwait(false);
-                }
-                else
-                {
-                    aggregate = await _application.ApplyAsync(aggregate, @event, storage.Operations, cancellation).ConfigureAwait(false);
-                }
-            }
-            catch (Exception e)
-            {
-                // Should the exception be passed up for potential
-                // retries?
-                if (storage.IsExceptionTransient(e)) throw;
-                
-                throw new ApplyEventException(@event, e);
-            }
-        }
-
-        (var lastEvent, aggregate) = tryApplyMetadata(slice, aggregate, storage);
+        var snapshot = action.Snapshot;
+        (var lastEvent, snapshot) = tryApplyMetadata(slice, snapshot, storage);
 
         maybeArchiveStream(storage, slice);
 
         if (mode == ShardExecutionMode.Continuous)
         {
             // Need to set the aggregate in case it didn't exist upfront
-            slice.Aggregate = aggregate;
+            slice.Aggregate = snapshot;
             await processPossibleSideEffects(storage, slice).ConfigureAwait(false);
         }
-        
-        // Delete the aggregate *if* it existed prior to these events
-        if (aggregate == null)
-        {
-            if (exists)
-            {
-                storage.MarkDeleted(slice.Id);
-            }
 
-            return;
+        switch (action.Type)
+        {
+            case ActionType.Delete:
+                storage.MarkDeleted(slice.Id);
+                break;
+            case ActionType.Store:
+                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationType);
+                break;
+            case ActionType.HardDelete:
+                storage.HardDelete(snapshot);
+                break;
+            case ActionType.UnDeleteAndStore:
+                storage.UnDelete(snapshot);
+                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationType);
+                break;
         }
 
         /*
@@ -190,10 +149,6 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
            session.QueueOperation(storageOperation);
          */
-        
-        // TODO -- just ask IAggregationProjection if it's single stream
-        storage.StoreForAsync(aggregate, lastEvent, Projection.Slicer is ISingleStreamSlicer);
-
 
     }
     
@@ -207,7 +162,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
             foreach (var @event in slice.Events())
             {
-                aggregate = (TDoc)Projection.ApplyMetadata(aggregate, @event);
+                aggregate = Projection.ApplyMetadata(aggregate, @event);
             }
         }
 
@@ -216,7 +171,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     
     private void maybeArchiveStream(IProjectionStorage<TDoc, TOperations> storage, EventSlice<TDoc, TId> slice)
     {
-        if (Projection.IsSingleStream())
+        if (Projection.AggregationType == AggregationType.SingleStream)
         {
             storage.ArchiveStream(slice.Id);
         }
@@ -229,8 +184,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         
         if (slice.RaisedEvents != null)
         {
-            // TODO -- change this to usage storage to just enqueue
-            slice.BuildOperations(_storage.Registry, storage, Projection.IsSingleStream());
+            slice.BuildOperations(_storage.Registry, storage, Projection.AggregationType);
         }
 
         if (slice.PublishedMessages != null)

@@ -6,14 +6,14 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events.Projections;
 
-public interface IProjectionStorage<TOperations>
+public interface IEntityStorage<TOperations>
 {
     void Store<T>(TOperations ops, T entity);
 }
 
 public class EventProjectionApplication<TOperations>
 {
-    private readonly IProjectionStorage<TOperations> _projection;
+    private readonly IEntityStorage<TOperations> _entity;
     private readonly ProjectMethodCollection _projectMethods;
     private readonly CreateMethodCollection _createMethods;
     private ImHashMap<Type, Func<TOperations, IEvent, CancellationToken, ValueTask>> _applications 
@@ -21,10 +21,10 @@ public class EventProjectionApplication<TOperations>
 
     private Type _projectionType;
 
-    public EventProjectionApplication(IProjectionStorage<TOperations> projection)
+    public EventProjectionApplication(IEntityStorage<TOperations> entityStorage)
     {
-        _projection = projection;
-        _projectionType = projection.GetType();
+        _entity = entityStorage;
+        _projectionType = entityStorage.GetType();
         _projectMethods = new ProjectMethodCollection(_projectionType);
         _createMethods = new CreateMethodCollection(_projectionType);
     }
@@ -118,7 +118,7 @@ public class EventProjectionApplication<TOperations>
         
         // You would use null for static methods
         Expression caller = default(Expression);
-        if (!method.IsStatic) caller = Expression.Constant(_projection);
+        if (!method.IsStatic) caller = Expression.Constant(_entity);
             
         var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
         var body = Expression.Call(caller, method, arguments);
@@ -155,7 +155,7 @@ public class EventProjectionApplication<TOperations>
         if (entityType.Closes(typeof(ValueTask<>))) entityType = entityType.GetGenericArguments()[0];
 
         var builder = typeof(CreatorBuilder<>).CloseAndBuildAs<ICreatorBuilder>( entityType);
-        return builder.Build<TOperations>(_projection, eventType, method);
+        return builder.Build<TOperations>(_entity, eventType, method);
     }
 
     internal class ProjectMethodCollection: MethodCollection
@@ -208,7 +208,7 @@ public class EventProjectionApplication<TOperations>
         var invalidMethods = MethodCollection.FindInvalidMethods(GetType(), _projectMethods, _createMethods);
         if (invalidMethods.Any())
         {
-            throw new InvalidProjectionException(_projection, invalidMethods);
+            throw new InvalidProjectionException(_entity, invalidMethods);
         }
     }
 
@@ -289,13 +289,13 @@ public class EventProjectionApplication<TOperations>
 
     internal interface ICreatorBuilder
     {
-        Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IProjectionStorage<TOperations> projection, Type eventType,
+        Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IEntityStorage<TOperations> entityStorage, Type eventType,
             MethodInfo method);
     }
 
     internal class CreatorBuilder<T> : ICreatorBuilder
     {
-        public Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IProjectionStorage<TOperations> projection,
+        public Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IEntityStorage<TOperations> entityStorage,
             Type eventType, MethodInfo method)
         {
             var e = Expression.Parameter(typeof(IEvent), "e");
@@ -321,7 +321,7 @@ public class EventProjectionApplication<TOperations>
             
             // You would use null for static methods
             Expression caller = default(Expression);
-            if (!method.IsStatic) caller = Expression.Constant(projection);
+            if (!method.IsStatic) caller = Expression.Constant(entityStorage);
             
             var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
             var body = Expression.Call(caller, method, arguments);
@@ -334,7 +334,7 @@ public class EventProjectionApplication<TOperations>
 
                 return (o1, e1, c1) =>
                 {
-                    projection.Store(o1, func(o1, e1, c1));
+                    entityStorage.Store(o1, func(o1, e1, c1));
                     return new ValueTask();
                 };
             }
@@ -347,7 +347,7 @@ public class EventProjectionApplication<TOperations>
                 
                 return async (o1, e1, c1) =>
                 {
-                    projection.Store(o1, await func(o1, e1, c1));
+                    entityStorage.Store(o1, await func(o1, e1, c1));
                 };
             }
             
@@ -357,7 +357,7 @@ public class EventProjectionApplication<TOperations>
                 
             return async (o1, e1, c1) =>
             {
-                projection.Store(o1, await taskFunc(o1, e1, c1));
+                entityStorage.Store(o1, await taskFunc(o1, e1, c1));
             };
         }
     }
