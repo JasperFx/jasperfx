@@ -122,7 +122,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 await processPossibleSideEffects(storage, slice).ConfigureAwait(false);
             }
             
-            maybeArchiveStream(storage.EventDatabase, slice);
+            maybeArchiveStream(storage, slice);
             storage.MarkDeleted(slice.Id);
             return;
         }
@@ -159,7 +159,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         (var lastEvent, aggregate) = tryApplyMetadata(slice, aggregate, storage);
 
-        maybeArchiveStream(storage.EventDatabase, slice);
+        maybeArchiveStream(storage, slice);
 
         if (mode == ShardExecutionMode.Continuous)
         {
@@ -214,11 +214,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return (lastEvent, aggregate);
     }
     
-    private void maybeArchiveStream(IEventDatabase events, EventSlice<TDoc, TId> slice)
+    private void maybeArchiveStream(IProjectionStorage<TDoc, TOperations> storage, EventSlice<TDoc, TId> slice)
     {
-        if (Slicer is ISingleStreamSlicer<TId> singleStreamSlicer && slice.Events().OfType<IEvent<Archived>>().Any())
+        if (Projection.IsSingleStream())
         {
-            singleStreamSlicer.ArchiveStream(events, slice.Id);
+            storage.ArchiveStream(slice.Id);
         }
     }
 

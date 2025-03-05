@@ -129,7 +129,6 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         _execution.Mode = request.Mode;
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
-        await _execution.EnsureStorageExists().ConfigureAwait(false);
 
         _commandBlock.Post(Command.Started(_tracker.HighWaterMark, request.Floor));
         _tracker.Publish(new ShardState(Name, request.Floor){Action = ShardAction.Started});
@@ -150,8 +149,6 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
         try
         {
-            await _execution.EnsureStorageExists().ConfigureAwait(false);
-
             if (_execution.TryBuildReplayExecutor(out var executor))
             {
                 _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}", Name.Identity);

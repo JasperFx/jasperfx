@@ -10,7 +10,8 @@ public interface IAsyncShard // might have a subclass for projections
     
     AsyncOptions Options { get; }
     ShardRole Role { get; }
-    ISubscriptionExecution BuildExecution(IEventDatabase database, ILoggerFactory loggerFactory);
+    Task<ISubscriptionExecution> BuildExecutionAsync(IEventDatabase database, ILoggerFactory loggerFactory,
+        CancellationToken cancellation);
     ShardName Name { get; }
     IEventLoader BuildEventLoader(IEventDatabase database, ILoggerFactory loggerFactory);
 }

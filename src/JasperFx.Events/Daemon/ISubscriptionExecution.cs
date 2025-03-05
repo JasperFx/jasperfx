@@ -7,7 +7,6 @@ public interface ISubscriptionExecution: IAsyncDisposable
     void Enqueue(EventPage page, ISubscriptionAgent subscriptionAgent);
     Task StopAndDrainAsync(CancellationToken token);
     Task HardStopAsync();
-    Task EnsureStorageExists();
 
     ShardExecutionMode Mode { get; set; }
     bool TryBuildReplayExecutor(out IReplayExecutor executor);

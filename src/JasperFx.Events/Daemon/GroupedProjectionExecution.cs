@@ -35,11 +35,6 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         return _runner.TryBuildReplayExecutor(out executor);
     }
 
-    public Task EnsureStorageExists()
-    {
-        return _runner.EnsureStorageExists(_cancellation.Token);
-    }
-
     public async ValueTask DisposeAsync()
     {
         await _cancellation.CancelAsync().ConfigureAwait(false);

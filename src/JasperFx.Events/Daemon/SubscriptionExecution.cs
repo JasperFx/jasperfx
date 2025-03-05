@@ -98,11 +98,6 @@ public class SubscriptionExecution: ISubscriptionExecution
         await _cancellation.CancelAsync().ConfigureAwait(false);
     }
 
-    public Task EnsureStorageExists()
-    {
-        return Task.CompletedTask;
-    }
-
     public string DatabaseName => _runner.DatabaseIdentifier;
     public ShardExecutionMode Mode { get; set; } = ShardExecutionMode.Continuous;
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)

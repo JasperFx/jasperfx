@@ -33,4 +33,5 @@ public interface IProjectionStorage<TDoc, TOperations> : IEventStorageBuilder
        }
      */
     void StoreForAsync(TDoc aggregate, IEvent? lastEvent, bool isSingleStream);
+    void ArchiveStream<TId>(TId sliceId);
 }

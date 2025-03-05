@@ -89,8 +89,3 @@ public interface ISingleStreamSlicer
 
 }
 
-public interface ISingleStreamSlicer<TId> : ISingleStreamSlicer
-{
-    void ArchiveStream(IEventDatabase eventDatabase, TId id);
-}
-
