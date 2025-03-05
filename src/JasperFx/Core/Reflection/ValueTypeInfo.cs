@@ -10,6 +10,42 @@ namespace JasperFx.Core.Reflection;
 /// </summary>
 public class ValueTypeInfo
 {
+    private static ImHashMap<Type, ValueTypeInfo> _valueTypes = ImHashMap<Type, ValueTypeInfo>.Empty;
+    
+    public static ValueTypeInfo ForType(Type type)
+    {
+        if (_valueTypes.TryFind(type, out var valueType)) return valueType;
+        
+        // TODO -- need to support F# SingleCaseDiscriminatedUnion
+        
+        var valueProperty = type.GetProperties().Where(x => x.Name != "Tag").SingleOrDefaultIfMany();
+        if (valueProperty == null || !valueProperty.CanRead) throw new InvalidValueTypeException(type, "Must be only a single public, 'gettable' property");
+
+        var ctor = type.GetConstructors()
+            .FirstOrDefault(x => x.GetParameters().Length == 1 && x.GetParameters()[0].ParameterType == valueProperty.PropertyType);
+
+        if (ctor != null)
+        {
+            valueType = new ValueTypeInfo(type, valueProperty.PropertyType, valueProperty, ctor);
+            _valueTypes = _valueTypes.AddOrUpdate(type, valueType);
+            return valueType;
+        }
+
+        var builder = type.GetMethods(BindingFlags.Static | BindingFlags.Public).FirstOrDefault(x =>
+            x.GetParameters().Length == 1 && x.GetParameters()[0].ParameterType == valueProperty.PropertyType);
+
+        if (builder != null)
+        {
+            valueType = new ValueTypeInfo(type, valueProperty.PropertyType, valueProperty, builder);
+            _valueTypes = _valueTypes.AddOrUpdate(type, valueType);
+            return valueType;
+        }
+
+        throw new InvalidValueTypeException(type,
+            "Unable to determine either a builder static method or a constructor to use");
+
+    }
+    
     private object _converter;
 
     public ValueTypeInfo(Type outerType, Type simpleType, PropertyInfo valueProperty, ConstructorInfo ctor)
@@ -34,7 +70,7 @@ public class ValueTypeInfo
     public MethodInfo Builder { get; }
     public ConstructorInfo Ctor { get; }
 
-    public Func<TInner, TOuter> CreateConverter<TOuter, TInner>()
+    public Func<TInner, TOuter> CreateWrapper<TOuter, TInner>()
     {
         if (_converter != null)
         {
@@ -63,7 +99,13 @@ public class ValueTypeInfo
         return (Func<TInner, TOuter>)_converter;
     }
 
-    public Func<TOuter, TInner> ValueAccessor<TOuter, TInner>()
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <typeparam name="TOuter"></typeparam>
+    /// <typeparam name="TInner"></typeparam>
+    /// <returns></returns>
+    public Func<TOuter, TInner> UnWrapper<TOuter, TInner>()
     {
         var outer = Expression.Parameter(typeof(TOuter), "outer");
         var getter = ValueProperty.GetMethod;
