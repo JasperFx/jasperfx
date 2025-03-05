@@ -1,10 +1,11 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.NewStuff;
 
-public interface IEventStorage
+public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession
 {
     string DefaultDatabaseName { get; }
     ErrorHandlingOptions ContinuousErrors { get; }
@@ -31,4 +32,6 @@ public interface IEventStorage
 
     Task TeardownExistingProjectionProgressAsync(IEventDatabase database, string subscriptionName,
         CancellationToken token);
+
+    ValueTask<IProjectionBatch<TOperations, TQuerySession>> StartProjectionBatchAsync(EventRange range, IEventDatabase database, CancellationToken token);
 }

@@ -7,11 +7,10 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
-public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<ShardState>, IDaemonRuntime
-    where TStorage : IEventStorage
-    where TDatabase : IEventDatabase
+public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
+    where TOperations : TQuerySession
 {
-    private readonly IEventStorage _store;
+    private readonly IEventStorage<TOperations, TQuerySession> _store;
     private readonly ILoggerFactory _loggerFactory;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
     private CancellationTokenSource _cancellation = new();
@@ -20,7 +19,7 @@ public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<S
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public AsyncDaemon(IEventStorage store, TDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
+    public AsyncDaemon(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
     {
         Database = database;
         _store = store;
@@ -45,7 +44,7 @@ public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<S
         }, Logger, _cancellation.Token);
     }
 
-    internal TDatabase Database { get; }
+    internal IEventDatabase Database { get; }
 
     public ILogger Logger { get; }
 
@@ -468,7 +467,7 @@ public partial class AsyncDaemon<TOperations, TStorage, TDatabase> : IObserver<S
     }
 
         // TODO -- ZOMG, this is awful
-    private async Task rebuildProjection(IProjectionSource<TOperations, TStorage, TDatabase> source, TimeSpan shardTimeout, CancellationToken token)
+    private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
 

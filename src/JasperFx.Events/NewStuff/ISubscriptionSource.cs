@@ -2,7 +2,7 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.NewStuff;
 
-public interface ISubscriptionSource<TStore, TDatabase>
+public interface ISubscriptionSource
 {
     public AsyncOptions Options { get; }
     // TODO -- might need to make this be async
