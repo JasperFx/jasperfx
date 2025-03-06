@@ -10,7 +10,7 @@ namespace JasperFx.Events.NewStuff;
 public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
     where TOperations : TQuerySession
 {
-    private readonly IEventStorage<TOperations, TQuerySession> _store;
+    private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly ILoggerFactory _loggerFactory;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
     private CancellationTokenSource _cancellation = new();
@@ -19,14 +19,14 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public AsyncDaemon(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
+    public AsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
     {
         Database = database;
-        _store = store;
+        _storage = storage;
         _loggerFactory = loggerFactory;
         Logger = loggerFactory.CreateLogger(GetType());
         Tracker = Database.Tracker;
-        _highWater = new HighWaterAgent(store.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), settings, _cancellation.Token);
+        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), settings, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
@@ -87,12 +87,12 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
 
             if (position.ShouldUpdateProgressFirst)
             {
-                await _store.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, position.Floor).ConfigureAwait(false);
+                await _storage.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, position.Floor).ConfigureAwait(false);
             }
 
             var errorOptions = mode == ShardExecutionMode.Continuous
-                ? _store.ContinuousErrors
-                : _store.RebuildErrors;
+                ? _storage.ContinuousErrors
+                : _storage.RebuildErrors;
 
             await agent.StartAsync(new SubscriptionExecutionRequest(position.Floor, mode, errorOptions, this))
                 .ConfigureAwait(false);
@@ -122,7 +122,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
             // Ensure that the agent is stopped if it is already running
             await stopIfRunningAsync(agent.Name.Identity).ConfigureAwait(false);
 
-            var errorOptions = _store.RebuildErrors;
+            var errorOptions = _storage.RebuildErrors;
 
             var request = new SubscriptionExecutionRequest(0, ShardExecutionMode.Rebuild, errorOptions, this);
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
@@ -142,11 +142,11 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
             await StartHighWaterDetectionAsync().ConfigureAwait(false);
         }
 
-        var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
+        var shard = _storage.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
         if (shard == null)
         {
             throw new ArgumentOutOfRangeException(nameof(shardName),
-                $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
+                $"Unknown shard name '{shardName}'. Value options are {_storage.AllShards().Select(x => x.Name.Identity).Join(", ")}");
         }
 
         var agent = await buildAgentForShard(shard, _cancellation.Token);
@@ -160,22 +160,25 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
         }
     }
 
-    private async Task<SubscriptionAgent> buildAgentForShard(IAsyncShard shard, CancellationToken cancellation)
+    private async Task<SubscriptionAgent> buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard, CancellationToken cancellation)
     {
-        var execution = await shard.BuildExecutionAsync(Database, _loggerFactory, cancellation);
-        var loader = shard.BuildEventLoader(Database, _loggerFactory);
+        var execution = shard.Factory.BuildExecution(_storage, Database, _loggerFactory);
+        var loader = _storage.BuildEventLoader(Database, _loggerFactory, shard.Filters);
+        
+        // TODO -- build out storage here? Do ensure storage exists
         
         var metricsNaming = new MetricsNaming
         {
             DatabaseName = Database.Identifier,
-            DefaultDatabaseName = _store.DefaultDatabaseName,
-            MetricsPrefix = _store.MetricsPrefix
+            DefaultDatabaseName = _storage.DefaultDatabaseName,
+            MetricsPrefix = _storage.MetricsPrefix
         };
         
-        var metrics = new SubscriptionMetrics(_store.ActivitySource, _store.Meter, shard.Name, metricsNaming);
+        var metrics = new SubscriptionMetrics(_storage.ActivitySource, _storage.Meter, shard.Name, metricsNaming);
         
-        var agent = new SubscriptionAgent(shard.Name, shard.Options, _store.TimeProvider, loader, execution,
+        var agent = new SubscriptionAgent(shard.Name, shard.Options, _storage.TimeProvider, loader, execution,
             Database.Tracker, metrics, _loggerFactory.CreateLogger<SubscriptionAgent>());
+        
         return agent;
     }
 
@@ -250,7 +253,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
 
         var agents = new List<ISubscriptionAgent>();
 
-        foreach (var shard in _store.AllShards())
+        foreach (var shard in _storage.AllShards())
         {
             agents.Add(await buildAgentForShard(shard, _cancellation.Token));
         }
@@ -308,7 +311,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
 
     public async Task StartHighWaterDetectionAsync()
     {
-        if (_store.AutoCreateSchemaObjects != AutoCreate.None)
+        if (_storage.AutoCreateSchemaObjects != AutoCreate.None)
         {
             await Database.EnsureStorageExistsAsync(typeof(IEvent), _cancellation.Token).ConfigureAwait(false);
         }
@@ -505,7 +508,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
         }
 
         // Tear down the current state
-        await _store.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
+        await _storage.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
 
         if (token.IsCancellationRequested)
         {
@@ -585,14 +588,14 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
 
         if (_cancellation.IsCancellationRequested) return;
 
-        await _store.RewindSubscriptionProgressAsync(Database, subscriptionName, token, sequenceFloor).ConfigureAwait(false);
+        await _storage.RewindSubscriptionProgressAsync(Database, subscriptionName, token, sequenceFloor).ConfigureAwait(false);
 
         var agents = await buildAgentsForSubscription(subscriptionName);
         
         foreach (var agent in agents)
         {
             Tracker.MarkAsRestarted(agent.Name);
-            var errorOptions = _store.RebuildErrors;
+            var errorOptions = _storage.RebuildErrors;
             await agent.StartAsync(new SubscriptionExecutionRequest(sequenceFloor.Value, ShardExecutionMode.Continuous,
                 errorOptions, this)).ConfigureAwait(false);
             agent.MarkHighWater(HighWaterMark());
@@ -603,7 +606,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
     {
         var agents = new List<SubscriptionAgent>();
 
-        foreach (var shard in _store.AllShards().Where(x => x.Name.ProjectionName.EqualsIgnoreCase(subscriptionName)))
+        foreach (var shard in _storage.AllShards().Where(x => x.Name.ProjectionName.EqualsIgnoreCase(subscriptionName)))
         {
             agents.Add(await buildAgentForShard(shard, _cancellation.Token));
         }

@@ -7,13 +7,18 @@ public abstract class ProjectionBase : EventFilterable
 {
     private readonly List<Type> _publishedTypes = new();
 
+    protected ProjectionBase()
+    {
+        ProjectionName = GetType().Name;
+    }
+
     public AsyncOptions Options { get; } = new();
 
     /// <summary>
     ///     Descriptive name for this projection in the async daemon. The default is the type name of the projection
     /// </summary>
     [DisallowNull]
-    public string? ProjectionName { get; set; }
+    public string ProjectionName { get; set; } 
 
     /// <summary>
     /// Specify that this projection is a non 1 version of the original projection definition to opt

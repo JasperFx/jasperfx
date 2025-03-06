@@ -157,6 +157,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         var lastEvent = slice.Events().LastOrDefault();
         if (aggregate != null)
         {
+            // TODO -- let's have this encapsulated within AggregationProjectionBase
             storage.SetIdentityAndVersion(aggregate, slice.Id, lastEvent);
 
             foreach (var @event in slice.Events())

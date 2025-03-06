@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
+using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
@@ -13,7 +14,7 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
     ErrorHandlingOptions ContinuousErrors { get; }
     ErrorHandlingOptions RebuildErrors { get; }
 
-    IReadOnlyList<IAsyncShard> AllShards();
+    IReadOnlyList<AsyncShard<TOperations, TQuerySession>> AllShards();
     
     Meter Meter { get; }
     
@@ -37,4 +38,7 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
 
     ValueTask<IProjectionBatch<TOperations, TQuerySession>> StartProjectionBatchAsync(EventRange range,
         IEventDatabase database, ShardExecutionMode mode, CancellationToken token);
+    
+    // TODO -- add tenants here later?
+    IEventLoader BuildEventLoader(IEventDatabase database, ILoggerFactory loggerFactory, EventFilterable filtering);
 }
