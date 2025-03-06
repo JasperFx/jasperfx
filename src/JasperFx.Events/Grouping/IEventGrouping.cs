@@ -1,4 +1,4 @@
-namespace JasperFx.Events.Slicing;
+namespace JasperFx.Events.Grouping;
 
 /// <summary>
 ///     Represents a grouping of a range of events by aggregate id. Used in aggregation projections

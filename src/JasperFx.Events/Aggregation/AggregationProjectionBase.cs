@@ -1,11 +1,12 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.NewStuff;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
-namespace JasperFx.Events.Daemon;
+namespace JasperFx.Events.Aggregation;
 
 public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> 
     : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations> where TOperations : TQuerySession

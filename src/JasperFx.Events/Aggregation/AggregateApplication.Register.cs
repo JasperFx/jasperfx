@@ -4,7 +4,7 @@ using FastExpressionCompiler;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Aggregation;
 
 public partial class AggregateApplication<TAggregate, TQuerySession>
 {

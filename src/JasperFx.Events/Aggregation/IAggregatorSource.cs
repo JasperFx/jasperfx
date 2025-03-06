@@ -1,6 +1,4 @@
-using JasperFx.Events.Projections;
-
-namespace JasperFx.Events.NewStuff;
+namespace JasperFx.Events.Aggregation;
 
 public interface IAggregatorSource<TQuerySession>
 {

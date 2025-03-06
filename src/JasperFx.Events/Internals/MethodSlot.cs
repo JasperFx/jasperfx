@@ -2,8 +2,9 @@ using System.Reflection;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Internals;
 
 public class MethodSlot
 {

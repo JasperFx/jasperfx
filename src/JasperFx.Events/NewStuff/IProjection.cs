@@ -3,6 +3,7 @@ namespace JasperFx.Events.NewStuff;
 /// <summary>
 /// Main entry point for non-aggregation projections
 /// </summary>
+[Obsolete("Eliminate this?")]
 public interface IProjection<TOperations>
 {
     /// <summary>

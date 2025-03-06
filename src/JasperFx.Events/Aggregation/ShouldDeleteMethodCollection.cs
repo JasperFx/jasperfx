@@ -1,4 +1,6 @@
-namespace JasperFx.Events.Projections;
+using JasperFx.Events.Internals;
+
+namespace JasperFx.Events.Aggregation;
 
 internal class ShouldDeleteMethodCollection: MethodCollection
 {

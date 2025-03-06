@@ -3,6 +3,7 @@ using System.Reflection;
 using FastExpressionCompiler;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Internals;
 
 namespace JasperFx.Events.Projections;
 

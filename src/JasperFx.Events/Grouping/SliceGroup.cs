@@ -1,6 +1,5 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
-using JasperFx.Events.Slicing;
 
 namespace JasperFx.Events.Grouping;
 

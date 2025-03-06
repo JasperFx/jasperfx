@@ -1,9 +1,7 @@
-using JasperFx.CodeGeneration;
-using JasperFx.CodeGeneration.Frames;
-using JasperFx.CodeGeneration.Model;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Internals;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Aggregation;
 
 internal class ApplyMethodCollection: MethodCollection
 {

@@ -1,9 +1,8 @@
 using System.Reflection;
-using JasperFx.CodeGeneration;
-using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
+using JasperFx.Events.Internals;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Aggregation;
 
 internal class CreateMethodCollection: MethodCollection
 {

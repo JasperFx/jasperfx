@@ -1,7 +1,7 @@
 using JasperFx.Events.Daemon;
-using JasperFx.Events.Projections;
+using JasperFx.Events.NewStuff;
 
-namespace JasperFx.Events.NewStuff;
+namespace JasperFx.Events.Projections;
 
 /// <summary>
 /// Interface for sources of projections

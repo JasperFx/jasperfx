@@ -1,10 +1,9 @@
-using System.Linq.Expressions;
-using System.Reflection;
-using FastExpressionCompiler;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Internals;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Aggregation;
 
 public partial class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAggregate, TQuerySession>, IMetadataApplication
 {

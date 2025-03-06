@@ -1,13 +1,10 @@
-using System.Linq.Expressions;
 using System.Reflection;
-using FastExpressionCompiler;
-using JasperFx.CodeGeneration.Frames;
-using JasperFx.CodeGeneration.Model;
 using JasperFx.CommandLine;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Internals;
 
 internal abstract class MethodCollection
 {

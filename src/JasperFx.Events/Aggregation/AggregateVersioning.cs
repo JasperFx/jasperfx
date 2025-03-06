@@ -5,7 +5,7 @@ using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 
-namespace JasperFx.Events.Projections;
+namespace JasperFx.Events.Aggregation;
 
 public interface IAggregateVersioning
 {
