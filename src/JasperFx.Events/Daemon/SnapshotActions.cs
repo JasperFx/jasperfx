@@ -25,3 +25,4 @@ public record UnDeleteAndStore<T>(T Snapshot) : SnapshotAction<T>(Snapshot, Acti
 public record Nothing<T>(T Snapshot) : SnapshotAction<T>(Snapshot, ActionType.Nothing);
 
 public record HardDelete<T>(T Snapshot) : SnapshotAction<T>(Snapshot, ActionType.HardDelete);
+public record Delete<T>(T Snapshot) : SnapshotAction<T>(Snapshot, ActionType.Delete);

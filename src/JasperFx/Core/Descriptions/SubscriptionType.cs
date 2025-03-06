@@ -7,5 +7,4 @@ public enum SubscriptionType
     Subscription,
     FlatTableProjection,
     EventProjection
-    
 }

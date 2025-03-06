@@ -1,11 +1,13 @@
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
 public interface ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession
 {
-    ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory);
+    ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+        ILoggerFactory loggerFactory, ShardName shardName);
 }
 
 

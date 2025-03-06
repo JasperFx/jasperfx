@@ -8,6 +8,10 @@ public interface IProjectionStorage<TDoc>
     void UnDelete<T>(T snapshot);
     void Store<T>(T snapshot);
     void DeleteForId<TId>(TId identity);
+    
+    // should we treat this as a transient error that should be retried,
+    // or as an application failure?
+    bool IsExceptionTransient(Exception ex);
 }
 
 public interface IProjectionStorage<TDoc, TOperations> : IProjectionStorage<TDoc>, IEventStorageBuilder
@@ -25,9 +29,6 @@ public interface IProjectionStorage<TDoc, TOperations> : IProjectionStorage<TDoc
     
     Task PublishMessageAsync(object message);
 
-    // should we treat this as a transient error that should be retried,
-    // or as an application failure?
-    bool IsExceptionTransient(Exception ex);
         
     // Storage.SetIdentity(aggregate, slice.Id);
     // Versioning.TrySetVersion(aggregate, lastEvent);

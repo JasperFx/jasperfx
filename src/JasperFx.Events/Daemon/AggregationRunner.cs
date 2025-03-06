@@ -12,16 +12,17 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     
     public AggregationRunner(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
         IAggregationProjection<TDoc, TId, TOperations> projection,
-        SliceBehavior sliceBehavior)
+        SliceBehavior sliceBehavior, IEventSlicer slicer)
     {
         Projection = projection;
         SliceBehavior = sliceBehavior;
         _storage = storage;
         _database = database;
+        Slicer = slicer;
 
     }
 
-    public IEventSlicer Slicer => Projection.Slicer;
+    public IEventSlicer Slicer { get; }
 
     public ValueTask DisposeAsync()
     {
@@ -40,7 +41,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             // TODO -- instrument this maybe?
             // This will need to pass in the database somehow for slicers that use a Marten database
-            await range.SliceAsync(Projection.Slicer);
+            await range.SliceAsync(Slicer);
         }
 
         var builder = new ActionBlock<EventSliceExecution>(async execution =>
@@ -105,7 +106,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             return;
         }
 
-        var action = await Projection.ApplyAsync(slice.Aggregate, slice.Id, slice.Events());
+        var action = await Projection.ApplyAsync(storage, slice.Aggregate, slice.Id, slice.Events(), cancellation);
         if (action.Type == ActionType.Nothing) return;
 
         var snapshot = action.Snapshot;
@@ -126,14 +127,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 storage.MarkDeleted(slice.Id);
                 break;
             case ActionType.Store:
-                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationScope);
+                storage.StoreForAsync(snapshot, lastEvent, Projection.Scope);
                 break;
             case ActionType.HardDelete:
                 storage.HardDelete(snapshot);
                 break;
             case ActionType.UnDeleteAndStore:
                 storage.UnDelete(snapshot);
-                storage.StoreForAsync(snapshot, lastEvent, Projection.AggregationScope);
+                storage.StoreForAsync(snapshot, lastEvent, Projection.Scope);
                 break;
         }
 
@@ -171,7 +172,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     
     private void maybeArchiveStream(IProjectionStorage<TDoc, TOperations> storage, EventSlice<TDoc, TId> slice)
     {
-        if (Projection.AggregationScope == AggregationScope.SingleStream)
+        if (Projection.Scope == AggregationScope.SingleStream)
         {
             storage.ArchiveStream(slice.Id);
         }
@@ -184,7 +185,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         
         if (slice.RaisedEvents != null)
         {
-            slice.BuildOperations(_storage.Registry, storage, Projection.AggregationScope);
+            slice.BuildOperations(_storage.Registry, storage, Projection.Scope);
         }
 
         if (slice.PublishedMessages != null)

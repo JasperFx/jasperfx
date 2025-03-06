@@ -1,13 +1,14 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Grouping;
 using JasperFx.Events.NewStuff;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public abstract class AggregationProjectionBase<TDoc, TOperations, TQuerySession> 
-    : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession
+public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> 
+    : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations> where TOperations : TQuerySession
 {
     // TODO -- this should be somewhere else
     
@@ -35,6 +36,8 @@ public abstract class AggregationProjectionBase<TDoc, TOperations, TQuerySession
             ProjectionVersion = att.Version;
         }
     }
+    
+    public Type IdentityType { get; } = typeof(TId);
     
     protected virtual Type[] determineEventTypes()
     {
@@ -179,11 +182,16 @@ public abstract class AggregationProjectionBase<TDoc, TOperations, TQuerySession
     
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
-        throw new NotImplementedException();
+        // TODO -- this *will* get fancier if we do the async projection sharding
+        return
+        [
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name), this, this)
+        ];
     }
 
     public virtual bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, out IReplayExecutor executor)
     {
+        // TODO -- overwrite in SingleStreamProjection in Marten
         executor = default;
         return false;
     }
@@ -193,8 +201,65 @@ public abstract class AggregationProjectionBase<TDoc, TOperations, TQuerySession
         throw new NotImplementedException();
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory)
+    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage,
+        IEventDatabase database, ILoggerFactory loggerFactory, ShardName shardName)
     {
-        throw new NotImplementedException();
+        
+        var logger = loggerFactory.CreateLogger(GetType());
+        
+        // TODO -- build the slicer differently
+        // TODO -- build the SliceBehavior differently for multi-stream
+        var slicer = new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>());
+        
+        var runner =
+            new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
+                SliceBehavior.Preprocess, slicer);
+
+        return new GroupedProjectionExecution(shardName, runner, logger);
+    }
+
+    public virtual ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice)
+    {
+        return new ValueTask();
+    }
+
+    // TODO -- allow for explicit code
+    public virtual async ValueTask<SnapshotAction<TDoc>> ApplyAsync(IProjectionStorage<TDoc, TOperations> storage,
+        TDoc? snapshot,
+        TId identity, 
+        IReadOnlyList<IEvent> events, 
+        CancellationToken cancellation)
+    {
+        // Does the aggregate already exist before the events are applied?
+        var exists = snapshot != null;
+
+        foreach (var @event in events)
+        {
+            if (@event is IEvent<Archived>) break;
+
+            try
+            {
+                if (snapshot == null)
+                {
+                    snapshot = await _application.Create(@event, storage.Operations, cancellation).ConfigureAwait(false);
+                }
+                else
+                {
+                    snapshot = await _application.ApplyAsync(snapshot, @event, storage.Operations, cancellation).ConfigureAwait(false);
+                }
+            }
+            catch (Exception e)
+            {
+                // Should the exception be passed up for potential
+                // retries?
+                if (storage.IsExceptionTransient(e)) throw;
+
+                throw new ApplyEventException(@event, e);
+            }
+        }
+
+        if (snapshot == null) return exists ? new Delete<TDoc>(snapshot) : new Nothing<TDoc>(snapshot);
+
+        return new Store<TDoc>(snapshot);
     }
 }

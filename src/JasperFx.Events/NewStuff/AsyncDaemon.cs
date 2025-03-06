@@ -162,7 +162,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
 
     private async Task<SubscriptionAgent> buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard, CancellationToken cancellation)
     {
-        var execution = shard.Factory.BuildExecution(_storage, Database, _loggerFactory);
+        var execution = shard.Factory.BuildExecution(_storage, Database, _loggerFactory, shard.Name);
         var loader = _storage.BuildEventLoader(Database, _loggerFactory, shard.Filters);
         
         // TODO -- build out storage here? Do ensure storage exists

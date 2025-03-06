@@ -21,42 +21,15 @@ public interface IAggregationProjection<TDoc, TId, TOperations>
     /// <returns></returns>
     ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice);
 
-    AggregationScope AggregationScope { get; }
+    AggregationScope Scope { get; }
     
     bool MatchesAnyDeleteType(IEventSlice slice);
     TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
-    
-    IEventSlicer Slicer { get; }
 
-    ValueTask<SnapshotAction<TDoc>> ApplyAsync(TDoc? snapshot, TId identity, IReadOnlyList<IEvent> events);
-
-    /*
-        // Does the aggregate already exist before the events are applied?
-       var exists = aggregate != null;
-
-       foreach (var @event in slice.Events())
-       {
-           if (@event is IEvent<Archived>) break;
-
-           try
-           {
-               if (aggregate == null)
-               {
-                   aggregate = await _application.Create(@event, storage.Operations, cancellation).ConfigureAwait(false);
-               }
-               else
-               {
-                   aggregate = await _application.ApplyAsync(aggregate, @event, storage.Operations, cancellation).ConfigureAwait(false);
-               }
-           }
-           catch (Exception e)
-           {
-               // Should the exception be passed up for potential
-               // retries?
-               if (storage.IsExceptionTransient(e)) throw;
-
-               throw new ApplyEventException(@event, e);
-           }
-       }
-     */
+    ValueTask<SnapshotAction<TDoc>> ApplyAsync(
+        IProjectionStorage<TDoc, TOperations> storage, 
+        TDoc? snapshot,
+        TId identity,
+        IReadOnlyList<IEvent> events, 
+        CancellationToken cancellation);
 }
