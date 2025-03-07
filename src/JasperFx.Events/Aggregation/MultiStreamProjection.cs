@@ -19,6 +19,11 @@ public abstract class MultiStreamProjection<TDoc, TId, TOperations, TQuerySessio
 
     protected override IEventSlicer buildSlicer()
     {
+        /*
+         * This will need to do or don't do tenanted rollups
+         * 
+         * 
+         */
         throw new NotImplementedException();
     }
 
