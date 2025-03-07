@@ -1,3 +1,4 @@
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -49,34 +50,31 @@ public abstract class SingleStreamProjection<TDoc, TId, TOperations, TQuerySessi
 
     async Task IInlineProjection<TOperations>.ApplyAsync(TOperations session, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
-        var ids = streams.Select(x => _streamActionSource(x)).ToArray();
-        var storage = session.ProjectionStorageFor<TDoc, TId>();
-
-        var snapshots = await storage.LoadManyAsync(ids, cancellation);
-
-        foreach (var stream in streams)
+        if (streams.Count == 0) return;
+        
+        if (streams.Count == 1)
         {
+            var stream = streams[0];
+            var storage = session.ProjectionStorageFor<TDoc, TId>(stream.TenantId);
             var id = _streamActionSource(stream);
-            if (snapshots.TryGetValue(id, out var snapshot))
+            var snapshot = await storage.LoadAsync(id, cancellation);
+            var action = await ApplyAsync(session, snapshot, id, stream.Events, cancellation);
+            storage.ApplyInline(action, id, stream.TenantId);
+        }
+        
+        var groups = streams.GroupBy(x => x.TenantId).ToArray();
+        foreach (var group in groups)
+        {
+            var storage = session.ProjectionStorageFor<TDoc, TId>(group.Key);
+            var ids = group.Select(x => _streamActionSource(x)).ToArray();
+            
+            var snapshots = await storage.LoadManyAsync(ids, cancellation);
+            foreach (var stream in group)
             {
+                var id = _streamActionSource(stream);
+                snapshots.TryGetValue(id, out var snapshot);
                 var action = await ApplyAsync(session, snapshot, id, stream.Events, cancellation);
-                
-                switch (action.Type)
-                {
-                    case ActionType.Delete:
-                        storage.Delete(id);
-                        break;
-                    case ActionType.Store:
-                        storage.Store(snapshot);
-                        break;
-                    case ActionType.HardDelete:
-                        storage.HardDelete(snapshot);
-                        break;
-                    case ActionType.UnDeleteAndStore:
-                        storage.UnDelete(snapshot);
-                        storage.Store(snapshot);
-                        break;
-                }
+                storage.ApplyInline(action, id, stream.TenantId);
             }
         }
     }
