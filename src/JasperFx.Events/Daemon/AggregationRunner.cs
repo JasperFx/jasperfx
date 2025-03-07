@@ -109,7 +109,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             }
             
             maybeArchiveStream(storage, slice);
-            storage.MarkDeleted(slice.Id);
+            storage.Delete(slice.Id);
             return;
         }
 
@@ -131,31 +131,19 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         switch (action.Type)
         {
             case ActionType.Delete:
-                storage.MarkDeleted(slice.Id);
+                storage.Delete(slice.Id);
                 break;
             case ActionType.Store:
-                storage.StoreForAsync(snapshot, lastEvent, Projection.Scope);
+                storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
                 break;
             case ActionType.HardDelete:
                 storage.HardDelete(snapshot);
                 break;
             case ActionType.UnDeleteAndStore:
                 storage.UnDelete(snapshot);
-                storage.StoreForAsync(snapshot, lastEvent, Projection.Scope);
+                storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
                 break;
         }
-
-        /*
-         * Encapsulates
-        var storageOperation = Storage.Upsert(aggregate, session, slice.TenantId);
-           if (Slicer is ISingleStreamSlicer && lastEvent != null && storageOperation is IRevisionedOperation op)
-           {
-               op.Revision = (int)lastEvent.Version;
-               op.IgnoreConcurrencyViolation = true;
-           }
-
-           session.QueueOperation(storageOperation);
-         */
 
     }
     

@@ -8,9 +8,6 @@ public interface IProjectionStorage<TDoc, TId>
     
     string TenantId { get; }
     
-    // var operation = Storage.DeleteForId(slice.Id, slice.TenantId); and QueueOperation(). Watch ordering
-    void MarkDeleted(TId aggregateId);
-
     void HardDelete(TDoc snapshot);
     void UnDelete(TDoc snapshot);
     void Store(TDoc snapshot);
@@ -29,6 +26,6 @@ public interface IProjectionStorage<TDoc, TId>
            op.IgnoreConcurrencyViolation = true;
        }
      */
-    void StoreForAsync(TDoc aggregate, IEvent? lastEvent, AggregationScope isSingleStream);
+    void StoreProjection(TDoc aggregate, IEvent? lastEvent, AggregationScope isSingleStream);
     void ArchiveStream(TId sliceId);
 }

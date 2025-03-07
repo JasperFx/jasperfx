@@ -50,38 +50,34 @@ public abstract class SingleStreamProjection<TDoc, TId, TOperations, TQuerySessi
     async Task IInlineProjection<TOperations>.ApplyAsync(TOperations session, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
         var ids = streams.Select(x => _streamActionSource(x)).ToArray();
-        throw new NotImplementedException();
-        //var snapshots = await session.LoadManyByIdentityAsync<TDoc, TId>(ids, cancellation);
+        var storage = session.ProjectionStorageFor<TDoc, TId>();
+
+        var snapshots = await storage.LoadManyAsync(ids, cancellation);
 
         foreach (var stream in streams)
         {
             var id = _streamActionSource(stream);
-            // if (snapshots.TryGetValue(id, out var snapshot))
-            // {
-            //     var action = await ApplyAsync(session, snapshot, id, stream.Events, cancellation);
-            //
-            //     throw new NotImplementedException();
-            //     switch (action.Type)
-            //     {
-            //         // case ActionType.Delete:
-            //         //     storage.MarkDeleted(slice.Id);
-            //         //     break;
-            //         // case ActionType.Store:
-            //         //     storage.StoreForAsync(snapshot, lastEvent, Projection.Scope);
-            //         //     break;
-            //         // case ActionType.HardDelete:
-            //         //     storage.HardDelete(snapshot);
-            //         //     break;
-            //         // case ActionType.UnDeleteAndStore:
-            //         //     storage.UnDelete(snapshot);
-            //         //     storage.StoreForAsync(snapshot, lastEvent, Projection.Scope);
-            //         //     break;
-            //     }
-            // }
+            if (snapshots.TryGetValue(id, out var snapshot))
+            {
+                var action = await ApplyAsync(session, snapshot, id, stream.Events, cancellation);
+                
+                switch (action.Type)
+                {
+                    case ActionType.Delete:
+                        storage.Delete(id);
+                        break;
+                    case ActionType.Store:
+                        storage.Store(snapshot);
+                        break;
+                    case ActionType.HardDelete:
+                        storage.HardDelete(snapshot);
+                        break;
+                    case ActionType.UnDeleteAndStore:
+                        storage.UnDelete(snapshot);
+                        storage.Store(snapshot);
+                        break;
+                }
+            }
         }
-        
-        throw new NotImplementedException(); // Look closely at Marten for this one for how it gets the existing aggregate.
-        // might need to build that into the abstractions
-        //var action = await ApplyAsync(session, snapshot, _identitySource(events[0]), events, cancellation);
     }
 }
