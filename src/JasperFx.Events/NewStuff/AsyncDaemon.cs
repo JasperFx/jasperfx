@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace JasperFx.Events.NewStuff;
 
 public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
-    where TOperations : TQuerySession
+    where TOperations : TQuerySession, IStorageOperations
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly ILoggerFactory _loggerFactory;

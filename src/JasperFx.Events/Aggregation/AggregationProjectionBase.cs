@@ -9,7 +9,8 @@ using Microsoft.Extensions.Logging;
 namespace JasperFx.Events.Aggregation;
 
 public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> 
-    : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations> where TOperations : TQuerySession
+    : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations, TQuerySession> 
+    where TOperations : TQuerySession, IStorageOperations
 {
     // TODO -- this should be somewhere else
     
@@ -17,9 +18,11 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
     private readonly AggregateApplication<TDoc,TQuerySession> _application;
     private readonly Lazy<Type[]> _allEventTypes;
     private readonly AggregateVersioning<TDoc,TQuerySession> _versioning;
+    private readonly List<Type> _transientExceptionTypes = new();
 
-    protected AggregationProjectionBase(AggregationScope scope)
+    protected AggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
     {
+        _transientExceptionTypes.AddRange(transientExceptionTypes);
         Scope = scope;
         ProjectionName = typeof(TDoc).NameInCode();
         _application = new AggregateApplication<TDoc, TQuerySession>(this);
@@ -39,6 +42,7 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
     }
     
     public Type IdentityType { get; } = typeof(TId);
+
     
     protected virtual Type[] determineEventTypes()
     {
@@ -181,6 +185,7 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
     public string Name => ProjectionName!;
     public uint Version => ProjectionVersion;
     
+    // TODO -- maybe make this implicit
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         // TODO -- this *will* get fancier if we do the async projection sharding
@@ -190,6 +195,7 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         ];
     }
 
+    // TODO -- maybe make this implicit, with a call to a virtual
     public virtual bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, out IReplayExecutor executor)
     {
         // TODO -- overwrite in SingleStreamProjection in Marten
@@ -197,10 +203,8 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         return false;
     }
 
-    public IInlineProjection<TOperations> BuildForInline()
-    {
-        throw new NotImplementedException();
-    }
+    // TODO -- make this implicit
+    public abstract IInlineProjection<TOperations> BuildForInline();
 
     public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage,
         IEventDatabase database, ILoggerFactory loggerFactory, ShardName shardName)
@@ -208,9 +212,8 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         
         var logger = loggerFactory.CreateLogger(GetType());
         
-        // TODO -- build the slicer differently
         // TODO -- build the SliceBehavior differently for multi-stream
-        var slicer = new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>());
+        var slicer = buildSlicer();
         
         var runner =
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
@@ -219,16 +222,18 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         return new GroupedProjectionExecution(shardName, runner, logger);
     }
 
+    protected abstract IEventSlicer buildSlicer();
+
     public virtual ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice)
     {
         return new ValueTask();
     }
 
     // TODO -- allow for explicit code
-    public virtual async ValueTask<SnapshotAction<TDoc>> ApplyAsync(IProjectionStorage<TDoc, TOperations> storage,
+    public virtual async ValueTask<SnapshotAction<TDoc>> ApplyAsync(TQuerySession session,
         TDoc? snapshot,
-        TId identity, 
-        IReadOnlyList<IEvent> events, 
+        TId identity,
+        IReadOnlyList<IEvent> events,
         CancellationToken cancellation)
     {
         // Does the aggregate already exist before the events are applied?
@@ -242,18 +247,18 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
             {
                 if (snapshot == null)
                 {
-                    snapshot = await _application.Create(@event, storage.Operations, cancellation).ConfigureAwait(false);
+                    snapshot = await _application.Create(@event, session, cancellation).ConfigureAwait(false);
                 }
                 else
                 {
-                    snapshot = await _application.ApplyAsync(snapshot, @event, storage.Operations, cancellation).ConfigureAwait(false);
+                    snapshot = await _application.ApplyAsync(snapshot, @event, session, cancellation).ConfigureAwait(false);
                 }
             }
             catch (Exception e)
             {
                 // Should the exception be passed up for potential
                 // retries?
-                if (storage.IsExceptionTransient(e)) throw;
+                if (IsExceptionTransient(e)) throw;
 
                 throw new ApplyEventException(@event, e);
             }
@@ -262,5 +267,12 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         if (snapshot == null) return exists ? new Delete<TDoc>(snapshot) : new Nothing<TDoc>(snapshot);
 
         return new Store<TDoc>(snapshot);
+    }
+
+    // TODO -- unit test this
+    protected virtual bool IsExceptionTransient(Exception exception)
+    {
+        if (_transientExceptionTypes.Any(x => exception.GetType().CanBeCastTo(x))) return true;
+        return false;
     }
 }

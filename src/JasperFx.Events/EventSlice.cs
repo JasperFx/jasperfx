@@ -2,6 +2,7 @@
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
+using JasperFx.Events.Projections;
 
 namespace JasperFx.Events;
 
@@ -206,8 +207,10 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         _events.AddRange(events);
     }
 
-    public void BuildOperations(IEventRegistry eventGraph,
-        IEventStorageBuilder storage, AggregationScope aggregationScope)
+    public void BuildOperations(
+        IEventRegistry eventGraph,
+        IProjectionBatch storage, 
+        AggregationScope aggregationScope)
     {
         if (RaisedEvents == null) return;
 

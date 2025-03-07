@@ -2,37 +2,25 @@ using JasperFx.Events.NewStuff;
 
 namespace JasperFx.Events.Daemon;
 
-public interface IProjectionStorage<TDoc>
-{
-    void HardDelete<T>(T snapshot);
-    void UnDelete<T>(T snapshot);
-    void Store<T>(T snapshot);
-    void DeleteForId<TId>(TId identity);
-    
-    // should we treat this as a transient error that should be retried,
-    // or as an application failure?
-    bool IsExceptionTransient(Exception ex);
-}
-
-public interface IProjectionStorage<TDoc, TOperations> : IProjectionStorage<TDoc>, IEventStorageBuilder
+public interface IProjectionStorage<TDoc, TId> 
 {
     // This will wrap ProjectionUpdateBatch & the right DocumentSession
     
     string TenantId { get; }
     
     // var operation = Storage.DeleteForId(slice.Id, slice.TenantId); and QueueOperation(). Watch ordering
-    void MarkDeleted<TId>(TId aggregateId);
+    void MarkDeleted(TId aggregateId);
 
-    TOperations Operations { get; }
-    
-    IEventDatabase EventDatabase { get; }
-    
-    Task PublishMessageAsync(object message);
+    void HardDelete(TDoc snapshot);
+    void UnDelete(TDoc snapshot);
+    void Store(TDoc snapshot);
+    void Delete(TId identity);
 
+    Task<IReadOnlyDictionary<TId, TDoc>> LoadManyAsync(TId[] identities, CancellationToken cancellationToken);
         
     // Storage.SetIdentity(aggregate, slice.Id);
     // Versioning.TrySetVersion(aggregate, lastEvent);
-    void SetIdentityAndVersion<TDoc, TId>(TDoc aggregate, TId sliceId, IEvent? lastEvent);
+    void SetIdentityAndVersion(TDoc aggregate, TId sliceId, IEvent? lastEvent);
     
     /*
         if (Slicer is ISingleStreamSlicer && lastEvent != null && storageOperation is IRevisionedOperation op)
@@ -42,5 +30,5 @@ public interface IProjectionStorage<TDoc, TOperations> : IProjectionStorage<TDoc
        }
      */
     void StoreForAsync(TDoc aggregate, IEvent? lastEvent, AggregationScope isSingleStream);
-    void ArchiveStream<TId>(TId sliceId);
+    void ArchiveStream(TId sliceId);
 }

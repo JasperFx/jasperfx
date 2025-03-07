@@ -5,13 +5,13 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession
+public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession, IStorageOperations
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
     
     public AggregationRunner(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
-        IAggregationProjection<TDoc, TId, TOperations> projection,
+        IAggregationProjection<TDoc, TId, TOperations, TQuerySession> projection,
         SliceBehavior sliceBehavior, IEventSlicer slicer)
     {
         Projection = projection;
@@ -29,7 +29,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return new ValueTask();
     }
 
-    public IAggregationProjection<TDoc, TId, TOperations> Projection { get; }
+    public IAggregationProjection<TDoc, TId, TOperations, TQuerySession> Projection { get; }
     public SliceBehavior SliceBehavior { get; }
     public async Task<IProjectionBatch> BuildBatchAsync(EventRange range, ShardExecutionMode mode,
         CancellationToken cancellation)
@@ -43,21 +43,22 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             // This will need to pass in the database somehow for slicers that use a Marten database
             await range.SliceAsync(Slicer);
         }
-
+        
         var builder = new ActionBlock<EventSliceExecution>(async execution =>
         {
             if (cancellation.IsCancellationRequested) return;
-
-            await ApplyChangesAsync(mode, execution.Slice, execution.Storage, cancellation);
+        
+            await ApplyChangesAsync(mode, batch, execution.Operations, execution.Slice, execution.Storage, cancellation);
         }, new ExecutionDataflowBlockOptions{CancellationToken = cancellation});
         
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
         foreach (var group in groups)
         {
-            var storage = batch.ProjectionStorageFor<TDoc>(group.TenantId);
+            var operations = batch.SessionForTenant(group.TenantId);
+            var storage = operations.ProjectionStorageFor<TDoc, TId>(group.TenantId);
             foreach (var slice in group.Slices)
             {
-                builder.Post(new EventSliceExecution(slice, storage));
+                builder.Post(new EventSliceExecution(slice, operations, storage));
             }
         }
         
@@ -67,7 +68,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return batch;
     }
 
-    private record EventSliceExecution(EventSlice<TDoc, TId> Slice, IProjectionStorage<TDoc, TOperations> Storage);
+    private record EventSliceExecution(EventSlice<TDoc, TId> Slice, TOperations Operations, IProjectionStorage<TDoc, TId> Storage);
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
@@ -88,7 +89,13 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
     // Assume this is pointed at the correct tenant id from the get go
     // THIS IS ONLY USED FOR ASYNC!!!
-    public async Task ApplyChangesAsync(ShardExecutionMode mode, EventSlice<TDoc, TId> slice, IProjectionStorage<TDoc, TOperations> storage, CancellationToken cancellation)
+    public async Task ApplyChangesAsync(
+        ShardExecutionMode mode, 
+        IProjectionBatch batch,
+        TOperations operations,
+        EventSlice<TDoc, TId> slice, 
+        IProjectionStorage<TDoc, TId> storage, 
+        CancellationToken cancellation)
     {
         if (slice.TenantId != storage.TenantId)
             throw new InvalidOperationException(
@@ -98,7 +105,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             if (mode == ShardExecutionMode.Continuous)
             {
-                await processPossibleSideEffects(storage, slice).ConfigureAwait(false);
+                await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
             }
             
             maybeArchiveStream(storage, slice);
@@ -106,7 +113,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             return;
         }
 
-        var action = await Projection.ApplyAsync(storage, slice.Aggregate, slice.Id, slice.Events(), cancellation);
+        var action = await Projection.ApplyAsync(operations, slice.Aggregate, slice.Id, slice.Events(), cancellation);
         if (action.Type == ActionType.Nothing) return;
 
         var snapshot = action.Snapshot;
@@ -118,7 +125,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             // Need to set the aggregate in case it didn't exist upfront
             slice.Aggregate = snapshot;
-            await processPossibleSideEffects(storage, slice).ConfigureAwait(false);
+            await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
         }
 
         switch (action.Type)
@@ -153,7 +160,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     }
     
     private (IEvent?, TDoc?) tryApplyMetadata(EventSlice<TDoc, TId> slice, TDoc? aggregate,
-        IProjectionStorage<TDoc, TOperations> storage)
+        IProjectionStorage<TDoc, TId> storage)
     {
         var lastEvent = slice.Events().LastOrDefault();
         if (aggregate != null)
@@ -170,7 +177,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return (lastEvent, aggregate);
     }
     
-    private void maybeArchiveStream(IProjectionStorage<TDoc, TOperations> storage, EventSlice<TDoc, TId> slice)
+    private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice)
     {
         if (Projection.Scope == AggregationScope.SingleStream)
         {
@@ -179,20 +186,20 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     }
 
     // Look at AggregateApplicationRuntime processPossibleSideEffects
-    private async Task processPossibleSideEffects(IProjectionStorage<TDoc,TOperations> storage, EventSlice<TDoc,TId> slice)
+    private async Task processPossibleSideEffects(IProjectionBatch batch, TOperations operations, EventSlice<TDoc,TId> slice)
     {
-        await Projection.RaiseSideEffects(storage.Operations, slice);
+        await Projection.RaiseSideEffects(operations, slice);
         
         if (slice.RaisedEvents != null)
         {
-            slice.BuildOperations(_storage.Registry, storage, Projection.Scope);
+            slice.BuildOperations(_storage.Registry, batch, Projection.Scope);
         }
 
         if (slice.PublishedMessages != null)
         {
             foreach (var message in slice.PublishedMessages)
             {
-                await storage.PublishMessageAsync(message).ConfigureAwait(false);
+                await batch.PublishMessageAsync(message).ConfigureAwait(false);
             }
         }
     }

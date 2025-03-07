@@ -6,7 +6,13 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
-public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession
+public interface IStorageOperations
+{
+    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId);
+    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>();
+}
+
+public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
 {
     IEventRegistry Registry { get; }
     
@@ -41,4 +47,6 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
     
     // TODO -- add tenants here later?
     IEventLoader BuildEventLoader(IEventDatabase database, ILoggerFactory loggerFactory, EventFilterable filtering);
+    
+
 }

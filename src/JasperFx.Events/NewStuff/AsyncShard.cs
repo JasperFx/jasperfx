@@ -6,4 +6,5 @@ public record AsyncShard<TOperations, TQuerySession>(
     ShardRole Role, 
     ShardName Name, 
     ISubscriptionFactory<TOperations, TQuerySession> Factory, 
-    EventFilterable Filters) where TOperations : TQuerySession;
+    EventFilterable Filters) 
+    where TOperations : TQuerySession, IStorageOperations;

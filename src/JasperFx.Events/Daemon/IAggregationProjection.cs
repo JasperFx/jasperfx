@@ -10,7 +10,7 @@ public enum AggregationScope
     MultiStream
 }
 
-public interface IAggregationProjection<TDoc, TId, TOperations>
+public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> where TOperations : TQuerySession
 {
     /// <summary>
     /// Use to create "side effects" when running an aggregation (single stream, custom projection, multi-stream)
@@ -26,10 +26,9 @@ public interface IAggregationProjection<TDoc, TId, TOperations>
     bool MatchesAnyDeleteType(IEventSlice slice);
     TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
 
-    ValueTask<SnapshotAction<TDoc>> ApplyAsync(
-        IProjectionStorage<TDoc, TOperations> storage, 
+    ValueTask<SnapshotAction<TDoc>> ApplyAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
-        IReadOnlyList<IEvent> events, 
+        IReadOnlyList<IEvent> events,
         CancellationToken cancellation);
 }
