@@ -212,8 +212,9 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         
         var logger = loggerFactory.CreateLogger(GetType());
         
-        // TODO -- build the SliceBehavior differently for multi-stream
-        var slicer = buildSlicer();
+        // TODO -- may need to track the disposable of the session here
+        var session = storage.OpenSession(database);
+        var slicer = buildSlicer(session);
         
         var runner =
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
@@ -222,7 +223,7 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
         return new GroupedProjectionExecution(shardName, runner, logger);
     }
 
-    protected abstract IEventSlicer buildSlicer();
+    protected abstract IEventSlicer buildSlicer(TQuerySession session);
 
     public virtual ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice)
     {

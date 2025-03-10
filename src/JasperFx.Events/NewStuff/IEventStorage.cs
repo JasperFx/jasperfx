@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
-public interface IStorageOperations
+public interface IStorageOperations : IAsyncDisposable
 {
     IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId);
     IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>();
@@ -47,6 +47,7 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
     
     // TODO -- add tenants here later?
     IEventLoader BuildEventLoader(IEventDatabase database, ILoggerFactory loggerFactory, EventFilterable filtering);
-    
 
+    TOperations OpenSession(IEventDatabase database);
+    TOperations OpenSession(IEventDatabase database, string tenantId);
 }

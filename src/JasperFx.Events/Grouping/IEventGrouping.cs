@@ -1,5 +1,23 @@
 namespace JasperFx.Events.Grouping;
 
+public enum TenancyGrouping
+{
+    /// <summary>
+    /// Default behavior where the projection groups the event data by tenant id before applying event slicing
+    /// </summary>
+    RespectTenant,
+    
+    /// <summary>
+    /// Specialized slicing behavior where there is a single document created for each tenant id
+    /// </summary>
+    RollUpByTenant,
+    
+    /// <summary>
+    /// Slicing behavior works across tenants
+    /// </summary>
+    AcrossTenants
+}
+
 /// <summary>
 ///     Represents a grouping of a range of events by aggregate id. Used in aggregation projections
 /// </summary>

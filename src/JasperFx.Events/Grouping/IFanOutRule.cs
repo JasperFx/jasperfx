@@ -21,5 +21,5 @@ public interface IFanOutRule
     Type OriginatingType { get; }
 
     FanoutMode Mode { get; }
-    void Apply(List<IEvent> events);
+    IReadOnlyList<IEvent> Apply(IReadOnlyList<IEvent> events);
 }

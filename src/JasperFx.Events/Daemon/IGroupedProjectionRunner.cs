@@ -1,4 +1,5 @@
 using JasperFx.Events.Grouping;
+using JasperFx.Events.NewStuff;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Daemon;

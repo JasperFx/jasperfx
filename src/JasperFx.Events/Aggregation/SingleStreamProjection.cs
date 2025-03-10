@@ -18,7 +18,7 @@ public abstract class SingleStreamProjection<TDoc, TId, TOperations, TQuerySessi
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
     }
 
-    protected sealed override IEventSlicer buildSlicer()
+    protected sealed override IEventSlicer buildSlicer(TQuerySession session)
     {
         // Doesn't hurt anything if it's not actually tenanted
         return new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>());

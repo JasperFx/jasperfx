@@ -1,3 +1,5 @@
+using JasperFx.Events.NewStuff;
+
 namespace JasperFx.Events.Grouping;
 
 public class TenantedEventSlicer<TDoc, TId> : IEventSlicer
@@ -17,6 +19,33 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer
         {
             var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId);
             await _inner.SliceAsync(tenantGroup.Events, group);
+            
+            groups.Add(group);
+        }
+
+        return groups;
+    }
+}
+
+public class TenantedEventSlicer<TDoc, TId, TQuerySession> : IEventSlicer
+{
+    private readonly TQuerySession _session;
+    private readonly IEventSlicer<TDoc, TId, TQuerySession> _inner;
+
+    public TenantedEventSlicer(TQuerySession session, IEventSlicer<TDoc, TId, TQuerySession> inner)
+    {
+        _session = session;
+        _inner = inner;
+    }
+
+    public async ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events)
+    {
+        var groups = new List<object>();
+        var byTenant = ByTenantSlicer.Group(events);
+        foreach (var tenantGroup in byTenant)
+        {
+            var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId);
+            await _inner.SliceAsync(_session, tenantGroup.Events, group);
             
             groups.Add(group);
         }

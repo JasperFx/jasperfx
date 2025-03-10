@@ -6,7 +6,7 @@ public abstract class FanOutOperator<TSource>: IFanOutRule
 
     public Type OriginatingType => typeof(TSource);
 
-    public abstract void Apply(List<IEvent> events);
+    public abstract IReadOnlyList<IEvent> Apply(IReadOnlyList<IEvent> events);
 }
 
 public class FanOutEventDataOperator<TSource, TTarget>: FanOutOperator<TSource>
@@ -18,9 +18,11 @@ public class FanOutEventDataOperator<TSource, TTarget>: FanOutOperator<TSource>
         _fanOutFunc = fanOutFunc;
     }
 
-    public override void Apply(List<IEvent> events)
+    public override IReadOnlyList<IEvent> Apply(IReadOnlyList<IEvent> events)
     {
-        events.FanOut(_fanOutFunc);
+        var raw = events as List<IEvent> ?? events.ToList();
+        raw.FanOut(_fanOutFunc);
+        return raw;
     }
 }
 
@@ -33,8 +35,10 @@ public class FanOutEventOperator<TSource, TTarget>: FanOutOperator<TSource>
         _fanOutFunc = fanOutFunc;
     }
 
-    public override void Apply(List<IEvent> events)
+    public override IReadOnlyList<IEvent> Apply(IReadOnlyList<IEvent> events)
     {
-        events.FanOut(_fanOutFunc);
+        var raw = events as List<IEvent> ?? events.ToList();
+        raw.FanOut(_fanOutFunc);
+        return raw;
     }
 }
