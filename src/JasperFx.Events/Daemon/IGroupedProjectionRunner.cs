@@ -20,6 +20,6 @@ public interface IGroupedProjectionRunner : IAsyncDisposable
 
     IEventSlicer Slicer { get; }
 
-    ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
     Task EnsureStorageExists(CancellationToken token);
+    ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
 }

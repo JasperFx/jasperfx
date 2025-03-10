@@ -50,4 +50,5 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
 
     TOperations OpenSession(IEventDatabase database);
     TOperations OpenSession(IEventDatabase database, string tenantId);
+    ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
 }

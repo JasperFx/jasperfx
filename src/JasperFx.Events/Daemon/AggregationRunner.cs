@@ -75,16 +75,15 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         throw new NotImplementedException();
     }
 
-    // TODO -- push this down to IEventStorage
-    public ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode)
-    {
-        throw new NotImplementedException();
-    }
-
     public async Task EnsureStorageExists(CancellationToken token)
     {
         // TODO -- encapsulate this inside the async shard creation instead
         throw new NotImplementedException();
+    }
+
+    ErrorHandlingOptions IGroupedProjectionRunner.ErrorHandlingOptions(ShardExecutionMode mode)
+    {
+        return _storage.ErrorHandlingOptions(mode);
     }
 
     // Assume this is pointed at the correct tenant id from the get go
