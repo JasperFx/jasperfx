@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Aggregation;
 
-public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> 
+public abstract class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> 
     : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations, TQuerySession> 
     where TOperations : TQuerySession, IStorageOperations
 {
@@ -20,7 +20,7 @@ public abstract class AggregationProjectionBase<TDoc, TId, TOperations, TQuerySe
     private readonly AggregateVersioning<TDoc,TQuerySession> _versioning;
     private readonly List<Type> _transientExceptionTypes = new();
 
-    protected AggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
+    protected JasperFxAggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
     {
         _transientExceptionTypes.AddRange(transientExceptionTypes);
         Scope = scope;

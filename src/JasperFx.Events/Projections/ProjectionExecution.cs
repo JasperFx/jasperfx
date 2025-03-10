@@ -12,12 +12,12 @@ internal class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionEx
     private readonly ShardName _shardName;
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
-    private readonly EventProjection<TOperations, TQuerySession> _projection;
+    private readonly JasperFxEventProjectionBase<TOperations, TQuerySession> _projection;
     private readonly ILogger _logger;
     private readonly ActionBlock<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
 
-    public ProjectionExecution(ShardName shardName, IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, EventProjection<TOperations, TQuerySession> projection, ILogger logger)
+    public ProjectionExecution(ShardName shardName, IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, JasperFxEventProjectionBase<TOperations, TQuerySession> projection, ILogger logger)
     {
         _shardName = shardName;
         _storage = storage;

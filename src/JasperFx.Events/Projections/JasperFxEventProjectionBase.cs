@@ -4,7 +4,12 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
 
-public abstract class EventProjection<TOperations, TQuerySession> : 
+/// <summary>
+/// Base class for adhoc projections
+/// </summary>
+/// <typeparam name="TOperations"></typeparam>
+/// <typeparam name="TQuerySession"></typeparam>
+public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> : 
     ProjectionBase, 
     IProjectionSource<TOperations, TQuerySession>, 
     ISubscriptionFactory<TOperations, TQuerySession>,
@@ -15,7 +20,7 @@ public abstract class EventProjection<TOperations, TQuerySession> :
     private readonly EventProjectionApplication<TOperations> _application;
     public Type ProjectionType => GetType();
 
-    public EventProjection()
+    public JasperFxEventProjectionBase()
     {
         _application = new EventProjectionApplication<TOperations>(this);
     }

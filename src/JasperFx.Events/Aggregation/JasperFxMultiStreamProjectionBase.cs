@@ -4,14 +4,14 @@ using JasperFx.Events.NewStuff;
 
 namespace JasperFx.Events.Aggregation;
 
-public abstract class MultiStreamProjection<TDoc, TId, TOperations, TQuerySession> :
-    AggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IInlineProjection<TOperations>
+public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> :
+    JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IInlineProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly EventSlicer<TDoc, TId, TQuerySession> _defaultSlicer = new();
     private IEventSlicer<TDoc, TId, TQuerySession>? _customSlicer;
 
-    protected MultiStreamProjection(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream, transientExceptionTypes)
+    protected JasperFxMultiStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream, transientExceptionTypes)
     {
     }
 

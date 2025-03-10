@@ -6,13 +6,13 @@ using JasperFx.Events.NewStuff;
 
 namespace JasperFx.Events.Aggregation;
 
-public abstract class SingleStreamProjection<TDoc, TId, TOperations, TQuerySession> : AggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IAggregatorSource<TQuerySession>, IAggregator<TDoc, TQuerySession>, IInlineProjection<TOperations> 
+public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IAggregatorSource<TQuerySession>, IAggregator<TDoc, TQuerySession>, IInlineProjection<TOperations> 
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly Func<IEvent,TId> _identitySource;
     private readonly Func<StreamAction, TId> _streamActionSource;
 
-    protected SingleStreamProjection(Type[] transientExceptionTypes) : base(AggregationScope.SingleStream, transientExceptionTypes)
+    protected JasperFxSingleStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.SingleStream, transientExceptionTypes)
     {
         _identitySource = IEvent.CreateAggregateIdentitySource<TId>();
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();

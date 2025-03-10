@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.NewStuff;
 
-public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
+public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
@@ -19,7 +19,7 @@ public partial class AsyncDaemon<TOperations, TQuerySession> : IObserver<ShardSt
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public AsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
+    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
     {
         Database = database;
         _storage = storage;
