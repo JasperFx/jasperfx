@@ -12,9 +12,9 @@ internal class ProjectionWrapper<TOperations, TQuerySession> :
     IInlineProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations
 {
-    private readonly IProjection<TOperations> _projection;
+    private readonly IJasperFxProjection<TOperations> _projection;
 
-    public ProjectionWrapper(IProjection<TOperations> projection, ProjectionLifecycle lifecycle)
+    public ProjectionWrapper(IJasperFxProjection<TOperations> projection, ProjectionLifecycle lifecycle)
     {
         _projection = projection;
         Lifecycle = lifecycle;
@@ -36,7 +36,7 @@ internal class ProjectionWrapper<TOperations, TQuerySession> :
     }
 
     [ChildDescription]
-    public IProjection<TOperations> Inner { get; }
+    public IJasperFxProjection<TOperations> Inner { get; }
 
     public string ProjectionName { get; set; }
 

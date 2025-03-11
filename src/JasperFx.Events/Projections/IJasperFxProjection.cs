@@ -3,7 +3,7 @@ namespace JasperFx.Events.Projections;
 /// <summary>
 /// Main entry point for non-aggregation projections
 /// </summary>
-public interface IProjection<TOperations>
+public interface IJasperFxProjection<TOperations>
 {
     /// <summary>
     /// Apply operations 

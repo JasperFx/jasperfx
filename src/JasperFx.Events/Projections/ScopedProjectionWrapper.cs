@@ -13,10 +13,10 @@ namespace JasperFx.Events.Projections;
 /// </summary>
 /// <typeparam name="TProjection"></typeparam>
 public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
-    IProjection<TOperations>, 
+    IJasperFxProjection<TOperations>, 
     IInlineProjection<TOperations>, 
     IProjectionSource<TOperations, TQuerySession>
-    where TProjection : IProjection<TOperations>
+    where TProjection : IJasperFxProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly IServiceProvider _serviceProvider;

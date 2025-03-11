@@ -16,7 +16,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     ISubscriptionFactory<TOperations, TQuerySession>,
     IInlineProjection<TOperations>,
     IEntityStorage<TOperations>,
-    IProjection<TOperations> where TOperations : TQuerySession, IStorageOperations
+    IJasperFxProjection<TOperations> where TOperations : TQuerySession, IStorageOperations
 {
     private readonly EventProjectionApplication<TOperations> _application;
     public Type ProjectionType => GetType();
