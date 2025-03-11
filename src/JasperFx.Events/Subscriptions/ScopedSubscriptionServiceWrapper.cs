@@ -1,4 +1,5 @@
 using JasperFx.Core;
+using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
@@ -7,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Subscriptions;
 
-internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecutionBase
+internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecutionBase where T : TSubscription
 {
     private readonly IServiceProvider _provider;
     private readonly ISubscriptionRunner<T> _runner;
@@ -58,7 +59,7 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
     where T : TSubscription
 {
     private readonly IServiceProvider _provider;
-    
+
     public ScopedSubscriptionServiceWrapper(IServiceProvider provider)
     {
         _provider = provider;
@@ -104,4 +105,10 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
     public string SubscriptionName { get; set; }
     public uint SubscriptionVersion { get; set; }
     public AsyncOptions Options { get; private set; } = new();
+    public SubscriptionDescriptor Describe()
+    {
+        var descriptor = new SubscriptionDescriptor(this, SubscriptionType.Subscription);
+        descriptor.AddValue("Subscription", typeof(TSubscription).FullNameInCode());
+        return descriptor;
+    }
 }

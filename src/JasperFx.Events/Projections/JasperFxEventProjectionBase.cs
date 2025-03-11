@@ -1,4 +1,5 @@
 using JasperFx.Core;
+using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Subscriptions;
@@ -39,7 +40,12 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     // TODO -- rename these? Or leave them alone?
     public string Name => ProjectionName!;
     public uint Version => ProjectionVersion;
-    
+
+    public virtual SubscriptionDescriptor Describe()
+    {
+        return new SubscriptionDescriptor(this, SubscriptionType.EventProjection);
+    }
+
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         // TODO -- this *will* get fancier if we do the async projection sharding
@@ -102,4 +108,9 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     }
 
     protected abstract void storeEntity<T>(TOperations ops, T entity);
+    
+    public override void AssembleAndAssertValidity()
+    {
+        _application.AssertMethodValidity();
+    }
 }

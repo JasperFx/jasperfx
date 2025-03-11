@@ -1,3 +1,4 @@
+using JasperFx.Core.Descriptions;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Subscriptions;
@@ -11,4 +12,6 @@ public interface ISubscriptionSource<TOperations, TQuerySession>
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards();
     
     AsyncOptions Options { get; }
+
+    SubscriptionDescriptor Describe();
 }

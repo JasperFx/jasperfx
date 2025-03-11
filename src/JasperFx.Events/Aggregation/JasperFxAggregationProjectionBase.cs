@@ -1,4 +1,5 @@
 using JasperFx.Core;
+using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -28,6 +29,9 @@ public abstract class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, 
     private readonly AggregateVersioning<TDoc,TQuerySession> _versioning;
     private readonly List<Type> _transientExceptionTypes = new();
 
+    private readonly object _cacheLock = new();
+    private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
+
     protected JasperFxAggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
     {
         _transientExceptionTypes.AddRange(transientExceptionTypes);
@@ -46,6 +50,35 @@ public abstract class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, 
         if (typeof(TDoc).TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
             ProjectionVersion = att.Version;
+        }
+    }
+    
+    public virtual SubscriptionDescriptor Describe()
+    {
+        return new SubscriptionDescriptor(this, Scope == AggregationScope.SingleStream ? SubscriptionType.SingleStreamProjection : SubscriptionType.MultiStreamProjection);
+    }
+    
+    public IAggregateCache<TId, TDoc> CacheFor(string tenantId)
+    {
+        if (_caches.TryFind(tenantId, out var cache))
+        {
+            return cache;
+        }
+
+        lock (_cacheLock)
+        {
+            if (_caches.TryFind(tenantId, out cache))
+            {
+                return cache;
+            }
+
+            cache = Options.CacheLimitPerTenant == 0
+                ? new NulloAggregateCache<TId, TDoc>()
+                : new RecentlyUsedCache<TId, TDoc> { Limit = Options.CacheLimitPerTenant };
+
+            _caches = _caches.AddOrUpdate(tenantId, cache);
+
+            return cache;
         }
     }
 

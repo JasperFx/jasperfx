@@ -6,7 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Subscriptions;
 
-// TODO -- where is this used? Can we fold it in somewhere else?
+/// <summary>
+/// Configuration interface for subscriptions
+/// </summary>
 public interface ISubscriptionOptions : IEventFilterable
 {
     string SubscriptionName { get; set; }
@@ -17,7 +19,7 @@ public interface ISubscriptionOptions : IEventFilterable
 /// <summary>
 /// Base class for custom subscriptions for Marten event data
 /// </summary>
-public abstract class SubscriptionBase<TOperations, TQuerySession, TSubscription>: 
+public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubscription>: 
     EventFilterable, 
     ISubscriptionSource<TOperations, TQuerySession>, 
     ISubscriptionFactory<TOperations, TQuerySession>,
@@ -27,17 +29,22 @@ public abstract class SubscriptionBase<TOperations, TQuerySession, TSubscription
     private readonly TSubscription _subscription;
 
 
-    protected SubscriptionBase(TSubscription subscription)
+    protected JasperFxSubscriptionBase(TSubscription subscription)
     {
         _subscription = subscription;
         SubscriptionName = subscription.GetType().NameInCode();
     }
 
-    protected SubscriptionBase()
+    protected JasperFxSubscriptionBase()
     {
         // TODO -- validate!!!
         _subscription = this.As<TSubscription>();
         SubscriptionName = GetType().NameInCode();
+    }
+
+    public virtual SubscriptionDescriptor Describe()
+    {
+        return new SubscriptionDescriptor(this, SubscriptionType.Subscription);
     }
 
     public virtual ValueTask DisposeAsync()
