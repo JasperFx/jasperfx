@@ -16,4 +16,6 @@ public interface IProjectionSource<TOperations, TQuerySession>: IReadOnlyProject
     AsyncOptions Options { get; }
     
     IInlineProjection<TOperations> BuildForInline();
+
+    IEnumerable<Type> PublishedTypes();
 }

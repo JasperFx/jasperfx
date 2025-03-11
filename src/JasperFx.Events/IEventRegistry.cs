@@ -23,6 +23,14 @@ public interface IEventRegistry
     string AggregateAliasFor(Type aggregateType);
 
     IEventType EventMappingFor(Type eventType);
+
+    /// <summary>
+    ///     Register an event type with Marten. This isn't strictly necessary for normal usage,
+    ///     but can help Marten with asynchronous projections where Marten hasn't yet encountered
+    ///     the event type
+    /// </summary>
+    /// <param name="eventType"></param>
+    void AddEventType(Type eventType);
 }
 
 public class EventRegistry : IEventRegistry
@@ -53,6 +61,11 @@ public class EventRegistry : IEventRegistry
         _eventTypes = _eventTypes.AddOrUpdate(eventType, info);
 
         return info;
+    }
+
+    public void AddEventType(Type eventType)
+    {
+        throw new NotImplementedException();
     }
 
     public EventAppendMode AppendMode { get; set; } = EventAppendMode.Rich;
