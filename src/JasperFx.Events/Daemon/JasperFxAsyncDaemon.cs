@@ -1,3 +1,4 @@
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon.HighWater;
