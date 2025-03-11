@@ -1,7 +1,6 @@
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
 using JasperFx.Events.Daemon;
-using JasperFx.Events.NewStuff;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Trace;
 
@@ -12,12 +11,12 @@ internal class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionEx
     private readonly ShardName _shardName;
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
-    private readonly JasperFxEventProjectionBase<TOperations, TQuerySession> _projection;
+    private readonly IProjection<TOperations> _projection;
     private readonly ILogger _logger;
     private readonly ActionBlock<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
 
-    public ProjectionExecution(ShardName shardName, IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, JasperFxEventProjectionBase<TOperations, TQuerySession> projection, ILogger logger)
+    public ProjectionExecution(ShardName shardName, IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, IProjection<TOperations> projection, ILogger logger)
     {
         _shardName = shardName;
         _storage = storage;
@@ -131,18 +130,7 @@ internal class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionEx
             foreach (var group in groups)
             {
                 await using var session = batch.SessionForTenant(group.Key);
-                foreach (var e in group)
-                {
-                    try
-                    {
-                        await _projection.ApplyAsync(session, e, cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        // check if is transient, and if now, throw ApplyEventException
-                        throw;  
-                    }
-                }
+                await _projection.ApplyAsync(session, group.ToList(), cancellationToken);
             }
 
         }

@@ -1,9 +1,8 @@
-namespace JasperFx.Events.NewStuff;
+namespace JasperFx.Events.Projections;
 
 /// <summary>
 /// Main entry point for non-aggregation projections
 /// </summary>
-[Obsolete("Eliminate this?")]
 public interface IProjection<TOperations>
 {
     /// <summary>

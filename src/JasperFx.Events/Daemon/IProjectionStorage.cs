@@ -1,5 +1,3 @@
-using JasperFx.Events.NewStuff;
-
 namespace JasperFx.Events.Daemon;
 
 public interface IProjectionStorage<TDoc, TId> 

@@ -2,7 +2,6 @@
 
 using JasperFx.Core;
 using JasperFx.Events.Daemon;
-using JasperFx.Events.NewStuff;
 
 namespace JasperFx.Events.Projections;
 

@@ -1,7 +1,4 @@
-using JasperFx.Core;
-using JasperFx.Events.Grouping;
-
-namespace JasperFx.Events.NewStuff;
+namespace JasperFx.Events.Projections;
 
 // This was effectively IProjection in Marten
 

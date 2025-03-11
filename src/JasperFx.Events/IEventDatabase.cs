@@ -1,7 +1,7 @@
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 
-namespace JasperFx.Events.NewStuff;
+namespace JasperFx.Events;
 
 public interface IEventDatabase 
 {

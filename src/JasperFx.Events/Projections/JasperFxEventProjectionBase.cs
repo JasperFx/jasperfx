@@ -1,5 +1,6 @@
+using JasperFx.Core;
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
-using JasperFx.Events.NewStuff;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
@@ -14,8 +15,8 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     IProjectionSource<TOperations, TQuerySession>, 
     ISubscriptionFactory<TOperations, TQuerySession>,
     IInlineProjection<TOperations>,
-    IEntityStorage<TOperations>
-    where TOperations : TQuerySession, IStorageOperations
+    IEntityStorage<TOperations>,
+    IProjection<TOperations> where TOperations : TQuerySession, IStorageOperations
 {
     private readonly EventProjectionApplication<TOperations> _application;
     public Type ProjectionType => GetType();
@@ -23,6 +24,15 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     public JasperFxEventProjectionBase()
     {
         _application = new EventProjectionApplication<TOperations>(this);
+        
+        IncludedEventTypes.Fill(_application.AllEventTypes());
+
+        foreach (var publishedType in _application.PublishedTypes())
+        {
+            RegisterPublishedType(publishedType);
+        }
+
+        ProjectionName = GetType().FullNameInCode();
     }
 
     // TODO -- rename these? Or leave them alone?
@@ -52,7 +62,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToList();
-        return ApplyAsync(operations, events, cancellation).AsTask();
+        return ApplyAsync(operations, events, cancellation);
     }
 
     public virtual ValueTask ApplyAsync(TOperations operations, IEvent e, CancellationToken cancellation)
@@ -60,13 +70,21 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return _application.ApplyAsync(operations, e, cancellation);
     }
 
-    public async ValueTask ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events,
+    public async Task ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events,
         CancellationToken cancellation)
     {
-        // TODO -- apply one event at a time for error tracking
+        // TODO -- apply one event at a time for error tracking, watch what is and is not a transient exception
         foreach (var e in events)
         {
-            await ApplyAsync(operations, e, cancellation);
+            try
+            {
+                await ApplyAsync(operations, e, cancellation);
+            }
+            catch (Exception ex)
+            {
+                // TODO -- check if is transient, and if now, throw ApplyEventException
+                throw;  
+            }
         }
     }
 

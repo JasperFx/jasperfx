@@ -2,7 +2,7 @@ using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
-using JasperFx.Events.NewStuff;
+using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 

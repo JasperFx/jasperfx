@@ -1,5 +1,3 @@
-using JasperFx.Events.NewStuff;
-
 namespace JasperFx.Events.Grouping;
 
 public interface IEventSlicer

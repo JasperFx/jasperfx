@@ -1,11 +1,10 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
-using JasperFx.Events.Daemon;
 using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
-namespace JasperFx.Events.NewStuff;
+namespace JasperFx.Events.Daemon;
 
 public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
     where TOperations : TQuerySession, IStorageOperations
