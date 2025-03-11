@@ -1,4 +1,5 @@
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Subscriptions;
 
 namespace JasperFx.Events.Projections;
 
@@ -12,5 +13,7 @@ public interface IProjectionSource<TOperations, TQuerySession>: IReadOnlyProject
 {
     bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, out IReplayExecutor executor);
 
+    AsyncOptions Options { get; }
+    
     IInlineProjection<TOperations> BuildForInline();
 }

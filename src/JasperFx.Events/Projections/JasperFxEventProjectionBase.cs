@@ -1,6 +1,7 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;

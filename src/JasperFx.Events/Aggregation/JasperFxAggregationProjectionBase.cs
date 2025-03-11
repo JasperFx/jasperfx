@@ -3,16 +3,25 @@ using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Aggregation;
 
+public interface IAggregateProjection
+{
+    Type IdentityType { get; }
+    Type AggregateType { get; }
+    
+    ProjectionLifecycle Lifecycle { get; }
+    
+    AggregationScope Scope { get; }
+}
+
 public abstract class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> 
-    : ProjectionBase, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations, TQuerySession> 
+    : ProjectionBase, IAggregateProjection, IAggregationSteps<TDoc, TQuerySession>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations, TQuerySession> 
     where TOperations : TQuerySession, IStorageOperations
 {
-    // TODO -- this should be somewhere else
-    
     public AggregationScope Scope { get; }
     private readonly AggregateApplication<TDoc,TQuerySession> _application;
     private readonly Lazy<Type[]> _allEventTypes;
@@ -39,8 +48,9 @@ public abstract class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, 
             ProjectionVersion = att.Version;
         }
     }
-    
-    public Type IdentityType { get; } = typeof(TId);
+
+    public Type AggregateType => typeof(TDoc);
+    public Type IdentityType => typeof(TId);
 
     
     protected virtual Type[] determineEventTypes()

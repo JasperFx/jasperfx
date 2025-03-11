@@ -1,33 +1,61 @@
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Trace;
 
 namespace JasperFx.Events.Daemon;
 
-public interface ISubscriptionRunner : IAsyncDisposable
+/// <summary>
+/// Implement on IEventStorage!
+/// </summary>
+/// <typeparam name="T"></typeparam>
+public interface ISubscriptionRunner<T>
 {
-    string ShardIdentity { get; }
-    Task ExecuteAsync(EventRange range, ShardExecutionMode mode, CancellationToken token);
-
-    string DatabaseIdentifier { get; }
+    Task ExecuteAsync(T subscription, IEventDatabase database, EventRange range, ShardExecutionMode mode,
+        CancellationToken token);
 }
 
-public class SubscriptionExecution: ISubscriptionExecution
+public class SubscriptionExecution<T> : SubscriptionExecutionBase
 {
+    private readonly ISubscriptionRunner<T>? _runner;
+    private readonly T _subscription;
+
+    public SubscriptionExecution(object storage, T subscription, IEventDatabase database, ShardName name, ILogger logger) : base(database, name, logger)
+    {
+        _runner = storage as ISubscriptionRunner<T>;
+        if (_runner == null)
+            throw new ArgumentOutOfRangeException(nameof(storage),
+                $"Must implement {typeof(ISubscriptionRunner<T>).FullNameInCode()}");
+
+        _subscription = subscription;
+    }
+
+    protected override Task executeRangeAsync(IEventDatabase database, EventRange range, ShardExecutionMode mode,
+        CancellationToken cancellationToken)
+    {
+        return _runner.ExecuteAsync(_subscription, database, range, Mode, cancellationToken);
+    }
+}
+
+public abstract class SubscriptionExecutionBase: ISubscriptionExecution
+{
+    private readonly IEventDatabase _database;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly ActionBlock<EventRange> _executionBlock;
-    private readonly ISubscriptionRunner _runner;
+    
 
-    public SubscriptionExecution(ISubscriptionRunner runner, ILogger logger)
+    public SubscriptionExecutionBase(IEventDatabase database, ShardName name, ILogger logger)
     {
+        _database = database;
         _logger = logger;
 
-        _runner = runner;
-
         _executionBlock = new ActionBlock<EventRange>(executeRange, _cancellation.Token.SequentialOptions());
+        
+        // TODO -- revisit this. 
+        ShardIdentity = $"{name.Identity}@{database.Identifier}";
     }
 
     private async Task executeRange(EventRange range)
@@ -38,7 +66,7 @@ public class SubscriptionExecution: ISubscriptionExecution
 
         try
         {
-            await _runner.ExecuteAsync(range, Mode, _cancellation.Token).ConfigureAwait(false);
+            await executeRangeAsync(_database, range, Mode, _cancellation.Token);
 
             range.Agent.MarkSuccess(range.SequenceCeiling);
 
@@ -66,11 +94,16 @@ public class SubscriptionExecution: ISubscriptionExecution
         }
     }
 
-    public string ShardIdentity => _runner.ShardIdentity;
+    protected abstract Task executeRangeAsync(IEventDatabase database, EventRange range, ShardExecutionMode mode,
+        CancellationToken cancellationToken);
 
-    public async ValueTask DisposeAsync()
+    public string ShardIdentity { get; }
+
+    public ValueTask DisposeAsync()
     {
-        await _runner.DisposeAsync().ConfigureAwait(false);
+        // TODO -- check this. Right now, assuming we don't need this
+        _executionBlock.Complete();
+        return new ValueTask();
     }
 
     public void Enqueue(EventPage page, ISubscriptionAgent subscriptionAgent)
@@ -97,8 +130,6 @@ public class SubscriptionExecution: ISubscriptionExecution
         _executionBlock.Complete();
         await _cancellation.CancelAsync().ConfigureAwait(false);
     }
-
-    public string DatabaseName => _runner.DatabaseIdentifier;
     public ShardExecutionMode Mode { get; set; } = ShardExecutionMode.Continuous;
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {

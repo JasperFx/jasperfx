@@ -1,3 +1,5 @@
+using JasperFx.Events.Subscriptions;
+
 namespace JasperFx.Events.Projections;
 
 public record AsyncShard<TOperations, TQuerySession>(
