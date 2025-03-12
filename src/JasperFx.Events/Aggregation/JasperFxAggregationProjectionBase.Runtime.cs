@@ -4,10 +4,10 @@ namespace JasperFx.Events.Aggregation;
 
 public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
 {
-    private Func<TDoc?, TQuerySession, IReadOnlyList<IEvent>, CancellationToken, ValueTask<TDoc?>> _evolve;
+    private Func<TDoc?, TId, TQuerySession, IReadOnlyList<IEvent>, CancellationToken, ValueTask<TDoc?>> _evolve;
     
     
-    private async ValueTask<TDoc?> evolveDefaultAsync(TDoc? snapshot, TQuerySession session,
+    private async ValueTask<TDoc?> evolveDefaultAsync(TDoc? snapshot, TId id, TQuerySession session,
         IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         foreach (var @event in events)
@@ -19,7 +19,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
             try
             {
-                snapshot = await EvolveAsync(snapshot, session, @event, cancellation);
+                snapshot = await EvolveAsync(snapshot, id, session, @event, cancellation);
             }
             catch (Exception e)
             {
@@ -37,7 +37,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return snapshot;
     }
     
-    private ValueTask<TDoc?> evolveDefault(TDoc? snapshot, TQuerySession session,
+    private ValueTask<TDoc?> evolveDefault(TDoc? snapshot, TId id, TQuerySession session,
         IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         foreach (var @event in events)
@@ -49,7 +49,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
             try
             {
-                snapshot = Evolve(snapshot, @event);
+                snapshot = Evolve(snapshot, id, @event);
             }
             catch (Exception e)
             {
@@ -67,7 +67,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return new ValueTask<TDoc?>(snapshot);
     }
     
-    // TODO -- allow for explicit code
     public virtual async ValueTask<SnapshotAction<TDoc>> ApplyAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
@@ -78,7 +77,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         var exists = snapshot != null;
 
         // TODO -- pass through the identity too
-        await _evolve(snapshot, session, events, cancellation);
+        await _evolve(snapshot, identity, session, events, cancellation);
 
         if (snapshot == null)
         {
@@ -87,17 +86,18 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         return new Store<TDoc>(snapshot);
     }
-    
+
     /// <summary>
     ///     Override this method to write explicit logic for this aggregation to evolve or create a snapshot
     ///     based on a single event at a time
     /// </summary>
     /// <param name="snapshot"></param>
+    /// <param name="id"></param>
     /// <param name="session"></param>
     /// <param name="e"></param>
     /// <param name="cancellation"></param>
     /// <returns></returns>
-    public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TQuerySession session, IEvent e,
+    public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e,
         CancellationToken cancellation)
     {
         return snapshot == null
@@ -110,10 +110,10 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     /// based on a single event at a time using only synchronous code
     /// </summary>
     /// <param name="snapshot"></param>
+    /// <param name="id"></param>
     /// <param name="e"></param>
     /// <returns></returns>
-    /// <exception cref="NotImplementedException"></exception>
-    public virtual TDoc? Evolve(TDoc? snapshot, IEvent e)
+    public virtual TDoc? Evolve(TDoc? snapshot, TId id, IEvent e)
     {
         throw new NotImplementedException();
     }
