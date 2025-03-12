@@ -102,6 +102,12 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, this, logger);
     }
 
+    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+        ShardName shardName)
+    {
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, this, logger);
+    }
+
     public void Store<T>(TOperations ops, T entity)
     {
         storeEntity<T>(ops, entity);

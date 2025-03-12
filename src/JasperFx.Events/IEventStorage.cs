@@ -15,6 +15,8 @@ public interface IStorageOperations : IAsyncDisposable
 public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
 {
     IEventRegistry Registry { get; }
+
+    Type IdentityTypeForProjectedType(Type aggregateType);
     
     string DefaultDatabaseName { get; }
     ErrorHandlingOptions ContinuousErrors { get; }
@@ -46,7 +48,7 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
         IEventDatabase database, ShardExecutionMode mode, CancellationToken token);
     
     // TODO -- add tenants here later?
-    IEventLoader BuildEventLoader(IEventDatabase database, ILoggerFactory loggerFactory, EventFilterable filtering);
+    IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering);
 
     TOperations OpenSession(IEventDatabase database);
     TOperations OpenSession(IEventDatabase database, string tenantId);

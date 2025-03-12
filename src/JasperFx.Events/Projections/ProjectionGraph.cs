@@ -194,11 +194,10 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     }
     
     /// <summary>
-    /// Add a new event subscription to this store
+    /// Add a subscription to this event store
     /// </summary>
     /// <param name="subscription"></param>
-    // TODO -- might put in place a new ISubscriptionSource for Marten
-    public void Subscribe(ISubscriptionSource<TOperations, TQuerySession> subscription)
+    protected void registerSubscription(ISubscriptionSource<TOperations, TQuerySession> subscription)
     {
         _subscriptions.Add(subscription);
     }
@@ -268,7 +267,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         return _asyncShards.Value.TryGetValue(projectionOrShardName, out shard);
     }
 
-    internal bool TryFindProjection(string projectionName, out IProjectionSource<TOperations, TQuerySession>? source)
+    public bool TryFindProjection(string projectionName, out IProjectionSource<TOperations, TQuerySession>? source)
     {
         source = All.FirstOrDefault(x => x.ProjectionName.EqualsIgnoreCase(projectionName));
         return source != null;
@@ -279,8 +278,8 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         source = _subscriptions.FirstOrDefault(x => x.Name.EqualsIgnoreCase(projectionName));
         return source != null;
     }
-    
-    internal void Describe(EventStoreUsage usage)
+
+    public void Describe(EventStoreUsage usage)
     {
         foreach (var source in _subscriptions)
         {
@@ -299,5 +298,38 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     }
 
 
+    public void AssertValidity<T>(T options)
+    {
+        var duplicateNames = All.Select(x => x.ProjectionName).Concat(All.Select(x => x.Name))
+            .GroupBy(x => x)
+            .Where(x => x.Count() > 1)
+            .Select(group =>
+                $"Duplicate projection or subscription name '{group.Key}': {group.Select(x => x.ToString()).Join(", ")}. You can set the 'ProjectionName' or 'SubscriptionName' property on the projection or subscription to override the default names and thus avoid duplicates.")
+            .ToArray();
 
+        if (duplicateNames.Any())
+        {
+            throw new DuplicateSubscriptionNamesException(duplicateNames.Join("; "));
+        }
+
+        var messages = All.Concat(_liveAggregateSources.Values)
+            .OfType<IValidatedProjection<T>>()
+            .Distinct()
+            .SelectMany(x => x.ValidateConfiguration(options))
+            .ToArray();
+
+        _asyncShards = new Lazy<Dictionary<string, AsyncShard<TOperations, TQuerySession>>>(() =>
+        {
+            return All
+                .Where(x => x.Lifecycle == ProjectionLifecycle.Async)
+                .SelectMany(x => x.Shards())
+                .Concat(_subscriptions.SelectMany(x => x.Shards()))
+                .ToDictionary(x => x.Name.Identity);
+        });
+
+        if (messages.Any())
+        {
+            throw new InvalidProjectionException(messages);
+        }
+    }
 }

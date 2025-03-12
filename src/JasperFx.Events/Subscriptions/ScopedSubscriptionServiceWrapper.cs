@@ -102,6 +102,13 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
             loggerFactory.CreateLogger(typeof(TSubscription)));
     }
 
+    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+        ShardName shardName)
+    {
+        return new ScopedSubscriptionExecution<T, TSubscription>(storage, _provider, database, shardName,
+            logger);
+    }
+
     public string SubscriptionName { get; set; }
     public uint SubscriptionVersion { get; set; }
     public AsyncOptions Options { get; private set; } = new();

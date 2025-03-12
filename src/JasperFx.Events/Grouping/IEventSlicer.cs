@@ -51,7 +51,7 @@ public interface IEventSlicer<TDoc, TId, TQuerySession>
 ///     as part of the sorting of events into aggregate slices
 /// </summary>
 /// <typeparam name="TId"></typeparam>
-public interface IAggregateGrouper<TId, TQuerySession>
+public interface IJasperFxAggregateGrouper<TId, TQuerySession>
 {
     /// <summary>
     ///     Apply custom grouping rules to apply events to one or many aggregates
@@ -63,7 +63,7 @@ public interface IAggregateGrouper<TId, TQuerySession>
     Task Group(TQuerySession session, IEnumerable<IEvent> events, IEventGrouping<TId> grouping);
 }
 
-internal class LambdaAggregateGrouper<TId, TQuerySession> : IAggregateGrouper<TId, TQuerySession>
+internal class LambdaAggregateGrouper<TId, TQuerySession> : IJasperFxAggregateGrouper<TId, TQuerySession>
 {
     private readonly Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> _func;
 
@@ -84,7 +84,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     private readonly List<IFanOutRule> _afterGroupingFanoutRules = new();
     private readonly List<IFanOutRule> _beforeGroupingFanoutRules = new();
     private readonly List<Action<IEnumerable<IEvent>, IEventGrouping<TId>>> _groupers = new();
-    private readonly List<IAggregateGrouper<TId, TQuerySession>> _lookupGroupers = new();
+    private readonly List<IJasperFxAggregateGrouper<TId, TQuerySession>> _lookupGroupers = new();
 
     public async ValueTask SliceAsync(TQuerySession session, IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping)
     {
@@ -137,7 +137,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     ///     Apply a custom event grouping strategy for events. This is additive to Identity() or Identities()
     /// </summary>
     /// <param name="grouper"></param>
-    public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(IAggregateGrouper<TId, TQuerySession> grouper)
+    public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(IJasperFxAggregateGrouper<TId, TQuerySession> grouper)
     {
         _lookupGroupers.Add(grouper);
 

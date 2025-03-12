@@ -9,4 +9,7 @@ public interface ISubscriptionFactory<TOperations, TQuerySession>
 {
     ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
         ILoggerFactory loggerFactory, ShardName shardName);
+
+    ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+        ILogger logger, ShardName shardName);
 }

@@ -71,6 +71,12 @@ internal class ProjectionWrapper<TOperations, TQuerySession> :
         return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, _projection, logger);
     }
 
+    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+        ShardName shardName)
+    {
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, _projection, logger);
+    }
+
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return

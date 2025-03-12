@@ -98,7 +98,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     /// </summary>
     /// <param name="grouper"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public void CustomGrouping(IAggregateGrouper<TId, TQuerySession> grouper)
+    public void CustomGrouping(IJasperFxAggregateGrouper<TId, TQuerySession> grouper)
     {
         if (_customSlicer != null)
         {

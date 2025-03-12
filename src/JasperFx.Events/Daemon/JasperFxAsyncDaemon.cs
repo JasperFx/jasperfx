@@ -11,7 +11,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILoggerFactory? _loggerFactory;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
     private CancellationTokenSource _cancellation = new();
     private readonly HighWaterAgent _highWater;
@@ -27,6 +27,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
         Logger = loggerFactory.CreateLogger(GetType());
         Tracker = Database.Tracker;
         _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), settings, _cancellation.Token);
+
+        _breakSubscription = database.Tracker.Subscribe(this);
+
+        _deadLetterBlock = buildDeadLetterBlock();
+    }
+    
+    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger, IHighWaterDetector detector, DaemonSettings settings)
+    {
+        Database = database;
+        _storage = storage;
+        _loggerFactory = null;
+        Logger = logger;
+        Tracker = Database.Tracker;
+        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, logger, settings, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
@@ -162,8 +176,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
 
     private async Task<SubscriptionAgent> buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard, CancellationToken cancellation)
     {
-        var execution = shard.Factory.BuildExecution(_storage, Database, _loggerFactory, shard.Name);
-        var loader = _storage.BuildEventLoader(Database, _loggerFactory, shard.Filters);
+        var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_storage, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_storage, Database, _loggerFactory, shard.Name);
+        var loader = _storage.BuildEventLoader(Database, Logger, shard.Filters);
         
         // TODO -- build out storage here? Do ensure storage exists
         
@@ -177,7 +191,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
         var metrics = new SubscriptionMetrics(_storage.ActivitySource, _storage.Meter, shard.Name, metricsNaming);
         
         var agent = new SubscriptionAgent(shard.Name, shard.Options, _storage.TimeProvider, loader, execution,
-            Database.Tracker, metrics, _loggerFactory.CreateLogger<SubscriptionAgent>());
+            Database.Tracker, metrics, _loggerFactory?.CreateLogger<SubscriptionAgent>() ?? Logger);
         
         return agent;
     }

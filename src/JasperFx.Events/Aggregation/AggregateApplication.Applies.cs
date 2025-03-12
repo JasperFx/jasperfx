@@ -6,7 +6,7 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events.Aggregation;
 
-public partial class AggregateApplication<TAggregate, TQuerySession>
+internal partial class AggregateApplication<TAggregate, TQuerySession>
 {
     private Func<TAggregate,IEvent,TQuerySession, CancellationToken, ValueTask<TAggregate?>> determineApplication(Type eventType)
     {

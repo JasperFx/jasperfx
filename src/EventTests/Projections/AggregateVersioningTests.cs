@@ -23,7 +23,7 @@ public class AggregateVersioningTests
     {
         var versioning =
             typeof(AggregateVersioning<,>).CloseAndBuildAs<IAggregateVersioning>(
-                AggregationScope.SingleStream, aggregateType, typeof(FakeSession));
+                AggregationScope.SingleStream, aggregateType, typeof(FakeOperations));
 
         (versioning.VersionMember?.Name).ShouldBe(expectedMemberName);
     }
@@ -31,7 +31,7 @@ public class AggregateVersioningTests
     [Fact]
     public void override_version_member_int()
     {
-        var versioning = new AggregateVersioning<AggregateWithMultipleCandidates, FakeSession>(AggregationScope.SingleStream);
+        var versioning = new AggregateVersioning<AggregateWithMultipleCandidates, FakeOperations>(AggregationScope.SingleStream);
         versioning.Override(x => x.RealVersion);
         versioning.VersionMember.Name.ShouldBe(nameof(AggregateWithMultipleCandidates.RealVersion));
     }
@@ -39,7 +39,7 @@ public class AggregateVersioningTests
     [Fact]
     public void override_version_member_long()
     {
-        var versioning = new AggregateVersioning<AggregateWithMultipleCandidates, FakeSession>(AggregationScope.SingleStream);
+        var versioning = new AggregateVersioning<AggregateWithMultipleCandidates, FakeOperations>(AggregationScope.SingleStream);
         versioning.Override(x => x.LongVersion);
         versioning.VersionMember.Name.ShouldBe(nameof(AggregateWithMultipleCandidates.LongVersion));
     }
@@ -65,15 +65,13 @@ public class AggregateVersioningTests
 
         var versioning =
             typeof(AggregateVersioning<,>).CloseAndBuildAs<IAggregateVersioning>(
-                scope, aggregateType, typeof(FakeSession));
+                scope, aggregateType, typeof(FakeOperations));
         var aggregate = Activator.CreateInstance(aggregateType);
         versioning.TrySetVersion(aggregate, e);
 
 
     }
 }
-
-public class FakeSession;
 
 public class OrderShipped{}
 

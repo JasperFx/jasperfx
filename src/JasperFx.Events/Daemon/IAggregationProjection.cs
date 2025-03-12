@@ -31,4 +31,6 @@ public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> w
         TId identity,
         IReadOnlyList<IEvent> events,
         CancellationToken cancellation);
+    
+    Type[] AllEventTypes { get; }
 }

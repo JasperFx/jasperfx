@@ -5,7 +5,7 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 
-public partial class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAggregate, TQuerySession>, IMetadataApplication
+internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAggregate, TQuerySession>, IMetadataApplication
 {
     // This would be for external projections
     private readonly object _projection;
