@@ -1,4 +1,7 @@
+using System.Linq.Expressions;
+using FastExpressionCompiler;
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events;
 
@@ -431,4 +434,45 @@ public class StreamAction
     {
         return ActionType == StreamActionType.Start || Events.First().Version == 1;
     }
+    
+    /// <summary>
+    /// Build a Func that can resolve an identity from the StreamAction and even
+    /// handles the dastardly strong typed identifiers
+    /// </summary>
+    /// <typeparam name="TId"></typeparam>
+    /// <returns></returns>
+    public static Func<StreamAction, TId> CreateAggregateIdentitySource<TId>()
+        where TId : notnull
+    {
+        if (typeof(TId) == typeof(Guid)) return e => e.Id.As<TId>();
+        if (typeof(TId) == typeof(string)) return e => e.Key.As<TId>();
+        
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(TId));
+        
+        var e = Expression.Parameter(typeof(StreamAction), "e");
+        var eMember = valueTypeInfo.SimpleType == typeof(Guid)
+            ? ReflectionHelper.GetProperty<StreamAction>(x => x.Id)
+            : ReflectionHelper.GetProperty<StreamAction>(x => x.Key);
+
+        var raw = Expression.Call(e, eMember.GetMethod);
+        Expression wrapped = null;
+        if (valueTypeInfo.Builder != null)
+        {
+            wrapped = Expression.Call(null, valueTypeInfo.Builder, raw);
+        }
+        else if (valueTypeInfo.Ctor != null)
+        {
+            wrapped = Expression.New(valueTypeInfo.Ctor, raw);
+        }
+        else
+        {
+            throw new NotSupportedException("Marten cannot build a type converter for strong typed id type " +
+                                            valueTypeInfo.OuterType.FullNameInCode());
+        }
+
+        var lambda = Expression.Lambda<Func<StreamAction, TId>>(wrapped, e);
+
+        return lambda.CompileFast();
+    }
+
 }

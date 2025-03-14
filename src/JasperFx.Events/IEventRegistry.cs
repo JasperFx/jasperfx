@@ -3,28 +3,6 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events;
 
-public enum EventAppendMode
-{
-    /// <summary>
-    /// Default behavior that ensures that all inline projections will have full access to all event
-    /// metadata including intended event sequences, versions, and timestamps
-    /// </summary>
-    Rich,
-
-    /// <summary>
-    /// Stripped down, more performant mode of appending events that will omit some event metadata within
-    /// inline projections
-    /// </summary>
-    Quick
-}
-
-public interface IEventStorageBuilder<T>
-{
-    T QuickAppendEventWithVersion(StreamAction action, IEvent @event);
-    T UpdateStreamVersion(StreamAction action);
-    T QuickAppendEvents(StreamAction action);
-}
-
 public interface IEventRegistry
 {
     IEvent BuildEvent(object eventData);
@@ -45,6 +23,14 @@ public interface IEventRegistry
     string AggregateAliasFor(Type aggregateType);
 
     IEventType EventMappingFor(Type eventType);
+
+    /// <summary>
+    ///     Register an event type with Marten. This isn't strictly necessary for normal usage,
+    ///     but can help Marten with asynchronous projections where Marten hasn't yet encountered
+    ///     the event type
+    /// </summary>
+    /// <param name="eventType"></param>
+    void AddEventType(Type eventType);
 }
 
 public class EventRegistry : IEventRegistry
@@ -75,6 +61,11 @@ public class EventRegistry : IEventRegistry
         _eventTypes = _eventTypes.AddOrUpdate(eventType, info);
 
         return info;
+    }
+
+    public void AddEventType(Type eventType)
+    {
+        throw new NotImplementedException();
     }
 
     public EventAppendMode AppendMode { get; set; } = EventAppendMode.Rich;

@@ -1,5 +1,5 @@
 using JasperFx.Events;
-using JasperFx.Events.Projections;
+using JasperFx.Events.Aggregation;
 using Shouldly;
 
 namespace EventTests.Projections;

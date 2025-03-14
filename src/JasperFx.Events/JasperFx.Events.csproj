@@ -3,11 +3,16 @@
     <PropertyGroup>
         <Description>Foundational Event Store Abstractions and Projections for the Critter Stack</Description>
         <PackageId>JasperFx.Events</PackageId>
-        <Version>0.2.0</Version>
+        <Version>0.3.0</Version>
     </PropertyGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
     </ItemGroup>
+    
+    <ItemGroup>
+        <PackageReference Include="OpenTelemetry.API" Version="1.8.0"/>
+    </ItemGroup>
+    
 
 </Project>

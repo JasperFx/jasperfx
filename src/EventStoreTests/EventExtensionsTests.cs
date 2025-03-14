@@ -3,6 +3,7 @@ using System.Reflection;
 using EventStoreTests.TestingSupport;
 using JasperFx.Core.Reflection;
 using JasperFx.Events;
+using JasperFx.Events.Projections;
 using Shouldly;
 
 namespace EventStoreTests;
