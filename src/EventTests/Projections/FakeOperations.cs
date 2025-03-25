@@ -10,12 +10,14 @@ public class FakeOperations : FakeSession, IStorageOperations
         throw new NotImplementedException();
     }
 
-    public IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId)
+    public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
+        CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }
 
-    public IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>()
+    public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(
+        CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }

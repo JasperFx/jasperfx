@@ -3,15 +3,18 @@ using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver<ShardState>, IDaemonRuntime
+public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection> : IObserver<ShardState>, IDaemonRuntime
     where TOperations : TQuerySession, IStorageOperations
+    where TProjection : IJasperFxProjection<TOperations>
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly ILoggerFactory? _loggerFactory;
+    private readonly ProjectionGraph<TProjection, TOperations, TQuerySession> _projections;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
     private CancellationTokenSource _cancellation = new();
     private readonly HighWaterAgent _highWater;
@@ -19,28 +22,30 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, DaemonSettings settings)
+    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
         _storage = storage;
         _loggerFactory = loggerFactory;
+        _projections = projections;
         Logger = loggerFactory.CreateLogger(GetType());
         Tracker = Database.Tracker;
-        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), settings, _cancellation.Token);
+        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), projections, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
         _deadLetterBlock = buildDeadLetterBlock();
     }
     
-    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger, IHighWaterDetector detector, DaemonSettings settings)
+    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
         _storage = storage;
+        _projections = projections;
         _loggerFactory = null;
         Logger = logger;
         Tracker = Database.Tracker;
-        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, logger, settings, _cancellation.Token);
+        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, logger, _projections, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
@@ -177,7 +182,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
     private async Task<SubscriptionAgent> buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard, CancellationToken cancellation)
     {
         var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_storage, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_storage, Database, _loggerFactory, shard.Name);
-        var loader = _storage.BuildEventLoader(Database, Logger, shard.Filters);
+        var loader = _storage.BuildEventLoader(Database, Logger, shard.Filters, shard.Options);
         
         // TODO -- build out storage here? Do ensure storage exists
         
@@ -435,61 +440,46 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
         return RebuildProjectionAsync(projectionType, 5.Minutes(), token);
     }
 
+    // projectionType can be either the IProjectionSource type, or the aggregate type
     public Task RebuildProjectionAsync(Type projectionType, TimeSpan shardTimeout, CancellationToken token)
     {
-        throw new NotImplementedException("Redo when combining this with Marten again");
-        // if (projectionType.CanBeCastTo<IProjection>())
-        // {
-        //     var projectionName = projectionType.FullNameInCode();
-        //     return RebuildProjectionAsync(projectionName, shardTimeout, token);
-        // }
-        //
-        // if (projectionType.CanBeCastTo<IProjectionSource>())
-        // {
-        //     try
-        //     {
-        //         var projection = Activator.CreateInstance(projectionType);
-        //         if (projection is IProjectionSource wrapper)
-        //             return RebuildProjectionAsync(wrapper.ProjectionName, shardTimeout, token);
-        //
-        //         throw new ArgumentOutOfRangeException(nameof(projectionType),
-        //             $"Type {projectionType.FullNameInCode()} is not a valid projection type");
-        //     }
-        //     catch (Exception e)
-        //     {
-        //         throw new ArgumentOutOfRangeException(nameof(projectionType), e,
-        //             $"No public default constructor for projection type {projectionType.FullNameInCode()}, you may need to supply the projection name instead");
-        //     }
-        // }
-        //
-        // // Assume this is an aggregate type name
-        // return RebuildProjectionAsync(projectionType.NameInCode(), shardTimeout, token);
+        
+        var projection = _projections.All.FirstOrDefault(x => x.GetType() == projectionType)
+                         ?? _projections.All.FirstOrDefault(x => x.PublishedTypes().Contains(projectionType));
+
+        if (projection == null && projectionType.CanBeCastTo<IProjectionSource<TOperations, TQuerySession>>() &&
+            projectionType.HasDefaultConstructor())
+        {
+            projection = (IProjectionSource<TOperations, TQuerySession>?)Activator.CreateInstance(projectionType);
+        }
+
+        if (projection != null)
+        {
+            return rebuildProjection(projection, shardTimeout, token);
+        }
+
+        throw new ArgumentOutOfRangeException("TView",
+            $"No registered projection matches the type '{projectionType.FullNameInCode()}'. Available projections are {_projections.All.Select(x => x.ToString()).Join(", ")}");
     }
 
     public Task RebuildProjectionAsync(string projectionName, TimeSpan shardTimeout, CancellationToken token)
     {
-        throw new NotImplementedException("Redo in conjunction with Marten");
-        // if (!_store.Options.Projections.TryFindProjection(projectionName, out var projection))
-        // {
-        //     throw new ArgumentOutOfRangeException(nameof(projectionName),
-        //         $"No registered projection matches the name '{projectionName}'. Available names are {_store.Options.Projections.AllProjectionNames().Join(", ")}");
-        // }
-        //
-        // return rebuildProjection(projection, shardTimeout, token);
+        if (_projections.TryFindProjection(projectionName, out var source))
+        {
+            return rebuildProjection(source, shardTimeout, token);
+        }
+        
+        throw new ArgumentOutOfRangeException(nameof(projectionName),
+        $"No registered projection matches the name '{projectionName}'. Available names are {_projections.AllProjectionNames().Join(", ")}");
     }
 
     public Task RebuildProjectionAsync<TView>(TimeSpan shardTimeout, CancellationToken token)
     {
-        if (typeof(TView).CanBeCastTo(typeof(ProjectionBase)) && typeof(TView).HasDefaultConstructor())
-        {
-            var projection = (ProjectionBase)Activator.CreateInstance(typeof(TView))!;
-            return RebuildProjectionAsync(projection.ProjectionName!, shardTimeout, token);
-        }
-
-        return RebuildProjectionAsync(typeof(TView).Name, shardTimeout, token);
+        var projectionType = typeof(TView);
+        return RebuildProjectionAsync(projectionType, shardTimeout, token);
     }
 
-        // TODO -- ZOMG, this is awful
+    // TODO -- ZOMG, this is awful
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
@@ -514,7 +504,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
 
         if (token.IsCancellationRequested) return;
 
-        var agents = await buildAgentsForSubscription(subscriptionName);
+        var agents = await buildAgentsForSubscription(source);
+        if (agents.Count == 0)
+        {
+            throw new InvalidOperationException("No agents were built for subscription " + subscriptionName);
+        }
 
         foreach (var agent in agents)
         {
@@ -614,6 +608,18 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession> : IObserver
                 errorOptions, this)).ConfigureAwait(false);
             agent.MarkHighWater(HighWaterMark());
         }
+    }
+    
+    private async Task<IReadOnlyList<SubscriptionAgent>> buildAgentsForSubscription(ISubscriptionSource<TOperations, TQuerySession> source)
+    {
+        var agents = new List<SubscriptionAgent>();
+
+        foreach (var shard in source.Shards())
+        {
+            agents.Add(await buildAgentForShard(shard, _cancellation.Token));
+        }
+
+        return agents;
     }
 
     private async Task<IReadOnlyList<SubscriptionAgent>> buildAgentsForSubscription(string subscriptionName)

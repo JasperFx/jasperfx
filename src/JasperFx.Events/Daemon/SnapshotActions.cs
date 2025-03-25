@@ -6,7 +6,8 @@ public enum ActionType
     Delete,
     UnDeleteAndStore,
     Nothing,
-    HardDelete
+    HardDelete,
+    StoreThenSoftDelete
 }
 
 public interface ISnapshotAction
@@ -17,8 +18,9 @@ public interface ISnapshotAction
 public record SnapshotAction<T>(T Snapshot, ActionType Type) : ISnapshotAction;
 
 public record Store<T>(T Snapshot) : SnapshotAction<T>(Snapshot, ActionType.Store);
+public record StoreTheSoftDelete<T>(T Snapshot) : SnapshotAction<T>(Snapshot, ActionType.StoreThenSoftDelete);
 
-public record Delete<TDoc, TId>(TDoc Snapshot, TId Identity) : SnapshotAction<TDoc>(Snapshot, ActionType.Store);
+public record Delete<TDoc, TId>(TDoc Snapshot, TId Identity) : SnapshotAction<TDoc>(Snapshot, ActionType.Delete);
 
 public record UnDeleteAndStore<T>(T Snapshot) : SnapshotAction<T>(Snapshot, ActionType.UnDeleteAndStore);
 

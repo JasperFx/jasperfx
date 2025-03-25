@@ -3,6 +3,7 @@ using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
+using JasperFx.Events.Internals;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
@@ -22,7 +23,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     private readonly List<Type> _transientExceptionTypes = new();
     private readonly AggregateVersioning<TDoc, TQuerySession> _versioning;
     private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
-    
+    private bool _usesConventionalApplication = true;
 
     protected JasperFxAggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
     {
@@ -33,17 +34,32 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         // We'll use this to validate even if it's not used at runtime
         _application = new AggregateApplication<TDoc, TQuerySession>(this);
         
+        _buildAction = buildActionAsync;
+        
         // TODO -- add a helper method here in ReflectionExtensions. Something like "OverriddenByThisType(methodName)
-        if (GetType().GetMethod(nameof(Evolve)).DeclaringType == GetType())
+        if (GetType().GetMethod(nameof(DetermineAction)).DeclaringType == GetType())
         {
+            _usesConventionalApplication = false;
+            _buildAction = (_, snapshot, id, _, events, _) => new ValueTask<SnapshotAction<TDoc>>(DetermineAction(snapshot, id, events));
+        }
+        else if (GetType().GetMethod(nameof(DetermineActionAsync)).DeclaringType == GetType())
+        {
+            _usesConventionalApplication = false;
+            _buildAction = DetermineActionAsync;
+        }
+        else if (GetType().GetMethod(nameof(Evolve)).DeclaringType == GetType())
+        {
+            _usesConventionalApplication = false;
             _evolve = evolveDefault;
         }
         else if (GetType().GetMethod(nameof(EvolveAsync)).DeclaringType == GetType())
         {
+            _usesConventionalApplication = false;
             _evolve = evolveDefaultAsync;
         }
         else
         {
+            _usesConventionalApplication = true;
             _evolve = evolveDefaultAsync;
         }
         
@@ -59,6 +75,21 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         {
             ProjectionVersion = att.Version;
         }
+    }
+
+
+    protected bool IsUsingConventionalMethods => _usesConventionalApplication;
+
+
+    public override void AssembleAndAssertValidity()
+    {
+        if (_usesConventionalApplication)
+        {
+            _application.AssertNoInvalidMethods();
+        }
+
+        var eventTypes = determineEventTypes();
+        IncludedEventTypes.Fill(eventTypes);
     }
 
     internal IList<Type> DeleteEvents { get; } = new List<Type>();
@@ -82,9 +113,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return snapshot;
     }
 
-    public bool MatchesAnyDeleteType(IEventSlice slice)
+    public bool MatchesAnyDeleteType(IReadOnlyList<IEvent> events)
     {
-        return slice.Events().Select(x => x.EventType).Intersect(DeleteEvents).Any();
+        return events.Select(x => x.EventType).Intersect(DeleteEvents).Any();
     }
 
     public virtual ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice)
@@ -211,8 +242,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     protected abstract IEventSlicer buildSlicer(TQuerySession session);
 
-    // TODO -- man, it'd be nice to be able to do this with a synchronous method
-
     // TODO -- unit test this
     protected virtual bool IsExceptionTransient(Exception exception)
     {
@@ -222,5 +251,32 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         return false;
+    }
+
+    (IEvent?, TDoc?) IAggregationProjection<TDoc, TId, TOperations, TQuerySession>.TryApplyMetadata(
+        IReadOnlyList<IEvent> events, TDoc? aggregate, TId id, IIdentitySetter<TDoc, TId> identitySetter)
+    {
+        return tryApplyMetadata(events, aggregate, id, identitySetter);
+    }
+    
+    protected (IEvent?, TDoc?) tryApplyMetadata(
+        IReadOnlyList<IEvent> events, 
+        TDoc? aggregate,
+        TId id,
+        IIdentitySetter<TDoc, TId> storage)
+    {
+        var lastEvent = events.LastOrDefault();
+        if (aggregate != null)
+        {
+            foreach (var @event in events)
+            {
+                aggregate = ApplyMetadata(aggregate, @event);
+            }
+            
+            storage.SetIdentity(aggregate, id);
+            _versioning.TrySetVersion(aggregate, lastEvent);
+        }
+
+        return (lastEvent, aggregate);
     }
 }

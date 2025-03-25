@@ -34,7 +34,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     {
         return _asyncShards.Value.Values.ToList();
     }
-    
+
     /// <summary>
     /// Async daemon error handling polices while running continuously. The defaults
     /// are to skip serialization errors, unknown events, and apply errors
@@ -224,7 +224,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         var source = tryFindProjectionSourceForAggregateType<T>();
         if (source is ProjectionBase p) p.AssembleAndAssertValidity();
 
-        aggregator = source.As<IAggregatorSource<T>>().Build<T>();
+        aggregator = source.As<IAggregatorSource<TQuerySession>>().Build<T>();
         _liveAggregators = _liveAggregators.AddOrUpdate(typeof(T), aggregator);
 
         return (IAggregator<T, TQuerySession>)aggregator;
@@ -240,7 +240,10 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
         if (!_liveAggregateSources.TryGetValue(typeof(T), out var source))
         {
-            throw new NotImplementedException("Gotta redo this. Might need access to the storage");
+            if (_events is IAggregationSourceFactory<TQuerySession> factory)
+            {
+                source = factory.Build<T>();
+            }
         }
 
         return source as IAggregatorSource<TQuerySession>;

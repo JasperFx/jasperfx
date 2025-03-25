@@ -1,5 +1,6 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Aggregation;
 
 namespace JasperFx.Events;
 
@@ -33,6 +34,20 @@ public interface IEventRegistry
     void AddEventType(Type eventType);
 }
 
+/// <summary>
+/// Implemented by event registries that can automatically derive aggregators
+/// </summary>
+public interface IAggregationSourceFactory<TQuerySession>
+{
+    /// <summary>
+    /// Try to create an aggregate source for the type TDoc
+    /// </summary>
+    /// <typeparam name="TDoc">The aggregate type</typeparam>
+    /// <returns></returns>
+    IAggregatorSource<TQuerySession>? Build<TDoc>();
+}
+
+// TODO -- make the Marten EventGraph inherit from this puppy
 public class EventRegistry : IEventRegistry
 {
     private ImHashMap<Type, IEventType> _eventTypes = ImHashMap<Type, IEventType>.Empty;

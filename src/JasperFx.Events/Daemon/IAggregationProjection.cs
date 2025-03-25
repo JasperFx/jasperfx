@@ -1,3 +1,4 @@
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Grouping;
 using Microsoft.Extensions.Options;
 
@@ -23,14 +24,20 @@ public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> w
 
     AggregationScope Scope { get; }
     
-    bool MatchesAnyDeleteType(IEventSlice slice);
+    bool MatchesAnyDeleteType(IReadOnlyList<IEvent> events);
     TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
 
-    ValueTask<SnapshotAction<TDoc>> ApplyAsync(TQuerySession session,
+    ValueTask<SnapshotAction<TDoc>> DetermineActionAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
+        IIdentitySetter<TDoc, TId> identitySetter,
         IReadOnlyList<IEvent> events,
         CancellationToken cancellation);
     
     Type[] AllEventTypes { get; }
+
+    (IEvent?, TDoc?) TryApplyMetadata(IReadOnlyList<IEvent> events,
+        TDoc? aggregate,
+        TId id,
+        IIdentitySetter<TDoc, TId> identitySetter);
 }

@@ -54,7 +54,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         foreach (var group in groups)
         {
             var operations = batch.SessionForTenant(group.TenantId);
-            var storage = operations.ProjectionStorageFor<TDoc, TId>(group.TenantId);
+            var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
             foreach (var slice in group.Slices)
             {
                 builder.Post(new EventSliceExecution(slice, operations, storage));
@@ -71,7 +71,9 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
-        throw new NotImplementedException();
+        // TODO -- revisit this
+        executor = default;
+        return false;
     }
 
     public async Task EnsureStorageExists(CancellationToken token)
@@ -99,7 +101,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             throw new InvalidOperationException(
                 $"TenantId does not match from the slice '{slice.TenantId}' and storage '{storage.TenantId}'");
         
-        if (Projection.MatchesAnyDeleteType(slice))
+        if (Projection.MatchesAnyDeleteType(slice.Events()))
         {
             if (mode == ShardExecutionMode.Continuous)
             {
@@ -111,11 +113,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             return;
         }
 
-        var action = await Projection.ApplyAsync(operations, slice.Aggregate, slice.Id, slice.Events(), cancellation);
+        var action = await Projection.DetermineActionAsync(operations, slice.Aggregate, slice.Id, storage, slice.Events(), cancellation);
         if (action.Type == ActionType.Nothing) return;
 
         var snapshot = action.Snapshot;
-        (var lastEvent, snapshot) = tryApplyMetadata(slice, snapshot, storage);
+        (var lastEvent, snapshot) = Projection.TryApplyMetadata(slice.Events(), snapshot, slice.Id, storage);
 
         maybeArchiveStream(storage, slice);
 
@@ -141,33 +143,19 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 storage.UnDelete(snapshot);
                 storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
                 break;
+            case ActionType.StoreThenSoftDelete:
+                storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
+                storage.Delete(slice.Id);
+                break;
         }
 
-    }
-    
-    private (IEvent?, TDoc?) tryApplyMetadata(EventSlice<TDoc, TId> slice, TDoc? aggregate,
-        IProjectionStorage<TDoc, TId> storage)
-    {
-        var lastEvent = slice.Events().LastOrDefault();
-        if (aggregate != null)
-        {
-            // TODO -- let's have this encapsulated within AggregationProjectionBase
-            storage.SetIdentityAndVersion(aggregate, slice.Id, lastEvent);
-
-            foreach (var @event in slice.Events())
-            {
-                aggregate = Projection.ApplyMetadata(aggregate, @event);
-            }
-        }
-
-        return (lastEvent, aggregate);
     }
     
     private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice)
     {
-        if (Projection.Scope == AggregationScope.SingleStream)
+        if (Projection.Scope == AggregationScope.SingleStream && slice.Events().OfType<IEvent<Archived>>().Any())
         {
-            storage.ArchiveStream(slice.Id);
+            storage.ArchiveStream(slice.Id, slice.TenantId);
         }
     }
 

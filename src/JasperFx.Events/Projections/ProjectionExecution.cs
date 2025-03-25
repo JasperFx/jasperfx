@@ -6,7 +6,7 @@ using OpenTelemetry.Trace;
 
 namespace JasperFx.Events.Projections;
 
-internal class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExecution where TOperations : TQuerySession, IStorageOperations
+public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExecution where TOperations : TQuerySession, IStorageOperations
 {
     private readonly ShardName _shardName;
     private readonly IEventStorage<TOperations, TQuerySession> _storage;

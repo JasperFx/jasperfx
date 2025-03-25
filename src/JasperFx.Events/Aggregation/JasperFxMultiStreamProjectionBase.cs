@@ -13,6 +13,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
 
     protected JasperFxMultiStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream, transientExceptionTypes)
     {
+        ProjectionName = typeof(TDoc).Name;
     }
 
     public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;
@@ -30,10 +31,15 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                 return new TenantedEventSlicer<TDoc, TId, TQuerySession>(session, _customSlicer ?? _defaultSlicer);
             case TenancyGrouping.AcrossTenants:
                 return new AcrossTenantSlicer<TDoc, TId, TQuerySession>(session, _customSlicer ?? _defaultSlicer);
-            default:
-                throw new NotImplementedException("Watch the tenant rollup thing");
+            case TenancyGrouping.RollUpByTenant:
+                // TODO -- what if the TId isn't string of course?
+                if (typeof(TId) != typeof(string))
+                    throw new InvalidOperationException(
+                        "JasperFx cannot (yet) support strong typed identifiers for the tenant id rollup");
+                return new TenantRollupSlicer<TDoc>();
         }
-        
+
+        throw new ArgumentOutOfRangeException();
     }
 
     async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
@@ -44,14 +50,14 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         var groups = await slicer.SliceAsync(events);
         foreach (var group in groups.OfType<SliceGroup<TDoc, TId>>())
         {
-            var storage = operations.ProjectionStorageFor<TDoc, TId>(group.TenantId);
+            var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
             var ids = group.Slices.Select(x => x.Id).ToArray();
             
             var snapshots = await storage.LoadManyAsync(ids, cancellation);
             foreach (var slice in group.Slices)
             {
                 snapshots.TryGetValue(slice.Id, out var snapshot);
-                var action = await ApplyAsync(operations, snapshot, slice.Id, slice.Events(), cancellation);
+                var action = await DetermineActionAsync(operations, snapshot, slice.Id, storage, slice.Events(), cancellation);
                 storage.ApplyInline(action, slice.Id, group.TenantId);
             }
         }

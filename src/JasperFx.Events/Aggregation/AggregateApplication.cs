@@ -39,6 +39,9 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
         _shouldDeleteMethods = new ShouldDeleteMethodCollection(typeof(TQuerySession), _projectionType, typeof(TAggregate));
     }
 
+    public Type IdentityType =>
+        _projection is IAggregator<TAggregate, TQuerySession> agg ? agg.IdentityType : typeof(object);
+
     object IMetadataApplication.ApplyMetadata(object aggregate, IEvent lastEvent)
     {
         return aggregate;

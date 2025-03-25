@@ -8,8 +8,9 @@ namespace JasperFx.Events;
 
 public interface IStorageOperations : IAsyncDisposable
 {
-    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId);
-    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>();
+    Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
+        CancellationToken cancellationToken);
+    Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(CancellationToken cancellationToken);
 }
 
 public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
@@ -48,7 +49,8 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
         IEventDatabase database, ShardExecutionMode mode, CancellationToken token);
     
     // TODO -- add tenants here later?
-    IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering);
+    IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering,
+        AsyncOptions shardOptions);
 
     TOperations OpenSession(IEventDatabase database);
     TOperations OpenSession(IEventDatabase database, string tenantId);

@@ -29,7 +29,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId>
     public SliceGroup() : this(StorageConstants.DefaultTenantId)
     {
     }
-    
+
     /// <summary>
     ///     Add events to streams where each event of type TEvent applies to only
     ///     one stream
@@ -46,6 +46,14 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId>
             {
                 var id = singleIdSource(@event);
                 AddEvent(id, (IEvent)@event);
+            }
+        }
+        else if (typeof(TEvent) == typeof(IEvent))
+        {
+            foreach (var @event in events)
+            {
+                var id = singleIdSource((TEvent)@event);
+                AddEvent(id, @event);
             }
         }
         else

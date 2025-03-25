@@ -1,3 +1,4 @@
+using JasperFx.Core;
 using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Aggregation;
@@ -5,7 +6,8 @@ namespace JasperFx.Events.Aggregation;
 public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
 {
     private Func<TDoc?, TId, TQuerySession, IReadOnlyList<IEvent>, CancellationToken, ValueTask<TDoc?>> _evolve;
-    
+    private Func<TQuerySession, TDoc?, TId, IIdentitySetter<TDoc, TId>, IReadOnlyList<IEvent>, CancellationToken,
+        ValueTask<SnapshotAction<TDoc>>> _buildAction;
     
     private async ValueTask<TDoc?> evolveDefaultAsync(TDoc? snapshot, TId id, TQuerySession session,
         IReadOnlyList<IEvent> events, CancellationToken cancellation)
@@ -66,22 +68,55 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         
         return new ValueTask<TDoc?>(snapshot);
     }
+
+    /// <summary>
+    /// Override this method to apply workflow mechanics to your aggregate with
+    /// a purely synchronous method that does not require any additional data
+    /// lookup.
+    ///
+    /// It is valid to override this method or ApplyAsync, but not both!
+    /// </summary>
+    /// <param name="snapshot"></param>
+    /// <param name="identity"></param>
+    /// <param name="events"></param>
+    /// <returns></returns>
+    [JasperFxIgnore]
+    // TODO -- reconsider this method name. 
+    public virtual SnapshotAction<TDoc> DetermineAction(TDoc? snapshot, TId identity, IReadOnlyList<IEvent> events)
+    {
+        throw new NotImplementedException("Did you forget to implement this?");
+    }
     
-    public virtual async ValueTask<SnapshotAction<TDoc>> ApplyAsync(TQuerySession session,
+    // TODO -- inline this and just use _buildAction?
+    public virtual ValueTask<SnapshotAction<TDoc>> DetermineActionAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
+        IIdentitySetter<TDoc, TId> identitySetter,
         IReadOnlyList<IEvent> events,
         CancellationToken cancellation)
+    {
+        return _buildAction(session, snapshot, identity, identitySetter, events, cancellation);
+    }
+
+    private async ValueTask<SnapshotAction<TDoc>> buildActionAsync(TQuerySession session, TDoc? snapshot, TId identity, IIdentitySetter<TDoc, TId> identitySetter,
+        IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         // Does the aggregate already exist before the events are applied?
         var exists = snapshot != null;
 
-        // TODO -- pass through the identity too
-        await _evolve(snapshot, identity, session, events, cancellation);
+        if (MatchesAnyDeleteType(events))
+        {
+            if (!exists) return new Nothing<TDoc>(snapshot);
+
+            return new Delete<TDoc, TId>(snapshot, identity);
+        }
+        
+        snapshot = await _evolve(snapshot, identity, session, events, cancellation);
+        (_, snapshot) = tryApplyMetadata(events, snapshot, identity, identitySetter);
 
         if (snapshot == null)
         {
-            return exists ? new Delete<TDoc>(snapshot) : new Nothing<TDoc>(snapshot);
+            return exists ? new Delete<TDoc, TId>(snapshot, identity) : new Nothing<TDoc>(snapshot);
         }
 
         return new Store<TDoc>(snapshot);

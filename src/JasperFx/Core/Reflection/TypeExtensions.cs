@@ -399,6 +399,13 @@ public static class TypeExtensions
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType, ctorArgument1, ctorArgument2)!;
     }
+    
+    public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument1, object ctorArgument2, object ctorArgument3,
+        params Type[] parameterTypes)
+    {
+        var closedType = openType.MakeGenericType(parameterTypes);
+        return (T)Activator.CreateInstance(closedType, ctorArgument1, ctorArgument2, ctorArgument3)!;
+    }
 
     /// <summary>
     ///     Does the two properties match?

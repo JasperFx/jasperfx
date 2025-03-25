@@ -17,21 +17,8 @@ public interface IProjectionBatch : IAsyncDisposable
 
 public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch where TOperations : TQuerySession, IStorageOperations
 {
-    /*
-     * Notes
-     * This will encapsulate Marten's ProjectionUpdateBatch, but spin out new DocumentSession as necessary
-     * Follows the entire event range
-     * 
-     */
-    
-
-    
     TOperations SessionForTenant(string tenantId);
 
     IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId);
     IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>();
-    
-    // TODO -- add methods here to mark the progression as well?
-    
-
 }

@@ -1,6 +1,8 @@
+using JasperFx.Events.Aggregation;
+
 namespace JasperFx.Events.Daemon;
 
-public interface IProjectionStorage<TDoc, TId> 
+public interface IProjectionStorage<TDoc, TId> : IIdentitySetter<TDoc, TId>
 {
     // This will wrap ProjectionUpdateBatch & the right DocumentSession
     
@@ -13,15 +15,11 @@ public interface IProjectionStorage<TDoc, TId>
     
     void HardDelete(TDoc snapshot, string tenantId);
     void UnDelete(TDoc snapshot, string tenantId);
-    void Store(TDoc snapshot, string tenantId);
+    void Store(TDoc snapshot, TId id, string tenantId);
     void Delete(TId identity, string tenantId);
 
     Task<IReadOnlyDictionary<TId, TDoc>> LoadManyAsync(TId[] identities, CancellationToken cancellationToken);
-    
-    // Storage.SetIdentity(aggregate, slice.Id);
-    // Versioning.TrySetVersion(aggregate, lastEvent);
-    void SetIdentityAndVersion(TDoc aggregate, TId sliceId, IEvent? lastEvent);
-    
+
     /*
         if (Slicer is ISingleStreamSlicer && lastEvent != null && storageOperation is IRevisionedOperation op)
        {
@@ -29,8 +27,8 @@ public interface IProjectionStorage<TDoc, TId>
            op.IgnoreConcurrencyViolation = true;
        }
      */
-    void StoreProjection(TDoc aggregate, IEvent? lastEvent, AggregationScope isSingleStream);
-    void ArchiveStream(TId sliceId);
+    void StoreProjection(TDoc aggregate, IEvent? lastEvent, AggregationScope scope);
+    void ArchiveStream(TId sliceId, string tenantId);
     Task<TDoc> LoadAsync(TId id, CancellationToken cancellation);
 }
 
@@ -44,14 +42,18 @@ public static class ProjectionStorageExtensions
                 storage.Delete(id, tenantId);
                 break;
             case ActionType.Store:
-                storage.Store(action.Snapshot, tenantId);
+                storage.Store(action.Snapshot, id, tenantId);
                 break;
             case ActionType.HardDelete:
                 storage.HardDelete(action.Snapshot, tenantId);
                 break;
             case ActionType.UnDeleteAndStore:
                 storage.UnDelete(action.Snapshot, tenantId);
-                storage.Store(action.Snapshot, tenantId);
+                storage.Store(action.Snapshot, id, tenantId);
+                break;
+            case ActionType.StoreThenSoftDelete:
+                storage.Store(action.Snapshot, id, tenantId);
+                storage.Delete(id, tenantId);
                 break;
         }
     }

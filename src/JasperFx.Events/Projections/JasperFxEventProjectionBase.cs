@@ -46,7 +46,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return new SubscriptionDescriptor(this, SubscriptionType.EventProjection);
     }
 
-    public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
+    IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {
         // TODO -- this *will* get fancier if we do the async projection sharding
         return
@@ -69,7 +69,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToList();
-        return ApplyAsync(operations, events, cancellation);
+        return applyAsync(operations, events, cancellation);
     }
 
     public virtual ValueTask ApplyAsync(TOperations operations, IEvent e, CancellationToken cancellation)
@@ -77,10 +77,15 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return _application.ApplyAsync(operations, e, cancellation);
     }
 
-    public async Task ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events,
+    async Task IJasperFxProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events,
         CancellationToken cancellation)
     {
         // TODO -- apply one event at a time for error tracking, watch what is and is not a transient exception
+        await applyAsync(operations, events, cancellation);
+    }
+
+    private async Task applyAsync(TOperations operations, IReadOnlyList<IEvent> events, CancellationToken cancellation)
+    {
         foreach (var e in events)
         {
             try
@@ -108,7 +113,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, this, logger);
     }
 
-    public void Store<T>(TOperations ops, T entity)
+    void IEntityStorage<TOperations>.Store<T>(TOperations ops, T entity)
     {
         storeEntity<T>(ops, entity);
     }
@@ -118,5 +123,16 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     public override void AssembleAndAssertValidity()
     {
         _application.AssertMethodValidity();
+    }
+
+    [JasperFxIgnore]
+    public void Project<T>(Action<T, TOperations> action) where T : class
+    {
+        _application.Project<T>(action);
+    }
+
+    public void ProjectAsync<T>(Func<T, TOperations, Task> action) where T : class
+    {
+        _application.ProjectAsync(action);
     }
 }
