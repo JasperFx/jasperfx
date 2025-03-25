@@ -300,7 +300,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
     public void AssertValidity<T>(T options)
     {
-        var duplicateNames = All.Select(x => x.ProjectionName).Concat(All.Select(x => x.Name))
+        var duplicateNames = All.Select(x => x.Name).Concat(_subscriptions.Select(x => x.Name))
             .GroupBy(x => x)
             .Where(x => x.Count() > 1)
             .Select(group =>
