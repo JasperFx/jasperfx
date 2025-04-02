@@ -3,7 +3,6 @@ using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
-using JasperFx.Events.Internals;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
@@ -36,32 +35,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         
         _buildAction = buildActionAsync;
         
-        // TODO -- add a helper method here in ReflectionExtensions. Something like "OverriddenByThisType(methodName)
-        if (GetType().GetMethod(nameof(DetermineAction)).DeclaringType == GetType())
-        {
-            _usesConventionalApplication = false;
-            _buildAction = (_, snapshot, id, _, events, _) => new ValueTask<SnapshotAction<TDoc>>(DetermineAction(snapshot, id, events));
-        }
-        else if (GetType().GetMethod(nameof(DetermineActionAsync)).DeclaringType == GetType())
-        {
-            _usesConventionalApplication = false;
-            _buildAction = DetermineActionAsync;
-        }
-        else if (GetType().GetMethod(nameof(Evolve)).DeclaringType == GetType())
-        {
-            _usesConventionalApplication = false;
-            _evolve = evolveDefault;
-        }
-        else if (GetType().GetMethod(nameof(EvolveAsync)).DeclaringType == GetType())
-        {
-            _usesConventionalApplication = false;
-            _evolve = evolveDefaultAsync;
-        }
-        else
-        {
-            _usesConventionalApplication = true;
-            _evolve = evolveDefaultAsync;
-        }
+        establishBuildActionAndEvolve();
         
         Options.DeleteViewTypeOnTeardown<TDoc>();
 
@@ -77,15 +51,65 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
     }
 
+    private static string[] methodNames = [nameof(DetermineAction), nameof(DetermineActionAsync), nameof(Evolve), nameof(EvolveAsync)];
+    private void establishBuildActionAndEvolve()
+    {
+        if (isOverridden(nameof(DetermineAction)))
+        {
+            _usesConventionalApplication = false;
+            _buildAction = (_, snapshot, id, _, events, _) => new ValueTask<SnapshotAction<TDoc>>(DetermineAction(snapshot, id, events));
+        }
+        else if (isOverridden(nameof(DetermineActionAsync)))
+        {
+            _usesConventionalApplication = false;
+            _buildAction = DetermineActionAsync;
+        }
+        else if (isOverridden(nameof(Evolve)))
+        {
+            _usesConventionalApplication = false;
+            _evolve = evolveDefault;
+        }
+        else if (isOverridden(nameof(EvolveAsync)))
+        {
+            _usesConventionalApplication = false;
+            _evolve = evolveDefaultAsync;
+        }
+        else
+        {
+            _usesConventionalApplication = true;
+            _evolve = evolveDefaultAsync;
+        }
+    }
+    
+    private bool isOverridden(string methodName)
+    {
+        return GetType().GetMethod(methodName).DeclaringType.Assembly != typeof(IEvent).Assembly;
+    }
+
 
     protected bool IsUsingConventionalMethods => _usesConventionalApplication;
 
 
     public override void AssembleAndAssertValidity()
     {
-        if (_usesConventionalApplication)
+        var overrides = methodNames.Where(isOverridden).ToArray();
+        switch (overrides.Length)
         {
-            _application.AssertNoInvalidMethods();
+            case 0:
+                _application.AssertValidity();
+                break;
+            case 1:
+                if (_application.HasAnyMethods())
+                {
+                    throw new InvalidProjectionException(
+                        $"This projection can only use the override of '{overrides.Single()}' or conventional Apply/Create/ShouldDelete methods and line lambdas, but not both");
+                }
+
+                break;
+            case 2:
+                throw new InvalidProjectionException("Only one of these methods can be overridden: " +
+                                                    overrides.Join(", "));
+                
         }
 
         var eventTypes = determineEventTypes();

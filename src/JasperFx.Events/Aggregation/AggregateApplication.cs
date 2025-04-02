@@ -82,8 +82,13 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
 
         return application(snapshot, e, session, token);
     }
+
+    public bool HasAnyMethods()
+    {
+        return !_applyMethods.IsEmpty() || !_creators.IsEmpty || !_applications.IsEmpty;
+    }
     
-    public void AssertNoInvalidMethods()
+    public void AssertValidity()
     {
         if (_applyMethods.IsEmpty() && _createMethods.IsEmpty() && _creators.IsEmpty && _applications.IsEmpty)
         {
