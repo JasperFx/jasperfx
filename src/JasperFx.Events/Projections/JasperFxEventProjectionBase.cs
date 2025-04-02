@@ -20,11 +20,13 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     IEntityStorage<TOperations>,
     IJasperFxProjection<TOperations> where TOperations : TQuerySession, IStorageOperations
 {
+    private readonly Type[] _transientExceptionTypes;
     private readonly EventProjectionApplication<TOperations> _application;
     public Type ProjectionType => GetType();
 
-    public JasperFxEventProjectionBase()
+    public JasperFxEventProjectionBase(Type[] transientExceptionTypes)
     {
+        _transientExceptionTypes = transientExceptionTypes;
         _application = new EventProjectionApplication<TOperations>(this);
         
         IncludedEventTypes.Fill(_application.AllEventTypes());
@@ -94,10 +96,27 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
             }
             catch (Exception ex)
             {
-                // TODO -- check if is transient, and if now, throw ApplyEventException
-                throw;  
+                if (IsExceptionTransient(ex))
+                {
+                    throw;  
+                }
+                else
+                {
+                    throw new ApplyEventException(e, ex);
+                }
             }
         }
+    }
+    
+    // TODO -- unit test this
+    protected virtual bool IsExceptionTransient(Exception exception)
+    {
+        if (_transientExceptionTypes.Any(x => exception.GetType().CanBeCastTo(x)))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
