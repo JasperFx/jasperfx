@@ -79,29 +79,6 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     {
         if (streams.Count == 0) return;
         
-        // TODO -- end the optimization here. Done more harm than good. Duplication is worse
-        
-        if (streams.Count == 1)
-        {
-            var stream = streams[0];
-            var storage = await session.FetchProjectionStorageAsync<TDoc, TId>(stream.TenantId, cancellation);
-            var id = _streamActionSource(stream);
-            var snapshot = stream.ActionType == StreamActionType.Start ? default : await storage.LoadAsync(id, cancellation);
-
-            var tenantedSession = session.CorrectSessionForTenancy<TQuerySession>(stream.TenantId);
-            
-            var action = await DetermineActionAsync(tenantedSession, snapshot, id, storage, stream.Events, cancellation);
-
-            // TODO -- might want to log a Debug warning here. Introduce some logic here for the duplication!
-            if (action.Snapshot == null && action.Type != ActionType.Delete && action.Type != ActionType.HardDelete) return;
-            
-            storage.ApplyInline(action, id, stream.TenantId);
-            
-            maybeArchiveStream(storage, stream, id);
-            
-            return;
-        }
-        
         var groups = streams.GroupBy(x => x.TenantId).ToArray();
         foreach (var group in groups)
         {

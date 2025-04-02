@@ -41,7 +41,7 @@ public static class CodeGenerationExtensions
             }
         }
 
-        var parameterInfo = method.GetParameters().FirstOrDefault(x => x.Name == "@event" || x.Name == "event");
+        var parameterInfo = method.GetParameters().FirstOrDefault(x => x.Name == "@event" || x.Name == "event" || x.Name == "e");
         if (parameterInfo == null)
         {
             var candidates = method

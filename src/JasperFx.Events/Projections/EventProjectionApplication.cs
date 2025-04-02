@@ -198,6 +198,11 @@ public class EventProjectionApplication<TOperations>
         }
     }
 
+    public bool HasAnyMethods()
+    {
+        return _projectMethods.Methods.Any() || _createMethods.Methods.Any() || !_applications.IsEmpty;
+    }
+
     public void AssertMethodValidity()
     {
         if (!_projectMethods.Methods.Any() && !_createMethods.Methods.Any() && _applications.IsEmpty)
