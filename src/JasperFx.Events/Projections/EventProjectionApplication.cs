@@ -218,7 +218,7 @@ public class EventProjectionApplication<TOperations>
         projectEvent<TEvent>(project);
     }
 
-    public void ProjectAsync<TEvent>(Func<TEvent,TOperations,Task> project) where TEvent : class
+    public void ProjectAsync<TEvent>(Func<TEvent, TOperations, CancellationToken, Task> project) where TEvent : class
     {
         projectEvent<TEvent>(project);
     }

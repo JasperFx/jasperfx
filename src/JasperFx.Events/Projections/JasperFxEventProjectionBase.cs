@@ -150,7 +150,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         _application.Project<T>(action);
     }
 
-    public void ProjectAsync<T>(Func<T, TOperations, Task> action) where T : class
+    public void ProjectAsync<T>(Func<T, TOperations, CancellationToken, Task> action) where T : class
     {
         _application.ProjectAsync(action);
     }
