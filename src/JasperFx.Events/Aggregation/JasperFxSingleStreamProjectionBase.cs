@@ -1,4 +1,3 @@
-using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -45,7 +44,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         }
     }
 
-    public async ValueTask<TDoc> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, CancellationToken cancellation)
+    async ValueTask<TDoc> IAggregator<TDoc, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, CancellationToken cancellation)
     {
         if (!events.Any()) return snapshot;
         
@@ -57,7 +56,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return action.Snapshot;
     }
 
-    public async ValueTask<TDoc> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, TId id,
+    async ValueTask<TDoc> IAggregator<TDoc, TId, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, TId id,
         IIdentitySetter<TDoc, TId> identitySetter,
         CancellationToken cancellation)
     {
@@ -71,7 +70,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return action.Snapshot;
     }
 
-    public override IInlineProjection<TOperations> BuildForInline()
+    protected override IInlineProjection<TOperations> buildForInline()
     {
         return this;
     }

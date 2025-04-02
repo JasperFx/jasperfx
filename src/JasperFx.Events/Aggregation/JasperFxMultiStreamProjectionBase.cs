@@ -18,11 +18,11 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
 
     public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;
 
-    public override IInlineProjection<TOperations> BuildForInline()
+    protected override IInlineProjection<TOperations> buildForInline()
     {
         return this;
     }
-    
+
     protected override IEventSlicer buildSlicer(TQuerySession session)
     {
         switch (TenancyGrouping)

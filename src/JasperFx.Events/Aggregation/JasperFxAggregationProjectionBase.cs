@@ -179,8 +179,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return false;
     }
 
-    // TODO -- make this implicit
-    public abstract IInlineProjection<TOperations> BuildForInline();
+    IInlineProjection<TOperations> IProjectionSource<TOperations, TQuerySession>.BuildForInline() => buildForInline();
+
+    protected abstract IInlineProjection<TOperations> buildForInline();
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(
         IEventStorage<TOperations, TQuerySession> storage,
