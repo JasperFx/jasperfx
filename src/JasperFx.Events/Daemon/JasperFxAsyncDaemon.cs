@@ -63,7 +63,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }, Logger, _cancellation.Token);
     }
 
-    internal IEventDatabase Database { get; }
+    public IEventDatabase Database { get; }
 
     public ILogger Logger { get; }
 
