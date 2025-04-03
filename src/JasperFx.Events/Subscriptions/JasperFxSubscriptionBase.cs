@@ -90,7 +90,7 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new SubscriptionExecution<TSubscription>(database, _subscription, database, new ShardName(Name, "All"), logger);
+        return new SubscriptionExecution<TSubscription>(storage, _subscription, database, new ShardName(Name, "All"), logger);
     }
 }
 
