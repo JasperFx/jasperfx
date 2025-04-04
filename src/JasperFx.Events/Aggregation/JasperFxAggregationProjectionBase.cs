@@ -195,7 +195,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         var runner =
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
-                SliceBehavior.Preprocess, slicer);
+                SliceBehavior.Preprocess, slicer, logger);
 
         return new GroupedProjectionExecution(shardName, runner, logger);
     }
@@ -210,7 +210,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         var runner =
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
-                SliceBehavior.Preprocess, slicer);
+                SliceBehavior.Preprocess, slicer, logger);
 
         return new GroupedProjectionExecution(shardName, runner, logger);
     }

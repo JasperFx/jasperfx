@@ -1,3 +1,4 @@
+using JasperFx.Core;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Grouping;
 using Microsoft.Extensions.Options;
@@ -35,9 +36,12 @@ public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> w
         CancellationToken cancellation);
     
     Type[] AllEventTypes { get; }
+    string Name { get; }
 
     (IEvent?, TDoc?) TryApplyMetadata(IReadOnlyList<IEvent> events,
         TDoc? aggregate,
         TId id,
         IIdentitySetter<TDoc, TId> identitySetter);
+
+    IAggregateCache<TId, TDoc> CacheFor(string tenantId);
 }

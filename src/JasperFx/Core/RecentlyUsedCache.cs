@@ -5,6 +5,7 @@ public interface IAggregateCache<TKey, TItem>
     bool TryFind(TKey key, out TItem item);
     void Store(TKey key, TItem item);
     void CompactIfNecessary();
+    void TryRemove(TKey key);
 }
 
 public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem>
@@ -21,6 +22,11 @@ public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem>
     }
 
     public void CompactIfNecessary()
+    {
+        // nothing
+    }
+
+    public void TryRemove(TKey key)
     {
         // nothing
     }
@@ -72,5 +78,8 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem>
         }
     }
 
-
+    public void TryRemove(TKey key)
+    {
+        _items = _items.Remove(key);
+    }
 }
