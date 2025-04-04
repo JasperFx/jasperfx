@@ -55,6 +55,9 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             var operations = batch.SessionForTenant(group.TenantId);
             var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
+            
+            var found = await storage.LoadManyAsync()
+            
             foreach (var slice in group.Slices)
             {
                 builder.Post(new EventSliceExecution(slice, operations, storage));

@@ -2,6 +2,7 @@ using System.Reflection;
 using JasperFx.CommandLine;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Internals;
@@ -118,7 +119,7 @@ internal abstract class MethodCollection
 
     public static MethodSlot[] FindInvalidMethods(Type projectionType, params MethodCollection[] collections)
     {
-        var methodNames = collections.SelectMany(x => x.MethodNames).Concat([nameof(IMetadataApplication.ApplyMetadata)]).Distinct().ToArray();
+        var methodNames = collections.SelectMany(x => x.MethodNames).Concat([nameof(IMetadataApplication.ApplyMetadata), "RaiseSideEffects"]).Distinct().ToArray();
 
         var invalidMethods = projectionType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(x => !x.HasAttribute<JasperFxIgnoreAttribute>())
