@@ -20,7 +20,10 @@ public interface IEventSlice<T>: IEventSlice
     void AppendEvent<TEvent>(TEvent @event);
     void PublishMessage(object message);
 
-    T? Aggregate { get; }
+    /// <summary>
+    /// The current snapshot of this projected aggregate
+    /// </summary>
+    T? Snapshot { get; }
 
     IEnumerable<IEvent> RaisedEvents();
     IEnumerable<object> PublishedMessages();
@@ -125,7 +128,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     /// <summary>
     ///     The related aggregate document
     /// </summary>
-    public TDoc? Aggregate { get; set; }
+    public TDoc? Snapshot { get; set; }
 
     public string TenantId { get; }
 

@@ -69,7 +69,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 // If you can find the snapshot in the cache, use that
                 if (cache.TryFind(slice.Id, out var snapshot))
                 {
-                    slice.Aggregate = snapshot;
+                    slice.Snapshot = snapshot;
                     
                     builder.Post(new EventSliceExecution(slice, operations, storage, cache));
                 }
@@ -85,7 +85,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             {
                 if (snapshots.TryGetValue(slice.Id, out var snapshot))
                 {
-                    slice.Aggregate = snapshot;
+                    slice.Snapshot = snapshot;
                 }
                 
                 builder.Post(new EventSliceExecution(slice, operations, storage, cache));
@@ -156,7 +156,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             return;
         }
 
-        var action = await Projection.DetermineActionAsync(operations, slice.Aggregate, slice.Id, storage, slice.Events(), cancellation);
+        var action = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage, slice.Events(), cancellation);
         if (action.Type == ActionType.Nothing) return;
 
         var snapshot = action.Snapshot;
@@ -167,7 +167,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         if (mode == ShardExecutionMode.Continuous)
         {
             // Need to set the aggregate in case it didn't exist upfront
-            slice.Aggregate = snapshot;
+            slice.Snapshot = snapshot;
             await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
         }
 
