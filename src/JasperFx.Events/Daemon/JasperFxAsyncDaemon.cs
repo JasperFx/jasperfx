@@ -189,7 +189,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         var metricsNaming = new MetricsNaming
         {
             DatabaseName = Database.Identifier,
-            DefaultDatabaseName = _storage.DefaultDatabaseName,
+            DefaultDatabaseName = "Default",
             MetricsPrefix = _storage.MetricsPrefix
         };
         
@@ -445,7 +445,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         
         var projection = _projections.All.FirstOrDefault(x => x.GetType() == projectionType)
-                         ?? _projections.All.FirstOrDefault(x => x.PublishedTypes().Contains(projectionType));
+                         ?? _projections.All.FirstOrDefault(x => x.PublishedTypes().Contains(projectionType))
+                         ?? _projections.All.FirstOrDefault(x => x is ProjectionWrapper<TOperations, TQuerySession> wrapper && wrapper.ProjectionType == projectionType);
 
         if (projection == null && projectionType.CanBeCastTo<IProjectionSource<TOperations, TQuerySession>>() &&
             projectionType.HasDefaultConstructor())
@@ -459,7 +460,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         throw new ArgumentOutOfRangeException("TView",
-            $"No registered projection matches the type '{projectionType.FullNameInCode()}'. Available projections are {_projections.All.Select(x => x.ToString()).Join(", ")}");
+            $"No registered projection matches the type '{projectionType.FullNameInCode()} or is known to publish that type'. Available projections are {_projections.All.Select(x => x.ToString()).Join(", ")}");
     }
 
     public Task RebuildProjectionAsync(string projectionName, TimeSpan shardTimeout, CancellationToken token)

@@ -31,6 +31,11 @@ internal class ProjectionWrapper<TOperations, TQuerySession> :
         }
     }
 
+    public override string ToString()
+    {
+        return $"{_projection}, {nameof(Name)}: {Name}, {nameof(Version)}: {Version}";
+    }
+
     public SubscriptionDescriptor Describe()
     {
         return new SubscriptionDescriptor(this, SubscriptionType.EventProjection);

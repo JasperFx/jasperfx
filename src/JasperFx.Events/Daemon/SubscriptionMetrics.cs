@@ -8,7 +8,8 @@ namespace JasperFx.Events.Daemon;
 
 public class MetricsNaming
 {
-    public string DefaultDatabaseName { get; init; }
+    [Obsolete("Eliminate this. Tag the database instead")]
+    public string DefaultDatabaseName { get; init; } = "Default";
     public string DatabaseName { get; init; }
     public string MetricsPrefix { get; init; }
 }
