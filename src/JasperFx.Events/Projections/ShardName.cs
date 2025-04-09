@@ -9,7 +9,7 @@ public class ShardName
 
     public ShardName(string projectionName, string key, uint version)
     {
-        ProjectionName = projectionName;
+        ProjectionOrSubscriptionName = projectionName;
         Key = key;
         Version = version;
 
@@ -40,7 +40,7 @@ public class ShardName
 
     public ShardName CloneForDatabase(Uri database)
     {
-        return new ShardName(ProjectionName, Key, Version) { Database = database };
+        return new ShardName(ProjectionOrSubscriptionName, Key, Version) { Database = database };
     }
 
     public Uri Database { get; set; } = new Uri("database://default");
@@ -48,7 +48,7 @@ public class ShardName
     /// <summary>
     ///     Parent projection name
     /// </summary>
-    public string ProjectionName { get; }
+    public string ProjectionOrSubscriptionName { get; }
 
     /// <summary>
     ///     The identity of the shard within the projection. If there is only

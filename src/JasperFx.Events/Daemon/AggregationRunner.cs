@@ -3,6 +3,7 @@ using JasperFx.Core;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace JasperFx.Events.Daemon;
 
@@ -58,10 +59,10 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         foreach (var group in groups)
         {
             var operations = batch.SessionForTenant(group.TenantId);
-            var cache = Projection.CacheFor(group.TenantId);
+            var cache = CacheFor(group.TenantId);
             caches.Add(cache);
 
-            var needToBeFetched = new List<EventSlice<TDoc, TId>>(group.Slices);
+            var needToBeFetched = new List<EventSlice<TDoc, TId>>();
             var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
             
             foreach (var slice in group.Slices)
@@ -197,6 +198,33 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 break;
         }
 
+    }
+    
+    private readonly object _cacheLock = new();
+    private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
+    
+    public IAggregateCache<TId, TDoc> CacheFor(string tenantId)
+    {
+        if (_caches.TryFind(tenantId, out var cache))
+        {
+            return cache;
+        }
+
+        lock (_cacheLock)
+        {
+            if (_caches.TryFind(tenantId, out cache))
+            {
+                return cache;
+            }
+
+            cache = Projection.Options.CacheLimitPerTenant == 0
+                ? new NulloAggregateCache<TId, TDoc>()
+                : new RecentlyUsedCache<TId, TDoc> { Limit = Projection.Options.CacheLimitPerTenant };
+
+            _caches = _caches.AddOrUpdate(tenantId, cache);
+
+            return cache;
+        }
     }
     
     private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice)

@@ -17,11 +17,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 {
     private readonly Lazy<Type[]> _allEventTypes;
     private readonly AggregateApplication<TDoc, TQuerySession> _application;
-
-    private readonly object _cacheLock = new();
+    
     private readonly List<Type> _transientExceptionTypes = new();
     private readonly AggregateVersioning<TDoc, TQuerySession> _versioning;
-    private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
     private bool _usesConventionalApplication = true;
 
     protected JasperFxAggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
@@ -215,31 +213,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return new GroupedProjectionExecution(shardName, runner, logger);
     }
 
-    public IAggregateCache<TId, TDoc> CacheFor(string tenantId)
-    {
-        if (_caches.TryFind(tenantId, out var cache))
-        {
-            return cache;
-        }
-
-        lock (_cacheLock)
-        {
-            if (_caches.TryFind(tenantId, out cache))
-            {
-                return cache;
-            }
-
-            cache = Options.CacheLimitPerTenant == 0
-                ? new NulloAggregateCache<TId, TDoc>()
-                : new RecentlyUsedCache<TId, TDoc> { Limit = Options.CacheLimitPerTenant };
-
-            _caches = _caches.AddOrUpdate(tenantId, cache);
-
-            return cache;
-        }
-    }
-
-
     protected virtual Type[] determineEventTypes()
     {
         var eventTypes = _application.AllEventTypes()
@@ -270,6 +243,8 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     // TODO -- unit test this
     protected virtual bool IsExceptionTransient(Exception exception)
     {
+        if (exception is InvalidEventToStartAggregateException) return false;
+        
         if (_transientExceptionTypes.Any(x => exception.GetType().CanBeCastTo(x)))
         {
             return true;

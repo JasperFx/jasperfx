@@ -262,7 +262,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     public ShardName[] AsyncShardsPublishingType(Type aggregationType)
     {
         var sources = All.Where(x => x.Lifecycle == ProjectionLifecycle.Async && x.PublishedTypes().Contains(aggregationType)).Select(x => x.ProjectionName).ToArray();
-        return _asyncShards.Value.Values.Where(x => sources.Contains(x.Name.ProjectionName)).Select(x => x.Name).ToArray();
+        return _asyncShards.Value.Values.Where(x => sources.Contains(x.Name.ProjectionOrSubscriptionName)).Select(x => x.Name).ToArray();
     }
     
     public bool TryFindAsyncShard(string projectionOrShardName, out AsyncShard<TOperations, TQuerySession> shard)

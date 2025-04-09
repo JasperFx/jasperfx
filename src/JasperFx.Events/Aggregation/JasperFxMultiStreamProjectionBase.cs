@@ -54,6 +54,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     public void FanOut<TEvent, TChild>(Func<TEvent, IEnumerable<TChild>> fanOutFunc,
         FanoutMode mode = FanoutMode.AfterGrouping)
     {
+        IncludeType<TEvent>();
         _defaultSlicer.FanOut(fanOutFunc, mode);
     }
 
@@ -69,6 +70,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     public void FanOut<TEvent, TChild>(Func<IEvent<TEvent>, IEnumerable<TChild>> fanOutFunc,
         FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull
     {
+        IncludeType<TEvent>();
         _defaultSlicer.FanOut(fanOutFunc, mode);
     }
 

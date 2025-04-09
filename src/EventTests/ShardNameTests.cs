@@ -9,7 +9,7 @@ public class ShardNameTests
     public void default_key_and_version()
     {
         var name = new ShardName("Foo");
-        name.ProjectionName.ShouldBe("Foo");
+        name.ProjectionOrSubscriptionName.ShouldBe("Foo");
         name.Key.ShouldBe(ShardName.All);
         name.Version.ShouldBe((uint)1);
         name.Identity.ShouldBe("Foo:All");
@@ -39,7 +39,7 @@ public class ShardNameTests
         
         clone.ShouldNotBeSameAs(name);
         clone.Database.ShouldBe(database);
-        clone.ProjectionName.ShouldBe("Foo");
+        clone.ProjectionOrSubscriptionName.ShouldBe("Foo");
         clone.Key.ShouldBe("Other");
         clone.Version.ShouldBe((uint)2);
     }

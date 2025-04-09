@@ -1,6 +1,7 @@
 using JasperFx.Core;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Grouping;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Options;
 
 namespace JasperFx.Events.Daemon;
@@ -42,6 +43,6 @@ public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> w
         TDoc? aggregate,
         TId id,
         IIdentitySetter<TDoc, TId> identitySetter);
-
-    IAggregateCache<TId, TDoc> CacheFor(string tenantId);
+    
+    AsyncOptions Options { get; }
 }

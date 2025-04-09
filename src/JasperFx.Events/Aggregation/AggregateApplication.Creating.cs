@@ -87,8 +87,22 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
             }
             else
             {
-                return (_, _, _) =>
-                    throw new InvalidEventToStartAggregateException(typeof(TAggregate), _projectionType, eventType);
+                // Is there a subclass or interface registration that could be used to create this aggregate?
+                var candidate = _creators.Enumerate().FirstOrDefault(x => eventType.CanBeCastTo(x.Key));
+                if (candidate != null)
+                {
+                    return (@event, s, token) => candidate.Value(@event, s, token);
+                }
+
+                // Is this an event type that is applied, but it should not be the start?
+                if (_applications.Contains(eventType) ||
+                    _applications.Enumerate().Any(x => eventType.CanBeCastTo(x.Key)))
+                {
+                    return (_, _, _) =>
+                        throw new InvalidEventToStartAggregateException(typeof(TAggregate), _projectionType, eventType);
+                }
+                
+                return (_, _, _) => new ValueTask<TAggregate>(default(TAggregate));
             }
         }
 
