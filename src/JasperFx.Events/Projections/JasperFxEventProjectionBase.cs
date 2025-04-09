@@ -53,7 +53,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         // TODO -- this *will* get fancier if we do the async projection sharding
         return
         [
-            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name), this, this)
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name, ShardName.All, Version), this, this)
         ];
     }
 
