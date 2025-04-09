@@ -38,7 +38,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         CancellationToken cancellation)
     {
         // TODO -- the projection batch wrapper will really need to know how to dispose all sessions built
-        var batch = await _storage.StartProjectionBatchAsync(range, _database, mode, cancellation);
+        var batch = await _storage.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
         {

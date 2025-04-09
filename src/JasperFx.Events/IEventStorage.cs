@@ -46,7 +46,7 @@ public interface IEventStorage<TOperations, TQuerySession> where TOperations : T
         CancellationToken token);
 
     ValueTask<IProjectionBatch<TOperations, TQuerySession>> StartProjectionBatchAsync(EventRange range,
-        IEventDatabase database, ShardExecutionMode mode, CancellationToken token);
+        IEventDatabase database, ShardExecutionMode mode, AsyncOptions projectionOptions, CancellationToken token);
     
     // TODO -- add tenants here later?
     IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering,

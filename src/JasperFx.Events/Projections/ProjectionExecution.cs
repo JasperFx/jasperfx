@@ -9,6 +9,7 @@ namespace JasperFx.Events.Projections;
 public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExecution where TOperations : TQuerySession, IStorageOperations
 {
     private readonly ShardName _shardName;
+    private readonly AsyncOptions _options;
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
     private readonly IJasperFxProjection<TOperations> _projection;
@@ -16,9 +17,12 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     private readonly ActionBlock<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
 
-    public ProjectionExecution(ShardName shardName, IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, IJasperFxProjection<TOperations> projection, ILogger logger)
+    public ProjectionExecution(ShardName shardName, AsyncOptions options,
+        IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+        IJasperFxProjection<TOperations> projection, ILogger logger)
     {
         _shardName = shardName;
+        _options = options;
         _storage = storage;
         _database = database;
         _projection = projection;
@@ -124,7 +128,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         try
         {
             // TODO -- the projection batch wrapper will really need to know how to dispose all sessions built
-            batch = await _storage.StartProjectionBatchAsync(range, _database, Mode, cancellationToken);
+            batch = await _storage.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
 
             var groups = range.Events.GroupBy(x => x.TenantId).ToArray();
             foreach (var group in groups)

@@ -123,13 +123,13 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, this, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this, logger);
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, this, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this, logger);
     }
 
     void IEntityStorage<TOperations>.Store<T>(TOperations ops, T entity)

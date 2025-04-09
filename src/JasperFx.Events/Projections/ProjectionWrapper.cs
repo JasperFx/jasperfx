@@ -68,13 +68,13 @@ internal class ProjectionWrapper<TOperations, TQuerySession> :
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, _projection, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, _projection, logger);
     }
 
     public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, storage, database, _projection, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, _projection, logger);
     }
 
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
