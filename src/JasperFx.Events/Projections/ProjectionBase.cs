@@ -1,5 +1,6 @@
 #nullable enable
 using System.Diagnostics.CodeAnalysis;
+using JasperFx.Core.Descriptions;
 
 namespace JasperFx.Events.Projections;
 
@@ -11,8 +12,16 @@ public abstract class ProjectionBase : EventFilterable
     {
         ProjectionName = GetType().Name;
     }
+    
+    
+    protected void replaceOptions(AsyncOptions sourceOptions)
+    {
+        Options = sourceOptions;
+    }
 
-    public AsyncOptions Options { get; } = new();
+
+    [ChildDescription]
+    public AsyncOptions Options { get; private set; } = new();
 
     /// <summary>
     ///     Descriptive name for this projection in the async daemon. The default is the type name of the projection

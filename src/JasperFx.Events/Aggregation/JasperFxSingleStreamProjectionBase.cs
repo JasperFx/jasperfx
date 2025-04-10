@@ -18,7 +18,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
     }
 
-    protected sealed override IEventSlicer buildSlicer(TQuerySession session)
+    public sealed override IEventSlicer BuildSlicer(TQuerySession session)
     {
         // Doesn't hurt anything if it's not actually tenanted
         return new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>());

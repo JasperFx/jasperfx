@@ -189,7 +189,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         // TODO -- may need to track the disposable of the session here
         var session = storage.OpenSession(database);
-        var slicer = buildSlicer(session);
+        var slicer = BuildSlicer(session);
 
         var runner =
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
@@ -204,7 +204,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         // TODO -- may need to track the disposable of the session here
         var session = storage.OpenSession(database);
-        var slicer = buildSlicer(session);
+        var slicer = BuildSlicer(session);
 
         var runner =
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
@@ -238,7 +238,17 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         StreamType = typeof(TDoc);
     }
 
-    protected abstract IEventSlicer buildSlicer(TQuerySession session);
+    public abstract IEventSlicer BuildSlicer(TQuerySession session);
+
+    void IAggregationProjection<TDoc, TId, TOperations, TQuerySession>.StartBatch()
+    {
+        // Nothing, this is a hook for something else
+    }
+
+    ValueTask IAggregationProjection<TDoc, TId, TOperations, TQuerySession>.EndBatchAsync()
+    {
+        return new ValueTask();
+    }
 
     // TODO -- unit test this
     protected virtual bool IsExceptionTransient(Exception exception)

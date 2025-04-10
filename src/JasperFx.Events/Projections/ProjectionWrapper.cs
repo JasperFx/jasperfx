@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
 
-internal class ProjectionWrapper<TOperations, TQuerySession> : 
-    EventFilterable, 
+public class ProjectionWrapper<TOperations, TQuerySession> : 
+    ProjectionBase, 
     IProjectionSource<TOperations, TQuerySession>, 
     ISubscriptionFactory<TOperations, TQuerySession>,
     IInlineProjection<TOperations>
@@ -44,30 +44,10 @@ internal class ProjectionWrapper<TOperations, TQuerySession> :
     [ChildDescription]
     public IJasperFxProjection<TOperations> Inner { get; }
 
-    public string ProjectionName { get; set; }
-
     public string Name => ProjectionName;
     public uint Version => ProjectionVersion;
 
-    [ChildDescription]
-    public AsyncOptions Options { get; } = new();
-
-    public IEnumerable<Type> PublishedTypes()
-    {
-        // Really indeterminate
-        yield break;
-    }
-
-    public ProjectionLifecycle Lifecycle { get; set; }
-
-
     public Type ProjectionType => _projection.GetType();
-
-    /// <summary>
-    /// Specify that this projection is a non 1 version of the original projection definition to opt
-    /// into Marten's parallel blue/green deployment of this projection.
-    /// </summary>
-    public uint ProjectionVersion { get; set; } = 1;
 
     public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)

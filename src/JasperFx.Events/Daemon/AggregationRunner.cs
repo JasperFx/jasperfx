@@ -37,6 +37,8 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     public async Task<IProjectionBatch> BuildBatchAsync(EventRange range, ShardExecutionMode mode,
         CancellationToken cancellation)
     {
+        Projection.StartBatch();
+        
         // TODO -- the projection batch wrapper will really need to know how to dispose all sessions built
         var batch = await _storage.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
@@ -107,6 +109,8 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             _logger.LogError(e, "Error trying to compact aggregate caches for {ProjectionName}", Projection.Name);
         }
+
+        await Projection.EndBatchAsync();
 
         return batch;
     }

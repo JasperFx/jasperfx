@@ -45,4 +45,8 @@ public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> w
         IIdentitySetter<TDoc, TId> identitySetter);
     
     AsyncOptions Options { get; }
+
+    IEventSlicer BuildSlicer(TQuerySession session);
+    void StartBatch();
+    ValueTask EndBatchAsync();
 }

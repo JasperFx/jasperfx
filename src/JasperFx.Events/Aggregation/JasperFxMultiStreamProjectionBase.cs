@@ -23,7 +23,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         return this;
     }
 
-    protected override IEventSlicer buildSlicer(TQuerySession session)
+    public override IEventSlicer BuildSlicer(TQuerySession session)
     {
         switch (TenancyGrouping)
         {
@@ -77,7 +77,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToArray();
-        var slicer = buildSlicer(operations);
+        var slicer = BuildSlicer(operations);
         
         var groups = await slicer.SliceAsync(events);
         foreach (var group in groups.OfType<SliceGroup<TDoc, TId>>())
