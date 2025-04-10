@@ -1,3 +1,4 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
@@ -17,6 +18,19 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     }
 
     public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;
+
+    public override void AssembleAndAssertValidity()
+    {
+        base.AssembleAndAssertValidity();
+
+        if (TenancyGrouping == TenancyGrouping.RollUpByTenant) return;
+
+        if (_customSlicer == null && !_defaultSlicer.HasAnyRules())
+        {
+            throw new InvalidProjectionException(
+                $"{GetType().FullNameInCode()} is a multi-stream projection, but has no defined event slicing rules.");
+        }
+    }
 
     protected override IInlineProjection<TOperations> buildForInline()
     {

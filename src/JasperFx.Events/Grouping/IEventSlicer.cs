@@ -111,7 +111,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
 
     internal bool HasAnyRules()
     {
-        return _groupers.Any() || _lookupGroupers.Any() || _lookupGroupers.Any();
+        return _groupers.Any() || _lookupGroupers.Any();
     }
 
     public IEnumerable<Type> DetermineEventTypes()
