@@ -7,7 +7,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 {
     private Func<TDoc?, TId, TQuerySession, IReadOnlyList<IEvent>, CancellationToken, ValueTask<TDoc?>> _evolve;
     private Func<TQuerySession, TDoc?, TId, IIdentitySetter<TDoc, TId>, IReadOnlyList<IEvent>, CancellationToken,
-        ValueTask<SnapshotAction<TDoc>>> _buildAction;
+        ValueTask<(TDoc?, ActionType)>> _buildAction;
     
     private async ValueTask<TDoc?> evolveDefaultAsync(TDoc? snapshot, TId id, TQuerySession session,
         IReadOnlyList<IEvent> events, CancellationToken cancellation)
@@ -81,14 +81,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     /// <param name="events"></param>
     /// <returns></returns>
     [JasperFxIgnore]
-    // TODO -- reconsider this method name. 
-    public virtual SnapshotAction<TDoc> DetermineAction(TDoc? snapshot, TId identity, IReadOnlyList<IEvent> events)
+    public virtual (TDoc?, ActionType) DetermineAction(TDoc? snapshot, TId identity, IReadOnlyList<IEvent> events)
     {
         throw new NotImplementedException("Did you forget to implement this?");
     }
     
     // TODO -- inline this and just use _buildAction?
-    public virtual ValueTask<SnapshotAction<TDoc>> DetermineActionAsync(TQuerySession session,
+    public virtual ValueTask<(TDoc?, ActionType)> DetermineActionAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
         IIdentitySetter<TDoc, TId> identitySetter,
@@ -98,7 +97,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return _buildAction(session, snapshot, identity, identitySetter, events, cancellation);
     }
 
-    private async ValueTask<SnapshotAction<TDoc>> buildActionAsync(TQuerySession session, TDoc? snapshot, TId identity, IIdentitySetter<TDoc, TId> identitySetter,
+    private async ValueTask<(TDoc?, ActionType)> buildActionAsync(TQuerySession session, TDoc? snapshot, TId identity, IIdentitySetter<TDoc, TId> identitySetter,
         IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         // Does the aggregate already exist before the events are applied?
@@ -106,9 +105,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         if (MatchesAnyDeleteType(events))
         {
-            if (!exists) return new Nothing<TDoc>(snapshot);
+            if (!exists) return (snapshot, ActionType.Nothing);
 
-            return new Delete<TDoc, TId>(snapshot, identity);
+            return new(snapshot, ActionType.Delete);
         }
         
         snapshot = await _evolve(snapshot, identity, session, events, cancellation);
@@ -116,10 +115,10 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         if (snapshot == null)
         {
-            return exists ? new Delete<TDoc, TId>(snapshot, identity) : new Nothing<TDoc>(snapshot);
+            return exists ? (snapshot, ActionType.Delete) : (snapshot, ActionType.Nothing);
         }
 
-        return new Store<TDoc>(snapshot);
+        return (snapshot, ActionType.Store);
     }
 
     /// <summary>

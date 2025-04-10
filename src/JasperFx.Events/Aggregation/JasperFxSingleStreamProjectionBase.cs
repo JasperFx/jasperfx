@@ -49,11 +49,11 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         if (!events.Any()) return snapshot;
         
         // get the id off of the event
-        var action = await DetermineActionAsync(session, snapshot, _identitySource(events[0]), new NulloIdentitySetter<TDoc, TId>(), events, cancellation);
+        var (transformed, action) = await DetermineActionAsync(session, snapshot, _identitySource(events[0]), new NulloIdentitySetter<TDoc, TId>(), events, cancellation);
         
         // TODO -- what the heck to do here if it's null?
         
-        return action.Snapshot;
+        return transformed;
     }
 
     async ValueTask<TDoc> IAggregator<TDoc, TId, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, TId id,
@@ -63,11 +63,11 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         if (!events.Any()) return snapshot;
         
         // get the id off of the event
-        var action = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
+        var (transformed, action) = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
         
         // TODO -- what the heck to do here if it's null?
         
-        return action.Snapshot;
+        return transformed;
     }
 
     protected override IInlineProjection<TOperations> buildForInline()
@@ -93,12 +93,12 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
                 
                 var tenantedSession = session.CorrectSessionForTenancy<TQuerySession>(stream.TenantId);
 
-                var action = await DetermineActionAsync(tenantedSession, snapshot, id, storage, stream.Events, cancellation);
+                var (transformed, action) = await DetermineActionAsync(tenantedSession, snapshot, id, storage, stream.Events, cancellation);
                 
                 // TODO -- might want to log a Debug warning here
-                if (action.Snapshot == null && action.Type != ActionType.Delete && action.Type != ActionType.HardDelete) continue;
+                if (transformed == null && action != ActionType.Delete && action != ActionType.HardDelete) continue;
                 
-                storage.ApplyInline(action, id, stream.TenantId);
+                storage.ApplyInline(transformed, action, id, stream.TenantId);
                 
                 maybeArchiveStream(storage, stream, id);
             }

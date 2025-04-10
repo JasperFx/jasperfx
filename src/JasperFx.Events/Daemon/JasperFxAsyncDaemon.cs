@@ -59,7 +59,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // More important to end cleanly
             if (token.IsCancellationRequested) return;
 
-            await Database.StoreDeadLetterEventAsync(deadLetterEvent, token).ConfigureAwait(false);
+            await Database.StoreDeadLetterEventAsync(_storage, deadLetterEvent, token).ConfigureAwait(false);
         }, Logger, _cancellation.Token);
     }
 

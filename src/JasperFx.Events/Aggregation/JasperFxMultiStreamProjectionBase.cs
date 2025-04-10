@@ -89,8 +89,8 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
             foreach (var slice in group.Slices)
             {
                 snapshots.TryGetValue(slice.Id, out var snapshot);
-                var action = await DetermineActionAsync(operations, snapshot, slice.Id, storage, slice.Events(), cancellation);
-                storage.ApplyInline(action, slice.Id, group.TenantId);
+                var (finalSnapshot, action) = await DetermineActionAsync(operations, snapshot, slice.Id, storage, slice.Events(), cancellation);
+                storage.ApplyInline(finalSnapshot, action, slice.Id, group.TenantId);
             }
         }
     }

@@ -36,7 +36,7 @@ internal class ScopedAggregationProjection<TSource, TDoc, TId, TOperations, TQue
         return _inner.ApplyMetadata(aggregate, @event);
     }
 
-    public ValueTask<SnapshotAction<TDoc>> DetermineActionAsync(TQuerySession session, TDoc? snapshot, TId identity, IIdentitySetter<TDoc, TId> identitySetter,
+    public ValueTask<(TDoc?, ActionType)> DetermineActionAsync(TQuerySession session, TDoc? snapshot, TId identity, IIdentitySetter<TDoc, TId> identitySetter,
         IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         return _inner.DetermineActionAsync(session, snapshot, identity, identitySetter, events, cancellation);

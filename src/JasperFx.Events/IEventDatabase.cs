@@ -17,7 +17,14 @@ public interface IEventDatabase
     /// </summary>
     ShardStateTracker Tracker { get; }
 
-    Task StoreDeadLetterEventAsync(DeadLetterEvent deadLetterEvent, CancellationToken token);
+    /// <summary>
+    /// Store a dead letter event for a failed event in a projection or subscription
+    /// </summary>
+    /// <param name="storage">The parent event store</param>
+    /// <param name="deadLetterEvent"></param>
+    /// <param name="token"></param>
+    /// <returns></returns>
+    Task StoreDeadLetterEventAsync(object storage, DeadLetterEvent deadLetterEvent, CancellationToken token);
 
     Task EnsureStorageExistsAsync(Type storageType, CancellationToken token);
 

@@ -80,7 +80,7 @@ public class InlineProjection : SingleStreamProjection<MyAggregate, Guid>
 
 public class OverridesDetermineAction : SingleStreamProjection<MyAggregate, Guid>
 {
-    public override SnapshotAction<MyAggregate> DetermineAction(MyAggregate? snapshot, Guid identity, IReadOnlyList<IEvent> events)
+    public override (MyAggregate?, ActionType) DetermineAction(MyAggregate? snapshot, Guid identity, IReadOnlyList<IEvent> events)
     {
         throw new NotImplementedException();
     }
@@ -88,7 +88,7 @@ public class OverridesDetermineAction : SingleStreamProjection<MyAggregate, Guid
 
 public class OverridesDetermineActionAsync : SingleStreamProjection<MyAggregate, Guid>
 {
-    public override ValueTask<SnapshotAction<MyAggregate>> DetermineActionAsync(FakeSession session, MyAggregate? snapshot, Guid identity,
+    public override ValueTask<(MyAggregate?, ActionType)> DetermineActionAsync(FakeSession session, MyAggregate? snapshot, Guid identity,
         IIdentitySetter<MyAggregate, Guid> identitySetter, IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         throw new NotImplementedException();

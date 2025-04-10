@@ -55,7 +55,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         if (isOverridden(nameof(DetermineAction)))
         {
             _usesConventionalApplication = false;
-            _buildAction = (_, snapshot, id, _, events, _) => new ValueTask<SnapshotAction<TDoc>>(DetermineAction(snapshot, id, events));
+            _buildAction = (_, snapshot, id, _, events, _) => new ValueTask<(TDoc?, ActionType)>(DetermineAction(snapshot, id, events));
         }
         else if (isOverridden(nameof(DetermineActionAsync)))
         {

@@ -161,10 +161,9 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             return;
         }
 
-        var action = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage, slice.Events(), cancellation);
-        if (action.Type == ActionType.Nothing) return;
+        var (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage, slice.Events(), cancellation);
+        if (action == ActionType.Nothing) return;
 
-        var snapshot = action.Snapshot;
         (var lastEvent, snapshot) = Projection.TryApplyMetadata(slice.Events(), snapshot, slice.Id, storage);
 
         maybeArchiveStream(storage, slice);
@@ -176,7 +175,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
         }
 
-        switch (action.Type)
+        switch (action)
         {
             case ActionType.Delete:
                 cache.TryRemove(slice.Id);

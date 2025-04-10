@@ -27,11 +27,40 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
 
         ProjectionName = typeof(TProjection).Name;
 
+        ProjectionType = typeof(TProjection);
+
         // TODO -- unit test this!
         ProjectionVersion = 1;
         if (typeof(TProjection).TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
             ProjectionVersion = att.Version;
+        }
+        
+        using var scope = _serviceProvider.CreateScope();
+        var sp = scope.ServiceProvider;
+        var raw = sp.GetRequiredService<TProjection>();
+        
+        if (raw is ProjectionBase source)
+
+        {
+            // TODO -- Unit test all of this in JasperFx.Events
+            ProjectionName = source.ProjectionName;
+            ProjectionVersion = source.ProjectionVersion;
+            ProjectionVersion = source.ProjectionVersion;
+            
+            replaceOptions(source.Options);
+
+            if (source is EventFilterable filterable)
+            {
+                StreamType = filterable.StreamType;
+                IncludedEventTypes.AddRange(filterable.IncludedEventTypes);
+                IncludeArchivedEvents = filterable.IncludeArchivedEvents;
+            }
+
+            foreach (var publishedType in source.PublishedTypes())
+            {
+                RegisterPublishedType(publishedType);
+            }
         }
     }
 

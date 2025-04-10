@@ -29,7 +29,7 @@ public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> w
     bool MatchesAnyDeleteType(IReadOnlyList<IEvent> events);
     TDoc ApplyMetadata(TDoc aggregate, IEvent @event);
 
-    ValueTask<SnapshotAction<TDoc>> DetermineActionAsync(TQuerySession session,
+    ValueTask<(TDoc?, ActionType)> DetermineActionAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
         IIdentitySetter<TDoc, TId> identitySetter,

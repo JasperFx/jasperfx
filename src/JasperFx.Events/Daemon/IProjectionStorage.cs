@@ -34,25 +34,26 @@ public interface IProjectionStorage<TDoc, TId> : IIdentitySetter<TDoc, TId>
 
 public static class ProjectionStorageExtensions
 {
-    public static void ApplyInline<TDoc, TId>(this IProjectionStorage<TDoc, TId> storage, SnapshotAction<TDoc> action, TId id, string tenantId)
+    public static void ApplyInline<TDoc, TId>(this IProjectionStorage<TDoc, TId> storage, TDoc? snapshot,
+        ActionType action, TId id, string tenantId)
     {
-        switch (action.Type)
+        switch (action)
         {
             case ActionType.Delete:
                 storage.Delete(id, tenantId);
                 break;
             case ActionType.Store:
-                storage.Store(action.Snapshot, id, tenantId);
+                storage.Store(snapshot, id, tenantId);
                 break;
             case ActionType.HardDelete:
-                storage.HardDelete(action.Snapshot, tenantId);
+                storage.HardDelete(snapshot, tenantId);
                 break;
             case ActionType.UnDeleteAndStore:
-                storage.UnDelete(action.Snapshot, tenantId);
-                storage.Store(action.Snapshot, id, tenantId);
+                storage.UnDelete(snapshot, tenantId);
+                storage.Store(snapshot, id, tenantId);
                 break;
             case ActionType.StoreThenSoftDelete:
-                storage.Store(action.Snapshot, id, tenantId);
+                storage.Store(snapshot, id, tenantId);
                 storage.Delete(id, tenantId);
                 break;
         }

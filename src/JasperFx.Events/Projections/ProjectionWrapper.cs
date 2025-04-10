@@ -29,6 +29,28 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         {
             ProjectionVersion = att.Version;
         }
+
+        if (projection is ProjectionBase source)
+        {
+            // TODO -- Unit test all of this in JasperFx.Events
+            ProjectionName = source.ProjectionName;
+            ProjectionVersion = source.ProjectionVersion;
+            ProjectionVersion = source.ProjectionVersion;
+            
+            replaceOptions(source.Options);
+
+            if (source is EventFilterable filterable)
+            {
+                StreamType = filterable.StreamType;
+                IncludedEventTypes.AddRange(filterable.IncludedEventTypes);
+                IncludeArchivedEvents = filterable.IncludeArchivedEvents;
+            }
+
+            foreach (var publishedType in source.PublishedTypes())
+            {
+                RegisterPublishedType(publishedType);
+            }
+        }
     }
 
     public override string ToString()
