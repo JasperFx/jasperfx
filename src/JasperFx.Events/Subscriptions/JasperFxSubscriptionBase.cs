@@ -37,7 +37,6 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
 
     protected JasperFxSubscriptionBase()
     {
-        // TODO -- validate!!!
         _subscription = this.As<TSubscription>();
         SubscriptionName = GetType().NameInCode();
     }
@@ -59,7 +58,7 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     {
         return
         [
-            new(Options, ShardRole.Subscription, new ShardName(SubscriptionName, "All"), this, this)
+            new(Options, ShardRole.Subscription, new ShardName(SubscriptionName, ShardName.All, SubscriptionVersion), this, this)
         ];
     }
 
