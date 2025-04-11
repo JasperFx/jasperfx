@@ -101,7 +101,6 @@ public abstract class SubscriptionExecutionBase: ISubscriptionExecution
 
     public ValueTask DisposeAsync()
     {
-        // TODO -- check this. Right now, assuming we don't need this
         _executionBlock.Complete();
         return new ValueTask();
     }

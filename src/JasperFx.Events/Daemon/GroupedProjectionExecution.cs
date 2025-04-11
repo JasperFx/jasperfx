@@ -29,6 +29,8 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     }
 
     public ShardExecutionMode Mode { get; set; }
+    
+    public object[] Disposables { get; set; }
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
@@ -38,6 +40,11 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     public async ValueTask DisposeAsync()
     {
         await _cancellation.CancelAsync().ConfigureAwait(false);
+
+        if (Disposables != null)
+        {
+            await Disposables!.MaybeDisposeAllAsync().ConfigureAwait(false);
+        }
 
         _grouping.Complete();
         _building.Complete();

@@ -86,7 +86,18 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         throw new NotImplementedException("Did you forget to implement this?");
     }
     
-    // TODO -- inline this and just use _buildAction?
+    /// <summary>
+    /// Override this method if your projection requires complex workflow like deleting or "un-deleting" projected documents
+    /// *and* you require asynchronous data access code as part of the workflow. 
+    /// </summary>
+    /// <param name="session"></param>
+    /// <param name="snapshot"></param>
+    /// <param name="identity"></param>
+    /// <param name="identitySetter"></param>
+    /// <param name="events"></param>
+    /// <param name="cancellation"></param>
+    /// <returns></returns>
+    [JasperFxIgnore]
     public virtual ValueTask<(TDoc?, ActionType)> DetermineActionAsync(TQuerySession session,
         TDoc? snapshot,
         TId identity,
@@ -131,6 +142,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     /// <param name="e"></param>
     /// <param name="cancellation"></param>
     /// <returns></returns>
+    [JasperFxIgnore]
     public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e,
         CancellationToken cancellation)
     {
@@ -147,8 +159,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     /// <param name="id"></param>
     /// <param name="e"></param>
     /// <returns></returns>
+    [JasperFxIgnore]
     public virtual TDoc? Evolve(TDoc? snapshot, TId id, IEvent e)
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Did you forget to implement this?");
     }
 }

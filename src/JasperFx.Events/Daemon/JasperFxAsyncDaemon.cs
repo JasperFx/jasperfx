@@ -169,7 +169,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 $"Unknown shard name '{shardName}'. Value options are {_storage.AllShards().Select(x => x.Name.Identity).Join(", ")}");
         }
 
-        var agent = await buildAgentForShard(shard, _cancellation.Token);
+        var agent = buildAgentForShard(shard);
 
         var didStart = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
 
@@ -180,12 +180,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
 
-    private async Task<SubscriptionAgent> buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard, CancellationToken cancellation)
+    private SubscriptionAgent buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard)
     {
         var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_storage, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_storage, Database, _loggerFactory, shard.Name);
         var loader = _storage.BuildEventLoader(Database, Logger, shard.Filters, shard.Options);
-        
-        // TODO -- build out storage here? Do ensure storage exists
         
         var metricsNaming = new MetricsNaming
         {
@@ -275,7 +273,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         foreach (var shard in _storage.AllShards())
         {
-            agents.Add(await buildAgentForShard(shard, _cancellation.Token));
+            agents.Add(buildAgentForShard(shard));
         }
         
         foreach (var agent in agents)
@@ -481,7 +479,6 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return RebuildProjectionAsync(projectionType, shardTimeout, token);
     }
 
-    // TODO -- ZOMG, this is awful
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
@@ -506,7 +503,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         if (token.IsCancellationRequested) return;
 
-        var agents = await buildAgentsForSubscription(source);
+        var agents = buildAgentsForSubscription(source);
         if (agents.Count == 0)
         {
             throw new InvalidOperationException("No agents were built for subscription " + subscriptionName);
@@ -600,7 +597,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         await _storage.RewindSubscriptionProgressAsync(Database, subscriptionName, token, sequenceFloor).ConfigureAwait(false);
 
-        var agents = await buildAgentsForSubscription(subscriptionName);
+        var agents = buildAgentsForSubscription(subscriptionName);
         
         foreach (var agent in agents)
         {
@@ -612,25 +609,25 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
     
-    private async Task<IReadOnlyList<SubscriptionAgent>> buildAgentsForSubscription(ISubscriptionSource<TOperations, TQuerySession> source)
+    private IReadOnlyList<SubscriptionAgent> buildAgentsForSubscription(ISubscriptionSource<TOperations, TQuerySession> source)
     {
         var agents = new List<SubscriptionAgent>();
 
         foreach (var shard in source.Shards())
         {
-            agents.Add(await buildAgentForShard(shard, _cancellation.Token));
+            agents.Add(buildAgentForShard(shard));
         }
 
         return agents;
     }
 
-    private async Task<IReadOnlyList<SubscriptionAgent>> buildAgentsForSubscription(string subscriptionName)
+    private IReadOnlyList<SubscriptionAgent> buildAgentsForSubscription(string subscriptionName)
     {
         var agents = new List<SubscriptionAgent>();
 
         foreach (var shard in _storage.AllShards().Where(x => x.Name.ProjectionOrSubscriptionName.EqualsIgnoreCase(subscriptionName)))
         {
-            agents.Add(await buildAgentForShard(shard, _cancellation.Token));
+            agents.Add(buildAgentForShard(shard));
         }
 
         return agents;

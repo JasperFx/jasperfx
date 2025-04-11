@@ -155,24 +155,20 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     public Type ProjectionType => GetType();
 
-    // TODO -- rename these? Or leave them alone?
     public string Name => ProjectionName!;
     public uint Version => ProjectionVersion;
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {
-        // TODO -- this *will* get fancier if we do the async projection sharding
         return
         [
             new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name, ShardName.All, Version), this, this)
         ];
     }
 
-    // TODO -- maybe make this implicit, with a call to a virtual
     public virtual bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database,
         out IReplayExecutor executor)
     {
-        // TODO -- overwrite in SingleStreamProjection in Marten
         executor = default;
         return false;
     }
@@ -187,7 +183,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         var logger = loggerFactory.CreateLogger(GetType());
 
-        // TODO -- may need to track the disposable of the session here
         var session = storage.OpenSession(database);
         var slicer = BuildSlicer(session);
 
@@ -195,14 +190,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
                 SliceBehavior.Preprocess, slicer, logger);
 
-        return new GroupedProjectionExecution(shardName, runner, logger);
+        return new GroupedProjectionExecution(shardName, runner, logger){Disposables = [session]};
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(
         IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        // TODO -- may need to track the disposable of the session here
         var session = storage.OpenSession(database);
         var slicer = BuildSlicer(session);
 
@@ -210,7 +204,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
                 SliceBehavior.Preprocess, slicer, logger);
 
-        return new GroupedProjectionExecution(shardName, runner, logger);
+        return new GroupedProjectionExecution(shardName, runner, logger){Disposables = [session]};
     }
 
     protected virtual Type[] determineEventTypes()

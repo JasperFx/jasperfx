@@ -30,7 +30,6 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         var sp = scope.ServiceProvider;
         var source = sp.GetRequiredService<TSource>();
 
-        // TODO -- Unit test all of this in JasperFx.Events
         ProjectionName = source.ProjectionName;
         ProjectionVersion = source.ProjectionVersion;
         ProjectionType = source.ProjectionType;

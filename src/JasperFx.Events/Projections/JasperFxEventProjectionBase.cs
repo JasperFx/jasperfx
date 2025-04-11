@@ -39,7 +39,6 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         ProjectionName = GetType().FullNameInCode();
     }
 
-    // TODO -- rename these? Or leave them alone?
     public string Name => ProjectionName!;
     public uint Version => ProjectionVersion;
 
@@ -50,7 +49,6 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {
-        // TODO -- this *will* get fancier if we do the async projection sharding
         return
         [
             new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name, ShardName.All, Version), this, this)
@@ -82,7 +80,6 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     async Task IJasperFxProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events,
         CancellationToken cancellation)
     {
-        // TODO -- apply one event at a time for error tracking, watch what is and is not a transient exception
         await applyAsync(operations, events, cancellation);
     }
 

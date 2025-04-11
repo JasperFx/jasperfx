@@ -46,7 +46,6 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
             case TenancyGrouping.AcrossTenants:
                 return new AcrossTenantSlicer<TDoc, TId, TQuerySession>(session, _customSlicer ?? _defaultSlicer);
             case TenancyGrouping.RollUpByTenant:
-                // TODO -- what if the TId isn't string of course?
                 if (typeof(TId) != typeof(string))
                     throw new InvalidOperationException(
                         "JasperFx cannot (yet) support strong typed identifiers for the tenant id rollup");
@@ -115,14 +114,12 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     /// </summary>
     public void RollUpByTenant()
     {
-        // TODO -- watch for strong typed identifiers. Ugh.
         if (typeof(TId) != typeof(string))
             throw new InvalidOperationException("Rolling up by Tenant Id requires the identity type to be string");
 
         TenancyGrouping = TenancyGrouping.RollUpByTenant;
     }
     
-    // TODO -- option to use across tenants too
     public void Identity<TEvent>(Func<TEvent, TId> identityFunc)
     {
         if (_customSlicer != null)

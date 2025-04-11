@@ -49,11 +49,14 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         if (!events.Any()) return snapshot;
         
         // get the id off of the event
-        var (transformed, action) = await DetermineActionAsync(session, snapshot, _identitySource(events[0]), new NulloIdentitySetter<TDoc, TId>(), events, cancellation);
+        (snapshot, _) = await DetermineActionAsync(session, snapshot, _identitySource(events[0]), new NulloIdentitySetter<TDoc, TId>(), events, cancellation);
+
+        if (snapshot == null)
+        {
+            throw new InvalidOperationException("The aggregation returned a null snapshot");
+        }
         
-        // TODO -- what the heck to do here if it's null?
-        
-        return transformed;
+        return snapshot;
     }
 
     async ValueTask<TDoc> IAggregator<TDoc, TId, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, TId id,
@@ -63,11 +66,14 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         if (!events.Any()) return snapshot;
         
         // get the id off of the event
-        var (transformed, action) = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
+        (snapshot, _) = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
         
-        // TODO -- what the heck to do here if it's null?
+        if (snapshot == null)
+        {
+            throw new InvalidOperationException("The aggregation returned a null snapshot");
+        }
         
-        return transformed;
+        return snapshot;
     }
 
     protected override IInlineProjection<TOperations> buildForInline()
@@ -95,7 +101,6 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
 
                 var (transformed, action) = await DetermineActionAsync(tenantedSession, snapshot, id, storage, stream.Events, cancellation);
                 
-                // TODO -- might want to log a Debug warning here
                 if (transformed == null && action != ActionType.Delete && action != ActionType.HardDelete) continue;
                 
                 storage.ApplyInline(transformed, action, id, stream.TenantId);

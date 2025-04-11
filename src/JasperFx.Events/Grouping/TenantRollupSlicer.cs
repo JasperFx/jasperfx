@@ -1,7 +1,6 @@
 #nullable enable
 namespace JasperFx.Events.Grouping;
 
-// TODO -- watch this with string typed identifiers
 public class TenantRollupSlicer<TDoc>: IEventSlicer<TDoc, string>, IEventSlicer
 {
     public ValueTask SliceAsync(IReadOnlyList<IEvent> events, SliceGroup<TDoc, string> grouping)

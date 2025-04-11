@@ -40,7 +40,6 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     {
         Projection.StartBatch();
         
-        // TODO -- the projection batch wrapper will really need to know how to dispose all sessions built
         var batch = await _storage.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
@@ -120,15 +119,8 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
-        // TODO -- revisit this
         executor = default;
         return false;
-    }
-
-    public async Task EnsureStorageExists(CancellationToken token)
-    {
-        // TODO -- encapsulate this inside the async shard creation instead
-        throw new NotImplementedException();
     }
 
     ErrorHandlingOptions IGroupedProjectionRunner.ErrorHandlingOptions(ShardExecutionMode mode)
