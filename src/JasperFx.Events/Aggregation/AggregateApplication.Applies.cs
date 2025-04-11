@@ -59,7 +59,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         return lambda.CompileFast();
     }
     
-        private Expression makeApplyBody(Expression snapshot, ParameterExpression e, ParameterExpression session,
+    private Expression makeApplyBody(Expression snapshot, ParameterExpression e, ParameterExpression session,
         Type eventType, ParameterExpression cancellation)
     {
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);

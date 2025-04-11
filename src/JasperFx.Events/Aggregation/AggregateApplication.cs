@@ -94,7 +94,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
         if (_applyMethods.IsEmpty() && _createMethods.IsEmpty() && _creators.IsEmpty && _applications.IsEmpty)
         {
             throw new InvalidProjectionException(
-                $"No matching conventional Apply/Create methods for the {typeof(TAggregate).FullNameInCode()} aggregate.");
+                $"No matching conventional Apply/Create/ShouldDelete methods for the {typeof(TAggregate).FullNameInCode()} aggregate.");
         }
 
         var invalidMethods =

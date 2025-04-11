@@ -24,7 +24,7 @@ public class SingleStreamProjectionTests
     [Theory]
     [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods and line lambdas, but not both")]
     [InlineData(typeof(MultipleOverrides), "Only one of these methods can be overridden: Evolve, EvolveAsync")]
-    [InlineData(typeof(EmptyProjection), "No matching conventional Apply/Create methods for the EventTests.MyAggregate aggregate.")]
+    [InlineData(typeof(EmptyProjection), "No matching conventional Apply/Create/ShouldDelete methods for the EventTests.MyAggregate aggregate.")]
     public void validation_fails(Type type, string message)
     {
         var ex = Should.Throw<InvalidProjectionException>(() =>
