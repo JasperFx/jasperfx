@@ -6,7 +6,6 @@ public interface IProjectionBatch : IAsyncDisposable
 {
     Task ExecuteAsync(CancellationToken token);
     
-    // TODO -- this needs to carry through the tenant id
     void QuickAppendEventWithVersion(StreamAction action, IEvent @event);
     void UpdateStreamVersion(StreamAction action);
     void QuickAppendEvents(StreamAction action);

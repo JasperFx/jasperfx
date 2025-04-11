@@ -61,7 +61,7 @@ public class GeneratedAssembly
             throw new InvalidOperationException("This generated assembly has already been compiled");
         }
 
-        var generatedType = new GeneratedType(this, typeName);
+        var generatedType = new GeneratedType(this, typeName){ParentAssembly = this};
         if (baseType.IsInterface)
         {
             generatedType.Implements(baseType);
@@ -71,7 +71,6 @@ public class GeneratedAssembly
             generatedType.InheritsFrom(baseType);
         }
 
-        generatedType.ParentAssembly = this;
         _generatedTypes.Add(generatedType);
 
         return generatedType;

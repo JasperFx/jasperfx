@@ -214,11 +214,6 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         }
         catch (Exception e)
         {
-            // TODO -- watch this carefully!!!! This will be errors from trying to apply events
-            // you might get transient errors even after the retries
-            // More likely, this might be a collection of ApplyEventException, and thus, retry the batch w/ skipped
-            // sequences
-
             _logger.LogError(e,
                 "Subscription {Name} failed while creating a SQL batch for updates for events from {Floor} to {Ceiling}",
                 _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);

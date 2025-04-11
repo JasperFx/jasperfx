@@ -2,7 +2,11 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace JasperFx.Events.Projections;
 
-public abstract class EventFilterable: IEventFilterable
+/// <summary>
+/// Base class for any projection or subscription type that needs to filter based on
+/// event type or stream type
+/// </summary>
+public class EventFilterable: IEventFilterable
 {
     /// <summary>
     ///     Optimize this projection within the Async Daemon by

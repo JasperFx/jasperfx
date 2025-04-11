@@ -23,7 +23,6 @@ public interface IAggregateVersioning<T>
     void TrySetVersion(T aggregate, IEvent lastEvent);
 }
 
-// TODO -- is this still necessary at this point?
 public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggregateVersioning<T>, IAggregator<T, TQuerySession>
 {
     private readonly AggregationScope _scope;

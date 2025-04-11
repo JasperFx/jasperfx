@@ -59,4 +59,35 @@ public class EventSliceTests
 
         last.StreamKey.ShouldBe(streamKey);
     }
+
+    [Fact]
+    public void raise_event_on_supplied_guid_backed_strong_identifier()
+    {
+        var id = new GuidId(Guid.NewGuid());
+        var slice = new EventSlice<SimpleAggregate, GuidId>(id,
+            "foo");
+        
+        slice.As<IEventSlice<SimpleAggregate>>().AppendEvent(new AEvent());
+
+        var last = slice.As<IEventSlice<SimpleAggregate>>().RaisedEvents().Last();
+
+        last.StreamId.ShouldBe(id.Value);
+    }
+    
+    [Fact]
+    public void raise_event_on_supplied_string_backed_strong_identifier()
+    {
+        var id = new StringId(Guid.NewGuid().ToString());
+        var slice = new EventSlice<SimpleAggregate, StringId>(id,
+            "foo");
+        
+        slice.As<IEventSlice<SimpleAggregate>>().AppendEvent(new AEvent());
+
+        var last = slice.As<IEventSlice<SimpleAggregate>>().RaisedEvents().Last();
+
+        last.StreamKey.ShouldBe(id.Value);
+    }
 }
+
+public record StringId(string Value);
+public record GuidId(Guid Value);

@@ -33,7 +33,6 @@ public static class EventListExtensions
         return !events.HasAnyEventsOfType<T>();
     }
     
-    // TODO -- maybe make this a little helper type
     public static bool HasAnyElementsOfType<T>(this IEnumerable<object> data)
     {
         return data.OfType<T>().Any();

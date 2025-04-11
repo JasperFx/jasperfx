@@ -39,6 +39,40 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 {
     private readonly List<IEvent> _events = new();
 
+    private static Action<IEvent, TId> _identitySetter;
+    
+    static EventSlice()
+    {
+        if (typeof(TId) == typeof(Guid))
+        {
+            _identitySetter = (e, id) => e.StreamId = id!.As<Guid>();
+        }
+        else if (typeof(TId) == typeof(string))
+        {
+            _identitySetter = (e, id) => e.StreamKey = id!.As<string>();
+        }
+        else
+        {
+            // ValueTypeInfo
+            var valueType = ValueTypeInfo.ForType(typeof(TId));
+            if (valueType.SimpleType == typeof(Guid))
+            {
+                var unwrapper = valueType.UnWrapper<TId, Guid>();
+                _identitySetter = (e, id) => e.StreamId = unwrapper(id);
+            }
+            else if (valueType.SimpleType == typeof(string))
+            {
+                var unwrapper = valueType.UnWrapper<TId, string>();
+                _identitySetter = (e, id) => e.StreamKey = unwrapper(id);
+            }
+            else
+            {
+                // Can't do anything, can't use this for a single stream projection
+                _identitySetter = (_, _) => { };
+            }
+        }
+    }
+
     public EventSlice(TId id, string tenantId, IEnumerable<IEvent>? events = null)
     {
         Id = id;
@@ -99,22 +133,9 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
     void IEventSlice<TDoc>.AppendEvent<TEvent>(TEvent @event)
     {
-        // TODO -- THIS OF COURSE DOES NOT WORK WITH STRONG TYPED IDENTIFIERS
         RaisedEvents ??= new();
         var e = new Event<TEvent>(@event);
-        if (typeof(TId) == typeof(string))
-        {
-            e.StreamKey = Id.As<string>();
-        }
-        else if (typeof(TId) == typeof(Guid))
-        {
-            e.StreamId = Id.As<Guid>();
-        }
-        else
-        {
-            throw new InvalidOperationException(
-                $"Cannot determine the stream id for published events for the identity type {typeof(TId).FullNameInCode()}. You will need to explicitly supply the stream id/key");
-        }
+        _identitySetter(e, Id);
 
         RaisedEvents.Add(e);
     }
@@ -144,7 +165,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
     IEnumerable<object> IEventSlice<TDoc>.PublishedMessages()
     {
-        throw new NotImplementedException();
+        return PublishedMessages ?? [];
     }
 
     public int Count => _events.Count;
