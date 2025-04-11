@@ -1,4 +1,5 @@
 using System.Reflection;
+using ImTools;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;

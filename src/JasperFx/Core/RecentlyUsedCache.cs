@@ -1,3 +1,5 @@
+using ImTools;
+
 namespace JasperFx.Core;
 
 public interface IAggregateCache<TKey, TItem>

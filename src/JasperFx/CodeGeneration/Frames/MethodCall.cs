@@ -463,7 +463,17 @@ public class MethodCall : Frame
         }
         else if (ReturnVariable is ValueTypeReturnVariable tuple)
         {
-            var index = tuple.Inners.IndexOf(v => v.Inner.VariableType == variable.VariableType);
+            var index = -1;
+            for (int i = 0; i < tuple.Inners.Length; i++)
+            {
+                var v = tuple.Inners[i];
+                if (v.Inner.VariableType == variable.VariableType)
+                {
+                    index = i;
+                    break;
+                }
+            }
+            
             if (index > -1)
             {
                 AssignResultTo(index, variable);

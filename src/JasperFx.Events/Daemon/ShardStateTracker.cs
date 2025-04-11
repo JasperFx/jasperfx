@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Threading.Tasks.Dataflow;
+using ImTools;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;

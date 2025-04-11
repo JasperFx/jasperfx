@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using FastExpressionCompiler;
+using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Projections;
