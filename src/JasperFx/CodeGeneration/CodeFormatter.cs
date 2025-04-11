@@ -8,8 +8,6 @@ public static class CodeFormatter
 {
     public static string Write(object? value)
     {
-        // TODO -- add Guid, int, double, long, bool
-        
         if (value == null)
         {
             return "null";

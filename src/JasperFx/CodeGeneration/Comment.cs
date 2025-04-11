@@ -68,6 +68,3 @@ public class OneLineCodeFragment : ICodeFragment
         writer.WriteLine(Text);
     }
 }
-
-// TODO -- later, add Xml API comments and
-// multi-line comments

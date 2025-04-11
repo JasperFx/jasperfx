@@ -67,8 +67,7 @@ public class GeneratedType : IVariableSource, IGeneratedType
 
     public string FullName => $"{Namespace}.{TypeName}";
 
-    //TODO NRT - unusual usage, required property candidate
-    public GeneratedAssembly ParentAssembly { get; internal set; } = null!;
+    public GeneratedAssembly ParentAssembly { get; internal init; } = null!;
 
     public string TypeName { get; }
 
@@ -111,7 +110,6 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return InheritsFrom(typeof(T));
     }
 
-    // TODO -- need ut's
     public GeneratedType InheritsFrom(Type baseType)
     {
         var ctors = baseType.GetConstructors();
@@ -142,7 +140,6 @@ public class GeneratedType : IVariableSource, IGeneratedType
     }
 
 
-    // TODO -- need ut's
     public GeneratedType Implements(Type type)
     {
         if (!type.GetTypeInfo().IsInterface)
@@ -158,13 +155,11 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return this;
     }
 
-    // TODO -- need ut's
     public GeneratedType Implements<T>()
     {
         return Implements(typeof(T));
     }
 
-    // TODO -- need ut's
     public void AddMethod(GeneratedMethod method)
     {
         _methods.Add(method);
@@ -175,7 +170,6 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return _methods.FirstOrDefault(x => x.MethodName == methodName)!;
     }
 
-    // TODO -- UT's
     public GeneratedMethod AddVoidMethod(string name, params Argument[] args)
     {
         var method = new GeneratedMethod(name, typeof(void), args) { ParentType = this };
@@ -184,7 +178,6 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return method;
     }
 
-    // TODO -- UT's
     public GeneratedMethod AddMethodThatReturns<TReturn>(string name, params Argument[] args)
     {
         var method = new GeneratedMethod(name, typeof(TReturn), args) { ParentType = this };

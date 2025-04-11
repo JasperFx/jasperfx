@@ -53,8 +53,6 @@ public class Cache<TKey, TValue> : IEnumerable<TValue> where TKey : notnull
         set => _onMissing = value;
     }
 
-    public Func<TValue, TKey> GetKey { get; set; } = delegate { throw new NotImplementedException(); };
-
     public int Count => _values.Enumerate().Count();
 
 

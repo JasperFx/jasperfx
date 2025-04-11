@@ -63,8 +63,7 @@ public class GeneratedMethod : IGeneratedMethod
 
     public Variable? ReturnVariable { get; set; }
 
-    // TODO NRT -- required property candidate
-    public GeneratedType ParentType { get; set; } = null!;
+    public GeneratedType ParentType { get; init; } = null!;
 
     /// <summary>
     ///     <summary>
@@ -81,7 +80,6 @@ public class GeneratedMethod : IGeneratedMethod
     public Argument[] Arguments { get; }
 
 
-    // TODO -- need a test here. It's used within Jasper, but still
     public IList<Variable> DerivedVariables { get; } = new List<Variable>();
 
 

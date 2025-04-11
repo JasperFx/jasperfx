@@ -56,8 +56,7 @@ namespace JasperFx.Core
 
             if (!File.Exists(path) && !Directory.Exists(path))
             {
-                //TODO change back to IOException when it isn't defined in two assemblies anymore
-                throw new Exception($"This path '{path}' doesn't exist!");
+                throw new IOException($"This path '{path}' doesn't exist!");
             }
 
             var attr = File.GetAttributes(path);
@@ -160,11 +159,10 @@ namespace JasperFx.Core
             {
                 File.Move(from, to);
             }
-            //TODO put this back to IOException when there is no longer a conflict
             catch (Exception ex)
             {
                 var msg = $"Trying to move '{from}' to '{to}'";
-                throw new Exception(msg, ex);
+                throw new IOException(msg, ex);
             }
         }
 

@@ -17,8 +17,6 @@ public class ValueTypeInfo
     {
         if (_valueTypes.TryFind(type, out var valueType)) return valueType;
         
-        // TODO -- need to support F# SingleCaseDiscriminatedUnion
-        
         var valueProperty = type.GetProperties().Where(x => x.Name != "Tag").SingleOrDefaultIfMany();
         if (valueProperty == null || !valueProperty.CanRead) throw new InvalidValueTypeException(type, "Must be only a single public, 'gettable' property");
 

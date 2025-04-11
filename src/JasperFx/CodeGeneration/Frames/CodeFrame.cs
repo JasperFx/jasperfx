@@ -55,7 +55,7 @@ public class CodeFrame : Frame, ICodeFrame
         var substitutions = _values.Select(CodeFormatter.Write).ToArray();
         var code = string.Format(_format, substitutions);
 
-        // TODO -- It's important to use Write() and not WriteLine() here.
+        // It's important to use Write() and not WriteLine() here.
         writer.Write(code);
         Next?.GenerateCode(method, writer);
     }

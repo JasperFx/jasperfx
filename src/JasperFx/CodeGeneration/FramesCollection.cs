@@ -20,8 +20,6 @@ public class FramesCollection : List<Frame>
 
     public GeneratedMethod ParentMethod { get; }
 
-    // TODO -- another version that takes in variables maybe?
-
     public ICodeFrame ReturnNewGeneratedTypeObject(GeneratedType typeBeingReturned, params string[] values)
     {
         return Code(

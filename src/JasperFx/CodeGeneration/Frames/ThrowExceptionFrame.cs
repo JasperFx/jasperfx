@@ -17,11 +17,3 @@ public class ThrowExceptionFrame<T> : CodeFrame where T : Exception
         return $"throw new {typeof(T).FullNameInCode()}({parameters});";
     }
 }
-
-public class ThrowExceptionFrame : SyncFrame
-{
-    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
-    {
-        throw new NotImplementedException();
-    }
-}

@@ -42,12 +42,6 @@ public class CacheTests
     }
 
     [Fact]
-    public void when_GetKey_not_set_should_throw()
-    {
-        Exception<NotImplementedException>.ShouldBeThrownBy(() => cache.GetKey(2));
-    }
-
-    [Fact]
     public void when_key_not_found_should_throw_by_default()
     {
         const string key = "nonexisting key";
