@@ -12,7 +12,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     private readonly EventSlicer<TDoc, TId, TQuerySession> _defaultSlicer = new();
     private IEventSlicer<TDoc, TId, TQuerySession>? _customSlicer;
 
-    protected JasperFxMultiStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream, transientExceptionTypes)
+    protected JasperFxMultiStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream)
     {
         ProjectionName = typeof(TDoc).Name;
     }

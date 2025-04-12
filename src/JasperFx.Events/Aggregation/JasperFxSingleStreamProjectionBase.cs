@@ -12,7 +12,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     private readonly Func<StreamAction, TId> _streamActionSource;
     
 
-    protected JasperFxSingleStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.SingleStream, transientExceptionTypes)
+    protected JasperFxSingleStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.SingleStream)
     {
         _identitySource = IEvent.CreateAggregateIdentitySource<TId>();
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();

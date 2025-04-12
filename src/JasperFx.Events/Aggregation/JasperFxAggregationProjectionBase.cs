@@ -18,13 +18,11 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     private readonly Lazy<Type[]> _allEventTypes;
     private readonly AggregateApplication<TDoc, TQuerySession> _application;
     
-    private readonly List<Type> _transientExceptionTypes = new();
     private readonly AggregateVersioning<TDoc, TQuerySession> _versioning;
     private bool _usesConventionalApplication = true;
 
-    protected JasperFxAggregationProjectionBase(AggregationScope scope, Type[] transientExceptionTypes)
+    protected JasperFxAggregationProjectionBase(AggregationScope scope)
     {
-        _transientExceptionTypes.AddRange(transientExceptionTypes);
         Scope = scope;
         ProjectionName = typeof(TDoc).NameInCode();
 
@@ -242,19 +240,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     ValueTask IAggregationProjection<TDoc, TId, TOperations, TQuerySession>.EndBatchAsync()
     {
         return new ValueTask();
-    }
-
-    // TODO -- unit test this
-    protected virtual bool IsExceptionTransient(Exception exception)
-    {
-        if (exception is InvalidEventToStartAggregateException) return false;
-        
-        if (_transientExceptionTypes.Any(x => exception.GetType().CanBeCastTo(x)))
-        {
-            return true;
-        }
-
-        return false;
     }
 
     (IEvent?, TDoc?) IAggregationProjection<TDoc, TId, TOperations, TQuerySession>.TryApplyMetadata(

@@ -51,6 +51,11 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         {
             _identitySetter = (e, id) => e.StreamKey = id!.As<string>();
         }
+        else if (typeof(TId).IsSimple())
+        {
+            // Can't do anything, can't use this for a single stream projection
+            _identitySetter = (_, _) => { };
+        }
         else
         {
             // ValueTypeInfo

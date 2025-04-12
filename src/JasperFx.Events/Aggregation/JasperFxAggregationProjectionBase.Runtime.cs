@@ -1,5 +1,6 @@
 using JasperFx.Core;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 
@@ -27,7 +28,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             {
                 // Should the exception be passed up for potential
                 // retries?
-                if (IsExceptionTransient(e))
+                if (ProjectionExceptions.IsExceptionTransient(e))
                 {
                     throw;
                 }
@@ -57,7 +58,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             {
                 // Should the exception be passed up for potential
                 // retries?
-                if (IsExceptionTransient(e))
+                if (ProjectionExceptions.IsExceptionTransient(e))
                 {
                     throw;
                 }

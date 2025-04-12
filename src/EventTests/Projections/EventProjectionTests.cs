@@ -73,10 +73,6 @@ public class OverridesAndUsesConventions : EventProjection
 
 public class EventProjection : JasperFxEventProjectionBase<FakeOperations, FakeSession>
 {
-    public EventProjection() : base([])
-    {
-    }
-
     protected override void storeEntity<T>(FakeOperations ops, T entity)
     {
         throw new NotImplementedException();
