@@ -36,6 +36,18 @@ public class DatabaseDescriptor : OptionsDescription
     /// </summary>
     public string SchemaOrNamespace { get; set; } = string.Empty;
 
+    public Uri DatabaseUri()
+    {
+        var parts = new List<string>
+        {
+            ServerName,
+            DatabaseName,
+            SchemaOrNamespace
+        };
+        
+        return new Uri($"{Engine.ToLowerInvariant()}://{parts.Where(x => x.IsNotEmpty()).Join("/")}");
+    }
+
     /// <summary>
     /// Just an application identifier within the system that does not necessarily reflect the database name. Commonly used for multi-tenancy
     /// usages
