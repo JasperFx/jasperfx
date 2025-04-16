@@ -2,6 +2,32 @@
 {
     public static class UrlExtensions
     {
+        public static bool Matches(this Uri subject, Uri match)
+        {
+            if (subject.Scheme != match.Scheme) return false;
+
+            if (match.Host.IsEmpty()) return true;
+
+            if (subject.Host != match.Host) return false;
+
+            var subjectSegments = subject.Segments.Select(x => x.ToString().Trim('/')).Where(x => x.IsNotEmpty()).ToArray();
+            var matchSegments = match.Segments.Select(x => x.ToString().Trim('/')).Where(x => x.IsNotEmpty()).ToArray();
+
+            if (matchSegments.Length > subjectSegments.Length) return false;
+
+            for (int i = 0; i < matchSegments.Length; i++)
+            {
+                var s = subjectSegments[i];
+                var m = matchSegments[i];
+                
+                if (m == "*") continue;
+
+                if (s != m) return false;
+            }
+
+            return true;
+        }
+        
         /// <summary>
         /// Smart helper to append two url strings together.  Takes care of the
         /// "/" joining for you.  
