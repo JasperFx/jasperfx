@@ -41,47 +41,24 @@ namespace CommandLineTests.Environment
             theServices.CheckEnvironment("good", (s, c) => Task.CompletedTask);
             theServices.CheckEnvironment("bad", (s, c) => throw new InvalidOperationException(s.GetService<Thing>().Name));
             
-            theResults.Successes.Single().ShouldBe("good");
+            theResults.Successes.First().ShouldBe("good");
             theResults.Failures.Single().Exception.Message.ShouldBe("Blob");
         }
 
-        [Fact]
-        public void use_a_resource_automatically_success()
-        {
-            var resource = Substitute.For<IStatefulResource>();
-            resource.Name.Returns("Envelopes");
-            resource.Type.Returns("Database");
-            
-            theServices.AddSingleton<IStatefulResource>(resource);
-            
-            theResults.Successes.Single().ShouldBe("Resource Envelopes (Database)");
-        }
-        
-        [Fact]
-        public void use_a_resource_automatically_fail()
-        {
-            var resource = Substitute.For<IStatefulResource>();
-            resource.Name.Returns("Envelopes");
-            resource.Type.Returns("Database");
-            resource.Check(Arg.Any<CancellationToken>()).Throws(new DivideByZeroException());
-            
-            theServices.AddSingleton<IStatefulResource>(resource);
-            
-            theResults.Failures.Single().Description.ShouldBe("Resource Envelopes (Database)");
-        }
-        
         [Fact]
         public void use_a_resource_collection_automatically_success()
         {
             var resource = Substitute.For<IStatefulResource>();
             resource.Name.Returns("Envelopes");
             resource.Type.Returns("Database");
+            resource.ResourceUri.Returns(new Uri("resource://one"));
+            resource.SubjectUri.Returns(new Uri("subject://two"));
 
             var collection = Substitute.For<ISystemPart>();
             collection.FindResources().Returns(new List<IStatefulResource> { resource });
             theServices.AddSingleton(collection);
             
-            theResults.Successes.Single().ShouldBe("Resource Envelopes (Database)");
+            theResults.Successes.Last().ShouldBe("subject://two/");
         }
         
         [Fact]
@@ -90,13 +67,15 @@ namespace CommandLineTests.Environment
             var resource = Substitute.For<IStatefulResource>();
             resource.Name.Returns("Envelopes");
             resource.Type.Returns("Database");
+            resource.ResourceUri.Returns(new Uri("resource://one"));
+            resource.SubjectUri.Returns(new Uri("subject://two"));
             resource.Check(Arg.Any<CancellationToken>()).Throws(new DivideByZeroException());
             
             var collection = Substitute.For<ISystemPart>();
             collection.FindResources().Returns(new List<IStatefulResource> { resource });
             theServices.AddSingleton(collection);
             
-            theResults.Failures.Single().Description.ShouldBe("Resource Envelopes (Database)");
+            theResults.Failures.Single().Description.ShouldBe("subject://two/ (resource://one/)");
         }
         
 
@@ -110,7 +89,7 @@ namespace CommandLineTests.Environment
             theServices.CheckEnvironment("good", (s) => {});
             theServices.CheckEnvironment("bad", s => throw new InvalidOperationException(s.GetService<Thing>().Name));
             
-            theResults.Successes.Single().ShouldBe("good");
+            theResults.Successes.First().ShouldBe("good");
             theResults.Failures.Single().Exception.Message.ShouldBe("Blob");
         }
 
@@ -155,8 +134,8 @@ namespace CommandLineTests.Environment
             theServices.CheckThatFileExists("a.txt");
             theServices.CheckThatFileExists("b.txt");
             
-            theResults.Successes.Single().ShouldBe("File 'a.txt' exists");
-            theResults.Failures.Single().Description.ShouldBe("File 'b.txt' exists");
+            theResults.Successes.First().ShouldBe("File 'a.txt' can be found");
+            theResults.Failures.Single().Description.ShouldBe("File 'b.txt' can be found");
         }
 
         public interface IMissingService
@@ -169,12 +148,11 @@ namespace CommandLineTests.Environment
         {
             var thing = new Thing{Name = "Blob"};
             theServices.AddSingleton(thing);
-
             
             theServices.CheckServiceIsRegistered<Thing>();
             theServices.CheckServiceIsRegistered<IMissingService>();
             
-            theResults.Successes.Single().ShouldBe($"Service {typeof(Thing).FullName} should be registered");
+            theResults.Successes.First().ShouldBe($"Service {typeof(Thing).FullName} should be registered");
             theResults.Failures.Single().Description.ShouldBe($"Service {typeof(IMissingService).FullName} should be registered");
             
         }
@@ -184,12 +162,11 @@ namespace CommandLineTests.Environment
         {
             var thing = new Thing{Name = "Blob"};
             theServices.AddSingleton(thing);
-
             
             theServices.CheckServiceIsRegistered(typeof(Thing));
             theServices.CheckServiceIsRegistered(typeof(IMissingService));
             
-            theResults.Successes.Single().ShouldBe($"Service {typeof(Thing).FullName} should be registered");
+            theResults.Successes.First().ShouldBe($"Service {typeof(Thing).FullName} should be registered");
             theResults.Failures.Single().Description.ShouldBe($"Service {typeof(IMissingService).FullName} should be registered");
             
         }

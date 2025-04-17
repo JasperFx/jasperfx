@@ -23,28 +23,6 @@ namespace CommandLineTests.Environment
         }
 
         [Fact]
-        public void fail_with_factory()
-        {
-            var factory1 = new StubEnvironmentFactory();
-            factory1.Success("One");
-            factory1.Success("Two");
-            factory1.Success("Three");
-
-            var factory2 = new StubEnvironmentFactory();
-            factory2.Success("One");
-            factory2.Success("Two");
-            factory2.Failure("Three");
-
-            Services.AddSingleton<IEnvironmentCheckFactory>(factory1);
-            Services.AddSingleton<IEnvironmentCheckFactory>(factory2);
-
-            theResults.Succeeded().ShouldBeFalse();
-
-            theResults.Successes.Length.ShouldBe(5);
-            theResults.Failures.Length.ShouldBe(1);
-        }
-
-        [Fact]
         public void happy_path_with_good_checks()
         {
             Services.CheckEnvironment("Ok", s => { });
@@ -65,76 +43,6 @@ namespace CommandLineTests.Environment
 
             theResults.Succeeded().ShouldBeFalse();
         }
-
-        [Fact]
-        public void success_with_factory()
-        {
-            var factory1 = new StubEnvironmentFactory();
-            factory1.Success("One");
-            factory1.Success("Two");
-            factory1.Success("Three");
-
-            var factory2 = new StubEnvironmentFactory();
-            factory2.Success("One");
-            factory2.Success("Two");
-            factory2.Success("Three");
-
-            Services.AddSingleton<IEnvironmentCheckFactory>(factory1);
-            Services.AddSingleton<IEnvironmentCheckFactory>(factory2);
-
-            theResults.Succeeded().ShouldBeTrue();
-
-            theResults.Successes.Length.ShouldBe(6);
-        }
-    }
-
-    public class StubEnvironmentFactory : IEnvironmentCheckFactory
-    {
-        public readonly IList<IEnvironmentCheck> Checks = new List<IEnvironmentCheck>();
-
-        public ValueTask<IReadOnlyList<IEnvironmentCheck>> Build()
-        {
-            return new ValueTask<IReadOnlyList<IEnvironmentCheck>>(Checks.ToArray());
-        }
-
-        public void Success(string description)
-        {
-            Checks.Add(new GoodCheck(description));
-        }
-
-        public void Failure(string description)
-        {
-            Checks.Add(new BadCheck(description));
-        }
-    }
-
-    public class GoodCheck : IEnvironmentCheck
-    {
-        public GoodCheck(string description)
-        {
-            Description = description;
-        }
-
-        public string Description { get; }
-
-        public Task Assert(IServiceProvider services, CancellationToken cancellation)
-        {
-            return Task.CompletedTask;
-        }
-    }
-
-    public class BadCheck : IEnvironmentCheck
-    {
-        public BadCheck(string description)
-        {
-            Description = description;
-        }
-
-        public string Description { get; }
-
-        public Task Assert(IServiceProvider services, CancellationToken cancellation)
-        {
-            throw new InvalidOperationException(Description);
-        }
+        
     }
 }

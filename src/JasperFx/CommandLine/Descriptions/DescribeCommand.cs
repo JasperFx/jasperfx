@@ -118,7 +118,7 @@ public class AboutThisAppPart : SystemPartBase
 {
     private readonly IHostEnvironment _host;
 
-    public AboutThisAppPart(IHostEnvironment host) : base("About " + Assembly.GetEntryAssembly()?.GetName().Name ?? "This Application")
+    public AboutThisAppPart(IHostEnvironment host) : base("About " + Assembly.GetEntryAssembly()?.GetName().Name ?? "This Application", new Uri("system://environment"))
     {
         _host = host;
     }
@@ -150,7 +150,7 @@ public class AboutThisAppPart : SystemPartBase
 
 public class ReferencedAssemblies : SystemPartBase
 {
-    public ReferencedAssemblies() : base("Referenced Assemblies")
+    public ReferencedAssemblies() : base("Referenced Assemblies", new Uri("system://assemblies"))
     {
     }
     

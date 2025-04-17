@@ -16,7 +16,7 @@ public abstract class ResourceCommandContext : SystemPartBase
     protected ResourceInput theInput = new ResourceInput();
     private readonly List<IStatefulResource> _resources = new();
 
-    protected ResourceCommandContext() : base(nameof(ResourceCommandContext))
+    protected ResourceCommandContext() : base(nameof(ResourceCommandContext), new Uri("resources://" + Guid.NewGuid().ToString()))
     {
     }
 
@@ -119,7 +119,7 @@ public abstract class ResourceCommandContext : SystemPartBase
     {
         private readonly ResourceCommandContext _parent;
 
-        public ResourceCollection(ResourceCommandContext parent) : base(Guid.NewGuid().ToString())
+        public ResourceCollection(ResourceCommandContext parent) : base(Guid.NewGuid().ToString(), new Uri("resources://" + Guid.NewGuid().ToString()))
         {
             _parent = parent;
         }
@@ -146,6 +146,9 @@ public class ResourceWithDependencies : IStatefulResourceWithDependencies
     public string Type { get; set; }
     public string Name { get; set; }
     public string[] DependencyNames { get; set; }
+
+    public Uri SubjectUri { get; } = new Uri("subject://dependencies");
+    public Uri ResourceUri { get; } = new Uri("resource://dependencies");
 
     public Task Check(CancellationToken token)
     {

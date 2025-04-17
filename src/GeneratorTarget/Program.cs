@@ -20,7 +20,8 @@ internal static class Program
                 services.AddSingleton<ICodeFileCollection>(new GreeterGenerator());
                 services.AddSingleton<ICodeFileCollection>(new GreeterGenerator2());
 
-                services.AssertAllExpectedPreBuiltTypesExistOnStartUp();
+                services.AddJasperFx(opts => opts.ActiveProfile.AssertAllPreGeneratedTypesExist = true);
+                
             })
             .RunJasperFxCommands(args);
     }

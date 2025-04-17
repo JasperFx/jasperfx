@@ -1,6 +1,6 @@
 namespace JasperFx.Environment;
 
-public class LambdaCheck : IEnvironmentCheck
+public class LambdaCheck
 {
     private readonly Func<IServiceProvider, CancellationToken, Task> _action;
 
@@ -10,9 +10,17 @@ public class LambdaCheck : IEnvironmentCheck
         _action = action;
     }
 
-    public Task Assert(IServiceProvider services, CancellationToken cancellation)
+    public async Task Assert(IServiceProvider services, EnvironmentCheckResults results, CancellationToken cancellation)
     {
-        return _action(services, cancellation);
+        try
+        {
+            await _action(services, cancellation);
+            results.RegisterSuccess(Description);
+        }
+        catch (Exception e)
+        {
+            results.RegisterFailure(Description, e);
+        }
     }
 
     public string Description { get; }

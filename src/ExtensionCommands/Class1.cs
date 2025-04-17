@@ -27,7 +27,7 @@ namespace ExtensionCommands
 
     public class ExtensionResource : StatefulResourceBase
     {
-        public ExtensionResource() : base("Extension", "The Extension")
+        public ExtensionResource() : base("Extension", "The Extension", new Uri("extension://one"), new Uri("resource://one"))
         {
         }
     }

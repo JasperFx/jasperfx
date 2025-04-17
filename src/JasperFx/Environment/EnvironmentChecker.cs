@@ -14,75 +14,42 @@ public static class EnvironmentChecker
         CancellationToken token = default)
     {
         var results = new EnvironmentCheckResults();
+        var parts = services.GetServices<ISystemPart>().ToArray();
 
-        var checks = await services.DiscoverChecks();
-        if (!checks.Any())
+        foreach (var part in parts)
         {
-            AnsiConsole.WriteLine("No environment checks.");
-            return results;
-        }
-
-        await AnsiConsole.Progress().StartAsync(async c =>
-        {
-            var task = c.AddTask("[bold]Running Environment Checks[/]", new ProgressTaskSettings
+            try
             {
-                MaxValue = checks.Count
-            });
-
-            for (var i = 0; i < checks.Count; i++)
+                await part.AssertEnvironmentAsync(services, results, token);
+                results.RegisterSuccess(part.Title);
+            }
+            catch (Exception e)
             {
-                var check = checks[i];
-
-                try
-                {
-                    await check.Assert(services, token);
-
-                    AnsiConsole.MarkupLine(
-                        $"[green]{(i + 1).ToString().PadLeft(4)}.) Success: {check.Description}[/]");
-
-                    results.RegisterSuccess(check.Description);
-                }
-                catch (Exception e)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[red]{(i + 1).ToString().PadLeft(4)}.) Failed: {check.Description}[/]");
-                    AnsiConsole.WriteException(e);
-
-                    results.RegisterFailure(check.Description, e);
-                }
-                finally
-                {
-                    task.Increment(1);
-                }
+                results.RegisterFailure(part.Title, e);
             }
 
-            task.StopTask();
-        });
+            try
+            {
+                var resources = await part.FindResources();
+                foreach (var resource in resources)
+                {
+                    try
+                    {
+                        await resource.Check(token);
+                        results.RegisterSuccess(resource.SubjectUri.ToString());
+                    }
+                    catch (Exception e)
+                    {
+                        results.RegisterFailure($"{resource.SubjectUri} ({resource.ResourceUri})", e);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                results.RegisterFailure(part.Title + " - Finding Resources", e);
+            }
+        }
 
         return results;
-    }
-
-    // TODO -- get a unit test on this
-    public static async Task<IList<IEnvironmentCheck>> DiscoverChecks(this IServiceProvider services)
-    {
-        var list = new List<IEnvironmentCheck>();
-        list.AddRange(services.GetServices<IEnvironmentCheck>());
-
-        foreach (var factory in services.GetServices<IEnvironmentCheckFactory>())
-        {
-            list.AddRange(await factory.Build());
-        }
-        
-        list.AddRange(services.GetServices<IStatefulResource>().Select(x => new ResourceEnvironmentCheck(x)));
-
-        foreach (var source in services.GetServices<ISystemPart>())
-        {
-            foreach (var resource in await source.FindResources())
-            {
-                list.Add(new ResourceEnvironmentCheck(resource));
-            }
-        }
-
-        return list;
     }
 }

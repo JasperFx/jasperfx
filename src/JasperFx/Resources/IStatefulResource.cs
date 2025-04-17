@@ -34,6 +34,16 @@ public interface IStatefulResource
     ///     Identifier for this resource
     /// </summary>
     string Name { get; }
+    
+    /// <summary>
+    /// Provides information about this resource's role within the system
+    /// </summary>
+    Uri SubjectUri { get; }
+    
+    /// <summary>
+    /// Provides information about the resource itself
+    /// </summary>
+    Uri ResourceUri { get; }
 
     /// <summary>
     ///     Check whether the configuration for this resource is valid. An exception

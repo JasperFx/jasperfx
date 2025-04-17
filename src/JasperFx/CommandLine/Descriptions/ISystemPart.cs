@@ -1,4 +1,5 @@
 using JasperFx.Core.Descriptors;
+using JasperFx.Environment;
 using JasperFx.Resources;
 
 namespace JasperFx.CommandLine.Descriptions;
@@ -16,18 +17,24 @@ public interface ISystemPart
     /// </summary>
     string Title { get; }
     
+    Uri SubjectUri { get; }
+    
     Task WriteToConsole();
     
     ValueTask<IReadOnlyList<IStatefulResource>> FindResources();
+
+    Task AssertEnvironmentAsync(IServiceProvider services, EnvironmentCheckResults results, CancellationToken token);
 }
 
 public abstract class SystemPartBase : ISystemPart
 {
     public string Title { get; }
+    public Uri SubjectUri { get; }
 
-    protected SystemPartBase(string title)
+    protected SystemPartBase(string title, Uri subjectUri)
     {
         Title = title;
+        SubjectUri = subjectUri;
     }
 
     public virtual Task WriteToConsole()
@@ -41,5 +48,10 @@ public abstract class SystemPartBase : ISystemPart
     public virtual ValueTask<IReadOnlyList<IStatefulResource>> FindResources()
     {
         return new ValueTask<IReadOnlyList<IStatefulResource>>([]);
+    }
+
+    public virtual Task AssertEnvironmentAsync(IServiceProvider services, EnvironmentCheckResults results, CancellationToken token)
+    {
+        return Task.CompletedTask;
     }
 }

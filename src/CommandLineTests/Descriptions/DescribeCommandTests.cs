@@ -30,7 +30,7 @@ namespace CommandLineTests.Descriptions
 
         public class DescribedPart : SystemPartBase
         {
-            public DescribedPart() : base(Guid.NewGuid().ToString())
+            public DescribedPart() : base(Guid.NewGuid().ToString(), new Uri("described://one"))
             {
             }
 

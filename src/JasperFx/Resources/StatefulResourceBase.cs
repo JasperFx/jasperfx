@@ -8,10 +8,12 @@ namespace JasperFx.Resources;
 /// </summary>
 public abstract class StatefulResourceBase : IStatefulResource
 {
-    protected StatefulResourceBase(string type, string name)
+    protected StatefulResourceBase(string type, string name, Uri subjectUri, Uri resourceUri)
     {
         Type = type;
         Name = name;
+        SubjectUri = subjectUri;
+        ResourceUri = resourceUri;
     }
 
     public virtual Task Check(CancellationToken token)
@@ -41,4 +43,6 @@ public abstract class StatefulResourceBase : IStatefulResource
 
     public string Type { get; }
     public string Name { get; }
+    public Uri SubjectUri { get; }
+    public Uri ResourceUri { get; }
 }

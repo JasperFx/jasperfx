@@ -15,8 +15,7 @@ public static class EnvironmentCheckExtensions
         string description,
         Func<IServiceProvider, CancellationToken, Task> test)
     {
-        var check = new LambdaCheck(description, test);
-        services.AddSingleton<IEnvironmentCheck>(check);
+        services.AddJasperFx(opts => opts.RegisterEnvironmentCheck(description, test));
     }
 
     /// <summary>
@@ -77,8 +76,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="path"></param>
     public static void CheckThatFileExists(this IServiceCollection services, string path)
     {
-        var check = new FileExistsCheck(path);
-        services.AddSingleton<IEnvironmentCheck>(check);
+        services.AddJasperFx(opts => opts.RequireFile(path));
     }
 
     #endregion

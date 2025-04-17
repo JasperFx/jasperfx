@@ -8,7 +8,7 @@ internal class ConfigurationPreview : SystemPartBase
     private const string PreviewErrorMessage = "Unable to show a preview of the configuration.";
     private readonly IConfiguration _configuration;
 
-    public ConfigurationPreview(IConfiguration configuration) : base("IConfiguration Preview")
+    public ConfigurationPreview(IConfiguration configuration) : base("IConfiguration Preview", new Uri("system://configuration"))
     {
         _configuration = configuration;
     }

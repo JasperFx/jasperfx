@@ -4,15 +4,31 @@ using JasperFx.CommandLine;
 using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using JasperFx.Core.Descriptors;
+using JasperFx.Environment;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace JasperFx;
 
 public class JasperFxOptions : SystemPartBase
 {
-    public JasperFxOptions() : base("JasperFx Options")
+    public JasperFxOptions() : base("JasperFx Options", new Uri("system://jasperfx"))
     {
         ActiveProfile = Development;
+    }
+
+
+    private readonly List<string> _requiredFiles = new();
+    public string[] RequiredFiles => _requiredFiles.ToArray();
+
+    /// <summary>
+    /// Tell JasperFx that the following file path is required, and this will
+    /// add a file exists check to the environment tests for this application
+    /// </summary>
+    /// <param name="path"></param>
+    public void RequireFile(string path)
+    {
+        _requiredFiles.Fill(path);
     }
 
     /// <summary>
@@ -139,37 +155,48 @@ public class JasperFxOptions : SystemPartBase
     /// JasperFx command name. The default is "run"
     /// </summary>
     public string DefaultCommand { get; set; } = "run";
-}
 
-public class Profile
-{
-    /// <summary>
-    /// Is this application allowed to write source code files? True by default for development time, false by
-    /// default in production mode
-    /// </summary>
-    public bool SourceCodeWritingEnabled { get; set; } = true;
-    
-    /// <summary>
-    /// Default code generation mode to either generate code at runtime (Dynamic), or attempt to load types from the application assembly. Dynamic by default.
-    /// </summary>
-    public TypeLoadMode GeneratedCodeMode { get; set; }
+    private readonly List<LambdaCheck> _checks = new List<LambdaCheck>();
 
-    /// <summary>
-    ///     Whether or not any JasperFx or Critter Stack tool should attempt to create any missing infrastructure objects like database schema objects or message broker queues at runtime. This
-    ///     property is "CreateOrUpdate" by default for more efficient development, but can be set to lower values for production usage.
-    /// </summary>
-    public AutoCreate AutoCreate { get; set; } = AutoCreate.CreateOrUpdate;
+    public void RegisterEnvironmentCheck(string description, Func<IServiceProvider, CancellationToken, Task> action)
+    {
+        _checks.Add(new LambdaCheck(description, action));
+    }
 
-    /// <summary>
-    /// Add an assertion at bootstrapping time to assert that all expected pre-generated
-    /// types from code generation already exist in the application assembly. Default is false.
-    /// </summary>
-    public bool AssertAllPreGeneratedTypesExist { get; set; } = false;
+    public override async Task AssertEnvironmentAsync(IServiceProvider services, EnvironmentCheckResults results, CancellationToken token)
+    {
+        foreach (var file in _requiredFiles)
+        {
+            if (File.Exists(file))
+            {
+                results.RegisterSuccess($"File '{file}' can be found");
+            }
+            else
+            {
+                results.RegisterFailure($"File '{file}' can be found", new FileNotFoundException("Required file cannot be found", file));
+            }
+        }
 
-    /// <summary>
-    ///     Root folder where generated code should be placed. By default, this is the IHostEnvironment.ContentRootPath
-    /// </summary>
-    public string? GeneratedCodeOutputPath { get; set; } = AppContext.BaseDirectory
-        .AppendPath("Internal", "Generated");
+        foreach (var lambdaCheck in _checks)
+        {
+            await lambdaCheck.Assert(services, results, token);
+        }
 
+        if (ActiveProfile.AssertAllPreGeneratedTypesExist)
+        {
+            var collections = services.GetServices<ICodeFileCollection>().ToArray();
+            foreach (var collection in collections)
+            {
+                try
+                {
+                    collection.AssertPreBuildTypesExist(services);
+                    results.RegisterSuccess($"All pre build types exist for {collection}");
+                }
+                catch (Exception e)
+                {
+                    results.RegisterFailure($"All pre build types exist for {collection}", e);
+                }
+            }
+        }
+    }
 }

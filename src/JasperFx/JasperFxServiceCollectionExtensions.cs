@@ -19,6 +19,8 @@ public static class JasperFxServiceCollectionExtensions
     /// <returns></returns>
     public static IServiceCollection AddJasperFx(this IServiceCollection services, Action<JasperFxOptions>? configure = null)
     {
+        bool exists = services.Any(x => !x.IsKeyedService && x.ServiceType == typeof(JasperFxOptions));
+        
         var optionsBuilder = services.AddOptions<JasperFxOptions>();
         if (configure != null)
         {
@@ -27,13 +29,16 @@ public static class JasperFxServiceCollectionExtensions
         
         services.TryAddSingleton<IHostEnvironment, HostingEnvironment>();
         
-        optionsBuilder.PostConfigure<IHostEnvironment>((o, e) => o.ReadHostEnvironment(e));
-        services.AddSingleton<JasperFxOptions>(s =>
+        if (!exists)
         {
-            return s.GetRequiredService<IOptions<JasperFxOptions>>().Value;
-        });
+            optionsBuilder.PostConfigure<IHostEnvironment>((o, e) => o.ReadHostEnvironment(e));
+            services.AddSingleton<JasperFxOptions>(s =>
+            {
+                return s.GetRequiredService<IOptions<JasperFxOptions>>().Value;
+            });
 
-        services.AddSingleton<ISystemPart>(s => s.GetRequiredService<JasperFxOptions>());
+            services.AddSingleton<ISystemPart>(s => s.GetRequiredService<JasperFxOptions>());
+        }
         
         services.TryAddScoped<ICommandCreator, DependencyInjectionCommandCreator>();
 
