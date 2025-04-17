@@ -1,3 +1,4 @@
+using JasperFx.CommandLine.Descriptions;
 using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
@@ -74,7 +75,7 @@ public static class EnvironmentChecker
         
         list.AddRange(services.GetServices<IStatefulResource>().Select(x => new ResourceEnvironmentCheck(x)));
 
-        foreach (var source in services.GetServices<IStatefulResourceSource>())
+        foreach (var source in services.GetServices<ISystemPart>())
         {
             foreach (var resource in await source.FindResources())
             {

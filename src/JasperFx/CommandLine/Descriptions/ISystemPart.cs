@@ -1,4 +1,5 @@
 using JasperFx.Core.Descriptors;
+using JasperFx.Resources;
 
 namespace JasperFx.CommandLine.Descriptions;
 
@@ -16,6 +17,8 @@ public interface ISystemPart
     string Title { get; }
     
     Task WriteToConsole();
+    
+    ValueTask<IReadOnlyList<IStatefulResource>> FindResources();
 }
 
 public abstract class SystemPartBase : ISystemPart
@@ -33,5 +36,10 @@ public abstract class SystemPartBase : ISystemPart
         OptionDescriptionWriter.Write(description);
 
         return Task.CompletedTask;
+    }
+
+    public virtual ValueTask<IReadOnlyList<IStatefulResource>> FindResources()
+    {
+        return new ValueTask<IReadOnlyList<IStatefulResource>>([]);
     }
 }

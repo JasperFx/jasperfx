@@ -13,11 +13,11 @@ public class ResourceSetupHostService : IHostedService
 {
     private readonly ILogger<ResourceSetupHostService> _logger;
     private readonly ResourceSetupOptions _options;
-    private readonly IStatefulResourceSource[] _sources;
+    private readonly ISystemPart[] _parts;
 
     public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<ISystemPart> parts, ILogger<ResourceSetupHostService> logger)
     {
-        _sources = parts.OfType<IStatefulResourceSource>().ToArray();
+        _parts = parts.ToArray();
         _options = options;
         _logger = logger;
     }
@@ -27,7 +27,7 @@ public class ResourceSetupHostService : IHostedService
         var list = new List<Exception>();
         var resources = new List<IStatefulResource>();
 
-        foreach (var source in _sources)
+        foreach (var source in _parts)
         {
             try
             {

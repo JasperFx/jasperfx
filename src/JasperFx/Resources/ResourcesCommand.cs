@@ -164,7 +164,7 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
         string? resourceName)
     {
         var list = new List<IStatefulResource>();
-        var statefulResourceSources = services.GetServices<ISystemPart>().OfType<IStatefulResourceSource>().ToArray();
+        var statefulResourceSources = services.GetServices<ISystemPart>().ToArray();
         foreach (var source in statefulResourceSources)
         {
             var sources = await source.FindResources();

@@ -28,16 +28,17 @@ namespace CommandLineTests.Descriptions
             public string Name { get; set; }
         }
 
-        public class DescribedPart : ISystemPart
+        public class DescribedPart : SystemPartBase
         {
+            public DescribedPart() : base(Guid.NewGuid().ToString())
+            {
+            }
+
             public string Title { get; set; } = Guid.NewGuid().ToString();
             public string Key { get; set; } = Guid.NewGuid().ToString();
             public string Body { get; set; } = Guid.NewGuid().ToString();
 
-            public virtual Task WriteToConsole()
-            {
-                return Task.CompletedTask;
-            }
+
         }
 
         public class DescribedAndTablePart : DescribedPart, IDescribesProperties

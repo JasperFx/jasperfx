@@ -9,7 +9,7 @@ using Spectre.Console.Rendering;
 
 namespace CommandLineTests.Resources;
 
-public abstract class ResourceCommandContext : SystemPartBase, IStatefulResourceSource
+public abstract class ResourceCommandContext : SystemPartBase
 {
     private IServiceCollection _services = new ServiceCollection();
     protected readonly List<IStatefulResource> AllResources = new();
@@ -19,8 +19,8 @@ public abstract class ResourceCommandContext : SystemPartBase, IStatefulResource
     protected ResourceCommandContext() : base(nameof(ResourceCommandContext))
     {
     }
-    
-    public ValueTask<IReadOnlyList<IStatefulResource>> FindResources()
+
+    public override ValueTask<IReadOnlyList<IStatefulResource>> FindResources()
     {
         return new ValueTask<IReadOnlyList<IStatefulResource>>(_resources);
     }
@@ -93,7 +93,6 @@ public abstract class ResourceCommandContext : SystemPartBase, IStatefulResource
             _services.AddSingleton<ISystemPart>(this);
         }
         
-        _services.AddSingleton<IStatefulResource>(resource);
         return resource;
     }
         
@@ -116,7 +115,7 @@ public abstract class ResourceCommandContext : SystemPartBase, IStatefulResource
         return resource;
     }
 
-    public class ResourceCollection : SystemPartBase, IStatefulResourceSource
+    public class ResourceCollection : SystemPartBase
     {
         private readonly ResourceCommandContext _parent;
 
@@ -135,7 +134,7 @@ public abstract class ResourceCommandContext : SystemPartBase, IStatefulResource
             return resource;
         }
 
-        ValueTask<IReadOnlyList<IStatefulResource>> IStatefulResourceSource.FindResources()
+        public override ValueTask<IReadOnlyList<IStatefulResource>> FindResources()
         {
             return new ValueTask<IReadOnlyList<IStatefulResource>>(Resources);
         }

@@ -1,4 +1,6 @@
-﻿namespace JasperFx.Resources;
+﻿using JasperFx.CommandLine.Descriptions;
+
+namespace JasperFx.Resources;
 
 public class ResourceSetupException : Exception
 {
@@ -8,8 +10,8 @@ public class ResourceSetupException : Exception
     {
     }
 
-    public ResourceSetupException(IStatefulResourceSource source, Exception ex) : base(
-        $"Failed to execute resource source {source}", ex)
+    public ResourceSetupException(ISystemPart systemPart, Exception ex) : base(
+        $"Failed to build resources from system part {systemPart}", ex)
     {
     }
 }

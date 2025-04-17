@@ -1,3 +1,4 @@
+using JasperFx.CommandLine.Descriptions;
 using JasperFx.Environment;
 using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
@@ -76,7 +77,7 @@ namespace CommandLineTests.Environment
             resource.Name.Returns("Envelopes");
             resource.Type.Returns("Database");
 
-            var collection = Substitute.For<IStatefulResourceSource>();
+            var collection = Substitute.For<ISystemPart>();
             collection.FindResources().Returns(new List<IStatefulResource> { resource });
             theServices.AddSingleton(collection);
             
@@ -91,7 +92,7 @@ namespace CommandLineTests.Environment
             resource.Type.Returns("Database");
             resource.Check(Arg.Any<CancellationToken>()).Throws(new DivideByZeroException());
             
-            var collection = Substitute.For<IStatefulResourceSource>();
+            var collection = Substitute.For<ISystemPart>();
             collection.FindResources().Returns(new List<IStatefulResource> { resource });
             theServices.AddSingleton(collection);
             
