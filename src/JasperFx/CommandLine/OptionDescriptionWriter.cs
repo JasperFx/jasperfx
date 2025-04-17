@@ -15,7 +15,16 @@ public static class OptionDescriptionWriter
         var tree = new Tree(description.Subject);
         foreach (var property in description.Properties)
         {
-            tree.AddNode($"{property.Name} = {property.Value}");
+            tree.AddNode($"[blue]{property.Name.EscapeMarkup()}[/]: {property.Value}");
+        }
+
+        foreach (var child in description.Children)
+        {
+            var node = tree.AddNode(child.Key);
+            foreach (var property in child.Value.Properties)
+            {
+                node.AddNode($"[blue]{property.Name.EscapeMarkup()}[/]: {property.Value}");
+            }
         }
         
         // if (description.Properties.Any())
