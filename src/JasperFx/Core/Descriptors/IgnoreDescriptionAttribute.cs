@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 /// <summary>
 /// Just tells the Description to ignore this property when reading property values

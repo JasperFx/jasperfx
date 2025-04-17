@@ -1,6 +1,6 @@
 using System.Reflection;
+using JasperFx.CommandLine.TextualDisplays;
 using JasperFx.Core;
-using JasperFx.Core.Descriptions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -168,7 +168,7 @@ public class ReferencedAssemblies : IDescribedSystemPart, IWriteToConsole
     // enhanced displays
     public Task WriteToConsole()
     {
-        var description = new Description("Referenced Assemblies");
+        var description = new TextualDisplay("Referenced Assemblies");
         var table = description.AddTable();
         table.AddColumn("Assembly Name", textAlign:Justify.Left);
         table.AddColumn("Version");

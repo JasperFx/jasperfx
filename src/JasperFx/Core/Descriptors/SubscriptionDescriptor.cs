@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 public class SubscriptionDescriptor : OptionsDescription
 {

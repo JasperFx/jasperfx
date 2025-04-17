@@ -1,4 +1,4 @@
-using JasperFx.Core.Descriptions;
+using JasperFx.Core.Descriptors;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Table = Spectre.Console.Table;

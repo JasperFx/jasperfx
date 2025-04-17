@@ -1,6 +1,6 @@
 #nullable enable
 using System.Diagnostics.CodeAnalysis;
-using JasperFx.Core.Descriptions;
+using JasperFx.Core.Descriptors;
 
 namespace JasperFx.Events.Projections;
 

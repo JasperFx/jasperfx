@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 /// <summary>
 /// Just a DTO that represents a .NET Type. This is strictly used in diagnostics

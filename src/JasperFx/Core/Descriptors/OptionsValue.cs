@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Text.Json.Serialization;
 using JasperFx.Core.Reflection;
 
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 public class OptionsValue
 {

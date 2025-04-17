@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 /// <summary>
 /// Just gives an object more control over how it creates an OptionsDescription

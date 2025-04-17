@@ -1,8 +1,9 @@
-using JasperFx.CommandLine.Descriptions;
+using JasperFx.Core;
+using JasperFx.Core.Descriptors;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.CommandLine.TextualDisplays;
 
 /*
  * TODOs
@@ -16,11 +17,11 @@ namespace JasperFx.Core.Descriptions;
  * Bullet lists
  */
 
-public class Description
+public class TextualDisplay
 {
     public string Title { get; }
 
-    public Description(string title)
+    public TextualDisplay(string title)
     {
         Title = title;
     }
@@ -37,7 +38,7 @@ public class Description
         }
     }
 
-    public static void WriteManyToConsole(IEnumerable<Description> descriptions)
+    public static void WriteManyToConsole(IEnumerable<TextualDisplay> descriptions)
     {
         
     }

@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 public enum SubscriptionType
 {

@@ -1,4 +1,4 @@
-using JasperFx.Core.Descriptions;
+using JasperFx.Core.Descriptors;
 using Shouldly;
 
 namespace CoreTests.Descriptions;

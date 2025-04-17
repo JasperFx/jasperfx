@@ -1,6 +1,7 @@
+using JasperFx.CommandLine.TextualDisplays;
 using Spectre.Console;
 
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 public abstract class Fragment 
 {

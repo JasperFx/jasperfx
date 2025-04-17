@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 /// <summary>
 /// Service to create a description of the EventStoreUsage in the application

@@ -1,4 +1,4 @@
-using JasperFx.Core.Descriptions;
+using JasperFx.Core.Descriptors;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Subscriptions;

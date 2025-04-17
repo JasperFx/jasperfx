@@ -1,6 +1,6 @@
 using JasperFx.Core.Reflection;
 
-namespace JasperFx.Core.Descriptions;
+namespace JasperFx.Core.Descriptors;
 
 public class EventStoreUsage : OptionsDescription
 {

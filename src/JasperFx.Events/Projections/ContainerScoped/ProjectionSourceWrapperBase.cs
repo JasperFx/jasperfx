@@ -1,5 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
-using JasperFx.Core.Descriptions;
+using JasperFx.Core.Descriptors;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.DependencyInjection;
