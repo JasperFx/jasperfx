@@ -1,5 +1,6 @@
 using JasperFx;
 using JasperFx.CodeGeneration;
+using JasperFx.CommandLine.Descriptions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
@@ -62,6 +63,8 @@ public class JasperFxOptionsTests
 
         var options = host.Services.GetRequiredService<JasperFxOptions>();
         options.ActiveProfile.ShouldBe(options.Development);
+        
+        host.Services.GetServices<ISystemPart>().OfType<JasperFxOptions>().Any().ShouldBeTrue();
     }
     
     [Fact]

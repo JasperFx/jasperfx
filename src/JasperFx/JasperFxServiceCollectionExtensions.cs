@@ -1,5 +1,6 @@
 using System.Reflection;
 using JasperFx.CommandLine;
+using JasperFx.CommandLine.Descriptions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -31,6 +32,8 @@ public static class JasperFxServiceCollectionExtensions
         {
             return s.GetRequiredService<IOptions<JasperFxOptions>>().Value;
         });
+
+        services.AddSingleton<ISystemPart>(s => s.GetRequiredService<JasperFxOptions>());
         
         services.TryAddScoped<ICommandCreator, DependencyInjectionCommandCreator>();
 

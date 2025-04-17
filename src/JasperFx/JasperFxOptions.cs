@@ -1,12 +1,14 @@
 using System.Reflection;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine;
+using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
+using JasperFx.Core.Descriptors;
 using Microsoft.Extensions.Hosting;
 
 namespace JasperFx;
 
-public class JasperFxOptions
+public class JasperFxOptions : ISystemPart
 {
     public JasperFxOptions()
     {
@@ -17,6 +19,7 @@ public class JasperFxOptions
     /// Resource settings for development time. Defaults are CreateOrUpdate
     /// for resources, Dynamic for code generation
     /// </summary>
+    [ChildDescription]
     public Profile Development { get; private set; } = new Profile
     {
         AutoCreate = AutoCreate.CreateOrUpdate,
@@ -29,6 +32,7 @@ public class JasperFxOptions
     /// for resources, Dynamic for code generation. Change these to optimize
     /// code start times at production start
     /// </summary>
+    [ChildDescription]
     public Profile Production { get; private set; } = new Profile
     {
         AutoCreate = AutoCreate.CreateOrUpdate,
@@ -36,6 +40,7 @@ public class JasperFxOptions
         SourceCodeWritingEnabled = true
     };
     
+    [ChildDescription]
     public Profile ActiveProfile { get; private set; }
 
     /// <summary>
@@ -134,6 +139,8 @@ public class JasperFxOptions
     /// JasperFx command name. The default is "run"
     /// </summary>
     public string DefaultCommand { get; set; } = "run";
+
+    string ISystemPart.Title => nameof(JasperFxOptions);
 }
 
 public class Profile
