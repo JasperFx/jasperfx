@@ -3,19 +3,17 @@ using Spectre.Console;
 
 namespace JasperFx.CommandLine.Descriptions;
 
-internal class ConfigurationPreview : ISystemPart, IWriteToConsole
+internal class ConfigurationPreview : SystemPartBase
 {
     private const string PreviewErrorMessage = "Unable to show a preview of the configuration.";
     private readonly IConfiguration _configuration;
 
-    public ConfigurationPreview(IConfiguration configuration)
+    public ConfigurationPreview(IConfiguration configuration) : base("IConfiguration Preview")
     {
         _configuration = configuration;
     }
 
-    public string Title { get; } = "IConfiguration Preview";
-
-    public Task WriteToConsole()
+    public override Task WriteToConsole()
     {
         if (!(_configuration is IConfigurationRoot root))
         {

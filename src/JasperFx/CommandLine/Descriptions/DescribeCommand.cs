@@ -22,8 +22,13 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
         var config = host.Services.GetRequiredService<IConfiguration>();
         var configurationPreview = new ConfigurationPreview(config);
 
+<<<<<<< HEAD
         var hosting = host.Services.GetService<IHostEnvironment>()!;
         var about = new AboutThisAppPart(hosting, config);
+=======
+        var hosting = host.Services.GetService<IHostEnvironment>();
+        var about = new AboutThisAppPart(hosting);
+>>>>>>> cdd0786 (folding IWriteToConsole under ISystemPart, new SystemPartBase base type)
         var builtInDescribers = new ISystemPart[] { about, configurationPreview, new ReferencedAssemblies() };
 
 
@@ -101,15 +106,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 
             AnsiConsole.Write(rule);
 
-            if (part is IWriteToConsole o)
-            {
-                await o.WriteToConsole();
-            }
-            else
-            {
-                var description = OptionsDescription.For(part);
-                OptionDescriptionWriter.Write(description);
-            }
+            await part.WriteToConsole();
 
             Console.WriteLine();
             Console.WriteLine();
@@ -117,19 +114,16 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
     }
 }
 
-public class AboutThisAppPart : ISystemPart, IWriteToConsole
+public class AboutThisAppPart : SystemPartBase
 {
     private readonly IHostEnvironment _host;
 
-    public AboutThisAppPart(IHostEnvironment host, IConfiguration configuration)
+    public AboutThisAppPart(IHostEnvironment host) : base("About " + Assembly.GetEntryAssembly()?.GetName().Name ?? "This Application")
     {
         _host = host;
-        Title = "About " + Assembly.GetEntryAssembly()?.GetName().Name ?? "This Application";
     }
 
-    public string Title { get; }
-
-    public Task WriteToConsole()
+    public override Task WriteToConsole()
     {
         var table = new Table
         {
@@ -154,14 +148,13 @@ public class AboutThisAppPart : ISystemPart, IWriteToConsole
     }
 }
 
-public class ReferencedAssemblies : ISystemPart, IWriteToConsole
+public class ReferencedAssemblies : SystemPartBase
 {
-    public string Title { get; } = "Referenced Assemblies";
+    public ReferencedAssemblies() : base("Referenced Assemblies")
+    {
+    }
     
-    // If you're only writing to the console, you can implement the
-    // IWriteToConsole method and optionally use Spectre.Console for
-    // enhanced displays
-    public Task WriteToConsole()
+    public override Task WriteToConsole()
     {
         var description = new TextualDisplay("Referenced Assemblies");
         var table = description.AddTable();

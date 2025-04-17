@@ -8,9 +8,9 @@ using Microsoft.Extensions.Hosting;
 
 namespace JasperFx;
 
-public class JasperFxOptions : ISystemPart
+public class JasperFxOptions : SystemPartBase
 {
-    public JasperFxOptions()
+    public JasperFxOptions() : base("JasperFx Options")
     {
         ActiveProfile = Development;
     }
@@ -139,8 +139,6 @@ public class JasperFxOptions : ISystemPart
     /// JasperFx command name. The default is "run"
     /// </summary>
     public string DefaultCommand { get; set; } = "run";
-
-    string ISystemPart.Title => nameof(JasperFxOptions);
 }
 
 public class Profile

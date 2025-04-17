@@ -1,3 +1,5 @@
+using JasperFx.Core.Descriptors;
+
 namespace JasperFx.CommandLine.Descriptions;
 
 /// <summary>
@@ -12,4 +14,24 @@ public interface ISystemPart
     ///     A descriptive title to be shown in the rendered output
     /// </summary>
     string Title { get; }
+    
+    Task WriteToConsole();
+}
+
+public abstract class SystemPartBase : ISystemPart
+{
+    public string Title { get; }
+
+    protected SystemPartBase(string title)
+    {
+        Title = title;
+    }
+
+    public virtual Task WriteToConsole()
+    {
+        var description = OptionsDescription.For(this);
+        OptionDescriptionWriter.Write(description);
+
+        return Task.CompletedTask;
+    }
 }

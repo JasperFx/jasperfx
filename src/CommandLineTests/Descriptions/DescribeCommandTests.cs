@@ -33,13 +33,18 @@ namespace CommandLineTests.Descriptions
             public string Title { get; set; } = Guid.NewGuid().ToString();
             public string Key { get; set; } = Guid.NewGuid().ToString();
             public string Body { get; set; } = Guid.NewGuid().ToString();
+
+            public virtual Task WriteToConsole()
+            {
+                return Task.CompletedTask;
+            }
         }
 
-        public class DescribedAndTablePart : DescribedPart, IWriteToConsole, IDescribesProperties
+        public class DescribedAndTablePart : DescribedPart, IDescribesProperties
         {
             public bool DidWriteToConsole { get; set; }
 
-            public Task WriteToConsole()
+            public override Task WriteToConsole()
             {
                 DidWriteToConsole = true;
 
@@ -59,9 +64,9 @@ namespace CommandLineTests.Descriptions
             }
         }
 
-        public class ConsoleWritingPart : DescribedPart, IWriteToConsole
+        public class ConsoleWritingPart : DescribedPart
         {
-            public Task WriteToConsole()
+            public override Task WriteToConsole()
             {
                 DidWriteToConsole = true;
 
