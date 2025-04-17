@@ -1,4 +1,5 @@
 using JasperFx.CommandLine;
+using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -162,8 +163,9 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
     internal static async Task<IList<IStatefulResource>> FindResources(IServiceProvider services, string? typeName,
         string? resourceName)
     {
-        var list = services.GetServices<IStatefulResource>().ToList();
-        foreach (var source in services.GetServices<IStatefulResourceSource>())
+        var list = new List<IStatefulResource>();
+        var statefulResourceSources = services.GetServices<ISystemPart>().OfType<IStatefulResourceSource>().ToArray();
+        foreach (var source in statefulResourceSources)
         {
             var sources = await source.FindResources();
             list.AddRange(sources);

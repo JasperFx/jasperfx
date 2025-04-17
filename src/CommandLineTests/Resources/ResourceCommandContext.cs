@@ -1,3 +1,4 @@
+using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,11 +9,18 @@ using Spectre.Console.Rendering;
 
 namespace CommandLineTests.Resources;
 
-public abstract class ResourceCommandContext
+public abstract class ResourceCommandContext : ISystemPart, IStatefulResourceSource
 {
     private IServiceCollection _services = new ServiceCollection();
-    protected readonly List<IStatefulResource> AllResources = new List<IStatefulResource>();
+    protected readonly List<IStatefulResource> AllResources = new();
     protected ResourceInput theInput = new ResourceInput();
+    private readonly List<IStatefulResource> _resources = new();
+    
+    public string Title => nameof(ResourceCommandContext);
+    public ValueTask<IReadOnlyList<IStatefulResource>> FindResources()
+    {
+        return new ValueTask<IReadOnlyList<IStatefulResource>>(_resources);
+    }
 
     internal void CopyResources(IServiceCollection services)
     {
@@ -66,12 +74,22 @@ public abstract class ResourceCommandContext
         var collection = new ResourceCollection(this);
         configure(collection);
 
-        _services.AddSingleton<IStatefulResourceSource>(collection);
+        AllResources.Fill(collection.Resources);
+
+        _services.AddSingleton<ISystemPart>(collection);
     }
 
     internal IStatefulResource AddResource(string name, string type = "Resource")
     {
         var resource = CreateResource(name, type);
+        
+        _resources.Add(resource);
+
+        if (!_services.Any(x => !x.IsKeyedService && x.ImplementationInstance == this))
+        {
+            _services.AddSingleton<ISystemPart>(this);
+        }
+        
         _services.AddSingleton<IStatefulResource>(resource);
         return resource;
     }
@@ -84,31 +102,41 @@ public abstract class ResourceCommandContext
             Type = type,
             DependencyNames = dependencyNames
         };
-        _services.AddSingleton<IStatefulResource>(resource);
+        
+        _resources.Add(resource);
+
+        if (!_services.Any(x => !x.IsKeyedService && x.ImplementationInstance == this))
+        {
+            _services.AddSingleton<ISystemPart>(this);
+        }
+
         return resource;
     }
 
-    public class ResourceCollection : IStatefulResourceSource
+    public class ResourceCollection : ISystemPart, IStatefulResourceSource
     {
         private readonly ResourceCommandContext _parent;
-        private readonly List<IStatefulResource> _resources = new List<IStatefulResource>();
 
         public ResourceCollection(ResourceCommandContext parent)
         {
             _parent = parent;
         }
 
+        public List<IStatefulResource> Resources { get; } = [];
+
         public IStatefulResource Add(string name, string type = "Resource")
         {
             var resource = _parent.CreateResource(name, type);
-            _resources.Add(resource);
+            Resources.Add(resource);
 
             return resource;
         }
 
+        public string Title => Guid.NewGuid().ToString();
+
         ValueTask<IReadOnlyList<IStatefulResource>> IStatefulResourceSource.FindResources()
         {
-            return new ValueTask<IReadOnlyList<IStatefulResource>>(_resources);
+            return new ValueTask<IReadOnlyList<IStatefulResource>>(Resources);
         }
     }
 }

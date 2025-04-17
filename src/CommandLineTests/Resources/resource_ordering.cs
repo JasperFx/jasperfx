@@ -18,8 +18,6 @@ public class resource_ordering : ResourceCommandContext
     
         var resources = await applyTheResourceFiltering();
     
-        resources.Count.ShouldBe(6);
-        
         resources.Last().ShouldBe(two);
 
         resources.Select(x => x.Name).ShouldBe(new string[] { "blue", "red", "ar", "tx", "one", "two" });

@@ -27,7 +27,7 @@ namespace CommandLineTests.Resources
             var colors = resources.Select(x => x.Name).OrderBy(x => x)
                 .ToList();
             
-            colors.ShouldHaveTheSameElementsAs("blue", "green", "orange", "purple", "red", "white");
+            colors.ShouldBe(["blue", "green", "orange", "purple", "red", "white"]);
         }
         
         [Fact]

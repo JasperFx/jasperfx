@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Hosting;
+﻿using JasperFx.CommandLine.Descriptions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Resources;
@@ -12,14 +13,11 @@ public class ResourceSetupHostService : IHostedService
 {
     private readonly ILogger<ResourceSetupHostService> _logger;
     private readonly ResourceSetupOptions _options;
-    private readonly IStatefulResource[] _resources;
     private readonly IStatefulResourceSource[] _sources;
 
-    public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<IStatefulResource> resources,
-        IEnumerable<IStatefulResourceSource> sources, ILogger<ResourceSetupHostService> logger)
+    public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<ISystemPart> parts, ILogger<ResourceSetupHostService> logger)
     {
-        _resources = resources.ToArray();
-        _sources = sources.ToArray();
+        _sources = parts.OfType<IStatefulResourceSource>().ToArray();
         _options = options;
         _logger = logger;
     }
@@ -27,7 +25,7 @@ public class ResourceSetupHostService : IHostedService
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var list = new List<Exception>();
-        var resources = new List<IStatefulResource>(_resources);
+        var resources = new List<IStatefulResource>();
 
         foreach (var source in _sources)
         {
