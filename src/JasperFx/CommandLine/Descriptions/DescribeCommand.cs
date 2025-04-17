@@ -21,15 +21,17 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 
         var hosting = host.Services.GetService<IHostEnvironment>()!;
         var about = new AboutThisAppPart(hosting, config);
-        var builtInDescribers = new IDescribedSystemPart[] { about, configurationPreview, new ReferencedAssemblies() };
+        var builtInDescribers = new ISystemPart[] { about, configurationPreview, new ReferencedAssemblies() };
 
-        var factories = host.Services.GetServices<IDescribedSystemPartFactory>();
 
-        var parts = host.Services.GetServices<IDescribedSystemPart>()
-            .Concat(factories.SelectMany(x => x.Parts()))
-            .Concat(builtInDescribers).ToArray();
+        var parts =   builtInDescribers
+            .Concat(host.Services.GetServices<ISystemPart>())
+            .ToArray();
 
-        foreach (var partWithServices in parts.OfType<IRequiresServices>()) partWithServices.Resolve(host.Services);
+        foreach (var partWithServices in parts.OfType<IRequiresServices>())
+        {
+            partWithServices.Resolve(host.Services);
+        }
 
         if (input.ListFlag)
         {
@@ -79,7 +81,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
     }
 
 
-    public static async Task WriteText(IDescribedSystemPart[] parts, TextWriter writer)
+    public static async Task WriteText(ISystemPart[] parts, TextWriter writer)
     {
         foreach (var part in parts)
         {
@@ -91,7 +93,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
         }
     }
 
-    public static async Task WriteToConsole(IDescribedSystemPart[] parts)
+    public static async Task WriteToConsole(ISystemPart[] parts)
     {
         foreach (var part in parts)
         {
@@ -117,9 +119,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
     }
 }
 
-#region sample_AboutThisAppPart
-
-public class AboutThisAppPart : IDescribedSystemPart
+public class AboutThisAppPart : ISystemPart
 {
     private readonly IHostEnvironment _host;
 
@@ -145,11 +145,7 @@ public class AboutThisAppPart : IDescribedSystemPart
     }
 }
 
-#endregion
-
-#region sample_ReferencedAssemblies
-
-public class ReferencedAssemblies : IDescribedSystemPart, IWriteToConsole
+public class ReferencedAssemblies : ISystemPart, IWriteToConsole
 {
     public string Title { get; } = "Referenced Assemblies";
 
@@ -181,5 +177,3 @@ public class ReferencedAssemblies : IDescribedSystemPart, IWriteToConsole
         return Task.CompletedTask;
     }
 }
-
-#endregion

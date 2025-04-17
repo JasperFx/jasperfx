@@ -29,6 +29,7 @@
         "NugetPack",
         "NugetPush",
         "Restore",
+        "SmokeTestCommands",
         "Test",
         "TestCodegen",
         "TestCommandLine",

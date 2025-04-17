@@ -3,7 +3,7 @@ using Spectre.Console;
 
 namespace JasperFx.CommandLine.Descriptions;
 
-internal class ConfigurationPreview : IDescribedSystemPart, IWriteToConsole
+internal class ConfigurationPreview : ISystemPart, IWriteToConsole
 {
     private const string PreviewErrorMessage = "Unable to show a preview of the configuration.";
     private readonly IConfiguration _configuration;

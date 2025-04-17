@@ -10,30 +10,9 @@ public static class DescriptionExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <param name="described"></param>
-    public static void AddDescription(this IServiceCollection services, IDescribedSystemPart described)
+    public static void AddDescription(this IServiceCollection services, ISystemPart described)
     {
         services.AddSingleton(described);
-    }
-
-    /// <summary>
-    ///     Register a custom description part factory
-    /// </summary>
-    /// <param name="services"></param>
-    /// <param name="factory"></param>
-    public static void AddDescriptionFactory(this IServiceCollection services, IDescribedSystemPartFactory factory)
-    {
-        services.AddSingleton(factory);
-    }
-
-    /// <summary>
-    ///     Register a custom description part factory
-    /// </summary>
-    /// <param name="services"></param>
-    /// <typeparam name="T"></typeparam>
-    public static void AddDescriptionFactory<T>(this IServiceCollection services)
-        where T : class, IDescribedSystemPartFactory
-    {
-        services.AddSingleton<IDescribedSystemPartFactory, T>();
     }
 
     /// <summary>
@@ -41,9 +20,9 @@ public static class DescriptionExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <typeparam name="T"></typeparam>
-    public static void AddDescription<T>(this IServiceCollection services) where T : class, IDescribedSystemPart
+    public static void AddDescription<T>(this IServiceCollection services) where T : class, ISystemPart
     {
-        services.AddSingleton<IDescribedSystemPart, T>();
+        services.AddSingleton<ISystemPart, T>();
     }
 
     /// <summary>
@@ -74,7 +53,7 @@ public static class DescriptionExtensions
     {
         var part = new LambdaDescribedSystemPart<T>(title, describe);
 
-        services.AddSingleton<IDescribedSystemPart>(part);
+        services.AddSingleton<ISystemPart>(part);
     }
 
     /// <summary>

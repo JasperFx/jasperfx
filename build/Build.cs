@@ -20,7 +20,7 @@ partial class Build : NukeBuild
     ///   - Microsoft VisualStudio     https://nuke.build/visualstudio
     ///   - Microsoft VSCode           https://nuke.build/vscode
 
-    public static int Main () => Execute<Build>(x => x.Test);
+    public static int Main () => Execute<Build>(x => x.Test, x => x.SmokeTestCommands);
     
     [Solution(GenerateProjects = true)] readonly Solution Solution;
 
@@ -94,6 +94,12 @@ partial class Build : NukeBuild
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
+        });
+
+    Target SmokeTestCommands => _ => _.DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNet("run --framework net9.0 -- describe", Solution.TestHarnesses.CommandLineRunner.Directory);
         });
 
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";

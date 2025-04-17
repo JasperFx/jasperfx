@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.CommandLine.Descriptions;
 
-internal class LambdaDescribedSystemPart<T> : IDescribedSystemPart, IRequiresServices
+internal class LambdaDescribedSystemPart<T> : ISystemPart, IRequiresServices
 {
     private readonly Func<T, TextWriter, Task> _write;
     private T? _service;
