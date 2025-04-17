@@ -1,11 +1,14 @@
 using System.Reflection;
 using JasperFx.CommandLine.TextualDisplays;
 using JasperFx.Core;
+using JasperFx.Core.Descriptors;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using Table = Spectre.Console.Table;
+using TableColumn = Spectre.Console.TableColumn;
 
 namespace JasperFx.CommandLine.Descriptions;
 
@@ -83,14 +86,8 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 
     public static async Task WriteText(ISystemPart[] parts, TextWriter writer)
     {
-        foreach (var part in parts)
-        {
-            await writer.WriteLineAsync("## " + part.Title);
-            await writer.WriteLineAsync();
-            await part.Write(writer);
-            await writer.WriteLineAsync();
-            await writer.WriteLineAsync();
-        }
+        // TODO -- make this record too
+        await WriteToConsole(parts);
     }
 
     public static async Task WriteToConsole(ISystemPart[] parts)
@@ -110,7 +107,8 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
             }
             else
             {
-                await part.Write(Console.Out);
+                var description = OptionsDescription.For(part);
+                OptionDescriptionWriter.Write(description);
             }
 
             Console.WriteLine();
@@ -119,7 +117,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
     }
 }
 
-public class AboutThisAppPart : ISystemPart
+public class AboutThisAppPart : ISystemPart, IWriteToConsole
 {
     private readonly IHostEnvironment _host;
 
@@ -131,16 +129,27 @@ public class AboutThisAppPart : ISystemPart
 
     public string Title { get; }
 
-    public Task Write(TextWriter writer)
+    public Task WriteToConsole()
     {
-        var entryAssembly = Assembly.GetEntryAssembly();
-        writer.WriteLine($"          Entry Assembly: {entryAssembly!.GetName().Name}");
-        writer.WriteLine($"                 Version: {entryAssembly.GetName().Version}");
-        writer.WriteLine($"        Application Name: {_host.ApplicationName}");
-        writer.WriteLine($"             Environment: {_host.EnvironmentName}");
-        writer.WriteLine($"       Content Root Path: {_host.ContentRootPath}");
-        writer.WriteLine($"AppContext.BaseDirectory: {AppContext.BaseDirectory}");
+        var table = new Table
+        {
+            Border = new NoTableBorder(),
+            ShowHeaders = false
+        };
 
+        table.AddColumn(new TableColumn("Name").RightAligned());
+        table.AddColumn(new TableColumn("Value"));
+
+        var entryAssembly = Assembly.GetEntryAssembly();
+        table.AddRow("Entry Assembly: ", entryAssembly.GetName().Name);
+        table.AddRow("Version: ", entryAssembly.GetName().Version.ToString());
+        table.AddRow("Application Name: ", _host.ApplicationName);
+        table.AddRow("Environment: ",_host.EnvironmentName);
+        table.AddRow("Content Root Path: ", _host.ContentRootPath);
+        table.AddRow("AppContext.BaseDirectory: ", AppContext.BaseDirectory);
+
+        AnsiConsole.Write(table);
+        
         return Task.CompletedTask;
     }
 }
@@ -148,17 +157,7 @@ public class AboutThisAppPart : ISystemPart
 public class ReferencedAssemblies : ISystemPart, IWriteToConsole
 {
     public string Title { get; } = "Referenced Assemblies";
-
-    // If you're writing to a file, this method will be called to 
-    // write out markdown formatted text
-    public Task Write(TextWriter writer)
-    {
-        var referenced = Assembly.GetEntryAssembly()!.GetReferencedAssemblies();
-        foreach (var assemblyName in referenced) writer.WriteLine("* " + assemblyName);
-
-        return Task.CompletedTask;
-    }
-
+    
     // If you're only writing to the console, you can implement the
     // IWriteToConsole method and optionally use Spectre.Console for
     // enhanced displays

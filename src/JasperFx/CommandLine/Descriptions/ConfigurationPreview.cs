@@ -15,18 +15,6 @@ internal class ConfigurationPreview : ISystemPart, IWriteToConsole
 
     public string Title { get; } = "IConfiguration Preview";
 
-    public async Task Write(TextWriter writer)
-    {
-        if (_configuration is IConfigurationRoot root)
-        {
-            await writer.WriteLineAsync(root.GetDebugView());
-        }
-        else
-        {
-            await writer.WriteLineAsync(PreviewErrorMessage);
-        }
-    }
-
     public Task WriteToConsole()
     {
         if (!(_configuration is IConfigurationRoot root))

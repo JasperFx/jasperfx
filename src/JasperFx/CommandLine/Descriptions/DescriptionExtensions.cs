@@ -10,7 +10,7 @@ public static class DescriptionExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <param name="described"></param>
-    public static void AddDescription(this IServiceCollection services, ISystemPart described)
+    public static void AddSystemPart(this IServiceCollection services, ISystemPart described)
     {
         services.AddSingleton(described);
     }
@@ -20,40 +20,9 @@ public static class DescriptionExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <typeparam name="T"></typeparam>
-    public static void AddDescription<T>(this IServiceCollection services) where T : class, ISystemPart
+    public static void AddSystemPart<T>(this IServiceCollection services) where T : class, ISystemPart
     {
         services.AddSingleton<ISystemPart, T>();
-    }
-
-    /// <summary>
-    ///     Register an JasperFx part description for console diagnostics
-    /// </summary>
-    /// <param name="services"></param>
-    /// <param name="title"></param>
-    /// <param name="describe"></param>
-    /// <typeparam name="T"></typeparam>
-    public static void Describe<T>(this IServiceCollection services, string title, Action<T, TextWriter> describe)
-    {
-        services.DescribeAsync<T>(title, (service, writer) =>
-        {
-            describe(service, writer);
-            return Task.CompletedTask;
-        });
-    }
-
-    /// <summary>
-    ///     Register an JasperFx part description for console diagnostics
-    /// </summary>
-    /// <param name="services"></param>
-    /// <param name="title"></param>
-    /// <param name="describe"></param>
-    /// <typeparam name="T"></typeparam>
-    public static void DescribeAsync<T>(this IServiceCollection services, string title,
-        Func<T, TextWriter, Task> describe)
-    {
-        var part = new LambdaDescribedSystemPart<T>(title, describe);
-
-        services.AddSingleton<ISystemPart>(part);
     }
 
     /// <summary>

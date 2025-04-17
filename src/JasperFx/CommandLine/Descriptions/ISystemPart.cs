@@ -12,11 +12,4 @@ public interface ISystemPart
     ///     A descriptive title to be shown in the rendered output
     /// </summary>
     string Title { get; }
-
-    /// <summary>
-    ///     Write markdown formatted text to describe this system part
-    /// </summary>
-    /// <param name="writer"></param>
-    /// <returns></returns>
-    Task Write(TextWriter writer);
 }

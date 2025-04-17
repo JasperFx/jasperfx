@@ -7,6 +7,19 @@ namespace JasperFx.Core.Descriptors;
 /// </summary>
 public class OptionsDescription
 {
+    /// <summary>
+    /// Derive an OptionsDescription for the target subject. This will honor the IDescribeMyself
+    /// interface if the subject implements that
+    /// </summary>
+    /// <param name="subject"></param>
+    /// <returns></returns>
+    public static OptionsDescription For(object subject)
+    {
+        if (subject is IDescribeMyself describeMyself) return describeMyself.ToDescription();
+
+        return new OptionsDescription(subject);
+    }
+    
     public string Subject { get; set; }
     public List<OptionsValue> Properties { get; set; } = new();
 
