@@ -32,8 +32,8 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         var sp = scope.ServiceProvider;
         var source = sp.GetRequiredService<TSource>();
 
-        ProjectionName = source.Name;
-        ProjectionVersion = source.Version;
+        base.Name = source.Name;
+        base.Version = source.Version;
         ProjectionType = source.ImplementationType;
         Type = source.Type;
         Name = source.Name;
@@ -72,7 +72,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     {
         return
         [
-            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(ProjectionName, ShardName.All, Version), this, this)
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(base.Name, ShardName.All, Version), this, this)
         ];
     }
 

@@ -21,15 +21,15 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     {
         _projection = projection;
         Lifecycle = lifecycle;
-        ProjectionName = projection.GetType().FullNameInCode();
+        base.Name = projection.GetType().FullNameInCode();
 
         Inner = _projection;
 
         // TODO -- unit test this!
-        ProjectionVersion = 1;
+        base.Version = 1;
         if (_projection.GetType().TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
-            ProjectionVersion = att.Version;
+            base.Version = att.Version;
         }
 
         if (projection is ISubscriptionSource subscriptionSource)
@@ -44,9 +44,9 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         if (projection is ProjectionBase source)
         {
             // TODO -- Unit test all of this in JasperFx.Events
-            ProjectionName = source.ProjectionName;
-            ProjectionVersion = source.ProjectionVersion;
-            ProjectionVersion = source.ProjectionVersion;
+            base.Name = source.Name;
+            base.Version = source.Version;
+            base.Version = source.Version;
             
             replaceOptions(source.Options);
 
@@ -81,8 +81,8 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     [ChildDescription]
     public IJasperFxProjection<TOperations> Inner { get; }
 
-    public string Name => ProjectionName;
-    public uint Version => ProjectionVersion;
+    public string Name => base.Name;
+    public uint Version => base.Version;
 
     public Type ProjectionType => _projection.GetType();
 
@@ -103,7 +103,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     {
         return
         [
-            new(Options, ShardRole.Projection, new ShardName(ProjectionName, "All"), this, this)
+            new(Options, ShardRole.Projection, new ShardName(base.Name, "All"), this, this)
         ];
     }
 

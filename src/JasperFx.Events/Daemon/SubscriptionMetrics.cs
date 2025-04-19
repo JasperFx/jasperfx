@@ -29,10 +29,10 @@ public class SubscriptionMetrics: ISubscriptionMetrics
         _databaseName = naming.DatabaseName;
         Name = name;
 
-        var identifier = $"marten.{name.ProjectionOrSubscriptionName.ToLower()}.{name.Key.ToLower()}";
+        var identifier = $"marten.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
         var databaseIdentifier = naming.DatabaseName.EqualsIgnoreCase(naming.DefaultDatabaseName)
             ? identifier
-            : $"{naming.MetricsPrefix}.{naming.DatabaseName.ToLower()}.{name.ProjectionOrSubscriptionName.ToLower()}.{name.Key.ToLower()}";
+            : $"{naming.MetricsPrefix}.{naming.DatabaseName.ToLower()}.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
 
 
         _processed = meter.CreateCounter<long>(

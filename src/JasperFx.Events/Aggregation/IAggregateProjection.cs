@@ -12,7 +12,7 @@ public interface IAggregateProjection
 
     AggregationScope Scope { get; }
 
-    uint ProjectionVersion { get; }
+    uint Version { get; }
 
     Type[] AllEventTypes { get; }
 

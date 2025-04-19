@@ -14,7 +14,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
 
     protected JasperFxMultiStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream)
     {
-        ProjectionName = typeof(TDoc).Name;
+        ((ProjectionBase)this).Name = typeof(TDoc).Name;
     }
 
     public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;

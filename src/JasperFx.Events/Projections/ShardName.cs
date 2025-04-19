@@ -7,19 +7,19 @@ public class ShardName
 {
     public const string All = "All";
 
-    public ShardName(string projectionName, string key, uint version)
+    public ShardName(string projectionName, string shardKey, uint version)
     {
-        ProjectionOrSubscriptionName = projectionName;
-        Key = key;
+        Name = projectionName;
+        ShardKey = shardKey;
         Version = version;
 
         if (version > 1)
         {
-            Identity = $"{projectionName}:V{version}:{key}";
+            Identity = $"{projectionName}:V{version}:{shardKey}";
         }
         else
         {
-            Identity = $"{projectionName}:{key}";
+            Identity = $"{projectionName}:{shardKey}";
         }
         
         if (projectionName == ShardState.HighWaterMark)
@@ -29,7 +29,7 @@ public class ShardName
 
     }
 
-    public ShardName(string projectionName, string key) : this(projectionName, key, 1u)
+    public ShardName(string projectionName, string shardKey) : this(projectionName, shardKey, 1u)
     {
 
     }
@@ -40,7 +40,7 @@ public class ShardName
 
     public ShardName CloneForDatabase(Uri database)
     {
-        return new ShardName(ProjectionOrSubscriptionName, Key, Version) { Database = database };
+        return new ShardName(Name, ShardKey, Version) { Database = database };
     }
 
     public Uri Database { get; set; } = new Uri("database://default");
@@ -48,13 +48,13 @@ public class ShardName
     /// <summary>
     ///     Parent projection name
     /// </summary>
-    public string ProjectionOrSubscriptionName { get; }
+    public string Name { get; }
 
     /// <summary>
     ///     The identity of the shard within the projection. If there is only
     ///     one shard for a projection, this will be "All"
     /// </summary>
-    public string Key { get; }
+    public string ShardKey { get; }
 
     /// <summary>
     ///     {ProjectionName}:{Key}. Single identity string that should be unique within this Marten application

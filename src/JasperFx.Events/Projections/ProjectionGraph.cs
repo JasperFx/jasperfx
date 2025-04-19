@@ -116,7 +116,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
             var wrapper = new ProjectionWrapper<TOperations, TQuerySession>(projection, lifecycle);
             if (projectionName.IsNotEmpty())
             {
-                wrapper.ProjectionName = projectionName;
+                ((ProjectionBase)wrapper).Name = projectionName;
             }
 
             asyncConfiguration?.Invoke(wrapper.Options);
@@ -265,7 +265,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     public ShardName[] AsyncShardsPublishingType(Type aggregationType)
     {
         var sources = All.Where(x => x.Lifecycle == ProjectionLifecycle.Async && x.PublishedTypes().Contains(aggregationType)).Select(x => x.Name).ToArray();
-        return _asyncShards.Value.Values.Where(x => sources.Contains(x.Name.ProjectionOrSubscriptionName)).Select(x => x.Name).ToArray();
+        return _asyncShards.Value.Values.Where(x => sources.Contains(x.Name.Name)).Select(x => x.Name).ToArray();
     }
     
     public bool TryFindAsyncShard(string projectionOrShardName, [NotNullWhen(true)]out AsyncShard<TOperations, TQuerySession>? shard)
@@ -310,7 +310,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
             .GroupBy(x => x)
             .Where(x => x.Count() > 1)
             .Select(group =>
-                $"Duplicate projection or subscription name '{group.Key}': {group.Select(x => x.ToString()).Join(", ")}. You can set the 'ProjectionName' or 'SubscriptionName' property on the projection or subscription to override the default names and thus avoid duplicates.")
+                $"Duplicate projection or subscription name '{group.Key}': {group.Select(x => x.ToString()).Join(", ")}. You can set the 'Name' property on the projection or subscription to override the default names and thus avoid duplicates.")
             .ToArray();
 
         if (duplicateNames.Any())

@@ -11,8 +11,8 @@ public class DeadLetterEvent
 
     public DeadLetterEvent(IEvent e, ShardName shardName, ApplyEventException ex)
     {
-        ProjectionName = shardName.ProjectionOrSubscriptionName;
-        ShardName = shardName.Key;
+        ProjectionName = shardName.Name;
+        ShardName = shardName.ShardKey;
         Timestamp = DateTimeOffset.UtcNow;
         ExceptionMessage = ex.Message;
 

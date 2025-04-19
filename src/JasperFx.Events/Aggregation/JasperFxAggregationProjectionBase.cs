@@ -26,7 +26,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     protected JasperFxAggregationProjectionBase(AggregationScope scope)
     {
         Scope = scope;
-        ProjectionName = typeof(TDoc).NameInCode();
+        base.Name = typeof(TDoc).NameInCode();
 
         Type = scope == AggregationScope.SingleStream
             ? SubscriptionType.SingleStreamProjection
@@ -49,7 +49,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         if (typeof(TDoc).TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
-            ProjectionVersion = att.Version;
+            base.Version = att.Version;
         }
     }
 
@@ -160,8 +160,8 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     public Type ProjectionType => GetType();
 
-    public string Name => ProjectionName!;
-    public uint Version => ProjectionVersion;
+    public string Name => base.Name!;
+    public uint Version => base.Version;
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {

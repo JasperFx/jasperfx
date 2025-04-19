@@ -17,8 +17,8 @@ public class AsyncShardTests
 
         shard = shard.OverrideProjectionName("Bar");
         
-        shard.Name.ProjectionOrSubscriptionName.ShouldBe("Bar");
-        shard.Name.Key.ShouldBe("All");
+        shard.Name.Name.ShouldBe("Bar");
+        shard.Name.ShardKey.ShouldBe("All");
         shard.Name.Version.ShouldBe(3U);
     }
 }

@@ -36,11 +36,11 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
             RegisterPublishedType(publishedType);
         }
 
-        ProjectionName = GetType().FullNameInCode();
+        base.Name = GetType().FullNameInCode();
     }
 
-    public string Name => ProjectionName!;
-    public uint Version => ProjectionVersion;
+    public string Name => base.Name!;
+    public uint Version => base.Version;
 
     public SubscriptionType Type => SubscriptionType.EventProjection;
     public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];

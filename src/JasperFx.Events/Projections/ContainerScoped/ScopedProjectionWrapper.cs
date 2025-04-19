@@ -27,15 +27,15 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
 
-        ProjectionName = typeof(TProjection).Name;
+        base.Name = typeof(TProjection).Name;
 
         ProjectionType = typeof(TProjection);
 
         // TODO -- unit test this!
-        ProjectionVersion = 1;
+        base.Version = 1;
         if (typeof(TProjection).TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
-            ProjectionVersion = att.Version;
+            base.Version = att.Version;
         }
         
         using var scope = _serviceProvider.CreateScope();
@@ -55,9 +55,9 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
 
         {
             // TODO -- Unit test all of this in JasperFx.Events
-            ProjectionName = source.ProjectionName;
-            ProjectionVersion = source.ProjectionVersion;
-            ProjectionVersion = source.ProjectionVersion;
+            base.Name = source.Name;
+            base.Version = source.Version;
+            base.Version = source.Version;
             
             replaceOptions(source.Options);
 
@@ -94,15 +94,15 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
         await projection.ApplyAsync(operations, events, cancellation).ConfigureAwait(false);
     }
 
-    public string Name => ProjectionName;
-    public uint Version => ProjectionVersion;
+    public string Name => base.Name;
+    public uint Version => base.Version;
 
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return
         [
             new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection,
-                new ShardName(ProjectionName, ShardName.All, ProjectionVersion), this, this)
+                new ShardName(base.Name, ShardName.All, base.Version), this, this)
         ];
     }
 

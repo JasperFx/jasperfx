@@ -10,7 +10,7 @@ public abstract class ProjectionBase : EventFilterable
 
     protected ProjectionBase()
     {
-        ProjectionName = GetType().Name;
+        Name = GetType().Name;
     }
     
     
@@ -27,13 +27,13 @@ public abstract class ProjectionBase : EventFilterable
     ///     Descriptive name for this projection in the async daemon. The default is the type name of the projection
     /// </summary>
     [DisallowNull]
-    public string ProjectionName { get; set; } 
+    public string Name { get; set; } 
 
     /// <summary>
     /// Specify that this projection is a non 1 version of the original projection definition to opt
     /// into Marten's parallel blue/green deployment of this projection.
     /// </summary>
-    public uint ProjectionVersion { get; set; } = 1;
+    public uint Version { get; set; } = 1;
 
     /// <summary>
     ///     The projection lifecycle that governs when this projection is executed

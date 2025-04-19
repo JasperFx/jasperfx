@@ -113,7 +113,7 @@ public class DayProjection: JasperFxMultiStreamProjectionBase<Day, int, FakeOper
         // You can also access Event data
         FanOut<Travel, Stop>(x => x.Data.Stops);
 
-        ProjectionName = "Day";
+        ((ProjectionBase)this).Name = "Day";
 
         // Opt into 2nd level caching of up to 100
         // most recently encountered aggregates as a
@@ -181,7 +181,7 @@ public class SlicesButNoMethodsDayProjection: JasperFxMultiStreamProjectionBase<
         // You can also access Event data
         FanOut<Travel, Stop>(x => x.Data.Stops);
 
-        ProjectionName = "Day";
+        ((ProjectionBase)this).Name = "Day";
 
         // Opt into 2nd level caching of up to 100
         // most recently encountered aggregates as a

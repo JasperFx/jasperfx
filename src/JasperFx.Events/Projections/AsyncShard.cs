@@ -12,6 +12,6 @@ public record AsyncShard<TOperations, TQuerySession>(
 {
     public AsyncShard<TOperations, TQuerySession> OverrideProjectionName(string projectionName)
     {
-        return this with { Name = new ShardName(projectionName, Name.Key, Name.Version) };
+        return this with { Name = new ShardName(projectionName, Name.ShardKey, Name.Version) };
     }
 }

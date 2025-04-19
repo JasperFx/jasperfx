@@ -552,7 +552,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     private async Task stopRunningAgents(string subscriptionName)
     {
-        var running = CurrentAgents().Where(x => x.Name.ProjectionOrSubscriptionName == subscriptionName).ToArray();
+        var running = CurrentAgents().Where(x => x.Name.Name == subscriptionName).ToArray();
 
         await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
 
@@ -625,7 +625,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         var agents = new List<SubscriptionAgent>();
 
-        foreach (var shard in _storage.AllShards().Where(x => x.Name.ProjectionOrSubscriptionName.EqualsIgnoreCase(subscriptionName)))
+        foreach (var shard in _storage.AllShards().Where(x => x.Name.Name.EqualsIgnoreCase(subscriptionName)))
         {
             agents.Add(buildAgentForShard(shard));
         }
