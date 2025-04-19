@@ -66,7 +66,7 @@ public class ShardState
         return ShardName == other.ShardName && Sequence == other.Sequence;
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj))
         {

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -91,7 +92,7 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
     }
 
     public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database,
-        out IReplayExecutor executor)
+        [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;

@@ -1,6 +1,6 @@
 namespace JasperFx.Events.Grouping;
 
-public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>
+public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
 {
     private readonly List<Action<SliceGroup<TDoc, TId>, IReadOnlyList<IEvent>>> _configurations = new();
     private readonly List<IFanOutRule> _afterGroupingFanoutRules = new();
@@ -32,14 +32,14 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>
         foreach (var rule in _afterGroupingFanoutRules) yield return rule.OriginatingType;
     }
 
-    public EventSlicer<TDoc, TId> Identity<TEvent>(Func<TEvent, TId> identityFunc)
+    public EventSlicer<TDoc, TId> Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         _configurations.Add((group, events) => group.AddEvents(identityFunc, events));
 
         return this;
     }
 
-    public EventSlicer<TDoc, TId> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc)
+    public EventSlicer<TDoc, TId> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         _configurations.Add((group, events) => group.AddEvents(identitiesFunc, events));
 
@@ -56,7 +56,7 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>
     /// <typeparam name="TEvent"></typeparam>
     /// <typeparam name="TChild"></typeparam>
     public EventSlicer<TDoc, TId> FanOut<TEvent, TChild>(Func<TEvent, IEnumerable<TChild>> fanOutFunc,
-        FanoutMode mode = FanoutMode.AfterGrouping)
+        FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull where TChild : notnull
     {
         return FanOut(new FanOutEventDataOperator<TEvent, TChild>(fanOutFunc) { Mode = mode }, mode);
     }
@@ -70,7 +70,7 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>
     /// <param name="mode">Should the fan out operation happen after grouping, or before? Default is after</param>
     /// <typeparam name="TEvent"></typeparam>
     /// <typeparam name="TChild"></typeparam>
-    public EventSlicer<TDoc, TId> FanOut<TEvent, TChild>(Func<IEvent<TEvent>, IEnumerable<TChild>> fanOutFunc, FanoutMode mode = FanoutMode.AfterGrouping)
+    public EventSlicer<TDoc, TId> FanOut<TEvent, TChild>(Func<IEvent<TEvent>, IEnumerable<TChild>> fanOutFunc, FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull where TChild : notnull
     {
         return FanOut(new FanOutEventOperator<TEvent, TChild>(fanOutFunc) { Mode = mode }, mode);
     }

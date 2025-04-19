@@ -107,7 +107,7 @@ public class ValueTypeInfo
     public Func<TOuter, TInner> UnWrapper<TOuter, TInner>()
     {
         var outer = Expression.Parameter(typeof(TOuter), "outer");
-        var getter = ValueProperty.GetMethod;
+        var getter = ValueProperty.GetMethod!;
         var lambda = Expression.Lambda<Func<TOuter, TInner>>(Expression.Call(outer, getter), outer);
         return lambda.CompileFast();
     }

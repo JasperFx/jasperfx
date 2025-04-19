@@ -14,8 +14,7 @@ internal class GenericConnectionScanner : IRegistrationConvention
     public GenericConnectionScanner(Type openType, Func<Type, ServiceLifetime>? lifetimeRule = null)
     {
         _openType = openType;
-        _lifetimeRule = lifetimeRule;
-        _lifetimeRule ??= _ => ServiceLifetime.Scoped;
+        _lifetimeRule = lifetimeRule ?? (_ => ServiceLifetime.Scoped);
 
         if (!_openType.IsOpenGeneric())
         {

@@ -5,7 +5,7 @@ public interface IEventSlicer
     ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events);
 }
 
-public class AcrossTenantSlicer<TDoc, TId, TQuerySession> : IEventSlicer
+public class AcrossTenantSlicer<TDoc, TId, TQuerySession> : IEventSlicer where TId : notnull
 {
     private readonly TQuerySession _session;
     private readonly IEventSlicer<TDoc, TId, TQuerySession> _inner;
@@ -24,7 +24,7 @@ public class AcrossTenantSlicer<TDoc, TId, TQuerySession> : IEventSlicer
     }
 }
 
-public interface IEventSlicer<TDoc, TId> 
+public interface IEventSlicer<TDoc, TId> where TId : notnull
 {
     /// <summary>
     ///     This is called by the asynchronous projection runner
@@ -35,7 +35,7 @@ public interface IEventSlicer<TDoc, TId>
     ValueTask SliceAsync(IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping);
 }
 
-public interface IEventSlicer<TDoc, TId, TQuerySession> 
+public interface IEventSlicer<TDoc, TId, TQuerySession> where TId : notnull
 {
     /// <summary>
     ///     This is called by the asynchronous projection runner
@@ -79,7 +79,7 @@ internal class LambdaAggregateGrouper<TId, TQuerySession> : IJasperFxAggregateGr
 }
 
 
-public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQuerySession>
+public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQuerySession> where TId : notnull
 {
     private readonly List<IFanOutRule> _afterGroupingFanoutRules = new();
     private readonly List<IFanOutRule> _beforeGroupingFanoutRules = new();
@@ -121,13 +121,13 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
         foreach (var rule in _afterGroupingFanoutRules) yield return rule.OriginatingType;
     }
 
-    public EventSlicer<TDoc, TId, TQuerySession> Identity<TEvent>(Func<TEvent, TId> identityFunc)
+    public EventSlicer<TDoc, TId, TQuerySession> Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         _groupers.Add((events, grouping) => grouping.AddEvents(identityFunc, events));
         return this;
     }
 
-    public EventSlicer<TDoc, TId, TQuerySession> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc)
+    public EventSlicer<TDoc, TId, TQuerySession> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         _groupers.Add((events, grouping) => grouping.AddEvents(identitiesFunc, events));
         return this;
@@ -165,7 +165,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     /// <typeparam name="TEvent"></typeparam>
     /// <typeparam name="TChild"></typeparam>
     public EventSlicer<TDoc, TId, TQuerySession> FanOut<TEvent, TChild>(Func<TEvent, IEnumerable<TChild>> fanOutFunc,
-        FanoutMode mode = FanoutMode.AfterGrouping)
+        FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull where TChild : notnull
     {
         return FanOut(new FanOutEventDataOperator<TEvent, TChild>(fanOutFunc) { Mode = mode }, mode);
     }
@@ -179,7 +179,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     /// <param name="mode">Should the fan out operation happen after grouping, or before? Default is after</param>
     /// <typeparam name="TEvent"></typeparam>
     /// <typeparam name="TChild"></typeparam>
-    public EventSlicer<TDoc, TId, TQuerySession> FanOut<TEvent, TChild>(Func<IEvent<TEvent>, IEnumerable<TChild>> fanOutFunc, FanoutMode mode = FanoutMode.AfterGrouping)
+    public EventSlicer<TDoc, TId, TQuerySession> FanOut<TEvent, TChild>(Func<IEvent<TEvent>, IEnumerable<TChild>> fanOutFunc, FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull where TChild : notnull
     {
         return FanOut(new FanOutEventOperator<TEvent, TChild>(fanOutFunc) { Mode = mode }, mode);
     }

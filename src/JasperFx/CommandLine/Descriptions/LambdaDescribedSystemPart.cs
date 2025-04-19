@@ -5,7 +5,7 @@ namespace JasperFx.CommandLine.Descriptions;
 internal class LambdaDescribedSystemPart<T> : IDescribedSystemPart, IRequiresServices
 {
     private readonly Func<T, TextWriter, Task> _write;
-    private T _service;
+    private T? _service;
 
     public LambdaDescribedSystemPart(string title, Func<T, TextWriter, Task> write)
     {
@@ -17,7 +17,7 @@ internal class LambdaDescribedSystemPart<T> : IDescribedSystemPart, IRequiresSer
 
     public Task Write(TextWriter writer)
     {
-        return _service == null ? default : _write(_service, writer);
+        return _service == null ? Task.CompletedTask : _write(_service, writer);
     }
 
     public void Resolve(IServiceProvider services)

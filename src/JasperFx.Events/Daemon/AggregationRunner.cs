@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession, IStorageOperations
+public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
     private readonly IEventStorage<TOperations, TQuerySession> _storage;
     private readonly IEventDatabase _database;
@@ -119,7 +119,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
-        executor = default;
+        executor = default!;
         return false;
     }
 
@@ -175,20 +175,20 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 storage.Delete(slice.Id);
                 break;
             case ActionType.Store:
-                cache.Store(slice.Id, snapshot);
-                storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
+                cache.Store(slice.Id, snapshot!);
+                storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
                 break;
             case ActionType.HardDelete:
                 cache.TryRemove(slice.Id);
-                storage.HardDelete(snapshot);
+                storage.HardDelete(snapshot!);
                 break;
             case ActionType.UnDeleteAndStore:
-                storage.UnDelete(snapshot);
-                cache.Store(slice.Id, snapshot);
-                storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
+                storage.UnDelete(snapshot!);
+                cache.Store(slice.Id, snapshot!);
+                storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
                 break;
             case ActionType.StoreThenSoftDelete:
-                storage.StoreProjection(snapshot, lastEvent, Projection.Scope);
+                storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
                 cache.TryRemove(slice.Id);
                 storage.Delete(slice.Id);
                 break;

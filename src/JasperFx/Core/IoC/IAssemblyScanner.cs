@@ -208,7 +208,7 @@ public interface IAssemblyScanner
     /// <param name="scanner"></param>
     /// <param name="assemblyFilter"></param>
     /// <param name="includeExeFiles"></param>
-    void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool> assemblyFilter = null);
+    void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool>? assemblyFilter = null);
 
     [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
     void AssembliesAndExecutablesFromPath(string path);

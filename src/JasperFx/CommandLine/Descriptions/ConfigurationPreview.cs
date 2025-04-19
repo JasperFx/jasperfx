@@ -102,7 +102,7 @@ internal class ConfigurationPreview : IDescribedSystemPart, IWriteToConsole
         {
             if (provider.TryGet(key, out var value))
             {
-                stack.Push((value, provider));
+                stack.Push((value!, provider));
             }
         }
 

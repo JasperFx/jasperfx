@@ -16,8 +16,8 @@ public class Argument : TokenHandlerBase
     public Argument(MemberInfo member, Conversions conversions) : base(member)
     {
         _member = member;
-        _memberType = member.GetMemberType();
-        _converter = conversions.FindConverter(_memberType);
+        _memberType = member.GetMemberType()!;
+        _converter = conversions.FindConverter(_memberType)!;
     }
 
     public override bool Handle(object input, Queue<string> tokens)
@@ -52,7 +52,7 @@ public class Argument : TokenHandlerBase
 
     public override string ToUsageDescription()
     {
-        var memberType = _member.GetMemberType();
+        var memberType = _member.GetMemberType()!;
         if (memberType.GetTypeInfo().IsEnum)
         {
             return Enum.GetNames(memberType).Join("|");

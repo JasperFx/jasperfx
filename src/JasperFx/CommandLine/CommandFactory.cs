@@ -24,14 +24,14 @@ public class CommandFactory : ICommandFactory
     private readonly LightweightCache<string, Type> _commandTypes = new();
 
     private readonly IList<Type> _extensionTypes = new List<Type>();
-    private string _appName;
+    private string _appName = null!;
 
-    private Type _defaultCommand;
+    private Type? _defaultCommand;
 
     /// <summary>
     ///     Perform some operation based on command inputs, before command construction
     /// </summary>
-    public Action<string, object> BeforeBuild = null;
+    public Action<string, object>? BeforeBuild = null;
 
     /// <summary>
     ///     Alter the input object or the command object just before executing the command
@@ -51,7 +51,7 @@ public class CommandFactory : ICommandFactory
     /// <summary>
     ///     Optionally designates the default command type. Useful if your console app only has one command
     /// </summary>
-    public Type DefaultCommand
+    public Type? DefaultCommand
     {
         get => _defaultCommand ?? (_commandTypes.Count == 1 ? _commandTypes.Single() : null);
         set
@@ -123,13 +123,13 @@ public class CommandFactory : ICommandFactory
                      .Where(IsJasperFxCommandType))
             _commandTypes[CommandNameFor(type)] = type;
 
-        if (assembly.HasAttribute<JasperFxAssemblyAttribute>())
+        if (assembly.TryGetAttribute<JasperFxAssemblyAttribute>(out var attribute))
         {
-            var att = assembly.GetAttribute<JasperFxAssemblyAttribute>();
-            if (att.ExtensionType != null)
+            if (attribute.ExtensionType != null)
             {
-                _extensionTypes.Add(att.ExtensionType);
+                _extensionTypes.Add(attribute.ExtensionType);
             }
+            
         }
     }
 
@@ -200,7 +200,7 @@ public class CommandFactory : ICommandFactory
     {
         try
         {
-            object input = null;
+            object? input = null;
 
             if (BeforeBuild != null)
             {
@@ -360,7 +360,7 @@ public class CommandFactory : ICommandFactory
         var description = type.FullName;
         type.ForAttribute<DescriptionAttribute>(att => description = att.Description);
 
-        return description;
+        return description!;
     }
 
     public void SetAppName(string appName)

@@ -11,7 +11,7 @@ namespace JasperFx.CommandLine;
 public class NetCoreInput : IHostBuilderInput
 {
     [Description("Overwrite individual configuration items")]
-    public Dictionary<string, string> ConfigFlag = new();
+    public Dictionary<string, string?> ConfigFlag = new();
 
     [Description("Use to override the ASP.Net Environment name")]
     public string EnvironmentFlag { get; set; }

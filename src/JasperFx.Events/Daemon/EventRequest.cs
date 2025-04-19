@@ -25,7 +25,7 @@ public class EventRequest
         return Floor == other.Floor && HighWater == other.HighWater && BatchSize == other.BatchSize;
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj))
         {

@@ -26,7 +26,7 @@ public class OptionSet
 public record AssemblyDescriptor(string Name, Version Version)
 {
     public static AssemblyDescriptor For(Assembly assembly) =>
-        new AssemblyDescriptor(assembly.GetName().Name, assembly.GetName().Version);
+        new AssemblyDescriptor(assembly.GetName().Name!, assembly.GetName().Version!);
 
     public override string ToString()
     {
@@ -43,7 +43,7 @@ public record AssemblyDescriptor(string Name, Version Version)
 public record TypeDescriptor(string Name, string FullName, string AssemblyName)
 {
     public static TypeDescriptor For(Type type) =>
-        new TypeDescriptor(type.Name, type.FullName, type.Assembly.GetName().Name);
+        new TypeDescriptor(type.Name, type.FullName!, type.Assembly.GetName().Name!);
 
     public override string ToString()
     {
@@ -67,9 +67,11 @@ public class OptionsDescription
     public Dictionary<string, OptionSet> Sets = new();
     
     // For serialization
+#pragma warning disable CS8618 
     public OptionsDescription()
     {
     }
+#pragma warning restore CS8618 
 
     public override string ToString()
     {

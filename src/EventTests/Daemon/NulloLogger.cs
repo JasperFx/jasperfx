@@ -10,8 +10,8 @@ internal class NulloLogger: ILogger, IDisposable
         // Nothing
     }
 
-    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
-        Func<TState, Exception, string> formatter)
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter)
     {
         var message = $"{logLevel}: {formatter(state, exception)}";
         Debug.WriteLine(message);
@@ -22,7 +22,7 @@ internal class NulloLogger: ILogger, IDisposable
         return true;
     }
 
-    public IDisposable BeginScope<TState>(TState state)
+    public IDisposable BeginScope<TState>(TState state) where TState : notnull
     {
         return this;
     }

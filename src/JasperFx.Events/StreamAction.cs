@@ -79,7 +79,7 @@ public class StreamAction
     /// <summary>
     ///     The Id of the current tenant
     /// </summary>
-    public string? TenantId { get; set; }
+    public string TenantId { get; set; } = null!;
 
     /// <summary>
     ///     The events involved in this action

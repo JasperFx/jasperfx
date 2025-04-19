@@ -19,6 +19,8 @@ public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySes
     ProjectionSourceWrapperBase<TSource, TOperations, TQuerySession>, IJasperFxProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations
     where TSource : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
+    where TDoc : notnull
+    where TId : notnull
 {
     public ScopedAggregationWrapper(IServiceProvider serviceProvider) : base(serviceProvider)
     {

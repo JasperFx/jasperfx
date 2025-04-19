@@ -9,7 +9,7 @@ namespace JasperFx.Events.Grouping;
 /// </summary>
 /// <typeparam name="TDoc"></typeparam>
 /// <typeparam name="TId"></typeparam>
-public class SliceGroup<TDoc, TId> : IEventGrouping<TId>
+public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 {
     public LightweightCache<TId, EventSlice<TDoc, TId>> Slices { get; }
     
@@ -37,7 +37,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId>
     /// <param name="singleIdSource"></param>
     /// <param name="events"></param>
     /// <typeparam name="TEvent"></typeparam>
-    public void AddEvents<TEvent>(Func<TEvent, TId> singleIdSource, IEnumerable<IEvent> events)
+    public void AddEvents<TEvent>(Func<TEvent, TId> singleIdSource, IEnumerable<IEvent> events) where TEvent : notnull
     {
         if (typeof(TEvent).Closes(typeof(IEvent<>)))
         {
@@ -75,7 +75,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId>
     /// <param name="fanOutFunc"></param>
     /// <typeparam name="TSource"></typeparam>
     /// <typeparam name="TChild"></typeparam>
-    public void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc)
+    public void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc) where TSource : notnull where TChild : notnull
     {
         foreach (var slice in Slices)
         {
@@ -90,7 +90,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId>
     /// <param name="multipleIdSource"></param>
     /// <param name="events"></param>
     /// <typeparam name="TEvent"></typeparam>
-    public void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events)
+    public void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events) where TEvent : notnull
     {
         if (typeof(TEvent).Closes(typeof(IEvent<>)))
         {

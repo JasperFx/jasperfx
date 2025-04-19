@@ -21,7 +21,7 @@ public static class CodeGenerationExtensions
     /// <param name="namespace"></param>
     /// <param name="typeName"></param>
     /// <returns></returns>
-    public static Type FindPreGeneratedType(this Assembly assembly, string @namespace, string typeName)
+    public static Type? FindPreGeneratedType(this Assembly assembly, string @namespace, string typeName)
     {
         var fullName = $"{@namespace}.{typeName}";
         return assembly.ExportedTypes.FirstOrDefault(x => x.FullName == fullName);
@@ -123,7 +123,7 @@ public static class CodeGenerationExtensions
         {
             throw new MissingTypeException(
                 $"Missing expected pre-generated type(s) from assembly {collection.Rules.ApplicationAssembly.FullName}:\n" +
-                missing.Select(x => x.ToString()).Join("\n"));
+                missing.Select(x => x.ToString())!.Join("\n"));
         }
     }
 }

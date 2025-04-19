@@ -224,7 +224,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
 
-    public async Task StopAgentAsync(string shardName, Exception ex = null)
+    public async Task StopAgentAsync(string shardName, Exception? ex = null)
     {
         if (_agents.TryFind(shardName, out var agent))
         {

@@ -44,7 +44,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="description"></param>
     /// <param name="action"></param>
     /// <typeparam name="T"></typeparam>
-    public static void CheckEnvironment<T>(this IServiceCollection services, string description, Action<T> action)
+    public static void CheckEnvironment<T>(this IServiceCollection services, string description, Action<T?> action) where T: notnull
     {
         services.CheckEnvironment(description, (s, c) =>
         {
@@ -63,7 +63,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="action"></param>
     /// <typeparam name="T"></typeparam>
     public static void CheckEnvironment<T>(this IServiceCollection services, string description,
-        Func<T, CancellationToken, Task> action)
+        Func<T?, CancellationToken, Task> action) where T: notnull
     {
         services.CheckEnvironment(description, async (s, c) => { await action(s.GetService<T>(), c); });
     }
@@ -91,7 +91,7 @@ public static class EnvironmentCheckExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <typeparam name="T"></typeparam>
-    public static void CheckServiceIsRegistered<T>(this IServiceCollection services)
+    public static void CheckServiceIsRegistered<T>(this IServiceCollection services) where T: notnull
     {
         services.CheckEnvironment($"Service {typeof(T).FullName} should be registered", s => s.GetRequiredService<T>());
     }

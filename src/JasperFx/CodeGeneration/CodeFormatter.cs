@@ -36,7 +36,7 @@ public static class CodeFormatter
 
         if (value.GetType().IsArray)
         {
-            var code = $"new {value.GetType().GetElementType().FullNameInCode()}[]{{";
+            var code = $"new {value.GetType().GetElementType()!.FullNameInCode()}[]{{";
 
             var enumerable = (Array)value;
             switch (enumerable.Length)

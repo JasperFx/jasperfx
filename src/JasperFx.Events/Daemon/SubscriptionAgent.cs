@@ -123,7 +123,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         _tracker.Publish(new ShardState(Name, LastCommitted){Action = ShardAction.Stopped});
     }
 
-    public async Task StartAsync(SubscriptionExecutionRequest request)
+    public Task StartAsync(SubscriptionExecutionRequest request)
     {
         Mode = request.Mode;
         _execution.Mode = request.Mode;
@@ -134,6 +134,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         _tracker.Publish(new ShardState(Name, request.Floor){Action = ShardAction.Started});
 
         _logger.LogInformation("Started projection agent {Name}", ProjectionShardIdentity);
+        return Task.CompletedTask;
     }
 
     private TaskCompletionSource? _rebuild;

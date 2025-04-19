@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Linq.Expressions;
 using FastExpressionCompiler;
 using JasperFx.Core.Reflection;
@@ -131,7 +129,7 @@ public interface IEvent
             : ReflectionHelper.GetProperty<IEvent>(x => x.StreamKey);
 
         var raw = Expression.Call(e, eMember.GetMethod);
-        Expression wrapped = null;
+        Expression? wrapped = null;
         if (valueTypeInfo.Builder != null)
         {
             wrapped = Expression.Call(null, valueTypeInfo.Builder, raw);

@@ -9,7 +9,7 @@ public abstract class FanOutOperator<TSource>: IFanOutRule
     public abstract IReadOnlyList<IEvent> Apply(IReadOnlyList<IEvent> events);
 }
 
-public class FanOutEventDataOperator<TSource, TTarget>: FanOutOperator<TSource>
+public class FanOutEventDataOperator<TSource, TTarget>: FanOutOperator<TSource> where TTarget : notnull where TSource : notnull
 {
     private readonly Func<TSource, IEnumerable<TTarget>> _fanOutFunc;
 
@@ -26,7 +26,7 @@ public class FanOutEventDataOperator<TSource, TTarget>: FanOutOperator<TSource>
     }
 }
 
-public class FanOutEventOperator<TSource, TTarget>: FanOutOperator<TSource>
+public class FanOutEventOperator<TSource, TTarget>: FanOutOperator<TSource> where TSource : notnull where TTarget : notnull
 {
     private readonly Func<IEvent<TSource>, IEnumerable<TTarget>> _fanOutFunc;
 

@@ -65,7 +65,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
     /// <param name="session"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public ValueTask<TAggregate?> ApplyByDataAsync<T>(TAggregate snapshot, T data, TQuerySession session)
+    public ValueTask<TAggregate?> ApplyByDataAsync<T>(TAggregate snapshot, T data, TQuerySession session) where T : notnull
     {
         var e = new Event<T>(data);
         return ApplyAsync(snapshot, e, session, CancellationToken.None);
@@ -99,7 +99,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
 
         var invalidMethods =
             MethodCollection.FindInvalidMethods(_projectionType, _applyMethods, _createMethods, _shouldDeleteMethods)
-                .Where(x => !x.Method.HasAttribute<JasperFxIgnoreAttribute>());
+                .Where(x => !x.Method.HasAttribute<JasperFxIgnoreAttribute>()).ToArray();
 
         if (invalidMethods.Any())
         {
@@ -107,7 +107,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
         }
     }
 
-    public async ValueTask<TAggregate> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TAggregate? snapshot, CancellationToken cancellation)
+    public async ValueTask<TAggregate?> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TAggregate? snapshot, CancellationToken cancellation)
     {
         if (!events.Any()) return snapshot;
         

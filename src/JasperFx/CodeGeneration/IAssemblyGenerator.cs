@@ -5,8 +5,8 @@ namespace JasperFx.CodeGeneration;
 
 public interface IAssemblyGenerator
 {
-    string AssemblyName { get; set; }
-    string Code { get; }
+    string? AssemblyName { get; set; }
+    string? Code { get; }
 
     /// <summary>
     /// Tells Roslyn to reference the given assembly and any of its dependencies

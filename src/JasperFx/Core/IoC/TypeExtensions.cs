@@ -13,7 +13,7 @@ internal static class TypeExtensions
 
     public static Type FindFirstInterfaceThatCloses(this Type implementationType, Type templateType)
     {
-        return implementationType.FindInterfacesThatClose(templateType).FirstOrDefault();
+        return implementationType.FindInterfacesThatClose(templateType).FirstOrDefault()!;
     }
 
     public static IEnumerable<Type> FindInterfacesThatClose(this Type pluggedType, Type templateType)
@@ -37,10 +37,10 @@ internal static class TypeExtensions
                         type.GetTypeInfo().IsGenericType && type.GetGenericTypeDefinition() == templateType))
                 yield return interfaceType;
         }
-        else if (TPluggedType.GetTypeInfo().BaseType.GetTypeInfo().IsGenericType &&
-                 TPluggedType.GetTypeInfo().BaseType.GetGenericTypeDefinition() == templateType)
+        else if (TPluggedType.GetTypeInfo().BaseType!.GetTypeInfo().IsGenericType &&
+                 TPluggedType.GetTypeInfo().BaseType!.GetGenericTypeDefinition() == templateType)
         {
-            yield return TPluggedType.GetTypeInfo().BaseType;
+            yield return TPluggedType.GetTypeInfo().BaseType!;
         }
 
         if (TPluggedType.GetTypeInfo().BaseType == typeof(object))
@@ -48,7 +48,7 @@ internal static class TypeExtensions
             yield break;
         }
 
-        foreach (var interfaceType in rawFindInterfacesThatCloses(TPluggedType.GetTypeInfo().BaseType, templateType)
+        foreach (var interfaceType in rawFindInterfacesThatCloses(TPluggedType.GetTypeInfo().BaseType!, templateType)
                 ) yield return interfaceType;
     }
 

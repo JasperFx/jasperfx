@@ -21,8 +21,8 @@ public class ResourceInput : NetCoreInput
     [IgnoreOnCommandLine] public CancellationTokenSource TokenSource => _cancellation.Value;
 
     [Description("Optionally filter by resource type")]
-    public string TypeFlag { get; set; }
+    public string? TypeFlag { get; set; }
 
     [Description("Optionally filter by resource name")]
-    public string NameFlag { get; set; }
+    public string? NameFlag { get; set; }
 }

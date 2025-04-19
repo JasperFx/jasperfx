@@ -9,7 +9,7 @@ namespace JasperFx.Events.Aggregation;
 
 public interface IAggregateVersioning
 {
-    public MemberInfo VersionMember
+    public MemberInfo? VersionMember
     {
         get;
     }
@@ -18,7 +18,7 @@ public interface IAggregateVersioning
     long GetVersion(object aggregate);
 }
 
-public interface IAggregateVersioning<T>
+public interface IAggregateVersioning<in T>
 {
     void TrySetVersion(T aggregate, IEvent lastEvent);
 }
@@ -57,13 +57,13 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
 
     public IAggregator<T, TQuerySession> Inner { get; set; }
 
-    public MemberInfo VersionMember
+    public MemberInfo? VersionMember
     {
         get;
         private set;
     }
 
-    void IAggregateVersioning.TrySetVersion(object aggregate, IEvent lastEvent)
+    void IAggregateVersioning.TrySetVersion(object? aggregate, IEvent? lastEvent)
     {
         if (aggregate == null || lastEvent == null)
         {
@@ -78,7 +78,7 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
         return GetVersion((T)aggregate);
     }
 
-    public void TrySetVersion(T aggregate, IEvent lastEvent)
+    public void TrySetVersion(T? aggregate, IEvent? lastEvent)
     {
         if (aggregate == null || lastEvent == null)
         {
@@ -88,7 +88,7 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
         _setValue.Value(aggregate, lastEvent);
     }
 
-    public async ValueTask<T> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, T? snapshot,
+    public async ValueTask<T?> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, T? snapshot,
         CancellationToken cancellation)
     {
         var aggregate = await Inner.BuildAsync(events, session, snapshot, cancellation).ConfigureAwait(false);
@@ -114,7 +114,7 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
 
         if (VersionMember.GetMemberType() == typeof(int))
         {
-            accessVersion = Expression.Call(typeof(Convert).GetMethod(nameof(Convert.ToInt32), new[] { typeof(long) }),
+            accessVersion = Expression.Call(typeof(Convert).GetMethod(nameof(Convert.ToInt32), [typeof(long)])!,
                 accessVersion);
         }
 

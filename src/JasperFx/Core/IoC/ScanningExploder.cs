@@ -96,7 +96,7 @@ internal static class ScanningExploder
             ? services.Take(indexes[0]).ToCollection()
             : new ServiceCollection();
 
-        operations.Add(scanners[0].ImplementationInstance);
+        operations.Add(scanners[0].ImplementationInstance!);
 
         for (var i = 1; i < indexes.Length; i++)
         {
@@ -111,7 +111,7 @@ internal static class ScanningExploder
             }
 
 
-            operations.Add(scanners[i].ImplementationInstance);
+            operations.Add(scanners[i].ImplementationInstance!);
         }
 
         // Are there more?

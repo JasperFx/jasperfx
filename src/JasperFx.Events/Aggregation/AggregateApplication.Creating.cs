@@ -30,7 +30,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
     /// <param name="session"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public ValueTask<TAggregate> CreateByData<T>(T eventData, TQuerySession session)
+    public ValueTask<TAggregate> CreateByData<T>(T eventData, TQuerySession session) where T : notnull
     {
         return Create(new Event<T>(eventData), session, CancellationToken.None);
     }
@@ -59,7 +59,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         
         var bindingFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         
-        Expression body = makeCreatorBody(e, session, eventType, cancellation);
+        Expression? body = makeCreatorBody(e, session, eventType, cancellation);
         if (body == null)
         {
             var defaultCtor = typeof(TAggregate).GetConstructors(bindingFlags)
@@ -116,7 +116,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
     private Expression? makeCreatorBody(Expression e, Expression session, Type eventType, Expression cancellation)
     {
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData) ;
 
@@ -157,14 +157,14 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         if (_projectionType.TryFindMethod(CreateMethodCollection.MethodName, out var method, eventType))
         {
             var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
-            Expression instance = method.IsStatic ? null : Expression.Constant(_projection);
+            Expression? instance = method.IsStatic ? null : Expression.Constant(_projection);
             return Expression.Call(instance, method, arguments).MaybeWrapWithValueTask<TAggregate?>();
         }
         
         if (_projectionType.TryFindMethod(CreateMethodCollection.MethodName, out method, wrappedType))
         {
             var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
-            Expression instance = method.IsStatic ? null : Expression.Constant(_projection);
+            Expression? instance = method.IsStatic ? null : Expression.Constant(_projection);
             return Expression.Call(instance, method, arguments).MaybeWrapWithValueTask<TAggregate?>();
         }
 

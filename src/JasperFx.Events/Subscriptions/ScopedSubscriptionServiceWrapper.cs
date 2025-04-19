@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Subscriptions;
 
-internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecutionBase where T : TSubscription
+internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecutionBase where T : notnull, TSubscription
 {
     private readonly IServiceProvider _provider;
     private readonly ISubscriptionRunner<T> _runner;
@@ -56,7 +56,7 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
     ISubscriptionFactory<TOperations, TQuerySession>,
     ISubscriptionOptions
     where TOperations : TQuerySession, IStorageOperations
-    where T : TSubscription
+    where T : notnull, TSubscription
 {
     private readonly IServiceProvider _provider;
 

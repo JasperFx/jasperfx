@@ -1,7 +1,7 @@
 namespace JasperFx.Events.Grouping;
 
 // Assumption will be that there's a per-tenant wrapper around this
-public class ByStream<TDoc, TId> : IEventSlicer<TDoc, TId>, ISingleStreamSlicer
+public class ByStream<TDoc, TId> : IEventSlicer<TDoc, TId>, ISingleStreamSlicer where TId : notnull
 {
     private readonly Func<IEvent, TId> _identity;
 

@@ -84,7 +84,7 @@ public static class ResourceHostExtensions
     /// <param name="resourceType">Optional filter on resource type name</param>
     /// <param name="resourceName">Optional filter on resource name</param>
     public static async Task ResetResourceState(this IHost host, CancellationToken cancellation = default,
-        string resourceType = null, string resourceName = null)
+        string? resourceType = null, string? resourceName = null)
     {
         var resources = await ResourcesCommand.FindResources(host.Services, resourceType, resourceName);
         foreach (var resource in resources)
@@ -103,7 +103,7 @@ public static class ResourceHostExtensions
     /// <param name="resourceType">Optional filter on resource type name</param>
     /// <param name="resourceName">Optional filter on resource name</param>
     public static async Task SetupResources(this IHost host, CancellationToken cancellation = default,
-        string resourceType = null, string resourceName = null)
+        string? resourceType = null, string? resourceName = null)
     {
         var resources = await ResourcesCommand.FindResources(host.Services, resourceType, resourceName);
         foreach (var resource in resources) await resource.Setup(cancellation);
@@ -117,7 +117,7 @@ public static class ResourceHostExtensions
     /// <param name="resourceType">Optional filter on resource type name</param>
     /// <param name="resourceName">Optional filter on resource name</param>
     public static async Task TeardownResources(this IHost host, CancellationToken cancellation = default,
-        string resourceType = null, string resourceName = null)
+        string? resourceType = null, string? resourceName = null)
     {
         var resources = await ResourcesCommand.FindResources(host.Services, resourceType, resourceName);
         foreach (var resource in resources) await resource.Teardown(cancellation);

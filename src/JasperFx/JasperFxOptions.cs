@@ -101,14 +101,14 @@ public class JasperFxOptions
             try
             {
                 path = path.TrimEnd(Path.DirectorySeparatorChar);
-                while (!path.EndsWith("bin"))
+                while (!path!.EndsWith("bin"))
                 {
                     path = path.ParentDirectory();
                 }
 
                 // Go up once to get to the test project directory, then up again to the "src" level,
                 // then "down" to the application directory
-                path = path.ParentDirectory().ParentDirectory().AppendPath(assembly.GetName().Name);
+                path = path.ParentDirectory()!.ParentDirectory()!.AppendPath(assembly.GetName().Name!);
             }
             catch (Exception e)
             {

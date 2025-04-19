@@ -8,6 +8,8 @@ namespace JasperFx.Events.Projections.ContainerScoped;
 internal class ScopedAggregationProjection<TSource, TDoc, TId, TOperations, TQuerySession> : IAggregationProjection<TDoc, TId, TOperations, TQuerySession> 
     where TOperations : TQuerySession, IStorageOperations
     where TSource : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IAggregationProjection<TDoc, TId, TOperations, TQuerySession>
+    where TDoc : notnull
+    where TId : notnull
 {
     private readonly IServiceProvider _services;
     private readonly ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySession> _scopedAggregation;

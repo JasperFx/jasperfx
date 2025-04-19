@@ -2,7 +2,7 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Grouping;
 
-public class TenantedEventSlicer<TDoc, TId> : IEventSlicer
+public class TenantedEventSlicer<TDoc, TId> : IEventSlicer where TId : notnull
 {
     private readonly IEventSlicer<TDoc, TId> _inner;
 
@@ -27,7 +27,7 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer
     }
 }
 
-public class TenantedEventSlicer<TDoc, TId, TQuerySession> : IEventSlicer
+public class TenantedEventSlicer<TDoc, TId, TQuerySession> : IEventSlicer where TId : notnull
 {
     private readonly TQuerySession _session;
     private readonly IEventSlicer<TDoc, TId, TQuerySession> _inner;

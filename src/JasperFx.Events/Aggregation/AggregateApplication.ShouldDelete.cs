@@ -7,11 +7,11 @@ namespace JasperFx.Events.Aggregation;
 
 internal partial class AggregateApplication<TAggregate, TQuerySession>
 {
-        private Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>> tryBuildShouldDelete(
+        private Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>? tryBuildShouldDelete(
         ParameterExpression snapshot, ParameterExpression e, ParameterExpression session, Type eventType,
         ParameterExpression cancellation)
     {
-        Expression body = makeShouldDeleteBody(snapshot, e, session, eventType, cancellation);
+        Expression? body = makeShouldDeleteBody(snapshot, e, session, eventType, cancellation);
 
         if (body == null) return null;
         
@@ -29,12 +29,12 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         };
     }
 
-    private Expression makeShouldDeleteBody(ParameterExpression snapshot, ParameterExpression e,
+    private Expression? makeShouldDeleteBody(ParameterExpression snapshot, ParameterExpression e,
         ParameterExpression session, Type eventType, ParameterExpression cancellation)
     {
         
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         
@@ -51,7 +51,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         };
 
         // You would use null for static methods
-        Expression caller = default(Expression);
+        Expression? caller = default(Expression);
         
         if (typeof(TAggregate).TryFindMethod(ShouldDeleteMethodCollection.MethodName, out var method, eventType))
         {

@@ -16,7 +16,7 @@ public class UsageGraph
 
     public UsageGraph(Type commandType)
     {
-        _inputType = commandType.FindInterfaceThatCloses(typeof(IJasperFxCommand<>)).GetTypeInfo()
+        _inputType = commandType.FindInterfaceThatCloses(typeof(IJasperFxCommand<>))!.GetTypeInfo()
             .GetGenericArguments().First();
 
         CommandName = CommandFactory.CommandNameFor(commandType);
@@ -134,7 +134,7 @@ public class UsageGraph
         return new UsageExpression<T>(this, description);
     }
 
-    public CommandUsage FindUsage(string description)
+    public CommandUsage? FindUsage(string description)
     {
         return _usages.FirstOrDefault(x => x.Description == description);
     }

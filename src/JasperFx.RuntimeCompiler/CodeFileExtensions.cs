@@ -124,7 +124,7 @@ namespace JasperFx.RuntimeCompiler
                 if (rules.SourceCodeWritingEnabled)
                 {
                     var code = compiler.Code;
-                    file.WriteCodeFile(parent, rules, code);
+                    file.WriteCodeFile(parent, rules, code!);
                 }
                 
                 if (logger.IsEnabled(LogLevel.Debug))

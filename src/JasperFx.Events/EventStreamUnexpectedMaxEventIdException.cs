@@ -4,7 +4,7 @@ namespace JasperFx.Events;
 
 public class EventStreamUnexpectedMaxEventIdException: ConcurrencyException
 {
-    public EventStreamUnexpectedMaxEventIdException(object id, Type aggregateType, long expected, long actual): base(
+    public EventStreamUnexpectedMaxEventIdException(object id, Type? aggregateType, long expected, long actual): base(
         $"Unexpected starting version number for event stream '{id}', expected {expected} but was {actual}",
         aggregateType, id)
     {
@@ -12,14 +12,5 @@ public class EventStreamUnexpectedMaxEventIdException: ConcurrencyException
         AggregateType = aggregateType;
     }
 
-    protected EventStreamUnexpectedMaxEventIdException(SerializationInfo info, StreamingContext context): base(info,
-        context)
-    {
-    }
-
-    public EventStreamUnexpectedMaxEventIdException(string message) : base(message, null, null)
-    {
-    }
-
-    public Type AggregateType { get; }
+    public Type? AggregateType { get; }
 }

@@ -57,7 +57,7 @@ public class CompositeTypeFilter : CompositeFilter<Type>
         WithCondition("Is Public", t => t.IsPublic);
     }
 
-    public bool Matches(Type type)
+    public new bool Matches(Type type)
     {
         return Filters.Any(x => x.Matches(type));
     }

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
 
@@ -12,7 +13,7 @@ public static class ReflectionExtensions
     /// <param name="att"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public static bool TryGetAttribute<T>(this ICustomAttributeProvider provider, out T att) where T : Attribute
+    public static bool TryGetAttribute<T>(this ICustomAttributeProvider provider, [NotNullWhen(true)]out T? att) where T : Attribute
     {
         att = provider.GetCustomAttributes(typeof(T), true).OfType<T>().FirstOrDefault();
 
@@ -272,7 +273,7 @@ public static class ReflectionExtensions
     /// <param name="ctor"></param>
     /// <param name="arguments"></param>
     /// <returns></returns>
-    public static bool TryFindConstructor(this Type type, out ConstructorInfo ctor, params Type[] arguments)
+    public static bool TryFindConstructor(this Type type, [NotNullWhen(true)]out ConstructorInfo? ctor, params Type[] arguments)
     {
         ctor = type.GetConstructor(arguments);
         return ctor != null;
@@ -287,7 +288,7 @@ public static class ReflectionExtensions
     /// <param name="method"></param>
     /// <param name="argumentType"></param>
     /// <returns></returns>
-    public static bool TryFindMethod(this Type type, string methodName, out MethodInfo method, Type argumentType)
+    public static bool TryFindMethod(this Type? type, string methodName, [NotNullWhen(true)]out MethodInfo? method, Type argumentType)
     {
         if (type == null)
         {
@@ -311,7 +312,7 @@ public static class ReflectionExtensions
     /// <param name="method"></param>
     /// <param name="argumentType"></param>
     /// <returns></returns>
-    public static bool TryFindStaticMethod(this Type type, string methodName, out MethodInfo method, Type argumentType)
+    public static bool TryFindStaticMethod(this Type? type, string methodName, [NotNullWhen(true)]out MethodInfo? method, Type argumentType)
     {
         if (type == null)
         {

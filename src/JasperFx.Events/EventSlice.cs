@@ -15,9 +15,9 @@ public interface IEventSlice
 
 public interface IEventSlice<T>: IEventSlice
 {
-    void AppendEvent<TEvent>(Guid streamId, TEvent @event);
-    void AppendEvent<TEvent>(string streamKey, TEvent @event);
-    void AppendEvent<TEvent>(TEvent @event);
+    void AppendEvent<TEvent>(Guid streamId, TEvent @event) where TEvent : notnull;
+    void AppendEvent<TEvent>(string streamKey, TEvent @event) where TEvent : notnull;
+    void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
     void PublishMessage(object message);
 
     /// <summary>
@@ -39,7 +39,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 {
     private readonly List<IEvent> _events = new();
 
-    private static Action<IEvent, TId> _identitySetter;
+    private static readonly Action<IEvent, TId> _identitySetter;
     
     static EventSlice()
     {
@@ -175,7 +175,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
     public int Count => _events.Count;
 
-    int IComparer<IEvent>.Compare(IEvent x, IEvent y)
+    int IComparer<IEvent>.Compare(IEvent? x, IEvent? y)
     {
         return x.Sequence.CompareTo(y.Sequence);
     }
@@ -215,7 +215,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         foreach (var @event in _events) yield return @event.Data;
     }
 
-    public void FanOut<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc)
+    public void FanOut<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc) where TSource : notnull where TChild : notnull
     {
         reorderEvents();
         _events.FanOut(fanOutFunc);

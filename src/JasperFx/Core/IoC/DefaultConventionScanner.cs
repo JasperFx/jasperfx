@@ -51,7 +51,7 @@ internal class DefaultConventionScanner : IRegistrationConvention
         return !hasMatch;
     }
 
-    public virtual Type FindServiceType(Type concreteType)
+    public virtual Type? FindServiceType(Type concreteType)
     {
         var interfaceName = "I" + concreteType.Name;
         return concreteType.GetTypeInfo().GetInterfaces().FirstOrDefault(t => t.Name == interfaceName);

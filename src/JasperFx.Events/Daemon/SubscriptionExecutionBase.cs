@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -130,7 +131,7 @@ public abstract class SubscriptionExecutionBase: ISubscriptionExecution
         await _cancellation.CancelAsync().ConfigureAwait(false);
     }
     public ShardExecutionMode Mode { get; set; } = ShardExecutionMode.Continuous;
-    public bool TryBuildReplayExecutor(out IReplayExecutor executor)
+    public bool TryBuildReplayExecutor([NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;

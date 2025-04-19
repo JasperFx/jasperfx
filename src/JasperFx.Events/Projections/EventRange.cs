@@ -87,7 +87,7 @@ public class EventRange
                SequenceCeiling == other.SequenceCeiling;
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj))
         {

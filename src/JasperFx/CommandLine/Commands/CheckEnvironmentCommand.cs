@@ -7,7 +7,7 @@ namespace JasperFx.CommandLine.Commands;
 public class CheckEnvironmentInput : NetCoreInput
 {
     [Description("Use to optionally write the results of the environment checks to a file")]
-    public string FileFlag { get; set; }
+    public string? FileFlag { get; set; }
 }
 
 [Description("Execute all environment checks against the application", Name = "check-env")]

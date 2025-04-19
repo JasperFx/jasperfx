@@ -3,7 +3,7 @@
 public class TokenParser
 {
     private readonly List<string> _tokens = new();
-    private List<char> _characters;
+    private List<char> _characters = null!;
     private IMode _mode;
 
     public TokenParser()

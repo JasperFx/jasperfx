@@ -86,7 +86,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     {
         if (_cancellation.IsCancellationRequested)
         {
-            return null;
+            return null!;
         }
 
         using var activity = range.Agent.Metrics.TrackGrouping(range);
@@ -114,7 +114,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
                 _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
 
-            return null;
+            return null!;
         }
         finally
         {
@@ -194,7 +194,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     private async Task<IProjectionBatch> buildBatchWithSkipping(EventRange range,
         CancellationToken cancellationToken)
     {
-        IProjectionBatch batch = default;
+        IProjectionBatch? batch = default;
         while (batch == null && !cancellationToken.IsCancellationRequested)
         {
             try
@@ -209,12 +209,12 @@ public class GroupedProjectionExecution: ISubscriptionExecution
             }
         }
 
-        return batch;
+        return batch!;
     }
 
     private async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
     {
-        IProjectionBatch batch = default;
+        IProjectionBatch? batch = default;
         try
         {
             batch = await _runner.BuildBatchAsync(range, Mode, cancellationToken).ConfigureAwait(false);

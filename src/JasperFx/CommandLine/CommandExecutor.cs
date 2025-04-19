@@ -21,7 +21,7 @@ public class CommandExecutor
     /// <summary>
     ///     Directs JasperFx to look for an options file at this location.
     /// </summary>
-    public string OptionsFile { get; set; }
+    public string? OptionsFile { get; set; }
 
 
     public ICommandFactory Factory { get; }
@@ -63,7 +63,7 @@ public class CommandExecutor
     ///     line arguments
     /// </param>
     /// <returns></returns>
-    public static int ExecuteCommand<T>(string[] args, string optsFile = null) where T : IJasperFxCommand
+    public static int ExecuteCommand<T>(string[] args, string? optsFile = null) where T : IJasperFxCommand
     {
         var factory = new CommandFactory();
         factory.RegisterCommand<T>();
@@ -87,7 +87,7 @@ public class CommandExecutor
     ///     line arguments
     /// </param>
     /// <returns></returns>
-    public static Task<int> ExecuteCommandAsync<T>(string[] args, string optsFile = null) where T : IJasperFxCommand
+    public static Task<int> ExecuteCommandAsync<T>(string[] args, string? optsFile = null) where T : IJasperFxCommand
     {
         var factory = new CommandFactory();
         factory.RegisterCommand<T>();
@@ -107,7 +107,7 @@ public class CommandExecutor
     /// <param name="configure"></param>
     /// <param name="creator"></param>
     /// <returns></returns>
-    public static CommandExecutor For(Action<CommandFactory> configure, ICommandCreator creator = null)
+    public static CommandExecutor For(Action<CommandFactory> configure, ICommandCreator? creator = null)
     {
         var factory = new CommandFactory(creator ?? new ActivatorCommandCreator());
 
@@ -137,11 +137,11 @@ public class CommandExecutor
         return commandLine;
     }
 
-    internal static IEnumerable<string> ReadOptions(string optionsFile)
+    internal static IEnumerable<string> ReadOptions(string? optionsFile)
     {
         if (optionsFile.IsEmpty())
         {
-            return new string[0];
+            return Array.Empty<string>();
         }
 
         var path = AppContext.BaseDirectory.AppendPath(optionsFile);
