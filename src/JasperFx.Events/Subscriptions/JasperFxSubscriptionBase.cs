@@ -87,13 +87,13 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return new SubscriptionExecution<TSubscription>(database, _subscription, database, new ShardName(Name, "All"), logger);
+        return new SubscriptionExecution<TSubscription>(database, _subscription, database, shardName, logger);
     }
 
     public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new SubscriptionExecution<TSubscription>(storage, _subscription, database, new ShardName(Name, "All"), logger);
+        return new SubscriptionExecution<TSubscription>(storage, _subscription, database, shardName, logger);
     }
 }
 

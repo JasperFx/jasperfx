@@ -103,7 +103,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     {
         return
         [
-            new(Options, ShardRole.Projection, new ShardName(base.Name, "All"), this, this)
+            new(Options, ShardRole.Projection, new ShardName(base.Name, "All", Version), this, this)
         ];
     }
 

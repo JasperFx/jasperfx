@@ -9,7 +9,7 @@ namespace EventTests.Daemon;
 public class AsyncOptionsTests
 {
     private readonly IEventDatabase theDatabase = Substitute.For<IEventDatabase>();
-    private readonly ShardName theName = new ShardName("Fake", "All");
+    private readonly ShardName theName = new ShardName("Fake");
     private readonly CancellationToken theToken = CancellationToken.None;
 
     [Fact]

@@ -18,7 +18,7 @@ public class ShardNameTests
     [Fact]
     public void identifier_for_different_key_and_version_is_one()
     {
-        var name = new ShardName("Foo", "Other");
+        var name = new ShardName("Foo", "Other", 1u);
         name.Identity.ShouldBe("Foo:Other");
         name.ShardKey.ShouldBe("Other");
     }

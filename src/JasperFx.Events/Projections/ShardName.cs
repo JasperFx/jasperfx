@@ -29,11 +29,6 @@ public class ShardName
 
     }
 
-    public ShardName(string projectionName, string shardKey) : this(projectionName, shardKey, 1u)
-    {
-
-    }
-
     public ShardName(string projectionName): this(projectionName, All, 1)
     {
     }

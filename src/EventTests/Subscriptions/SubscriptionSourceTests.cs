@@ -21,7 +21,7 @@ public class SubscriptionSourceTests
         var shard = source.Shards().Single();
         
         shard.Role.ShouldBe(ShardRole.Subscription);
-        shard.Name.ShouldBe(new ShardName("Foo", "All"));
+        shard.Name.ShouldBe(new ShardName("Foo"));
         shard.Factory.ShouldBe(source);
         shard.Filters.ShouldBe(source);
     }
