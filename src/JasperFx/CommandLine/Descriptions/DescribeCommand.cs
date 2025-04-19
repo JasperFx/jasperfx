@@ -21,14 +21,10 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 
         var config = host.Services.GetRequiredService<IConfiguration>();
         var configurationPreview = new ConfigurationPreview(config);
-
-<<<<<<< HEAD
-        var hosting = host.Services.GetService<IHostEnvironment>()!;
-        var about = new AboutThisAppPart(hosting, config);
-=======
+        
         var hosting = host.Services.GetService<IHostEnvironment>();
         var about = new AboutThisAppPart(hosting);
->>>>>>> cdd0786 (folding IWriteToConsole under ISystemPart, new SystemPartBase base type)
+
         var builtInDescribers = new ISystemPart[] { about, configurationPreview, new ReferencedAssemblies() };
 
 
