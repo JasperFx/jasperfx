@@ -2,7 +2,7 @@ using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Aggregation;
 
-public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
+public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
     public IAggregationSteps<TDoc, TQuerySession> CreateEvent<TEvent>(Func<TEvent, TDoc> creator) where TEvent : class
     {

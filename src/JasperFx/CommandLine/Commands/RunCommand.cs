@@ -25,7 +25,7 @@ public class RunCommand : JasperFxAsyncCommand<RunInput>
 
         var reset = new ManualResetEventSlim();
         // ReSharper disable once PossibleNullReferenceException
-        AssemblyLoadContext.GetLoadContext(typeof(RunCommand).Assembly).Unloading +=
+        AssemblyLoadContext.GetLoadContext(typeof(RunCommand).Assembly)!.Unloading +=
             (Action<AssemblyLoadContext>)(context => reset.Set());
         Console.CancelKeyPress += (ConsoleCancelEventHandler)((sender, eventArgs) =>
         {

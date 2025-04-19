@@ -10,14 +10,14 @@ public class EnumerableFlag : Flag
     private readonly MemberInfo _member;
 
     public EnumerableFlag(MemberInfo member, Conversions conversions)
-        : base(member, member.GetMemberType().DetermineElementType(), conversions)
+        : base(member, member.GetMemberType()!.DetermineElementType()!, conversions)
     {
         _member = member;
     }
 
     public override bool Handle(object input, Queue<string> tokens)
     {
-        var elementType = _member.GetMemberType().DetermineElementType();
+        var elementType = _member.GetMemberType()!.DetermineElementType()!;
         var list = typeof(List<>).CloseAndBuildAs<IList>(elementType);
 
         var wasHandled = false;

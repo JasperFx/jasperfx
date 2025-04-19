@@ -30,10 +30,10 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
             : typeof(TEvent);
         
         var caller = Expression.Constant(creator);
-        var method = creator.GetType().GetMethod("Invoke");
+        var method = creator.GetType().GetMethod("Invoke")!;
         
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         
@@ -82,10 +82,10 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
             : typeof(TEvent);
         
         var caller = Expression.Constant(shouldDelete);
-        var method = shouldDelete.GetType().GetMethod("Invoke");
+        var method = shouldDelete.GetType().GetMethod("Invoke")!;
         
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         
@@ -164,10 +164,10 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
             : typeof(TEvent);
         
         var caller = Expression.Constant(handler);
-        var method = handler.GetType().GetMethod("Invoke");
+        var method = handler.GetType().GetMethod("Invoke")!;
         
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         

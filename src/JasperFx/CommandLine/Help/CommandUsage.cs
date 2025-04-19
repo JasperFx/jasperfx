@@ -6,9 +6,9 @@ namespace JasperFx.CommandLine.Help;
 
 public class CommandUsage
 {
-    public string Description { get; set; }
-    public IEnumerable<Argument> Arguments { get; set; }
-    public IEnumerable<ITokenHandler> ValidFlags { get; set; }
+    public required string Description { get; set; }
+    public required IEnumerable<Argument> Arguments { get; set; }
+    public required IEnumerable<ITokenHandler> ValidFlags { get; set; }
 
     public string ToUsage(string appName, string commandName)
     {

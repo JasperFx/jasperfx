@@ -13,5 +13,5 @@ public class DescriptionAttribute : Attribute
 
     public string Description { get; set; }
 
-    public string Name { get; set; }
+    public string? Name { get; set; }
 }

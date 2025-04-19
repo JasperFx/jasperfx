@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Descriptions;
@@ -61,7 +62,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         foreach (var projection in All.OfType<IAggregateProjection>()) yield return projection.AggregateType;
     }
     
-    public bool TryFindAggregate(Type documentType, out IAggregateProjection projection)
+    public bool TryFindAggregate(Type documentType, [NotNullWhen(true)]out IAggregateProjection? projection)
     {
         projection = All.OfType<IAggregateProjection>().FirstOrDefault(x => x.AggregateType == documentType);
         return projection != null;
@@ -266,7 +267,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         return _asyncShards.Value.Values.Where(x => sources.Contains(x.Name.ProjectionOrSubscriptionName)).Select(x => x.Name).ToArray();
     }
     
-    public bool TryFindAsyncShard(string projectionOrShardName, out AsyncShard<TOperations, TQuerySession> shard)
+    public bool TryFindAsyncShard(string projectionOrShardName, [NotNullWhen(true)]out AsyncShard<TOperations, TQuerySession>? shard)
     {
         return _asyncShards.Value.TryGetValue(projectionOrShardName, out shard);
     }

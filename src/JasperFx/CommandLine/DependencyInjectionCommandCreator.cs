@@ -20,7 +20,7 @@ internal class DependencyInjectionCommandCreator : ICommandCreator
             return new WrappedJasperFxCommand(_serviceProvider, commandType);
         }
         
-        return ActivatorUtilities.CreateInstance(_serviceProvider, commandType) as IJasperFxCommand;
+        return (ActivatorUtilities.CreateInstance(_serviceProvider, commandType) as IJasperFxCommand)!;
     }
 
     public object CreateModel(Type modelType)

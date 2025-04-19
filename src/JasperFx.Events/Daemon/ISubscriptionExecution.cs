@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Daemon;
@@ -9,7 +10,7 @@ public interface ISubscriptionExecution: IAsyncDisposable
     Task HardStopAsync();
 
     ShardExecutionMode Mode { get; set; }
-    bool TryBuildReplayExecutor(out IReplayExecutor executor);
+    bool TryBuildReplayExecutor([NotNullWhen(true)]out IReplayExecutor? executor);
 }
 
 /// <summary>

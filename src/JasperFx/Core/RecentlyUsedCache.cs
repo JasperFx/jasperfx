@@ -1,20 +1,21 @@
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 
 namespace JasperFx.Core;
 
-public interface IAggregateCache<TKey, TItem>
+public interface IAggregateCache<TKey, TItem> where TKey: notnull where TItem: notnull
 {
-    bool TryFind(TKey key, out TItem item);
+    bool TryFind(TKey key, [NotNullWhen(true)]out TItem? item);
     void Store(TKey key, TItem item);
     void CompactIfNecessary();
     void TryRemove(TKey key);
 }
 
-public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem>
+public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
 {
     public bool TryFind(TKey key, out TItem item)
     {
-        item = default;
+        item = default!;
         return false;
     }
 
@@ -34,7 +35,7 @@ public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem>
     }
 }
 
-public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem>
+public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
 {
     private ImHashMap<TKey, TItem> _items = ImHashMap<TKey, TItem>.Empty;
     private ImHashMap<TKey, DateTimeOffset> _times = ImHashMap<TKey, DateTimeOffset>.Empty;
@@ -43,7 +44,7 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem>
 
     public int Count => _items.Count();
 
-    public bool TryFind(TKey key, out TItem item)
+    public bool TryFind(TKey key, [NotNullWhen(true)]out TItem? item)
     {
         if (_items.TryFind(key, out item))
         {

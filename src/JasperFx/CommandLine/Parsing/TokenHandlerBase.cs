@@ -34,7 +34,7 @@ public abstract class TokenHandlerBase : ITokenHandler
         (Member as FieldInfo)?.SetValue(target, value);
     }
 
-    protected object getValue(object target)
+    protected object? getValue(object target)
     {
         return (Member as PropertyInfo)?.GetValue(target)
                ?? (Member as FieldInfo)?.GetValue(target);
@@ -55,7 +55,7 @@ public abstract class TokenHandlerBase : ITokenHandler
         return other.Member.Equals(Member);
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj))
         {

@@ -13,7 +13,7 @@ public enum AggregationScope
     MultiStream
 }
 
-public interface IAggregationProjection<TDoc, TId, TOperations, TQuerySession> where TOperations : TQuerySession
+public interface IAggregationProjection<TDoc, TId, in TOperations, in TQuerySession> where TOperations : TQuerySession
 {
     /// <summary>
     /// Use to create "side effects" when running an aggregation (single stream, custom projection, multi-stream)

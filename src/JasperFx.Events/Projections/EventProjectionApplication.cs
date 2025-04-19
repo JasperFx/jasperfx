@@ -102,7 +102,7 @@ public class EventProjectionApplication<TOperations>
         var cancellation = Expression.Parameter(typeof(CancellationToken), "cancellation");
         
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         
@@ -119,7 +119,7 @@ public class EventProjectionApplication<TOperations>
         };
         
         // You would use null for static methods
-        Expression caller = default(Expression);
+        Expression? caller = default(Expression);
         if (!method.IsStatic) caller = Expression.Constant(_entity);
             
         var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
@@ -240,10 +240,10 @@ public class EventProjectionApplication<TOperations>
             : typeof(TEvent);
         
         var caller = Expression.Constant(handler);
-        var method = handler.GetType().GetMethod("Invoke");
+        var method = handler.GetType().GetMethod("Invoke")!;
         
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         
@@ -261,7 +261,7 @@ public class EventProjectionApplication<TOperations>
         var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
         var body = Expression.Call(caller, method, arguments);
 
-        Func<TOperations, IEvent, CancellationToken, ValueTask> func = default;
+        Func<TOperations, IEvent, CancellationToken, ValueTask>? func = default;
         if (body.Type == typeof(ValueTask))
         {
             func = Expression
@@ -310,7 +310,7 @@ public class EventProjectionApplication<TOperations>
             var cancellation = Expression.Parameter(typeof(CancellationToken), "cancellation");
         
             var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-            var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+            var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
             var strongTypedEvent = Expression.Convert(e, wrappedType);
             var data = Expression.Call(strongTypedEvent, getData);
         
@@ -327,7 +327,7 @@ public class EventProjectionApplication<TOperations>
             };
             
             // You would use null for static methods
-            Expression caller = default(Expression);
+            Expression? caller = default(Expression);
             if (!method.IsStatic) caller = Expression.Constant(entityStorage);
             
             var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();

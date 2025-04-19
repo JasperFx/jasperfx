@@ -26,10 +26,10 @@ public class AssemblyScanner : IAssemblyScanner
 
     public List<IRegistrationConvention> Conventions { get; } = new();
 
-    public TypeSet TypeFinder { get; private set; }
+    public TypeSet TypeFinder { get; private set; } = null!;
 
 
-    public string Description { get; set; }
+    public string Description { get; set; } = null!;
 
 
     public void Assembly(Assembly assembly)
@@ -100,7 +100,7 @@ public class AssemblyScanner : IAssemblyScanner
 
     public void ExcludeNamespaceContainingType<T>()
     {
-        ExcludeNamespace(typeof(T).Namespace);
+        ExcludeNamespace(typeof(T).Namespace!);
     }
 
     public void Include(Func<Type, bool> predicate)
@@ -115,7 +115,7 @@ public class AssemblyScanner : IAssemblyScanner
 
     public void IncludeNamespaceContainingType<T>()
     {
-        IncludeNamespace(typeof(T).Namespace);
+        IncludeNamespace(typeof(T).Namespace!);
     }
 
     public void ExcludeType<T>()
@@ -227,7 +227,7 @@ public class AssemblyScanner : IAssemblyScanner
     /// <param name="scanner"></param>
     /// <param name="assemblyFilter"></param>
     /// <param name="includeExeFiles"></param>
-    public void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool> assemblyFilter = null)
+    public void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool>? assemblyFilter = null)
     {
         var assemblies = AssemblyFinder.FindAssemblies(assemblyFilter, true);
 
@@ -312,7 +312,7 @@ public class AssemblyScanner : IAssemblyScanner
     public bool Contains(string assemblyName)
     {
         return _assemblies
-            .Select(assembly => new AssemblyName(assembly.FullName))
+            .Select(assembly => new AssemblyName(assembly.FullName!))
             .Any(aName => aName.Name == assemblyName);
     }
 

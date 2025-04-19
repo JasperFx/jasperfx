@@ -45,7 +45,7 @@ public interface IEventGrouping<TId>
     /// <param name="singleIdSource"></param>
     /// <param name="events"></param>
     /// <typeparam name="TEvent"></typeparam>
-    void AddEvents<TEvent>(Func<TEvent, TId> singleIdSource, IEnumerable<IEvent> events);
+    void AddEvents<TEvent>(Func<TEvent, TId> singleIdSource, IEnumerable<IEvent> events) where TEvent : notnull;
 
     /// <summary>
     ///     Add events to streams where each event of type TEvent may be related to many
@@ -54,7 +54,7 @@ public interface IEventGrouping<TId>
     /// <param name="multipleIdSource"></param>
     /// <param name="events"></param>
     /// <typeparam name="TEvent"></typeparam>
-    void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events);
+    void AddEvents<TEvent>(Func<TEvent, IEnumerable<TId>> multipleIdSource, IEnumerable<IEvent> events) where TEvent : notnull;
 
     /// <summary>
     ///     Apply "fan out" operations to the given TSource type that inserts an enumerable of TChild events right behind the
@@ -64,6 +64,6 @@ public interface IEventGrouping<TId>
     /// <param name="fanOutFunc"></param>
     /// <typeparam name="TSource"></typeparam>
     /// <typeparam name="TChild"></typeparam>
-    void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc);
+    void FanOutOnEach<TSource, TChild>(Func<TSource, IEnumerable<TChild>> fanOutFunc) where TSource : notnull where TChild : notnull;
 
 }

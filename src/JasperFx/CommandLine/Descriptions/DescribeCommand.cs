@@ -19,7 +19,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
         var config = host.Services.GetRequiredService<IConfiguration>();
         var configurationPreview = new ConfigurationPreview(config);
 
-        var hosting = host.Services.GetService<IHostEnvironment>();
+        var hosting = host.Services.GetService<IHostEnvironment>()!;
         var about = new AboutThisAppPart(hosting, config);
         var builtInDescribers = new IDescribedSystemPart[] { about, configurationPreview, new ReferencedAssemblies() };
 
@@ -134,7 +134,7 @@ public class AboutThisAppPart : IDescribedSystemPart
     public Task Write(TextWriter writer)
     {
         var entryAssembly = Assembly.GetEntryAssembly();
-        writer.WriteLine($"          Entry Assembly: {entryAssembly.GetName().Name}");
+        writer.WriteLine($"          Entry Assembly: {entryAssembly!.GetName().Name}");
         writer.WriteLine($"                 Version: {entryAssembly.GetName().Version}");
         writer.WriteLine($"        Application Name: {_host.ApplicationName}");
         writer.WriteLine($"             Environment: {_host.EnvironmentName}");
@@ -157,7 +157,7 @@ public class ReferencedAssemblies : IDescribedSystemPart, IWriteToConsole
     // write out markdown formatted text
     public Task Write(TextWriter writer)
     {
-        var referenced = Assembly.GetEntryAssembly().GetReferencedAssemblies();
+        var referenced = Assembly.GetEntryAssembly()!.GetReferencedAssemblies();
         foreach (var assemblyName in referenced) writer.WriteLine("* " + assemblyName);
 
         return Task.CompletedTask;
@@ -173,8 +173,8 @@ public class ReferencedAssemblies : IDescribedSystemPart, IWriteToConsole
         table.AddColumn("Assembly Name", textAlign:Justify.Left);
         table.AddColumn("Version");
 
-        var referenced = Assembly.GetEntryAssembly().GetReferencedAssemblies();
-        foreach (var assemblyName in referenced) table.AddRow(assemblyName.Name, assemblyName.Version.ToString());
+        var referenced = Assembly.GetEntryAssembly()!.GetReferencedAssemblies();
+        foreach (var assemblyName in referenced) table.AddRow(assemblyName.Name!, assemblyName.Version!.ToString());
 
         description.WriteToConsole();
 

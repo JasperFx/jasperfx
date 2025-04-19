@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Descriptions;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Subscriptions;
@@ -70,7 +71,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     }
 
     public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database,
-        out IReplayExecutor executor)
+        [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;

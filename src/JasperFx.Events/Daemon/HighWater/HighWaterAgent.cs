@@ -17,7 +17,7 @@ public class HighWaterAgent: IDisposable
     private readonly Timer _timer;
     private readonly ShardStateTracker _tracker;
 
-    private HighWaterStatistics _current;
+    private HighWaterStatistics? _current;
     private Task<Task> _loop;
     private CancellationToken _token;
     private readonly string _spanName;
@@ -103,7 +103,7 @@ public class HighWaterAgent: IDisposable
             Activity? activity = null;
             //using var activity = MartenTracing.StartActivity(_spanName);
 
-            HighWaterStatistics statistics = null;
+            HighWaterStatistics? statistics = null;
             try
             {
                 statistics = await _detector.Detect(_token).ConfigureAwait(false);
@@ -148,7 +148,7 @@ public class HighWaterAgent: IDisposable
 
                     // This gives the high water detection a chance to allow the gaps to fill in
                     // before skipping to the safe harbor time
-                    var safeHarborTime = _current.Timestamp.Add(_settings.StaleSequenceThreshold);
+                    var safeHarborTime = _current!.Timestamp.Add(_settings.StaleSequenceThreshold);
                     if (safeHarborTime > statistics.Timestamp)
                     {
                         await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
@@ -178,9 +178,9 @@ public class HighWaterAgent: IDisposable
         _logger.LogInformation("HighWaterAgent has detected a cancellation and has stopped polling for database {Name}", _detector.DatabaseName);
     }
 
-    private HighWaterStatus tagActivity(HighWaterStatistics statistics, Activity activity)
+    private HighWaterStatus tagActivity(HighWaterStatistics statistics, Activity? activity)
     {
-        var status = statistics.InterpretStatus(_current);
+        var status = statistics.InterpretStatus(_current!);
 
         activity?.AddTag("sequence", statistics.HighestSequence);
         activity?.AddTag("status", status.ToString());
@@ -223,7 +223,7 @@ public class HighWaterAgent: IDisposable
         await Task.Delay(delayTime, _token).ConfigureAwait(false);
     }
 
-    private void TimerOnElapsed(object sender, ElapsedEventArgs e)
+    private void TimerOnElapsed(object? sender, ElapsedEventArgs e)
     {
         _ = checkState();
     }

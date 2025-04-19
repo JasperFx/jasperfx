@@ -10,6 +10,6 @@ internal static class ReflectionExtensions
     /// <returns></returns>
     public static bool IsOverridden(this Type type, string methodName)
     {
-        return type.GetMethod(methodName).DeclaringType.Assembly != typeof(ReflectionExtensions).Assembly;
+        return type.GetMethod(methodName)!.DeclaringType!.Assembly != typeof(ReflectionExtensions).Assembly;
     }
 }

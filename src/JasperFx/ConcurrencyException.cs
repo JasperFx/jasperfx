@@ -20,23 +20,20 @@ public class ConcurrencyException: Exception
     
     public ConcurrencyException(Type docType, object id): base(ToMessage(docType, id))
     {
-        DocType = docType.FullName;
+        DocType = docType.FullName!;
         Id = id;
     }
 
-    public ConcurrencyException(string message, Type docType, object id): base(message)
+    public ConcurrencyException(string message, Type? docType, object id): base(message)
     {
-        DocType = docType?.FullName;
+        DocType = docType?.FullName!;
         Id = id;
     }
 
     public ConcurrencyException(string? message) : base(message)
     {
     }
-
-    protected ConcurrencyException(SerializationInfo info, StreamingContext context): base(info, context)
-    {
-    }
+    
 
     public string DocType { get; set; }
     public object Id { get; set; }

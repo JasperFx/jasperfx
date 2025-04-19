@@ -4,7 +4,7 @@ namespace JasperFx.CommandLine.Internal.Conversion;
 
 public class Conversions
 {
-    private readonly LightweightCache<Type, Func<string, object>> _convertors;
+    private readonly LightweightCache<Type, Func<string, object?>?> _convertors;
     private readonly IList<IConversionProvider> _providers = new List<IConversionProvider>();
 
 

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
 using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
@@ -13,7 +14,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     : ProjectionBase, IAggregateProjection, IAggregationSteps<TDoc, TQuerySession>,
         IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>,
         IAggregationProjection<TDoc, TId, TOperations, TQuerySession>
-    where TOperations : TQuerySession, IStorageOperations
+    where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
     private readonly Lazy<Type[]> _allEventTypes;
     private readonly AggregateApplication<TDoc, TQuerySession> _application;
@@ -47,7 +48,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
     }
 
-    private static string[] methodNames = [nameof(DetermineAction), nameof(DetermineActionAsync), nameof(Evolve), nameof(EvolveAsync)];
+    private static readonly string[] methodNames = [nameof(DetermineAction), nameof(DetermineActionAsync), nameof(Evolve), nameof(EvolveAsync)];
     private void establishBuildActionAndEvolve()
     {
         if (isOverridden(nameof(DetermineAction)))
@@ -165,7 +166,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     }
 
     public virtual bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database,
-        out IReplayExecutor executor)
+        [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;

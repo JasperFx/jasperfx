@@ -4,7 +4,7 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 
-public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
+public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
     private Func<TDoc?, TId, TQuerySession, IReadOnlyList<IEvent>, CancellationToken, ValueTask<TDoc?>> _evolve;
     private Func<TQuerySession, TDoc?, TId, IIdentitySetter<TDoc, TId>, IReadOnlyList<IEvent>, CancellationToken,

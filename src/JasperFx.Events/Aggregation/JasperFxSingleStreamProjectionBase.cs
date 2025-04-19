@@ -6,7 +6,7 @@ using JasperFx.Events.Projections;
 namespace JasperFx.Events.Aggregation;
 
 public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IAggregatorSource<TQuerySession>, IAggregator<TDoc, TId, TQuerySession>, IInlineProjection<TOperations> 
-    where TOperations : TQuerySession, IStorageOperations
+    where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
     private readonly Func<IEvent,TId> _identitySource;
     private readonly Func<StreamAction, TId> _streamActionSource;
@@ -44,7 +44,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         }
     }
 
-    async ValueTask<TDoc> IAggregator<TDoc, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, CancellationToken cancellation)
+    async ValueTask<TDoc?> IAggregator<TDoc, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, CancellationToken cancellation)
     {
         if (!events.Any()) return snapshot;
         
@@ -59,7 +59,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return snapshot;
     }
 
-    async ValueTask<TDoc> IAggregator<TDoc, TId, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, TId id,
+    async ValueTask<TDoc?> IAggregator<TDoc, TId, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, TId id,
         IIdentitySetter<TDoc, TId> identitySetter,
         CancellationToken cancellation)
     {

@@ -12,11 +12,11 @@ public class FramesCollection : List<Frame>
     {
         ParentMethod = parentMethod;
     }
-#nullable disable
+#pragma warning disable CS8618 
     public FramesCollection()
     {
     }
-#nullable enable
+#pragma warning restore CS8618 
 
     public GeneratedMethod ParentMethod { get; }
 

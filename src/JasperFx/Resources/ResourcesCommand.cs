@@ -159,8 +159,8 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
         return !exceptions.Any();
     }
 
-    internal static async Task<IList<IStatefulResource>> FindResources(IServiceProvider services, string typeName,
-        string resourceName)
+    internal static async Task<IList<IStatefulResource>> FindResources(IServiceProvider services, string? typeName,
+        string? resourceName)
     {
         var list = services.GetServices<IStatefulResource>().ToList();
         foreach (var source in services.GetServices<IStatefulResourceSource>())
@@ -195,7 +195,7 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
 
     internal class ResourceRecord
     {
-        public IStatefulResource Resource { get; set; }
-        public IRenderable Status { get; set; }
+        public required IStatefulResource Resource { get; init; }
+        public required IRenderable Status { get; init; }
     }
 }

@@ -111,14 +111,14 @@ public class OverridesEvolveAsync : SingleStreamProjection<MyAggregate, Guid>
     }
 }
 
-public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession>
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession> where TDoc : notnull where TId : notnull
 {
     protected SingleStreamProjection() : base([typeof(BadImageFormatException), typeof(DivideByZeroException)])
     {
     }
 }
 
-public class FakeSingleProjectionStream<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession>
+public class FakeSingleProjectionStream<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession> where TDoc : notnull where TId : notnull
 {
     public FakeSingleProjectionStream(Type[] transientExceptionTypes) : base(transientExceptionTypes)
     {

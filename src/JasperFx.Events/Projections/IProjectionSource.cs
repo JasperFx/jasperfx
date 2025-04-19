@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Subscriptions;
 
@@ -11,7 +12,7 @@ namespace JasperFx.Events.Projections;
 public interface IProjectionSource<TOperations, TQuerySession>: IReadOnlyProjectionData, ISubscriptionSource<TOperations, TQuerySession> 
     where TOperations : TQuerySession, IStorageOperations
 {
-    bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, out IReplayExecutor executor);
+    bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor);
 
     AsyncOptions Options { get; }
     

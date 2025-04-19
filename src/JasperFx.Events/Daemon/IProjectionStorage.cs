@@ -43,17 +43,17 @@ public static class ProjectionStorageExtensions
                 storage.Delete(id, tenantId);
                 break;
             case ActionType.Store:
-                storage.Store(snapshot, id, tenantId);
+                storage.Store(snapshot!, id, tenantId);
                 break;
             case ActionType.HardDelete:
-                storage.HardDelete(snapshot, tenantId);
+                storage.HardDelete(snapshot!, tenantId);
                 break;
             case ActionType.UnDeleteAndStore:
-                storage.UnDelete(snapshot, tenantId);
-                storage.Store(snapshot, id, tenantId);
+                storage.UnDelete(snapshot!, tenantId);
+                storage.Store(snapshot!, id, tenantId);
                 break;
             case ActionType.StoreThenSoftDelete:
-                storage.Store(snapshot, id, tenantId);
+                storage.Store(snapshot!, id, tenantId);
                 storage.Delete(id, tenantId);
                 break;
         }

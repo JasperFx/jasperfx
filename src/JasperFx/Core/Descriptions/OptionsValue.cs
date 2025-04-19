@@ -8,16 +8,18 @@ namespace JasperFx.Core.Descriptions;
 public class OptionsValue
 {
     // For serialization
+#pragma warning disable CS8618
     public OptionsValue()
     {
     }
-
+#pragma warning restore CS8618
+    
     public OptionsValue(string subject, string name, object rawValue)
     {
         Subject = subject;
         Name = name;
         RawValue = rawValue;
-        Value = rawValue?.ToString();
+        Value = rawValue?.ToString()!;
 
         WriteValue(rawValue);
     }
@@ -30,7 +32,7 @@ public class OptionsValue
     public PropertyType Type { get; set; }
     
     [JsonIgnore]
-    public object RawValue { get; set; }
+    public object? RawValue { get; set; }
     public string Value { get; set; }
 
     public static OptionsValue Read<T>(T subject, Expression<Func<T,object>> expression)
@@ -53,7 +55,7 @@ public class OptionsValue
         {
             Subject = $"{subject.GetType().FullNameInCode()}.{property.Name}",
             RawValue = value,
-            Value = value?.ToString(),
+            Value = value?.ToString()!,
             Name = property.Name,
             Type = PropertyType.Text, // safest guess
         };
@@ -107,7 +109,7 @@ public class OptionsValue
         {
             Type = PropertyType.Assembly;
             RawValue = AssemblyDescriptor.For(assembly);
-            Value = RawValue.ToString();
+            Value = RawValue.ToString()!;
         }
         
     }

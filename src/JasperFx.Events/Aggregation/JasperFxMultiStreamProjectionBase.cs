@@ -7,7 +7,7 @@ namespace JasperFx.Events.Aggregation;
 
 public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> :
     JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IInlineProjection<TOperations>
-    where TOperations : TQuerySession, IStorageOperations
+    where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
     private readonly EventSlicer<TDoc, TId, TQuerySession> _defaultSlicer = new();
     private IEventSlicer<TDoc, TId, TQuerySession>? _customSlicer;
@@ -65,7 +65,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     /// <typeparam name="TEvent"></typeparam>
     /// <typeparam name="TChild"></typeparam>
     public void FanOut<TEvent, TChild>(Func<TEvent, IEnumerable<TChild>> fanOutFunc,
-        FanoutMode mode = FanoutMode.AfterGrouping)
+        FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull where TChild : notnull
     {
         IncludeType<TEvent>();
         _defaultSlicer.FanOut(fanOutFunc, mode);
@@ -81,7 +81,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     /// <typeparam name="TEvent"></typeparam>
     /// <typeparam name="TChild"></typeparam>
     public void FanOut<TEvent, TChild>(Func<IEvent<TEvent>, IEnumerable<TChild>> fanOutFunc,
-        FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull
+        FanoutMode mode = FanoutMode.AfterGrouping) where TEvent : notnull where TChild : notnull
     {
         IncludeType<TEvent>();
         _defaultSlicer.FanOut(fanOutFunc, mode);
@@ -120,7 +120,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         TenancyGrouping = TenancyGrouping.RollUpByTenant;
     }
     
-    public void Identity<TEvent>(Func<TEvent, TId> identityFunc)
+    public void Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         if (_customSlicer != null)
         {
@@ -131,7 +131,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         _defaultSlicer.Identity(identityFunc);
     }
     
-    public void Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc)
+    public void Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         if (_customSlicer != null)
         {

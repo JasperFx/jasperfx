@@ -292,7 +292,7 @@ public class TableColumn : Fragment
         Key = key;
     }
 
-    public Func<object, string> Formatter { get; set; } = x => x.ToString();
+    public Func<object, string> Formatter { get; set; } = x => x.ToString()!;
     public string Header { get; }
     public Justify HeaderAlign { get; set; } = Justify.Center;
     public string Key { get; }

@@ -10,14 +10,14 @@ public class Flag : TokenHandlerBase
     private readonly MemberInfo _member;
     protected Func<string, object> Converter;
 
-    public Flag(MemberInfo member, Conversions conversions) : this(member, member.GetMemberType(), conversions)
+    public Flag(MemberInfo member, Conversions conversions) : this(member, member.GetMemberType()!, conversions)
     {
     }
 
     public Flag(MemberInfo member, Type propertyType, Conversions conversions) : base(member)
     {
         _member = member;
-        Converter = conversions.FindConverter(propertyType);
+        Converter = conversions.FindConverter(propertyType)!;
 
         if (Converter == null)
         {
@@ -53,9 +53,9 @@ public class Flag : TokenHandlerBase
     {
         var flagAliases = InputParser.ToFlagAliases(_member);
 
-        if (_member.GetMemberType().GetTypeInfo().IsEnum)
+        if (_member.GetMemberType()!.GetTypeInfo().IsEnum)
         {
-            var enumValues = Enum.GetNames(_member.GetMemberType()).Join("|");
+            var enumValues = Enum.GetNames(_member.GetMemberType()!).Join("|");
             return $"[{flagAliases} {enumValues}]";
         }
 

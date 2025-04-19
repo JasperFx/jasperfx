@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
 using JasperFx.Core.Descriptions;
 using JasperFx.Core.Reflection;
@@ -53,7 +54,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         ];
     }
 
-    public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, out IReplayExecutor executor)
+    public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;
@@ -125,7 +126,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     
     public sealed override void AssembleAndAssertValidity()
     {
-        if (GetType().GetMethod(nameof(ApplyAsync)).DeclaringType.Assembly != typeof(JasperFxEventProjectionBase<,>).Assembly)
+        if (GetType()!.GetMethod(nameof(ApplyAsync))!.DeclaringType!.Assembly != typeof(JasperFxEventProjectionBase<,>).Assembly)
         {
             if (_application.HasAnyMethods())
             {

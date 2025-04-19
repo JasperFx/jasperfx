@@ -33,7 +33,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         var session = Expression.Parameter(typeof(TQuerySession), "session");
         var cancellation = Expression.Parameter(typeof(CancellationToken), "cancellation");
 
-        Expression body = makeApplyBody(snapshot, e, session, eventType, cancellation);
+        Expression? body = makeApplyBody(snapshot, e, session, eventType, cancellation);
         if (body == null)
         {
             var shouldDelete = tryBuildShouldDelete(snapshot, e, session, eventType, cancellation);
@@ -55,15 +55,15 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
             return (x, _, _, _) => new ValueTask<TAggregate?>(x);
         }
         
-        var lambda = Expression.Lambda<Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>>>(body, snapshot, e, session, cancellation);
+        var lambda = Expression.Lambda<Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>>(body, snapshot, e, session, cancellation);
         return lambda.CompileFast();
     }
     
-    private Expression makeApplyBody(Expression snapshot, ParameterExpression e, ParameterExpression session,
+    private Expression? makeApplyBody(Expression snapshot, ParameterExpression e, ParameterExpression session,
         Type eventType, ParameterExpression cancellation)
     {
         var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data)).GetMethod;
+        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
         var strongTypedEvent = Expression.Convert(e, wrappedType);
         var data = Expression.Call(strongTypedEvent, getData);
         
@@ -81,7 +81,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
         };
 
         // You would use null for static methods
-        Expression caller = default(Expression);
+        Expression? caller = default(Expression);
         
         if (typeof(TAggregate).TryFindMethod(ApplyMethodCollection.MethodName, out var method, eventType))
         {

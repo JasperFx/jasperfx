@@ -36,13 +36,13 @@ internal class PreBuiltHostBuilder : IHostBuilder
         return this;
     }
 
-    public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(IServiceProviderFactory<TContainerBuilder> factory)
+    public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(IServiceProviderFactory<TContainerBuilder> factory) where TContainerBuilder : notnull
     {
         throw new NotSupportedException(_notSupportedMessage);
     }
 
     public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(
-        Func<HostBuilderContext, IServiceProviderFactory<TContainerBuilder>> factory)
+        Func<HostBuilderContext, IServiceProviderFactory<TContainerBuilder>> factory) where TContainerBuilder : notnull
     {
         throw new NotSupportedException(_notSupportedMessage);
     }

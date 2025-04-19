@@ -28,7 +28,7 @@ public class FlagAliasAttribute : Attribute
         LongAliasOnly = longAliasOnly;
     }
 
-    public string LongAlias { get; }
+    public string? LongAlias { get; }
 
 
     public char? OneLetterAlias { get; }

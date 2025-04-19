@@ -2,8 +2,8 @@
 
 public class FlagAliases
 {
-    public string LongForm { get; set; }
-    public string ShortForm { get; set; }
+    public required string LongForm { get; set; }
+    public required string ShortForm { get; set; }
 
     public bool LongFormOnly { get; set; }
 

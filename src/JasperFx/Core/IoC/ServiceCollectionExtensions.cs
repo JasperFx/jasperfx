@@ -96,6 +96,6 @@ public static class ServiceCollectionExtensions
 
     public static ServiceDescriptor FindDefault(this IServiceCollection services, Type serviceType)
     {
-        return services.LastOrDefault(x => x.ServiceType == serviceType);
+        return services.LastOrDefault(x => x.ServiceType == serviceType)!;
     }
 }
