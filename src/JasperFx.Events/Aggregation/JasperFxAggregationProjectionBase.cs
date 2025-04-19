@@ -3,6 +3,7 @@ using JasperFx.Core;
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
@@ -27,6 +28,10 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         Scope = scope;
         ProjectionName = typeof(TDoc).NameInCode();
 
+        Type = scope == AggregationScope.SingleStream
+            ? SubscriptionType.SingleStreamProjection
+            : SubscriptionType.MultiStreamProjection;
+
         // We'll use this to validate even if it's not used at runtime
         _application = new AggregateApplication<TDoc, TQuerySession>(this);
         
@@ -47,6 +52,10 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             ProjectionVersion = att.Version;
         }
     }
+
+    public Type ImplementationType => GetType();
+    public SubscriptionType Type { get; }
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
 
     private static readonly string[] methodNames = [nameof(DetermineAction), nameof(DetermineActionAsync), nameof(Evolve), nameof(EvolveAsync)];
     private void establishBuildActionAndEvolve()
@@ -146,10 +155,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     
     public virtual SubscriptionDescriptor Describe()
     {
-        return new SubscriptionDescriptor(this,
-            Scope == AggregationScope.SingleStream
-                ? SubscriptionType.SingleStreamProjection
-                : SubscriptionType.MultiStreamProjection);
+        return new SubscriptionDescriptor(this);
     }
 
     public Type ProjectionType => GetType();

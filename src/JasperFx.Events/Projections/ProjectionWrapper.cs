@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
 
@@ -31,6 +32,15 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
             ProjectionVersion = att.Version;
         }
 
+        if (projection is ISubscriptionSource subscriptionSource)
+        {
+            Type = subscriptionSource.Type;
+        }
+        else
+        {
+            Type = SubscriptionType.EventProjection;
+        }
+
         if (projection is ProjectionBase source)
         {
             // TODO -- Unit test all of this in JasperFx.Events
@@ -54,6 +64,10 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         }
     }
 
+    public SubscriptionType Type { get; }
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public Type ImplementationType => _projection.GetType();
+
     public override string ToString()
     {
         return $"{_projection}, {nameof(Name)}: {Name}, {nameof(Version)}: {Version}";
@@ -61,7 +75,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
 
     public SubscriptionDescriptor Describe()
     {
-        return new SubscriptionDescriptor(this, SubscriptionType.EventProjection);
+        return new SubscriptionDescriptor(this);
     }
 
     [ChildDescription]

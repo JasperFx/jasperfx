@@ -5,6 +5,7 @@ using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Subscriptions;
 
 namespace JasperFx.Events.Projections;
@@ -253,7 +254,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
     public string[] AllProjectionNames()
     {
-        return All.Select(x => $"'{x.ProjectionName}'").Concat(_subscriptions.Select(x => $"'{x.Name}'")).ToArray();
+        return All.Select(x => $"'{x.Name}'").Concat(_subscriptions.Select(x => $"'{x.Name}'")).ToArray();
     }
 
     public IEnumerable<Type> AllPublishedTypes()
@@ -263,7 +264,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
     public ShardName[] AsyncShardsPublishingType(Type aggregationType)
     {
-        var sources = All.Where(x => x.Lifecycle == ProjectionLifecycle.Async && x.PublishedTypes().Contains(aggregationType)).Select(x => x.ProjectionName).ToArray();
+        var sources = All.Where(x => x.Lifecycle == ProjectionLifecycle.Async && x.PublishedTypes().Contains(aggregationType)).Select(x => x.Name).ToArray();
         return _asyncShards.Value.Values.Where(x => sources.Contains(x.Name.ProjectionOrSubscriptionName)).Select(x => x.Name).ToArray();
     }
     
@@ -274,7 +275,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
     public bool TryFindProjection(string projectionName, out IProjectionSource<TOperations, TQuerySession>? source)
     {
-        source = All.FirstOrDefault(x => x.ProjectionName.EqualsIgnoreCase(projectionName));
+        source = All.FirstOrDefault(x => x.Name.EqualsIgnoreCase(projectionName));
         return source != null;
     }
 
@@ -288,7 +289,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     {
         foreach (var source in _subscriptions)
         {
-            usage.Subscriptions.Add(new SubscriptionDescriptor(source, SubscriptionType.Subscription));
+            usage.Subscriptions.Add(new SubscriptionDescriptor(source));
         }
 
         foreach (var eventType in _subscriptions.OfType<EventFilterable>().Concat(All.OfType<EventFilterable>()).SelectMany(x => x.IncludedEventTypes))

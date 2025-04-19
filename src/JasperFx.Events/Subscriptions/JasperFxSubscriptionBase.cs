@@ -1,6 +1,7 @@
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
@@ -11,8 +12,8 @@ namespace JasperFx.Events.Subscriptions;
 /// </summary>
 public interface ISubscriptionOptions : IEventFilterable
 {
-    string SubscriptionName { get; set; }
-    uint SubscriptionVersion { get; set; }
+    string Name { get; }
+    uint Version { get; }
     AsyncOptions Options { get; }
 }
 
@@ -32,18 +33,24 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     protected JasperFxSubscriptionBase(TSubscription subscription)
     {
         _subscription = subscription;
-        SubscriptionName = subscription.GetType().NameInCode();
+        Name = subscription.GetType().NameInCode();
     }
 
     protected JasperFxSubscriptionBase()
     {
         _subscription = this.As<TSubscription>();
-        SubscriptionName = GetType().NameInCode();
+        Name = GetType().NameInCode();
     }
+
+    public SubscriptionType Type => SubscriptionType.Subscription;
+    public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+
+    public Type ImplementationType => GetType();
 
     public virtual SubscriptionDescriptor Describe()
     {
-        return new SubscriptionDescriptor(this, SubscriptionType.Subscription);
+        return new SubscriptionDescriptor(this);
     }
 
     public virtual ValueTask DisposeAsync()
@@ -51,27 +58,24 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
         return new ValueTask();
     }
 
-    public string Name => SubscriptionName;
-    public uint Version { get; } = 1;
-
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return
         [
-            new(Options, ShardRole.Subscription, new ShardName(SubscriptionName, ShardName.All, SubscriptionVersion), this, this)
+            new(Options, ShardRole.Subscription, new ShardName(Name, ShardName.All, Version), this, this)
         ];
     }
 
     /// <summary>
     /// Descriptive name for Marten progress tracking and rebuild/replays
     /// </summary>
-    public string SubscriptionName { get; set; }
+    public string Name { get; set; }
 
     /// <summary>
     /// If this value is greater than 1, it will be treated as an all new subscription and will played from zero
     /// when deployed
     /// </summary>
-    public uint SubscriptionVersion { get; set; } = 1;
+    public uint Version { get; set; } = 1;
 
     /// <summary>
     /// Fine tune the behavior of this subscription at runtime

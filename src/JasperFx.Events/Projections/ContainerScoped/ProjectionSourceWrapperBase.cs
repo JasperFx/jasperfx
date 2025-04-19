@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Descriptors;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -31,9 +32,10 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         var sp = scope.ServiceProvider;
         var source = sp.GetRequiredService<TSource>();
 
-        ProjectionName = source.ProjectionName;
-        ProjectionVersion = source.ProjectionVersion;
-        ProjectionType = source.ProjectionType;
+        ProjectionName = source.Name;
+        ProjectionVersion = source.Version;
+        ProjectionType = source.ImplementationType;
+        Type = source.Type;
         Name = source.Name;
         Version = source.Version;
 
@@ -58,6 +60,10 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     {
         // nothing
     }
+
+    public SubscriptionType Type { get; private set; }
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public Type ImplementationType => typeof(TSource);
 
     public Type ProjectionType { get; }
     public string Name { get; }

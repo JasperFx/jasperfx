@@ -2,6 +2,7 @@ using JasperFx.Core;
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -63,7 +64,8 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
     public ScopedSubscriptionServiceWrapper(IServiceProvider provider)
     {
         _provider = provider;
-        SubscriptionName = typeof(T).Name;
+        Name = typeof(T).Name;
+        Version = 1;
 
         var scope = _provider.CreateAsyncScope();
         var sp = scope.ServiceProvider;
@@ -80,18 +82,27 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
         if (filterable is ISubscriptionSource<TOperations, TQuerySession> source)
         {
             Options = source.Options;
+            Version = source.Version;
+            Name = source.Name;
         }
         
         scope.SafeDispose();
     }
 
-    string ISubscriptionSource<TOperations, TQuerySession>.Name => SubscriptionName;
-    uint ISubscriptionSource<TOperations, TQuerySession>.Version => SubscriptionVersion;
+    public uint Version { get; } = 1;
+
+    public Type ImplementationType => typeof(T);
+
+    public string Name { get; }
+    public SubscriptionType Type => SubscriptionType.Subscription;
+    public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return
         [
-            new(Options, ShardRole.Subscription, new ShardName(SubscriptionName, "All"), this, this)
+            new(Options, ShardRole.Subscription, new ShardName(Name, "All", Version), this, this)
         ];
     }
 
@@ -108,13 +119,11 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
         return new ScopedSubscriptionExecution<T, TSubscription>(storage, _provider, database, shardName,
             logger);
     }
-
-    public string SubscriptionName { get; set; }
-    public uint SubscriptionVersion { get; set; }
+    
     public AsyncOptions Options { get; private set; } = new();
     public SubscriptionDescriptor Describe()
     {
-        var descriptor = new SubscriptionDescriptor(this, SubscriptionType.Subscription);
+        var descriptor = new SubscriptionDescriptor(this);
         descriptor.AddValue("Subscription", typeof(TSubscription).FullNameInCode());
         return descriptor;
     }

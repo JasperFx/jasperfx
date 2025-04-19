@@ -483,7 +483,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
 
-        var subscriptionName = source.ProjectionName;
+        var subscriptionName = source.Name;
         Logger.LogInformation("Starting to rebuild Projection {ProjectionName}@{DatabaseIdentifier}",
             subscriptionName, Database.Identifier);
 

@@ -1,5 +1,6 @@
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Descriptors;
 
 namespace JasperFx.Events.Subscriptions;
 
@@ -12,7 +13,7 @@ internal class SubscriptionWrapper<TOperations, TQuerySession, TSubscription> : 
 
     public override SubscriptionDescriptor Describe()
     {
-        var descriptor = new SubscriptionDescriptor(this, SubscriptionType.Subscription);
+        var descriptor = new SubscriptionDescriptor(this);
         descriptor.AddValue("Subscription", typeof(TSubscription).FullNameInCode());
         return descriptor;
     }

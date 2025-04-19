@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -40,6 +41,15 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
         using var scope = _serviceProvider.CreateScope();
         var sp = scope.ServiceProvider;
         var raw = sp.GetRequiredService<TProjection>();
+
+        if (raw is ISubscriptionSource subscriptionSource)
+        {
+            Type = subscriptionSource.Type;
+        }
+        else
+        {
+            Type = SubscriptionType.EventProjection;
+        }
         
         if (raw is ProjectionBase source)
 
@@ -63,7 +73,12 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
                 RegisterPublishedType(publishedType);
             }
         }
+
     }
+
+    public SubscriptionType Type { get; }
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public Type ImplementationType => typeof(TProjection);
 
     public Task ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
@@ -106,7 +121,7 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
     public SubscriptionDescriptor Describe()
     {
         // TODO -- some way to understand the lifecycle
-        return new SubscriptionDescriptor(this, SubscriptionType.EventProjection)
+        return new SubscriptionDescriptor(this)
         {
             Subject = ProjectionType.FullNameInCode()
         };

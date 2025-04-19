@@ -1,16 +1,17 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using JasperFx.Core.Descriptors;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events;
 
-public interface IStorageOperations : IAsyncDisposable
+public interface IEventStorage
 {
-    Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
-        CancellationToken cancellationToken);
-    Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(CancellationToken cancellationToken);
+    Task<EventStoreUsage?> TryCreateUsage(CancellationToken token);
+    Uri Subject { get; }
 }
 
 public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations

@@ -1,6 +1,6 @@
-using JasperFx.Core.Reflection;
+using JasperFx.Core.Descriptors;
 
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Events.Descriptors;
 
 public class EventStoreUsage : OptionsDescription
 {
@@ -8,12 +8,12 @@ public class EventStoreUsage : OptionsDescription
     {
     }
 
-    public EventStoreUsage(Type storeType, object options) : base(options)
+    public EventStoreUsage(Type storeType, Uri subjectUri, object subject) : base(subject)
     {
-        StoreIdentifier = storeType.FullNameInCode();
+        SubjectUri = subjectUri;
     }
 
-    public string StoreIdentifier { get; set; }
+    public Uri SubjectUri { get; set; }
     public DatabaseUsage Database { get; set; }
     public List<EventDescriptor> Events { get; set; } = new();
     public List<SubscriptionDescriptor> Subscriptions { get; set; } = new();

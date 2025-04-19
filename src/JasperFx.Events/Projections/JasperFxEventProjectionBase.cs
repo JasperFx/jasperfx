@@ -3,6 +3,7 @@ using JasperFx.Core;
 using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
 
@@ -41,9 +42,13 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     public string Name => ProjectionName!;
     public uint Version => ProjectionVersion;
 
+    public SubscriptionType Type => SubscriptionType.EventProjection;
+    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public Type ImplementationType => GetType();
+
     public virtual SubscriptionDescriptor Describe()
     {
-        return new SubscriptionDescriptor(this, SubscriptionType.EventProjection);
+        return new SubscriptionDescriptor(this);
     }
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()

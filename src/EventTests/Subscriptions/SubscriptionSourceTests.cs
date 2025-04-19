@@ -13,10 +13,10 @@ public class SubscriptionSourceTests
     {
         var source = new FakeSubscriptionSource
         {
-            SubscriptionName = "Foo"
+            Name = "Foo"
         };
         
-        source.SubscriptionVersion.ShouldBe(1U);
+        source.Version.ShouldBe(1U);
 
         var shard = source.Shards().Single();
         
@@ -31,11 +31,11 @@ public class SubscriptionSourceTests
     {
         var source = new FakeSubscriptionSource
         {
-            SubscriptionName = "Foo",
-            SubscriptionVersion = 2
+            Name = "Foo",
+            Version = 2
         };
         
-        source.SubscriptionVersion.ShouldBe(2U);
+        source.Version.ShouldBe(2U);
 
         var shard = source.Shards().Single();
         
