@@ -22,6 +22,7 @@ public class SubscriptionDescriptor : OptionsDescription
         Name = subject.Name;
         Version = subject.Version;
         ShardNames = subject.ShardNames();
+        Lifecycle = subject.Lifecycle;
     }
 
     public ProjectionLifecycle Lifecycle { get; set; }
