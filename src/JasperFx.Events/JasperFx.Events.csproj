@@ -15,9 +15,6 @@
     </ItemGroup>
     
     <ItemGroup>
-      <Compile Remove="CommandLine\StoreDaemonStatus.cs" />
-      <Compile Remove="CommandLine\ShardExecutionState.cs" />
-      <Compile Remove="CommandLine\RebuildWatcher.cs" />
       <Compile Remove="CommandLine\ProjectionStore.cs" />
       <Compile Remove="CommandLine\ProjectionInput.cs" />
       <Compile Remove="CommandLine\ProjectionHost.cs" />
@@ -27,15 +24,6 @@
       <Compile Remove="CommandLine\IProjectionStore.cs" />
       <Compile Remove="CommandLine\IProjectionHost.cs" />
       <Compile Remove="CommandLine\IConsoleView.cs" />
-      <Compile Remove="CommandLine\DatabaseStatus.cs" />
-      <Compile Remove="CommandLine\DaemonWatcher.cs" />
-      <Compile Remove="CommandLine\DaemonStatusMessage.cs" />
-      <Compile Remove="CommandLine\DaemonStatusGrid.cs" />
-      <Compile Remove="CommandLine\CurrentShardState.cs" />
-    </ItemGroup>
-    
-    <ItemGroup>
-      <Folder Include="CommandLine\" />
     </ItemGroup>
     
 
