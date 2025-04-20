@@ -7,6 +7,14 @@ namespace JasperFx.Events.Daemon;
 public interface IProjectionDaemon: IDisposable
 {
     /// <summary>
+    /// Puts this daemon in a mode appropriate for rebuilding by stopping any
+    /// running high water detection and running the high water detection once to
+    /// set the ceiling for rebuilds
+    /// </summary>
+    /// <returns></returns>
+    Task PrepareForRebuildsAsync();
+    
+    /// <summary>
     ///     Observable tracking of projection shard events
     /// </summary>
     ShardStateTracker Tracker { get; }

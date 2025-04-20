@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
+
 public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection> : IObserver<ShardState>, IDaemonRuntime
     where TOperations : TQuerySession, IStorageOperations
     where TProjection : IJasperFxProjection<TOperations>

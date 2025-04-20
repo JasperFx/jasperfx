@@ -12,6 +12,10 @@ public interface IEventStorage
 {
     Task<EventStoreUsage?> TryCreateUsage(CancellationToken token);
     Uri Subject { get; }
+
+    ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(
+        string? tenantIdOrDatabaseIdentifier = null,
+        ILogger? logger = null);
 }
 
 public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
