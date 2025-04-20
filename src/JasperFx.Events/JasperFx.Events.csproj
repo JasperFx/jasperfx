@@ -23,7 +23,6 @@
       <Compile Remove="CommandLine\ProjectionCommand.cs" />
       <Compile Remove="CommandLine\IProjectionStore.cs" />
       <Compile Remove="CommandLine\IProjectionHost.cs" />
-      <Compile Remove="CommandLine\IConsoleView.cs" />
     </ItemGroup>
     
 
