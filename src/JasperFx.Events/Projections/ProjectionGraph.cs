@@ -29,6 +29,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     /// Async daemon error handling policies while running in a rebuild mode. The defaults
     /// are to *not* skip any errors
     /// </summary>
+    [ChildDescription]
     public ErrorHandlingOptions RebuildErrors { get; } = new();
     
     
@@ -42,6 +43,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     /// Async daemon error handling polices while running continuously. The defaults
     /// are to skip serialization errors, unknown events, and apply errors
     /// </summary>
+    [ChildDescription]
     public ErrorHandlingOptions Errors { get; } = new()
     {
         SkipApplyErrors = true,

@@ -78,9 +78,11 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
 
     private bool listAll(IList<IStatefulResource> statefulResources)
     {
+        var resources = statefulResources.OrderBy(x => x.SubjectUri.ToString()).ThenBy(x => x.Name).ToArray();
+        
         var table = new Table();
-        table.AddColumns("Resource Type", "Resource Name");
-        foreach (var resource in statefulResources) table.AddRow(resource.Type, resource.Name);
+        table.AddColumns("Subject", "Resource", "Name", "Type");
+        foreach (var resource in resources) table.AddRow(resource.SubjectUri.ToString(), resource.ResourceUri.ToString(), resource.Name, resource.Type);
 
         AnsiConsole.Write(table);
 
