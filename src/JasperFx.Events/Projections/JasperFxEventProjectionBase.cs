@@ -59,7 +59,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         ];
     }
 
-    public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor)
+    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;
@@ -109,17 +109,17 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         }
     }
 
-    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
+    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this, logger);
     }
 
-    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this, logger);
     }
 
     void IEntityStorage<TOperations>.Store<T>(TOperations ops, T entity)

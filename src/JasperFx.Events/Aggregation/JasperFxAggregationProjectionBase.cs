@@ -160,9 +160,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     public Type ProjectionType => GetType();
 
-    public string Name => base.Name!;
-    public uint Version => base.Version;
-
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {
         return
@@ -171,7 +168,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         ];
     }
 
-    public virtual bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database,
+    public virtual bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
@@ -183,30 +180,30 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     protected abstract IInlineProjection<TOperations> buildForInline();
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(
-        IEventStorage<TOperations, TQuerySession> storage,
+        IEventStore<TOperations, TQuerySession> store,
         IEventDatabase database, ILoggerFactory loggerFactory, ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
 
-        var session = storage.OpenSession(database);
+        var session = store.OpenSession(database);
         var slicer = BuildSlicer(session);
 
         var runner =
-            new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
+            new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(store, database, this,
                 SliceBehavior.Preprocess, slicer, logger);
 
         return new GroupedProjectionExecution(shardName, runner, logger){Disposables = [session]};
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(
-        IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+        IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        var session = storage.OpenSession(database);
+        var session = store.OpenSession(database);
         var slicer = BuildSlicer(session);
 
         var runner =
-            new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, this,
+            new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(store, database, this,
                 SliceBehavior.Preprocess, slicer, logger);
 
         return new GroupedProjectionExecution(shardName, runner, logger){Disposables = [session]};

@@ -86,17 +86,17 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
 
     public Type ProjectionType => _projection.GetType();
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, _projection, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, _projection, logger);
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, _projection, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, _projection, logger);
     }
 
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
@@ -107,7 +107,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         ];
     }
 
-    public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor)
+    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
         return false;

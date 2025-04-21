@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events;
 
-public interface IEventStorage
+public interface IEventStore
 {
     Task<EventStoreUsage?> TryCreateUsage(CancellationToken token);
     Uri Subject { get; }
@@ -18,7 +18,7 @@ public interface IEventStorage
         ILogger? logger = null);
 }
 
-public interface IEventStorage<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
+public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOperations : TQuerySession, IStorageOperations
 {
     IEventRegistry Registry { get; }
 

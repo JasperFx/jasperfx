@@ -7,9 +7,9 @@ namespace JasperFx.Events.Subscriptions;
 public interface ISubscriptionFactory<TOperations, TQuerySession> 
     where TOperations : TQuerySession, IStorageOperations
 {
-    ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+    ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         ILoggerFactory loggerFactory, ShardName shardName);
 
-    ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+    ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         ILogger logger, ShardName shardName);
 }

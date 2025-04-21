@@ -12,7 +12,7 @@ namespace JasperFx.Events.Projections;
 public interface IProjectionSource<TOperations, TQuerySession>: ISubscriptionSource<TOperations, TQuerySession> 
     where TOperations : TQuerySession, IStorageOperations
 {
-    bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor);
+    bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor);
 
     IInlineProjection<TOperations> BuildForInline();
 

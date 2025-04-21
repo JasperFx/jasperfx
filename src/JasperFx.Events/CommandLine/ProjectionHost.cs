@@ -16,7 +16,7 @@ internal class ProjectionHost: IProjectionHost
     private readonly CancellationTokenSource _cancellation = new();
     private readonly IHost _host;
     private readonly Lazy<DaemonStatusGrid> _statusGrid;
-    private ImHashMap<Uri, IEventStorage> _stores = ImHashMap<Uri, IEventStorage>.Empty;
+    private ImHashMap<Uri, IEventStore> _stores = ImHashMap<Uri, IEventStore>.Empty;
 
     public ProjectionHost(IHost host)
     {
@@ -30,7 +30,7 @@ internal class ProjectionHost: IProjectionHost
 
     public async Task<IReadOnlyList<EventStoreUsage>> AllStoresAsync()
     {
-        var stores = _host.Services.GetServices<IEventStorage>();
+        var stores = _host.Services.GetServices<IEventStore>();
         var list = new List<EventStoreUsage>();
 
         foreach (var store in stores)

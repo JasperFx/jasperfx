@@ -106,17 +106,17 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
         ];
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
-        return new ScopedSubscriptionExecution<T, TSubscription>(storage, _provider, database, shardName,
+        return new ScopedSubscriptionExecution<T, TSubscription>(store, _provider, database, shardName,
             loggerFactory.CreateLogger(typeof(TSubscription)));
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ScopedSubscriptionExecution<T, TSubscription>(storage, _provider, database, shardName,
+        return new ScopedSubscriptionExecution<T, TSubscription>(store, _provider, database, shardName,
             logger);
     }
     

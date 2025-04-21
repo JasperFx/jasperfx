@@ -83,17 +83,17 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     [ChildDescription]
     public AsyncOptions Options { get; protected set; } = new();
 
-    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
+    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
         return new SubscriptionExecution<TSubscription>(database, _subscription, database, shardName, logger);
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new SubscriptionExecution<TSubscription>(storage, _subscription, database, shardName, logger);
+        return new SubscriptionExecution<TSubscription>(store, _subscription, database, shardName, logger);
     }
 }
 

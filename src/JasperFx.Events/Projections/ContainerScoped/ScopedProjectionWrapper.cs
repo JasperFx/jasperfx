@@ -106,7 +106,7 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
         ];
     }
 
-    public bool TryBuildReplayExecutor(IEventStorage<TOperations, TQuerySession> store, IEventDatabase database,
+    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         [NotNullWhen(true)]out IReplayExecutor? executor)
     {
         executor = default;
@@ -129,19 +129,19 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
 
     public Type ProjectionType { get; init; }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store,
         IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this,
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
             loggerFactory.CreateLogger<TProjection>());
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage,
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store,
         IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this,
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
             logger);
     }
 }

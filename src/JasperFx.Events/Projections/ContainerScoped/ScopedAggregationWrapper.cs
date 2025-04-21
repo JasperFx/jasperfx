@@ -31,21 +31,21 @@ public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySes
 
     public AggregationScope Scope { get; }
 
-    public override ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
+    public override ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return BuildExecution(storage, database, logger, shardName);
+        return BuildExecution(store, database, logger, shardName);
     }
 
-    public override ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+    public override ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
         // TODO -- may need to track the disposable of the session here
-        var session = storage.OpenSession(database);
+        var session = store.OpenSession(database);
         var slicer = new EventSlicer(session, _serviceProvider);
         
-        var runner = new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(storage, database, new ScopedAggregationProjection<TSource,TDoc,TId,TOperations,TQuerySession>(_serviceProvider, this),
+        var runner = new AggregationRunner<TDoc, TId, TOperations, TQuerySession>(store, database, new ScopedAggregationProjection<TSource,TDoc,TId,TOperations,TQuerySession>(_serviceProvider, this),
             SliceBehavior.Preprocess, slicer, logger);
 
         return new GroupedProjectionExecution(shardName, runner, logger);

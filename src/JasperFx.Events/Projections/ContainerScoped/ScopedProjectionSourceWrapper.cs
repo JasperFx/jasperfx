@@ -18,16 +18,16 @@ public class ScopedProjectionSourceWrapper<TSource, TOperations, TQuerySession> 
     {
     }
 
-    public override ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory,
+    public override ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this, loggerFactory.CreateLogger<TSource>());
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this, loggerFactory.CreateLogger<TSource>());
     }
 
-    public override ISubscriptionExecution BuildExecution(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger,
+    public override ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName)
     {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, storage, database, this, logger);
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this, logger);
     }
 
     async Task IJasperFxProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events, CancellationToken cancellation)

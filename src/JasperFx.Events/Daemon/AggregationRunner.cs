@@ -10,17 +10,17 @@ namespace JasperFx.Events.Daemon;
 
 public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
-    private readonly IEventStorage<TOperations, TQuerySession> _storage;
+    private readonly IEventStore<TOperations, TQuerySession> _store;
     private readonly IEventDatabase _database;
     private readonly ILogger _logger;
 
-    public AggregationRunner(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+    public AggregationRunner(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         IAggregationProjection<TDoc, TId, TOperations, TQuerySession> projection,
         SliceBehavior sliceBehavior, IEventSlicer slicer, ILogger logger)
     {
         Projection = projection;
         SliceBehavior = sliceBehavior;
-        _storage = storage;
+        _store = store;
         _database = database;
         _logger = logger;
         Slicer = slicer;
@@ -40,7 +40,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     {
         Projection.StartBatch();
         
-        var batch = await _storage.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
+        var batch = await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
         {
@@ -125,7 +125,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
     ErrorHandlingOptions IGroupedProjectionRunner.ErrorHandlingOptions(ShardExecutionMode mode)
     {
-        return _storage.ErrorHandlingOptions(mode);
+        return _store.ErrorHandlingOptions(mode);
     }
 
     // Assume this is pointed at the correct tenant id from the get go
@@ -238,7 +238,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         
         if (slice.RaisedEvents != null)
         {
-            slice.BuildOperations(_storage.Registry, batch, Projection.Scope);
+            slice.BuildOperations(_store.Registry, batch, Projection.Scope);
         }
 
         if (slice.PublishedMessages != null)

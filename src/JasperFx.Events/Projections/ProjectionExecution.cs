@@ -10,7 +10,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 {
     private readonly ShardName _shardName;
     private readonly AsyncOptions _options;
-    private readonly IEventStorage<TOperations, TQuerySession> _storage;
+    private readonly IEventStore<TOperations, TQuerySession> _store;
     private readonly IEventDatabase _database;
     private readonly IJasperFxProjection<TOperations> _projection;
     private readonly ILogger _logger;
@@ -18,12 +18,12 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     private readonly CancellationTokenSource _cancellation = new();
 
     public ProjectionExecution(ShardName shardName, AsyncOptions options,
-        IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database,
+        IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         IJasperFxProjection<TOperations> projection, ILogger logger)
     {
         _shardName = shardName;
         _options = options;
-        _storage = storage;
+        _store = store;
         _database = database;
         _projection = projection;
         _logger = logger;
@@ -43,7 +43,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
         try
         {
-            var options = _storage.ErrorHandlingOptions(Mode);
+            var options = _store.ErrorHandlingOptions(Mode);
 
             await using var batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
@@ -127,7 +127,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         IProjectionBatch<TOperations, TQuerySession> batch = default;
         try
         {
-            batch = await _storage.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
+            batch = await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
 
             var groups = range.Events.GroupBy(x => x.TenantId).ToArray();
             foreach (var group in groups)

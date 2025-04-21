@@ -14,7 +14,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     where TOperations : TQuerySession, IStorageOperations
     where TProjection : IJasperFxProjection<TOperations>
 {
-    private readonly IEventStorage<TOperations, TQuerySession> _storage;
+    private readonly IEventStore<TOperations, TQuerySession> _store;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly ProjectionGraph<TProjection, TOperations, TQuerySession> _projections;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
@@ -24,30 +24,30 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
+    public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
-        _storage = storage;
+        _store = store;
         _loggerFactory = loggerFactory;
         _projections = projections;
         Logger = loggerFactory.CreateLogger(GetType());
         Tracker = Database.Tracker;
-        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), projections, _cancellation.Token);
+        _highWater = new HighWaterAgent(store.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), projections, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
         _deadLetterBlock = buildDeadLetterBlock();
     }
     
-    public JasperFxAsyncDaemon(IEventStorage<TOperations, TQuerySession> storage, IEventDatabase database, ILogger logger, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
+    public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
-        _storage = storage;
+        _store = store;
         _projections = projections;
         _loggerFactory = null;
         Logger = logger;
         Tracker = Database.Tracker;
-        _highWater = new HighWaterAgent(storage.Meter, detector, Tracker, logger, _projections, _cancellation.Token);
+        _highWater = new HighWaterAgent(store.Meter, detector, Tracker, logger, _projections, _cancellation.Token);
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
@@ -61,7 +61,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // More important to end cleanly
             if (token.IsCancellationRequested) return;
 
-            await Database.StoreDeadLetterEventAsync(_storage, deadLetterEvent, token).ConfigureAwait(false);
+            await Database.StoreDeadLetterEventAsync(_store, deadLetterEvent, token).ConfigureAwait(false);
         }, Logger, _cancellation.Token);
     }
 
@@ -108,12 +108,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             if (position.ShouldUpdateProgressFirst)
             {
-                await _storage.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, position.Floor).ConfigureAwait(false);
+                await _store.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, position.Floor).ConfigureAwait(false);
             }
 
             var errorOptions = mode == ShardExecutionMode.Continuous
-                ? _storage.ContinuousErrors
-                : _storage.RebuildErrors;
+                ? _store.ContinuousErrors
+                : _store.RebuildErrors;
 
             await agent.StartAsync(new SubscriptionExecutionRequest(position.Floor, mode, errorOptions, this))
                 .ConfigureAwait(false);
@@ -143,7 +143,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // Ensure that the agent is stopped if it is already running
             await stopIfRunningAsync(agent.Name.Identity).ConfigureAwait(false);
 
-            var errorOptions = _storage.RebuildErrors;
+            var errorOptions = _store.RebuildErrors;
 
             var request = new SubscriptionExecutionRequest(0, ShardExecutionMode.Rebuild, errorOptions, this);
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
@@ -163,11 +163,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await StartHighWaterDetectionAsync().ConfigureAwait(false);
         }
 
-        var shard = _storage.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
+        var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
         if (shard == null)
         {
             throw new ArgumentOutOfRangeException(nameof(shardName),
-                $"Unknown shard name '{shardName}'. Value options are {_storage.AllShards().Select(x => x.Name.Identity).Join(", ")}");
+                $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
         }
 
         var agent = buildAgentForShard(shard);
@@ -183,19 +183,19 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     private SubscriptionAgent buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard)
     {
-        var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_storage, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_storage, Database, _loggerFactory, shard.Name);
-        var loader = _storage.BuildEventLoader(Database, Logger, shard.Filters, shard.Options);
+        var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_store, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_store, Database, _loggerFactory, shard.Name);
+        var loader = _store.BuildEventLoader(Database, Logger, shard.Filters, shard.Options);
         
         var metricsNaming = new MetricsNaming
         {
             DatabaseName = Database.Identifier,
             DefaultDatabaseName = "Default",
-            MetricsPrefix = _storage.MetricsPrefix
+            MetricsPrefix = _store.MetricsPrefix
         };
         
-        var metrics = new SubscriptionMetrics(_storage.ActivitySource, _storage.Meter, shard.Name, metricsNaming);
+        var metrics = new SubscriptionMetrics(_store.ActivitySource, _store.Meter, shard.Name, metricsNaming);
         
-        var agent = new SubscriptionAgent(shard.Name, shard.Options, _storage.TimeProvider, loader, execution,
+        var agent = new SubscriptionAgent(shard.Name, shard.Options, _store.TimeProvider, loader, execution,
             Database.Tracker, metrics, _loggerFactory?.CreateLogger<SubscriptionAgent>() ?? Logger);
         
         return agent;
@@ -272,7 +272,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         var agents = new List<ISubscriptionAgent>();
 
-        foreach (var shard in _storage.AllShards())
+        foreach (var shard in _store.AllShards())
         {
             agents.Add(buildAgentForShard(shard));
         }
@@ -330,7 +330,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public async Task StartHighWaterDetectionAsync()
     {
-        if (_storage.AutoCreateSchemaObjects != AutoCreate.None)
+        if (_store.AutoCreateSchemaObjects != AutoCreate.None)
         {
             await Database.EnsureStorageExistsAsync(typeof(IEvent), _cancellation.Token).ConfigureAwait(false);
         }
@@ -516,7 +516,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         // Tear down the current state
-        await _storage.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
+        await _store.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
 
         if (token.IsCancellationRequested)
         {
@@ -596,14 +596,14 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         if (_cancellation.IsCancellationRequested) return;
 
-        await _storage.RewindSubscriptionProgressAsync(Database, subscriptionName, token, sequenceFloor).ConfigureAwait(false);
+        await _store.RewindSubscriptionProgressAsync(Database, subscriptionName, token, sequenceFloor).ConfigureAwait(false);
 
         var agents = buildAgentsForSubscription(subscriptionName);
         
         foreach (var agent in agents)
         {
             Tracker.MarkAsRestarted(agent.Name);
-            var errorOptions = _storage.RebuildErrors;
+            var errorOptions = _store.RebuildErrors;
             await agent.StartAsync(new SubscriptionExecutionRequest(sequenceFloor.Value, ShardExecutionMode.Continuous,
                 errorOptions, this)).ConfigureAwait(false);
             agent.MarkHighWater(HighWaterMark());
@@ -626,7 +626,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         var agents = new List<SubscriptionAgent>();
 
-        foreach (var shard in _storage.AllShards().Where(x => x.Name.Name.EqualsIgnoreCase(subscriptionName)))
+        foreach (var shard in _store.AllShards().Where(x => x.Name.Name.EqualsIgnoreCase(subscriptionName)))
         {
             agents.Add(buildAgentForShard(shard));
         }
