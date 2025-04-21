@@ -5,16 +5,11 @@ namespace JasperFx.Events.CommandLine;
 public interface IConsoleView
 {
     void DisplayNoStoresMessage();
-    void ListShards(EventStoreUsage[] usages);
-    void DisplayEmptyEventsMessage(EventStoreUsage usage);
-    string[] SelectStores(string[] storeNames);
-    string[] SelectProjections(string[] projectionNames);
-    void DisplayNoMatchingProjections();
-    void WriteHeader(EventStoreUsage usage);
-    void DisplayNoDatabases();
+    void ListShards(IReadOnlyList<EventStoreUsage> usages);
+    void DisplayEmptyEventsMessage(EventStoreDatabaseIdentifier usage);
+
     void DisplayNoAsyncProjections();
-    void WriteHeader(IEventDatabase database);
-    string[] SelectDatabases(string[] databaseNames);
     void DisplayRebuildIsComplete();
     void DisplayInvalidShardTimeoutValue();
+    void WriteStartingToRebuildProjections(ProjectionSelection selection, string databaseName);
 }

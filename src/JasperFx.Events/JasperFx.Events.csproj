@@ -16,9 +16,7 @@
     
     <ItemGroup>
       <Compile Remove="CommandLine\ProjectionStore.cs" />
-      <Compile Remove="CommandLine\ProjectionInput.cs" />
       <Compile Remove="CommandLine\ProjectionDatabase.cs" />
-      <Compile Remove="CommandLine\ProjectionController.cs" />
       <Compile Remove="CommandLine\ProjectionCommand.cs" />
       <Compile Remove="CommandLine\IProjectionStore.cs" />
     </ItemGroup>

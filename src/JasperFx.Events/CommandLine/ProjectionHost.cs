@@ -69,7 +69,7 @@ internal class ProjectionHost: IProjectionHost
         _completion.TrySetResult(true);
     }
 
-    public async Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabase databaseIdentifier,
+    public async Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier,
         string[] projectionNames, TimeSpan? shardTimeout = null)
     {
         if (!_stores.TryFind(databaseIdentifier.SubjectUri, out var store))
@@ -129,7 +129,7 @@ internal class ProjectionHost: IProjectionHost
         return RebuildStatus.Complete;
     }
 
-    public async Task StartShardsAsync(EventStoreDatabase databaseIdentifier, string[] projectionNames)
+    public async Task StartShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier, string[] projectionNames)
     {
         if (!_stores.TryFind(databaseIdentifier.SubjectUri, out var store))
         {
@@ -147,8 +147,13 @@ internal class ProjectionHost: IProjectionHost
         }
     }
 
-    public Task WaitForExit()
+    public Task WaitForExitAsync()
     {
         return _completion.Task;
+    }
+
+    public Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none)
+    {
+        throw new NotImplementedException();
     }
 }

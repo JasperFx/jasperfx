@@ -11,7 +11,7 @@ internal class ConsoleView: IConsoleView
         AnsiConsole.Markup("[gray]No document stores in this application.[/]");
     }
 
-    public void ListShards(EventStoreUsage[] usages)
+    public void ListShards(IReadOnlyList<EventStoreUsage> usages)
     {
         var tree = new Tree("Projections and Subscriptions");
         
@@ -46,9 +46,9 @@ internal class ConsoleView: IConsoleView
         AnsiConsole.WriteLine();
     }
 
-    public void DisplayEmptyEventsMessage(EventStoreUsage usage)
+    public void DisplayEmptyEventsMessage(EventStoreDatabaseIdentifier usage)
     {
-        AnsiConsole.MarkupLine("[bold]The event storage is empty, aborting.[/]");
+        AnsiConsole.MarkupLine($"[bold]The event storage for {usage.SubjectUri}, database {usage.DatabaseIdentifier} is empty, aborting.[/]");
     }
 
     public void DisplayRebuildIsComplete()
@@ -64,37 +64,9 @@ internal class ConsoleView: IConsoleView
         AnsiConsole.Markup("[red]Invalid Shard Timeout.[/]");
     }
 
-    public string[] SelectStores(string[] storeNames)
+    public void WriteStartingToRebuildProjections(ProjectionSelection selection, string databaseName)
     {
-        return AnsiConsole.Prompt(new MultiSelectionPrompt<string>()
-            .Title("Choose document stores")
-            .AddChoices(storeNames)).ToArray();
-    }
-
-    public string[] SelectProjections(string[] projectionNames)
-    {
-        return AnsiConsole.Prompt(new MultiSelectionPrompt<string>()
-            .Title("Choose projections")
-            .AddChoices(projectionNames)).ToArray();
-    }
-
-    public void DisplayNoMatchingProjections()
-    {
-        AnsiConsole.Markup("[gray]No projections match the criteria.[/]");
-        AnsiConsole.WriteLine();
-    }
-
-    public void WriteHeader(EventStoreUsage usage)
-    {
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule($"[bold blue]{usage.SubjectUri}[/]") { Justification = Justify.Left });
-        AnsiConsole.WriteLine();
-    }
-
-    public void DisplayNoDatabases()
-    {
-        AnsiConsole.Markup("[gray]No named databases match the criteria.[/]");
-        AnsiConsole.WriteLine();
+        AnsiConsole.WriteLine($"Starting to rebuild projections {selection.Subscriptions.Select(x => x.Name).Join(", ")} ");
     }
 
     public void DisplayNoAsyncProjections()
@@ -103,15 +75,4 @@ internal class ConsoleView: IConsoleView
         AnsiConsole.WriteLine();
     }
 
-    public void WriteHeader(IEventDatabase database)
-    {
-        AnsiConsole.Write(new Rule($"Database: {database.Identifier}") { Justification = Justify.Left });
-    }
-
-    public string[] SelectDatabases(string[] databaseNames)
-    {
-        return AnsiConsole.Prompt(new MultiSelectionPrompt<string>()
-            .Title("Choose databases")
-            .AddChoices(databaseNames)).ToArray();
-    }
 }

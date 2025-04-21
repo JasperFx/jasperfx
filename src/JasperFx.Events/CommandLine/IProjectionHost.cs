@@ -8,15 +8,15 @@ public enum RebuildStatus
     Complete,
 }
 
-public record EventStoreDatabase(Uri SubjectUri, string DatabaseIdentifier);
+public record EventStoreDatabaseIdentifier(Uri SubjectUri, string DatabaseIdentifier);
 
 public interface IProjectionHost
 {
-    // TODO -- this will have to be async
     Task<IReadOnlyList<EventStoreUsage>> AllStoresAsync();
     void ListenForUserTriggeredExit();
-    Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabase databaseIdentifier,
+    Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier,
         string[] names, TimeSpan? shardTimeout = null);
-    Task StartShardsAsync(EventStoreDatabase databaseIdentifier, string[] projectionNames);
-    Task WaitForExit();
+    Task StartShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier, string[] projectionNames);
+    Task WaitForExitAsync();
+    Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none);
 }
