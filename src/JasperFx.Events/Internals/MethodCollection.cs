@@ -126,6 +126,7 @@ internal abstract class MethodCollection
             .Where(x => x.DeclaringType.Assembly != typeof(MethodCollection).Assembly)
             .Where(x => !x.DeclaringType.Assembly.HasAttribute<JasperFxAssemblyAttribute>())
             .Where(x => x.DeclaringType != typeof(object))
+            .Where(x => !x.IsSpecialName)
             .Where(x => !methodNames.Contains(x.Name))
             .Select(x => MethodSlot.InvalidMethodName(x, methodNames))
             .ToList();
