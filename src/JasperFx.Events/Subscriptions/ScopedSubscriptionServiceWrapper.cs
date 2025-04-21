@@ -89,11 +89,11 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
         scope.SafeDispose();
     }
 
-    public uint Version { get; } = 1;
+    public uint Version { get; set; } = 1;
 
     public Type ImplementationType => typeof(T);
 
-    public string Name { get; }
+    public string Name { get; set; }
     public SubscriptionType Type => SubscriptionType.Subscription;
     public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
     public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];

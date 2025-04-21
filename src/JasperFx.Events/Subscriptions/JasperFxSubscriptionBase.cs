@@ -12,8 +12,8 @@ namespace JasperFx.Events.Subscriptions;
 /// </summary>
 public interface ISubscriptionOptions : IEventFilterable
 {
-    string Name { get; }
-    uint Version { get; }
+    string Name { get; set; }
+    uint Version { get; set; }
     AsyncOptions Options { get; }
 }
 
