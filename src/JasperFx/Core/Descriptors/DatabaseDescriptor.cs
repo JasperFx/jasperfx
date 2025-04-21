@@ -36,6 +36,7 @@ public class DatabaseDescriptor : OptionsDescription
     /// </summary>
     public string SchemaOrNamespace { get; set; } = string.Empty;
 
+    // TODO -- get a unit test on this
     public Uri DatabaseUri()
     {
         var parts = new List<string>
