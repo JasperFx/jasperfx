@@ -9,8 +9,8 @@ namespace JasperFx.Events.Daemon;
 public class MetricsNaming
 {
     [Obsolete("Eliminate this. Tag the database instead")]
-    public string DefaultDatabaseName { get; init; } = "Default";
-    public string DatabaseName { get; init; }
+    public string DefaultDatabaseIdentifier { get; init; } = "Default";
+    public string DatabaseIdentifier { get; init; }
     public string MetricsPrefix { get; init; }
 }
 
@@ -26,13 +26,15 @@ public class SubscriptionMetrics: ISubscriptionMetrics
     {
         _activitySource = activitySource;
         _meter = meter;
-        _databaseName = naming.DatabaseName;
+        _databaseName = naming.DatabaseIdentifier;
         Name = name;
 
         var identifier = $"marten.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
-        var databaseIdentifier = naming.DatabaseName.EqualsIgnoreCase(naming.DefaultDatabaseName)
+        
+        // TODO -- let's reevaluate this!
+        var databaseIdentifier = naming.DatabaseIdentifier.EqualsIgnoreCase(naming.DefaultDatabaseIdentifier)
             ? identifier
-            : $"{naming.MetricsPrefix}.{naming.DatabaseName.ToLower()}.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
+            : $"{naming.MetricsPrefix}.{naming.DatabaseIdentifier.ToLower()}.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
 
 
         _processed = meter.CreateCounter<long>(

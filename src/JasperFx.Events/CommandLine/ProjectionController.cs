@@ -77,7 +77,7 @@ public class ProjectionController
 
     public async Task<bool> ExecuteRebuilds(ProjectionSelection selection, TimeSpan? shardTimeout)
     {
-        foreach (var database in selection.DatabaseNames)
+        foreach (var database in selection.DatabaseIdentifiers)
         {
             _view.WriteStartingToRebuildProjections(selection, database);
 
@@ -121,7 +121,7 @@ public class ProjectionController
         {
             var projectionNames = selection.Subscriptions.Select(x => x.Name).ToArray();
             
-            foreach (var databaseName in selection.DatabaseNames)
+            foreach (var databaseName in selection.DatabaseIdentifiers)
             {
                 await _host.StartShardsAsync(new EventStoreDatabaseIdentifier(selection.Storage.SubjectUri, databaseName), projectionNames);
             }

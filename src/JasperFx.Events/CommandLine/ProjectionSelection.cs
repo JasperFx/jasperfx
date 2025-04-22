@@ -9,7 +9,7 @@ public class ProjectionSelection(EventStoreUsage storage)
 {
     public EventStoreUsage Storage { get; } = storage;
     public List<SubscriptionDescriptor> Subscriptions { get; } = new();
-    public List<string> DatabaseNames { get; } = new();
+    public List<string> DatabaseIdentifiers { get; } = new();
 
     public static IReadOnlyList<ProjectionSelection> Filter(IReadOnlyList<EventStoreUsage> usages, ProjectionInput input)
     {
@@ -65,24 +65,24 @@ public class ProjectionSelection(EventStoreUsage storage)
                 return false;
             }
 
-            selection.DatabaseNames.Add(database.DatabaseName);
+            selection.DatabaseIdentifiers.Add(database.Identifier);
             return true;
         }
 
         if (input.DatabaseFlag.IsNotEmpty())
         {
             var databases =
-                usage.Database.Databases.Where(x => x.DatabaseName.EqualsIgnoreCase(input.DatabaseFlag)).ToArray();
+                usage.Database.Databases.Where(x => x.Identifier.EqualsIgnoreCase(input.DatabaseFlag)).ToArray();
 
             if (databases.Any())
             {
-                selection.DatabaseNames.AddRange(databases.Select(x => x.DatabaseName));
+                selection.DatabaseIdentifiers.AddRange(databases.Select(x => x.Identifier));
                 return true;
             }
         }
         else
         {
-            selection.DatabaseNames.AddRange(usage.Database.Databases.Select(x => x.DatabaseName));
+            selection.DatabaseIdentifiers.AddRange(usage.Database.Databases.Select(x => x.Identifier));
             return true;
         }
 

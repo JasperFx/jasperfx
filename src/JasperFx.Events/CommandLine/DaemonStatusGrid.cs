@@ -42,7 +42,7 @@ internal class DaemonStatusGrid
     {
         foreach (var message in messages)
         {
-            _stores[message.SubjectUri].ReadState(message.DatabaseName, message.State);
+            _stores[message.SubjectUri].ReadState(message.DatabaseIdentifier, message.State);
         }
 
         var storeTables = _stores.OrderBy(x => x.Subject).Select(x => x.BuildTable()).ToArray();

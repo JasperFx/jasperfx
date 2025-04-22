@@ -95,8 +95,8 @@ public class AsyncOptions
 
     private IPositionStrategy matchStrategy(IEventDatabase database)
     {
-        return _strategies.Where(x => x.DatabaseName.IsNotEmpty()).FirstOrDefault(x => x.DatabaseName!.EqualsIgnoreCase(database.Identifier))
-                       ?? _strategies.FirstOrDefault(x => x.DatabaseName.IsEmpty()) ?? CatchUp.Instance;
+        return _strategies.Where(x => x.DatabaseIdentifier.IsNotEmpty()).FirstOrDefault(x => x.DatabaseIdentifier!.EqualsIgnoreCase(database.Identifier))
+                       ?? _strategies.FirstOrDefault(x => x.DatabaseIdentifier.IsEmpty()) ?? CatchUp.Instance;
     }
 
     private readonly List<IPositionStrategy> _strategies = new();
@@ -164,7 +164,7 @@ internal record Position(long Floor, bool ShouldUpdateProgressFirst);
 
 internal interface IPositionStrategy
 {
-    string? DatabaseName { get;}
+    string? DatabaseIdentifier { get;}
 
     Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
         IEventDatabase database,
@@ -173,7 +173,7 @@ internal interface IPositionStrategy
 
 internal class InlineToAsync(): IPositionStrategy
 {
-    public string? DatabaseName => null;
+    public string? DatabaseIdentifier => null;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
         IEventDatabase database, CancellationToken token)
@@ -191,7 +191,7 @@ internal class InlineToAsync(): IPositionStrategy
 
 internal class FromSequence(string? databaseName, long sequence): IPositionStrategy
 {
-    public string? DatabaseName { get; } = databaseName;
+    public string? DatabaseIdentifier { get; } = databaseName;
     public long Sequence { get; } = sequence;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
@@ -213,7 +213,7 @@ internal class FromSequence(string? databaseName, long sequence): IPositionStrat
 
 internal class FromTime(string? databaseName, DateTimeOffset time): IPositionStrategy
 {
-    public string? DatabaseName { get; } = databaseName;
+    public string? DatabaseIdentifier { get; } = databaseName;
     public DateTimeOffset EventFloorTime { get; } = time;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
@@ -235,7 +235,7 @@ internal class FromTime(string? databaseName, DateTimeOffset time): IPositionStr
 
 internal class FromPresent(string? databaseName): IPositionStrategy
 {
-    public string? DatabaseName { get; } = databaseName;
+    public string? DatabaseIdentifier { get; } = databaseName;
 
     public Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
         IEventDatabase database, CancellationToken token)
@@ -250,7 +250,7 @@ internal class CatchUp: IPositionStrategy
 
     private CatchUp(){}
 
-    public string? DatabaseName { get; set; } = null;
+    public string? DatabaseIdentifier { get; set; } = null;
 
     public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
         ShardExecutionMode mode,
