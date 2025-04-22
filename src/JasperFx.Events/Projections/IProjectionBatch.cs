@@ -11,7 +11,7 @@ public interface IProjectionBatch : IAsyncDisposable
     void QuickAppendEvents(StreamAction action);
     
     // This is for publishing side effects from event slices in aggregation projections
-    Task PublishMessageAsync(object message);
+    Task PublishMessageAsync(object message, string tenantId);
 }
 
 public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch where TOperations : TQuerySession, IStorageOperations

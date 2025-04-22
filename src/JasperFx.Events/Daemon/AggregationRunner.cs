@@ -245,7 +245,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             foreach (var message in slice.PublishedMessages)
             {
-                await batch.PublishMessageAsync(message).ConfigureAwait(false);
+                await batch.PublishMessageAsync(message, slice.TenantId).ConfigureAwait(false);
             }
         }
     }
