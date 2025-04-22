@@ -9,7 +9,6 @@ public enum ProjectionAction
 {
     list,
     rebuild,
-    watch,
     run
 }
 

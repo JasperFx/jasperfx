@@ -109,6 +109,7 @@ public class ProjectionController
 
     private async Task RunContinuously(IReadOnlyList<ProjectionSelection> selections)
     {
+        AnsiConsole.Clear();
         selections = ProjectionSelection.FilterForAsyncOnly(selections);
         if (!selections.Any())
         {

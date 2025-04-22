@@ -30,10 +30,8 @@ internal class StoreDaemonStatus
             var database = databases.Single();
             return BuildTableForSingleDatabase(table, database);
         }
-        else
-        {
-            return BuildTableForMultipleDatabases(table, databases);
-        }
+
+        return BuildTableForMultipleDatabases(table, databases);
     }
 
     private static Table BuildTableForMultipleDatabases(Table table, DatabaseStatus[] databases)

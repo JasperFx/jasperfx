@@ -25,6 +25,7 @@ internal class CurrentShardState
                 break;
 
             case ShardAction.Started:
+                Sequence = state.Sequence;
                 State = ShardExecutionState.Running;
                 break;
 

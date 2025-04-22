@@ -37,12 +37,10 @@ internal class ProjectionHost: IProjectionHost
         {
             _stores = _stores.AddOrUpdate(store.Subject, store);
             var usage = await store.TryCreateUsage(CancellationToken.None);
-            if (usage == null)
+            if (usage != null)
             {
-                throw new InvalidOperationException("Unable to create an EventStoreUsage for " + store.Subject);
+                list.Add(usage);
             }
-            
-            list.Add(usage);
         }
 
         return list;

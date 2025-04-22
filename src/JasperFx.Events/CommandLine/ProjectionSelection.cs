@@ -83,6 +83,7 @@ public class ProjectionSelection(EventStoreUsage storage)
         else
         {
             selection.DatabaseNames.AddRange(usage.Database.Databases.Select(x => x.DatabaseName));
+            return true;
         }
 
         return false;

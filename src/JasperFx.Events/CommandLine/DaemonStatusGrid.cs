@@ -20,7 +20,7 @@ internal class DaemonStatusGrid
             MaxDegreeOfParallelism = 1
         });
         _batching = new(100, updates);
-
+        
         _table = new Table();
 
         _table.AddColumn("Marten Projections");

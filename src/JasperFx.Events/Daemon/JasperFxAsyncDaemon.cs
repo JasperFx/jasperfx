@@ -163,6 +163,22 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await StartHighWaterDetectionAsync().ConfigureAwait(false);
         }
 
+        // TODO -- DO NOT LIKE THIS. Would rather have an overload that takes ShardName now
+        if (!shardName.Contains(":"))
+        {
+            var shardNames = _store.AllShards().Where(x => x.Name.Name.EqualsIgnoreCase(shardName)).ToArray();
+            if (shardNames.Any())
+            {
+                foreach (var name in shardNames)
+                {
+                    await StartAgentAsync(name.Name.Identity, token).ConfigureAwait(false);
+                }
+
+                return;
+            }
+        }
+
+
         var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
         if (shard == null)
         {
