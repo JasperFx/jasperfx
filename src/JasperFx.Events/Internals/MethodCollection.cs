@@ -107,6 +107,9 @@ internal abstract class MethodCollection
 
     private void addMethodSlot(MethodInfo method, bool declaredByAggregate)
     {
+        // Latch against Create using something with primitives
+        if (method.GetParameters().Any(x => x.ParameterType.IsSimple())) return;
+        
         var slot = new MethodSlot(method, AggregateType)
         {
             HandlerType = declaredByAggregate ? AggregateType : ProjectionType,
