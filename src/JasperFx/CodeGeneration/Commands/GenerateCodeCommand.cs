@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.CommandLine;
 using JasperFx.Core;

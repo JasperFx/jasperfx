@@ -1,5 +1,6 @@
 ﻿using System;
 using ExtensionCommands;
+using JasperFx;
 using JasperFx.CommandLine;
 using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;

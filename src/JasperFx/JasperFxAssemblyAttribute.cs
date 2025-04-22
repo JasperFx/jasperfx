@@ -1,11 +1,11 @@
+using JasperFx.CommandLine;
 using JasperFx.Core.Reflection;
 
-namespace JasperFx.CommandLine;
+namespace JasperFx;
 
 /// <summary>
-///     If the CommandExecutor is configured to discover assemblies,
-///     this attribute on an assembly will cause JasperFx to search for
-///     command types within this assembly
+/// Tells JasperFx and the "Critter Stack" frameworks that this assembly should be
+/// examined for commands and possible extensions
 /// </summary>
 [AttributeUsage(AttributeTargets.Assembly)]
 public class JasperFxAssemblyAttribute : Attribute
@@ -33,6 +33,6 @@ public class JasperFxAssemblyAttribute : Attribute
         }
     }
 
-    public Type ExtensionType { get; set; }
+    public Type? ExtensionType { get; set; }
 }
 
