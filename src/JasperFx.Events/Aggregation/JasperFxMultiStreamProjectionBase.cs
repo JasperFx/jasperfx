@@ -46,10 +46,20 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
             case TenancyGrouping.AcrossTenants:
                 return new AcrossTenantSlicer<TDoc, TId, TQuerySession>(session, _customSlicer ?? _defaultSlicer);
             case TenancyGrouping.RollUpByTenant:
-                if (typeof(TId) != typeof(string))
-                    throw new InvalidOperationException(
-                        "JasperFx cannot (yet) support strong typed identifiers for the tenant id rollup");
-                return new TenantRollupSlicer<TDoc>();
+                if (typeof(TId) == typeof(string))
+                {
+                    return new TenantRollupSlicer<TDoc>();
+                }
+
+                var valueTypeInfo = ValueTypeInfo.ForType(typeof(TId));
+                if (valueTypeInfo.SimpleType == typeof(string))
+                {
+                    return new TenantRollupSlicer<TDoc, TId>();
+                }
+                
+                throw new InvalidOperationException(
+                    "The tenant id rollup requires either an identifier of type string or a strong typed identifier that wraps a string");
+                
         }
 
         throw new ArgumentOutOfRangeException();
@@ -115,7 +125,13 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     public void RollUpByTenant()
     {
         if (typeof(TId) != typeof(string))
-            throw new InvalidOperationException("Rolling up by Tenant Id requires the identity type to be string");
+        {
+            var valueIdType = ValueTypeInfo.ForType(typeof(TId));
+            if (valueIdType.SimpleType != typeof(string))
+            {
+                throw new InvalidOperationException("Rolling up by Tenant Id requires the identity type to be string or a value type whose 'simple' type is string");
+            }
+        }
 
         TenancyGrouping = TenancyGrouping.RollUpByTenant;
     }
