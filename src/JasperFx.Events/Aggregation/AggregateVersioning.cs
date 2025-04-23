@@ -23,17 +23,16 @@ public interface IAggregateVersioning<in T>
     void TrySetVersion(T aggregate, IEvent lastEvent);
 }
 
-public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggregateVersioning<T>, IAggregator<T, TQuerySession>
+public class AggregateVersioning<T> : IAggregateVersioning
 {
-    private readonly AggregationScope _scope;
     private readonly Lazy<Action<T, IEvent>> _setValue;
-
-
+    private readonly AggregationScope _scope;
+    
     public AggregateVersioning(AggregationScope scope)
     {
-        _setValue = new Lazy<Action<T, IEvent>>(buildAction);
         _scope = scope;
-
+        _setValue = new Lazy<Action<T, IEvent>>(buildAction);
+        
         var bindingFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
         var props = typeof(T).GetProperties(bindingFlags)
@@ -52,17 +51,18 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
         VersionMember ??= members.FirstOrDefault(x =>
             x.Name.EqualsIgnoreCase("version") && !x.HasAttribute<JasperFxIgnoreAttribute>());
     }
-
-    public Type IdentityType => Inner.IdentityType;
-
-    public IAggregator<T, TQuerySession> Inner { get; set; }
-
+    
     public MemberInfo? VersionMember
     {
         get;
         private set;
     }
-
+    
+    long IAggregateVersioning.GetVersion(object aggregate)
+    {
+        return GetVersion((T)aggregate);
+    }
+    
     void IAggregateVersioning.TrySetVersion(object? aggregate, IEvent? lastEvent)
     {
         if (aggregate == null || lastEvent == null)
@@ -72,12 +72,7 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
 
         TrySetVersion((T)aggregate, lastEvent);
     }
-
-    long IAggregateVersioning.GetVersion(object aggregate)
-    {
-        return GetVersion((T)aggregate);
-    }
-
+    
     public void TrySetVersion(T? aggregate, IEvent? lastEvent)
     {
         if (aggregate == null || lastEvent == null)
@@ -87,15 +82,7 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
 
         _setValue.Value(aggregate, lastEvent);
     }
-
-    public async ValueTask<T?> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, T? snapshot,
-        CancellationToken cancellation)
-    {
-        var aggregate = await Inner.BuildAsync(events, session, snapshot, cancellation).ConfigureAwait(false);
-        TrySetVersion(aggregate, events.LastOrDefault());
-        return aggregate;
-    }
-
+    
     private Action<T, IEvent> buildAction()
     {
         if (VersionMember == null)
@@ -139,7 +126,7 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
                 throw new InvalidOperationException("The Version member must be either a Field or Property");
         }
     }
-
+    
     public void Override(Expression<Func<T, int>> expression)
     {
         VersionMember = ReflectionHelper.GetProperty(expression);
@@ -160,5 +147,25 @@ public class AggregateVersioning<T, TQuerySession>: IAggregateVersioning, IAggre
         }
 
         return Convert.ToInt64(VersionMember.As<FieldInfo>().GetValue(aggregate));
+    }
+}
+
+public class AggregateVersioning<T, TQuerySession> : AggregateVersioning<T>, IAggregateVersioning, IAggregateVersioning<T>, IAggregator<T, TQuerySession>
+{
+    public AggregateVersioning(AggregationScope scope) : base(scope)
+    {
+        
+    }
+
+    public Type IdentityType => Inner.IdentityType;
+
+    public IAggregator<T, TQuerySession> Inner { get; set; }
+    
+    public async ValueTask<T?> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, T? snapshot,
+        CancellationToken cancellation)
+    {
+        var aggregate = await Inner.BuildAsync(events, session, snapshot, cancellation).ConfigureAwait(false);
+        TrySetVersion(aggregate, events.LastOrDefault());
+        return aggregate;
     }
 }
