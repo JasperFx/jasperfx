@@ -50,11 +50,6 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         
         // get the id off of the event
         (snapshot, _) = await DetermineActionAsync(session, snapshot, _identitySource(events[0]), new NulloIdentitySetter<TDoc, TId>(), events, cancellation);
-
-        if (snapshot == null)
-        {
-            throw new InvalidOperationException("The aggregation returned a null snapshot");
-        }
         
         return snapshot;
     }
@@ -67,12 +62,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         
         // get the id off of the event
         (snapshot, _) = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
-        
-        if (snapshot == null)
-        {
-            throw new InvalidOperationException("The aggregation returned a null snapshot");
-        }
-        
+
         return snapshot;
     }
 

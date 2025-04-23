@@ -184,11 +184,6 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     )
         where TProjectionType : ProjectionBase, IProjectionSource<TOperations, TQuerySession>, new()
     {
-        if (lifecycle == ProjectionLifecycle.Live)
-        {
-            throw new InvalidOperationException("The generic overload of Add does not support Live projections, please use the non-generic overload.");
-        }
-
         var projection = new TProjectionType { Lifecycle = lifecycle };
 
         asyncConfiguration?.Invoke(projection.Options);
