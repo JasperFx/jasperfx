@@ -21,6 +21,12 @@ public class FakeOperations : FakeSession, IStorageOperations
     {
         throw new NotImplementedException();
     }
+
+    public bool EnableSideEffectsOnInlineProjections { get; } = false;
+    public ValueTask<IMessageSink> GetOrStartMessageSink()
+    {
+        throw new NotImplementedException();
+    }
 }
 
 public class FakeSession

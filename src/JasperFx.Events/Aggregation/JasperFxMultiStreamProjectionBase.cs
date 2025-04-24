@@ -12,9 +12,9 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     private readonly EventSlicer<TDoc, TId, TQuerySession> _defaultSlicer = new();
     private IEventSlicer<TDoc, TId, TQuerySession>? _customSlicer;
 
-    protected JasperFxMultiStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.MultiStream)
+    protected JasperFxMultiStreamProjectionBase() : base(AggregationScope.MultiStream)
     {
-        ((ProjectionBase)this).Name = typeof(TDoc).Name;
+        Name = typeof(TDoc).Name;
     }
 
     public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;
@@ -114,10 +114,29 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                 snapshots.TryGetValue(slice.Id, out var snapshot);
                 var (finalSnapshot, action) = await DetermineActionAsync(operations, snapshot, slice.Id, storage, slice.Events(), cancellation);
                 storage.ApplyInline(finalSnapshot, action, slice.Id, group.TenantId);
+
+                if (operations.EnableSideEffectsOnInlineProjections)
+                {
+                    await RaiseSideEffects(operations, slice);
+                    if (slice.RaisedEvents != null)
+                    {
+                        throw new InvalidOperationException(
+                            "Events cannot be appended in projection side effects from Inline projections");
+                    }
+
+                    if (slice.PublishedMessages != null)
+                    {
+                        var sink = await operations.GetOrStartMessageSink().ConfigureAwait(false);
+                        foreach (var message in slice.PublishedMessages)
+                        {
+                            await sink.PublishAsync(message, slice.TenantId).ConfigureAwait(false);
+                        }
+                    }
+                }
             }
         }
     }
-    
+
     /// <summary>
     /// Group events by the tenant id. Use this option if you need to do roll up summaries by
     /// tenant id within a conjoined multi-tenanted event store.

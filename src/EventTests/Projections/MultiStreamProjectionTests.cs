@@ -64,7 +64,7 @@ public class Day
 
 public class UsesCustomSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
-    public UsesCustomSlicerDayProjection() : base([])
+    public UsesCustomSlicerDayProjection() : base()
     {
         CustomGrouping(Substitute.For<IEventSlicer<Day, int, FakeSession>>());
     }
@@ -82,7 +82,7 @@ public class UsesCustomSlicerDayProjection : JasperFxMultiStreamProjectionBase<D
 
 public class NoSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
-    public NoSlicerDayProjection() : base([])
+    public NoSlicerDayProjection() : base()
     {
     }
     
@@ -99,7 +99,7 @@ public class NoSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int,
 
 public class DayProjection: JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
-    public DayProjection() : base([])
+    public DayProjection() : base()
     {
         // Tell the projection how to group the events
         // by Day document
@@ -167,7 +167,7 @@ public class DayProjection: JasperFxMultiStreamProjectionBase<Day, int, FakeOper
 
 public class SlicesButNoMethodsDayProjection: JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
-    public SlicesButNoMethodsDayProjection() : base([])
+    public SlicesButNoMethodsDayProjection() : base()
     {
         // Tell the projection how to group the events
         // by Day document

@@ -96,10 +96,39 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
                 storage.ApplyInline(transformed, action, id, stream.TenantId);
                 
                 maybeArchiveStream(storage, stream, id);
+
+                if (session.EnableSideEffectsOnInlineProjections)
+                {
+                    await processSideEffectMessages(session, id, stream, transformed).ConfigureAwait(false);
+                }
             }
         }
     }
-    
+
+    private async Task processSideEffectMessages(TOperations session, TId id, StreamAction stream, TDoc? transformed)
+    {
+        var slice = new EventSlice<TDoc, TId>(id, stream.TenantId, stream.Events)
+        {
+            Snapshot = transformed
+        };
+
+        await RaiseSideEffects(session, slice);
+        if (slice.RaisedEvents != null)
+        {
+            throw new InvalidOperationException(
+                "Events cannot be appended in projection side effects from Inline projections");
+        }
+
+        if (slice.PublishedMessages != null)
+        {
+            var sink = await session.GetOrStartMessageSink().ConfigureAwait(false);
+            foreach (var message in slice.PublishedMessages)
+            {
+                await sink.PublishAsync(message, stream.TenantId).ConfigureAwait(false);
+            }
+        }
+    }
+
     private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, StreamAction action, TId id)
     {
         if (Scope == AggregationScope.SingleStream && action.Events.OfType<IEvent<Archived>>().Any())

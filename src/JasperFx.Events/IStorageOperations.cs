@@ -7,4 +7,8 @@ public interface IStorageOperations : IAsyncDisposable
     Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
         CancellationToken cancellationToken);
     Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(CancellationToken cancellationToken);
+    
+    bool EnableSideEffectsOnInlineProjections { get; }
+
+    ValueTask<IMessageSink> GetOrStartMessageSink();
 }
