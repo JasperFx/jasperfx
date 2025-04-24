@@ -77,6 +77,20 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     /// </summary>
     public uint Version { get; set; } = 1;
 
+    [Obsolete("Use Name instead.")]
+    public string SubscriptionName
+    {
+        get => Name;
+        set => Name = value;
+    }
+    
+    [Obsolete("Use Version instead.")]
+    public uint SubscriptionVersion
+    {
+        get => Version;
+        set => Version = value;
+    }
+
     /// <summary>
     /// Fine tune the behavior of this subscription at runtime
     /// </summary>

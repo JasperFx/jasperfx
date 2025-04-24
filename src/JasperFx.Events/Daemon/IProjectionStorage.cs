@@ -20,13 +20,6 @@ public interface IProjectionStorage<TDoc, TId> : IIdentitySetter<TDoc, TId>
 
     Task<IReadOnlyDictionary<TId, TDoc>> LoadManyAsync(TId[] identities, CancellationToken cancellationToken);
 
-    /*
-        if (Slicer is ISingleStreamSlicer && lastEvent != null && storageOperation is IRevisionedOperation op)
-       {
-           op.Revision = (int)lastEvent.Version;
-           op.IgnoreConcurrencyViolation = true;
-       }
-     */
     void StoreProjection(TDoc aggregate, IEvent? lastEvent, AggregationScope scope);
     void ArchiveStream(TId sliceId, string tenantId);
     Task<TDoc> LoadAsync(TId id, CancellationToken cancellation);
