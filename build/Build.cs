@@ -100,6 +100,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNet("run --framework net9.0 -- describe", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet("run --framework net9.0 -- describe --file description.txt", Solution.TestHarnesses.CommandLineRunner.Directory);
         });
 
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";

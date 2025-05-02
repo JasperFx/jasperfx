@@ -5,9 +5,6 @@ public class DescribeInput : NetCoreInput
     [Description("Optionally write the description to the given file location")]
     public string? FileFlag { get; set; } = null;
 
-    [Description("Do not write any output to the console")]
-    public bool SilentFlag { get; set; } = false;
-
     [Description("Filter the output to only a single described part")]
     public string? TitleFlag { get; set; }
 

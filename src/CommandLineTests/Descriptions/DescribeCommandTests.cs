@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -21,6 +22,36 @@ namespace CommandLineTests.Descriptions
 
             theParts[1].As<ConsoleWritingPart>()
                 .DidWriteToConsole.ShouldBeTrue();
+        }
+
+        [Fact]
+        public async Task write_file_smoke_test()
+        {
+            if (File.Exists("description.txt"))
+            {
+                File.Delete("description.txt");
+            }
+            
+            var result = await Host.CreateDefaultBuilder().RunJasperFxCommands(["describe", "--file", "description.txt"]);
+            result.ShouldBe(0);
+            
+            File.Exists("description.txt").ShouldBeTrue();
+        }
+        
+        
+        [Fact]
+        public async Task write_file_smoke_test_as_htm()
+        {
+            var file = "description.html";
+            if (File.Exists(file))
+            {
+                File.Delete(file);
+            }
+            
+            var result = await Host.CreateDefaultBuilder().RunJasperFxCommands(["describe", "--file", file]);
+            result.ShouldBe(0);
+            
+            File.Exists(file).ShouldBeTrue();
         }
         
         public class FakeService

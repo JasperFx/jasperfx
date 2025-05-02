@@ -61,25 +61,31 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
             parts = parts.Where(x => titles.Contains(x.Title)).ToArray();
         }
 
-        if (!input.SilentFlag)
+        if (input.FileFlag.IsNotEmpty())
         {
-            await WriteToConsole(parts);
+            AnsiConsole.Record();
         }
 
-        if (!input.FileFlag.IsNotEmpty())
-        {
-            return true;
-        }
+        await WriteToConsole(parts);
 
-        await using (var stream = new FileStream(input.FileFlag, FileMode.CreateNew, FileAccess.Write))
+        if (input.FileFlag.IsNotEmpty())
         {
+            await using var stream = new FileStream(input.FileFlag, FileMode.CreateNew, FileAccess.Write);
             var writer = new StreamWriter(stream);
 
-            await WriteText(parts, writer);
+            if (Path.GetExtension(input.FileFlag).Contains("html", StringComparison.InvariantCulture))
+            {
+                await writer.WriteLineAsync(AnsiConsole.ExportHtml());
+            }
+            else
+            {
+                await writer.WriteLineAsync(AnsiConsole.ExportText());
+            }
+            
             await writer.FlushAsync();
+            
+            Console.WriteLine("Wrote system description to file " + input.FileFlag);
         }
-
-        Console.WriteLine("Wrote system description to file " + input.FileFlag);
 
         return true;
     }
