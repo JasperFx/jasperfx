@@ -70,7 +70,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 
         if (input.FileFlag.IsNotEmpty())
         {
-            await using var stream = new FileStream(input.FileFlag, FileMode.CreateNew, FileAccess.Write);
+            await using var stream = new FileStream(input.FileFlag, FileMode.Create, FileAccess.Write);
             var writer = new StreamWriter(stream);
 
             if (Path.GetExtension(input.FileFlag).Contains("html", StringComparison.InvariantCulture))
@@ -89,14 +89,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 
         return true;
     }
-
-
-    public static async Task WriteText(ISystemPart[] parts, TextWriter writer)
-    {
-        // TODO -- make this record too
-        await WriteToConsole(parts);
-    }
-
+    
     public static async Task WriteToConsole(ISystemPart[] parts)
     {
         foreach (var part in parts)
