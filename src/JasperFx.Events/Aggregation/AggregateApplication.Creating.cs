@@ -37,6 +37,13 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
 
     private Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>> determineCreator(Type eventType)
     {
+        // If the event really doesn't apply at all, let's do NOTHING
+        if (eventTypeIsIgnored(eventType))
+        {
+            _ignoredEventTypes.Fill(eventType);
+            return (_, _, _) => default;
+        }
+        
         if (!_createMethods.Methods.Any(x => x.EventType == eventType))
         {
             // Try to find a creator from an abstraction or interface

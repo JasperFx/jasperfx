@@ -54,6 +54,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
             .AllEventTypes(_applyMethods, _createMethods, _shouldDeleteMethods)
             .Concat(_creators.Enumerate().Select(x => x.Key))
             .Concat(_applications.Enumerate().Select(x => x.Key))
+            .Where(x => !_ignoredEventTypes.Contains(x))
             .Distinct().ToArray();
     }
 
@@ -97,14 +98,30 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
                 $"No matching conventional Apply/Create/ShouldDelete methods for the {typeof(TAggregate).FullNameInCode()} aggregate.");
         }
 
-        var invalidMethods =
-            MethodCollection.FindInvalidMethods(_projectionType, _applyMethods, _createMethods, _shouldDeleteMethods)
-                .Where(x => !x.Method.HasAttribute<JasperFxIgnoreAttribute>()).ToArray();
-
-        if (invalidMethods.Any())
+        if (_projectionType != null)
         {
-            throw new InvalidProjectionException(this, invalidMethods);
+            var invalidMethods =
+                MethodCollection.FindInvalidMethods(_projectionType, _applyMethods, _createMethods, _shouldDeleteMethods)
+                    .Where(x => !x.Method.HasAttribute<JasperFxIgnoreAttribute>()).ToArray();
+
+            if (invalidMethods.Any())
+            {
+                throw new InvalidProjectionException(this, invalidMethods);
+            }
         }
+        else
+        {
+            var invalidMethods =
+                MethodCollection.FindInvalidMethods(typeof(TAggregate), _applyMethods, _createMethods, _shouldDeleteMethods)
+                    .Where(x => !x.Method.HasAttribute<JasperFxIgnoreAttribute>()).ToArray();
+
+            if (invalidMethods.Any())
+            {
+                throw new InvalidProjectionException(this, invalidMethods);
+            }
+        }
+        
+
     }
 
     public async ValueTask<TAggregate?> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TAggregate? snapshot, CancellationToken cancellation)

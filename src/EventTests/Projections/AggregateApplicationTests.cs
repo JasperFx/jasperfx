@@ -28,6 +28,7 @@ public class AggregateApplicationTests
     public async Task use_ctor_that_takes_the_wrapped_event_data_type()
     {
         var application = new AggregateApplication<LetterCounts2, Session>();
+        application.AssertValidity();
         var snapshot = await application.CreateByData(new StartLetters(2, 3), new Session());
 
         snapshot.ShouldNotBeNull();

@@ -40,7 +40,7 @@ public class MethodSlot
         }
 
         var parameterType = constructor.GetParameters().Single().ParameterType;
-        EventType = parameterType.Closes(typeof(Event<>))
+        EventType = parameterType.Closes(typeof(IEvent<>))
             ? parameterType.GetGenericArguments().Single()
             : parameterType;
 
@@ -65,7 +65,7 @@ public class MethodSlot
 
     public Type HandlerType { get; set; }
 
-    public Type EventType { get; }
+    public Type? EventType { get; private set; }
 
     public IReadOnlyList<string> Errors => _errors;
     public bool DeclaredByAggregate { get; set; }
@@ -73,7 +73,10 @@ public class MethodSlot
     public IEnumerable<Type> ReferencedTypes()
     {
         yield return DeclaringType;
-        yield return EventType;
+        if (EventType != null)
+        {
+            yield return EventType;
+        }
     }
 
     public string Signature()
@@ -144,5 +147,11 @@ public class MethodSlot
             $"Unrecognized method name '{methodInfo.Name}'. Either mark with [MartenIgnore] or use one of {methodNames.Select(x => $"'{x}'").Join(", ")}");
 
         return slot;
+    }
+
+    public void DisallowEventType()
+    {
+        EventType = null;
+        _errors.Add(NoEventType);
     }
 }

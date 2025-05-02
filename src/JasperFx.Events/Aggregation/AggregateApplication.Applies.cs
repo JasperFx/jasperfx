@@ -9,8 +9,28 @@ namespace JasperFx.Events.Aggregation;
 
 internal partial class AggregateApplication<TAggregate, TQuerySession>
 {
+    private readonly List<Type> _ignoredEventTypes = [];
+
+    private bool eventTypeIsIgnored(Type eventType)
+    {
+        if (_ignoredEventTypes.Contains(eventType)) return true;
+
+        if (AllEventTypes().Contains(eventType)) return false;
+
+        if (AllEventTypes().Any(eventType.CanBeCastTo)) return false;
+
+        return true;
+    }
+    
     private Func<TAggregate,IEvent,TQuerySession, CancellationToken, ValueTask<TAggregate?>> determineApplication(Type eventType)
     {
+        // If the event really doesn't apply at all, let's do NOTHING
+        if (eventTypeIsIgnored(eventType))
+        {
+            _ignoredEventTypes.Fill(eventType);
+            return (a, _, _, _) => new ValueTask<TAggregate?>(a);
+        }
+        
         if (!_applyMethods.Methods.Any(x =>
                 x.EventType == eventType || _shouldDeleteMethods.Methods.Any(slot => slot.EventType == eventType)))
         {

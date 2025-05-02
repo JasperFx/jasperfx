@@ -12,7 +12,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     private readonly Func<StreamAction, TId> _streamActionSource;
     
 
-    protected JasperFxSingleStreamProjectionBase(Type[] transientExceptionTypes) : base(AggregationScope.SingleStream)
+    protected JasperFxSingleStreamProjectionBase() : base(AggregationScope.SingleStream)
     {
         _identitySource = IEvent.CreateAggregateIdentitySource<TId>();
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
@@ -73,6 +73,9 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
 
     async Task IInlineProjection<TOperations>.ApplyAsync(TOperations session, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
+        // Screen out any stream that doesn't have any matching events
+        streams = streams.Where(x => AppliesTo(x.Events.Select(x => x.EventType).ToArray())).ToArray();
+        
         if (streams.Count == 0) return;
         
         var groups = streams.GroupBy(x => x.TenantId).ToArray();

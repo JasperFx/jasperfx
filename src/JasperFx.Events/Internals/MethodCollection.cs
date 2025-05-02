@@ -115,6 +115,11 @@ internal abstract class MethodCollection
             HandlerType = declaredByAggregate ? AggregateType : ProjectionType,
             DeclaredByAggregate = declaredByAggregate
         };
+
+        if (ValidArgumentTypes.Contains(slot.EventType))
+        {
+            slot.DisallowEventType();
+        }
         
         Methods.Add(slot);
     }

@@ -1,5 +1,6 @@
 using System.Reflection;
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Internals;
 
 namespace JasperFx.Events.Aggregation;
@@ -18,11 +19,16 @@ internal class CreateMethodCollection: MethodCollection
 
         var constructors = aggregateType
             .GetConstructors()
-            .Where(x => x.GetParameters().Length == 1 && x.GetParameters().Single().ParameterType.IsClass);
+            .Where(x => x.GetParameters().Length == 1 && (x.GetParameters().Single().ParameterType.IsClass || x.GetParameters().Single().ParameterType.Closes(typeof(IEvent<>))));
 
         foreach (var constructor in constructors)
         {
             var slot = new MethodSlot(constructor, projectionType, aggregateType);
+            if (ValidArgumentTypes.Contains(slot.EventType))
+            {
+                slot.DisallowEventType();
+            }
+            
             Methods.Add(slot);
         }
     }

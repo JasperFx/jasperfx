@@ -212,12 +212,15 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     protected virtual Type[] determineEventTypes()
     {
         var eventTypes = _application.AllEventTypes()
-            .Concat(DeleteEvents).Concat(TransformedEvents).Distinct().ToArray();
+            .Concat(DeleteEvents).Concat(TransformedEvents).Concat(IncludedEventTypes).Distinct().ToArray();
         return eventTypes;
     }
 
     public bool AppliesTo(IEnumerable<Type> eventTypes)
     {
+        // Have to do this because you don't know if any events catch
+        if (!AllEventTypes.Any()) return true;
+        
         return eventTypes
             .Intersect(AllEventTypes).Any() || eventTypes.Any(type => AllEventTypes.Any(type.CanBeCastTo));
     }
