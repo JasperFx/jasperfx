@@ -1,6 +1,7 @@
 using System.Reflection;
 using JasperFx.Core;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,11 +11,51 @@ namespace JasperFx.CommandLine;
 
 public class NetCoreInput : IHostBuilderInput
 {
+    private const string CannotBeNullOrEmptyAndMustBeInTheFormKeyValue = "Cannot be null or empty and must be in the form KEY=VALUE";
+    
     [Description("Overwrite individual configuration items")]
     public Dictionary<string, string?> ConfigFlag = new();
+    
+    [Description("Value in the form <KEY=VALUE> to set an environment variable for this process")]
+    public string? EnvironmentFlag
+    {
+        set
+        {
+            if (value.IsEmpty())
+            {
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
+            }
 
-    [Description("Use to override the ASP.Net Environment name")]
-    public string EnvironmentFlag { get; set; }
+            if (!value.Contains('='))
+            {
+                EnvironmentNameFlag = value;
+                return;
+            }
+            
+            var parts = value.Split('=');
+            if (parts.Length != 2)
+            {
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
+            }
+
+            if (parts.Any(x => x.IsEmpty()))
+            {
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
+            }
+            
+            System.Environment.SetEnvironmentVariable(parts[0], parts[1]);
+        }
+        get => EnvironmentNameFlag;
+    }
+    
+    [Description("Override the IHostEnvironment.ContentRoot"), FlagAlias("contentRoot")]
+    public string? ContentRootFlag { get; set; }
+
+    [Description("Override the IHostEnvironment.ApplicationName"), FlagAlias("applicationName")]
+    public string? ApplicationNameFlag { get; set; }
+    
+    [Description("Override the IHostEnvironment.EnvironmentName"), FlagAlias("environmentName")]
+    public string? EnvironmentNameFlag { get; set; }
 
     [Description("Write out much more information at startup and enables console logging")]
     public bool VerboseFlag { get; set; }
@@ -33,7 +74,14 @@ public class NetCoreInput : IHostBuilderInput
 
     public virtual void ApplyHostBuilderInput()
     {
+        // Just can't work here
+        if (HostBuilder is PreBuiltHostBuilder) return;
+        
         #region sample_what_the_cli_is_doing
+        if (ContentRootFlag.IsNotEmpty())
+        {
+            HostBuilder.UseContentRoot(ContentRootFlag);
+        }
 
         // The --log-level flag value overrides your application's
         // LogLevel
@@ -78,7 +126,7 @@ public class NetCoreInput : IHostBuilderInput
 
         // The --environment flag is used to set the environment
         // property on the IHostedEnvironment within your system
-        if (EnvironmentFlag.IsNotEmpty())
+        if (EnvironmentNameFlag.IsNotEmpty())
         {
             Console.WriteLine($"Overwriting the environment to `{EnvironmentFlag}`");
             HostBuilder.UseEnvironment(EnvironmentFlag);
@@ -95,6 +143,15 @@ public class NetCoreInput : IHostBuilderInput
     public IHost BuildHost()
     {
         ApplyHostBuilderInput();
-        return HostBuilder.Build();
+        
+        var host = HostBuilder.Build();
+
+        if (ApplicationNameFlag.IsNotEmpty())
+        {
+            var hostEnvironment = host.Services.GetService<IHostEnvironment>();
+            if (hostEnvironment != null) hostEnvironment.ApplicationName = ApplicationNameFlag;
+        }
+
+        return host;
     }
 }
