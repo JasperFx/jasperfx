@@ -99,6 +99,7 @@ partial class Build : NukeBuild
     Target SmokeTestCommands => _ => _.DependsOn(Compile)
         .Executes(() =>
         {
+            DotNet("run --framework net9.0 -- check-env", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- describe", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- describe --file description.txt", Solution.TestHarnesses.CommandLineRunner.Directory);
         });
