@@ -1,5 +1,6 @@
 using JasperFx.Core.Reflection;
 using JasperFx.Events;
+using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using Shouldly;
 
@@ -17,15 +18,58 @@ public class EventProjectionTests
     }
 
     [Theory]
-    [InlineData(typeof(OverridesAndUsesConventions), "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods and inline lambda registrations per event type, but not both")]
+    [InlineData(typeof(OverridesAndUsesConventions),
+        "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods and inline lambda registrations per event type, but not both")]
     public void bad_options(Type type, string message)
     {
         var ex = Should.Throw<InvalidProjectionException>(() =>
         {
             Activator.CreateInstance(type).As<EventProjection>().AssembleAndAssertValidity();
         });
-        
+
         ex.Message.ShouldBe(message);
+    }
+
+    [Fact]
+    public async Task apply_event_exception_wrapping()
+    {
+        ProjectionExceptions.RegisterTransientExceptionType<SpecialEventException>();
+
+        var projection = new ErrorCausingProjection();
+
+        await Should.ThrowAsync<SpecialEventException>(async () =>
+        {
+            await projection.As<IJasperFxProjection<FakeOperations>>()
+                .ApplyAsync(new FakeOperations(), [new Event<AEvent>(new AEvent())], CancellationToken.None);
+        });
+        
+        var ex = await Should.ThrowAsync<ApplyEventException>(async () =>
+        {
+            await projection.As<IJasperFxProjection<FakeOperations>>()
+                .ApplyAsync(new FakeOperations(), [new Event<BEvent>(new BEvent())], CancellationToken.None);
+        });
+
+        ex.InnerException.ShouldBeOfType<InvalidOperationException>();
+    }
+}
+
+public class ErrorCausingProjection : EventProjection
+{
+    public void Project(FakeOperations operations, AEvent e)
+    {
+        throw new SpecialEventException("bang.");
+    }
+
+    public void Project(FakeOperations operations, BEvent e)
+    {
+        throw new InvalidOperationException("no good");
+    }
+}
+
+public class SpecialEventException : Exception
+{
+    public SpecialEventException(string? message) : base(message)
+    {
     }
 }
 

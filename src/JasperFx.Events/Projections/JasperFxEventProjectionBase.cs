@@ -73,6 +73,13 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return applyAsync(operations, events, cancellation);
     }
 
+    /// <summary>
+    /// Override this for explicit projection logic
+    /// </summary>
+    /// <param name="operations"></param>
+    /// <param name="e"></param>
+    /// <param name="cancellation"></param>
+    /// <returns></returns>
     public virtual ValueTask ApplyAsync(TOperations operations, IEvent e, CancellationToken cancellation)
     {
         return _application.ApplyAsync(operations, e, cancellation);
