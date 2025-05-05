@@ -66,8 +66,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     public Type ImplementationType => typeof(TSource);
 
     public Type ProjectionType { get; }
-    public string Name { get; }
-    public uint Version { get; }
+
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return

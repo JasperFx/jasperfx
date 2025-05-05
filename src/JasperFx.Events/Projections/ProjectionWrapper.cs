@@ -21,7 +21,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     {
         _projection = projection;
         Lifecycle = lifecycle;
-        base.Name = projection.GetType().FullNameInCode();
+        base.Name = projection.GetType().Name;
 
         Inner = _projection;
 
