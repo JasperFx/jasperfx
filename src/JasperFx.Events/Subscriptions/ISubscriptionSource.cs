@@ -33,6 +33,5 @@ public interface ISubscriptionSource<TOperations, TQuerySession> : ISubscription
     
     AsyncOptions Options { get; }
 
-    // TODO - See if this is unnecessary now that there's more logic in SubscriptionDescriptor?
     SubscriptionDescriptor Describe();
 }
