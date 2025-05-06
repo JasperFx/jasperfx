@@ -58,4 +58,7 @@ public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
 
         return true;
     }
+
+    // Stupid workaround for oddball usages of Marten where it has compiled file collections
+    // that themselves have to be compiled.
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using JasperFx.CodeGeneration;
+using JasperFx.CodeGeneration.Commands;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +12,7 @@ namespace JasperFx.RuntimeCompiler
 {
     public static class CodeFileExtensions
     {
+
         public static async Task Initialize(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
         {
             var @namespace = parent.ToNamespace(rules);
@@ -38,7 +40,7 @@ namespace JasperFx.RuntimeCompiler
             
             if (!found)
             {
-                if (rules.TypeLoadMode == TypeLoadMode.Static)
+                if (rules.TypeLoadMode == TypeLoadMode.Static && !DynamicCodeBuilder.WithinCodegenCommand)
                 {
                     throw new ExpectedTypeMissingException(
                         $"Could not load expected pre-built types for code file {file.FileName} ({file})");
@@ -106,7 +108,7 @@ namespace JasperFx.RuntimeCompiler
             
             if (!found)
             {
-                if (rules.TypeLoadMode == TypeLoadMode.Static)
+                if (rules.TypeLoadMode == TypeLoadMode.Static && !DynamicCodeBuilder.WithinCodegenCommand)
                 {
                     throw new ExpectedTypeMissingException(
                         $"Could not load expected pre-built types for code file {file.FileName} ({file}) from assembly {rules.ApplicationAssembly.FullName}. You may want to verify that this is the correct assembly for pre-generated types.");

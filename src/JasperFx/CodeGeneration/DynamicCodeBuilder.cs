@@ -28,62 +28,98 @@ public class DynamicCodeBuilder
 
     public string GenerateAllCode()
     {
-        var writer = new StringWriter();
+        WithinCodegenCommand = true;
 
-        foreach (var generator in Collections)
+        try
         {
-            var code = generateCode(generator);
-            writer.WriteLine(code);
-            writer.WriteLine();
-            writer.WriteLine();
-        }
+            var writer = new StringWriter();
 
-        return writer.ToString();
+            foreach (var generator in Collections)
+            {
+                var code = generateCode(generator);
+                writer.WriteLine(code);
+                writer.WriteLine();
+                writer.WriteLine();
+            }
+
+            return writer.ToString();
+        }
+        finally
+        {
+            WithinCodegenCommand = false;
+        }
     }
 
     public void DeleteAllGeneratedCode()
     {
-        foreach (var directory in Collections.Select(x => x.Rules.GeneratedCodeOutputPath).Distinct())
-        {
-            FileSystem.CleanDirectory(directory);
-            FileSystem.DeleteDirectoryIfExists(directory);
+        WithinCodegenCommand = true;
 
-            Console.WriteLine($"Deleted directory {directory}");
+        try
+        {
+            foreach (var directory in Collections.Select(x => x.Rules.GeneratedCodeOutputPath).Distinct())
+            {
+                FileSystem.CleanDirectory(directory);
+                FileSystem.DeleteDirectoryIfExists(directory);
+
+                Console.WriteLine($"Deleted directory {directory}");
+            }
+        }
+        finally
+        {
+            WithinCodegenCommand = false;
         }
     }
 
     public string GenerateCodeFor(string childNamespace)
     {
-        var generator = Collections.FirstOrDefault(x => x.ChildNamespace.EqualsIgnoreCase(childNamespace));
-        if (generator == null)
-        {
-            throw new ArgumentOutOfRangeException(
-                $"Unknown {nameof(childNamespace)} '{childNamespace}'. Known code types are {String.Join(", ", ChildNamespaces)}");
-        }
+        WithinCodegenCommand = true;
 
-        return generateCode(generator);
+        try
+        {
+            var generator = Collections.FirstOrDefault(x => x.ChildNamespace.EqualsIgnoreCase(childNamespace));
+            if (generator == null)
+            {
+                throw new ArgumentOutOfRangeException(
+                    $"Unknown {nameof(childNamespace)} '{childNamespace}'. Known code types are {String.Join(", ", ChildNamespaces)}");
+            }
+
+            return generateCode(generator);
+        }
+        finally
+        {
+            WithinCodegenCommand = false;
+        }
     }
 
     public void WriteGeneratedCode(Action<string> onFileWritten)
     {
-        foreach (var collection in Collections)
+        WithinCodegenCommand = true;
+
+        try
         {
-            var directory = collection.Rules.GeneratedCodeOutputPath.ToFullPath();
-            FileSystem.CreateDirectoryIfNotExists(directory);
-
-            var exportDirectory = collection.ToExportDirectory(directory);
-
-
-            foreach (var file in collection.BuildFiles())
+            foreach (var collection in Collections)
             {
-                var generatedAssembly = collection.StartAssembly(collection.Rules);
-                file.AssembleTypes(generatedAssembly);
+                var directory = collection.Rules.GeneratedCodeOutputPath.ToFullPath();
+                FileSystem.CreateDirectoryIfNotExists(directory);
 
-                var code = collection is ICodeFileCollectionWithServices ? generatedAssembly.GenerateCode(ServiceVariableSource) : generatedAssembly.GenerateCode(null);
-                var fileName = Path.Combine(exportDirectory, file.FileName.Replace(" ", "_") + ".cs");
-                File.WriteAllText(fileName, code);
-                onFileWritten(fileName);
+                var exportDirectory = collection.ToExportDirectory(directory);
+
+
+                foreach (var file in collection.BuildFiles())
+                {
+                    var generatedAssembly = collection.StartAssembly(collection.Rules);
+                    file.AssembleTypes(generatedAssembly);
+
+                    var code = collection is ICodeFileCollectionWithServices ? generatedAssembly.GenerateCode(ServiceVariableSource) : generatedAssembly.GenerateCode(null);
+                    var fileName = Path.Combine(exportDirectory, file.FileName.Replace(" ", "_") + ".cs");
+                    File.WriteAllText(fileName, code);
+                    onFileWritten(fileName);
+                }
             }
+        }
+        finally
+        {
+            WithinCodegenCommand = false;
         }
     }
 
@@ -158,4 +194,6 @@ public class DynamicCodeBuilder
             }
         }
     }
+
+    public static bool WithinCodegenCommand { get; set; } = false;
 }
