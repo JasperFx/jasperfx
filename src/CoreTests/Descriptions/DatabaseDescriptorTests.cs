@@ -21,4 +21,17 @@ public class DatabaseDescriptorTests
         
         descriptor.DatabaseUri().ShouldBe(new Uri("sqlserver://server1/db1/schema1"));
     }
+
+    [Fact]
+    public void database_descriptor_is_serializable()
+    {
+        var descriptor = new DatabaseDescriptor(this)
+        {
+            Engine = "sqlserver",
+            ServerName = "server1",
+            DatabaseName = "db1"
+        };
+        
+        descriptor.ShouldBeSerializable();
+    }
 }

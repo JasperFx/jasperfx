@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace JasperFx.Events.Projections;
 
 /// <summary>
@@ -7,29 +9,31 @@ public class ShardName
 {
     public const string All = "All";
 
-    public ShardName(string projectionName, string shardKey, uint version)
+    
+    [JsonConstructor]
+    public ShardName(string name, string shardKey, uint version)
     {
-        Name = projectionName;
+        Name = name;
         ShardKey = shardKey;
         Version = version;
 
         if (version > 1)
         {
-            Identity = $"{projectionName}:V{version}:{shardKey}";
+            Identity = $"{name}:V{version}:{shardKey}";
         }
         else
         {
-            Identity = $"{projectionName}:{shardKey}";
+            Identity = $"{name}:{shardKey}";
         }
         
-        if (projectionName == ShardState.HighWaterMark)
+        if (name == ShardState.HighWaterMark)
         {
             Identity = ShardState.HighWaterMark;
         }
 
     }
 
-    public ShardName(string projectionName): this(projectionName, All, 1)
+    public ShardName(string name): this(name, All, 1)
     {
     }
 

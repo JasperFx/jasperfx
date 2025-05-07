@@ -8,7 +8,7 @@ public class EventStoreUsage : OptionsDescription
     {
     }
 
-    public EventStoreUsage(Type storeType, Uri subjectUri, object subject) : base(subject)
+    public EventStoreUsage(Uri subjectUri, object subject) : base(subject)
     {
         SubjectUri = subjectUri;
     }
