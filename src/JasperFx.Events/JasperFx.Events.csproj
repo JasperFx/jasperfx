@@ -11,14 +11,14 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="OpenTelemetry.API" Version="1.8.0"/>
-    </ItemGroup>
-
-    <ItemGroup>
         <Compile Remove="CommandLine\ProjectionStore.cs"/>
         <Compile Remove="CommandLine\ProjectionDatabase.cs"/>
         <Compile Remove="CommandLine\ProjectionCommand.cs"/>
         <Compile Remove="CommandLine\IProjectionStore.cs"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="9.0.4" />
     </ItemGroup>
 
 

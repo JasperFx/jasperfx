@@ -19,7 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="FastExpressionCompiler" Version="5.0.2"/>
+        <PackageReference Include="FastExpressionCompiler" Version="5.1.1" />
         <PackageReference Include="ImTools" Version="4.0.0"/>
         <PackageReference Include="Microsoft.Bcl.TimeProvider" Version="8.0.1"/>
         <PackageReference Include="Spectre.Console" Version="0.50.0"/>

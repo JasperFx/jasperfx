@@ -2,7 +2,6 @@ using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
 using JasperFx.Events.Daemon;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry.Trace;
 
 namespace JasperFx.Events.Projections;
 
@@ -56,7 +55,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         }
         catch (Exception e)
         {
-            activity?.RecordException(e);
+            activity?.AddException(e);
             _logger.LogError(e,
                 "Error trying to build and apply changes to event subscription {Name} from {Floor} to {Ceiling}",
                 _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
@@ -104,7 +103,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     private async Task<IProjectionBatch> buildBatchWithSkipping(EventRange range,
         CancellationToken cancellationToken)
     {
-        IProjectionBatch batch = default;
+        IProjectionBatch? batch = null;
         while (batch == null && !cancellationToken.IsCancellationRequested)
         {
             try
@@ -119,12 +118,12 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
             }
         }
 
-        return batch;
+        return batch!;
     }
 
     private async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
     {
-        IProjectionBatch<TOperations, TQuerySession> batch = default;
+        IProjectionBatch<TOperations, TQuerySession>? batch = null;
         try
         {
             batch = await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);

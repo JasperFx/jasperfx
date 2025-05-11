@@ -2,7 +2,6 @@ using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry.Trace;
 
 namespace JasperFx.Events.Daemon;
 
@@ -109,7 +108,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         }
         catch (Exception e)
         {
-            activity?.RecordException(e);
+            activity?.AddException(e);
             _logger.LogError(e, "Failure trying to group events for {Name} from {Floor} to {Ceiling}",
                 _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
@@ -146,7 +145,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         }
         catch (Exception e)
         {
-            activity?.RecordException(e);
+            activity?.AddException(e);
             _logger.LogError(e,
                 "Error trying to build and apply changes to event subscription {Name} from {Floor} to {Ceiling}",
                 _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
