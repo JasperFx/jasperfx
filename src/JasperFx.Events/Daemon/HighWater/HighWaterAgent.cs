@@ -4,7 +4,6 @@ using System.Timers;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry.Trace;
 using Timer = System.Timers.Timer;
 
 namespace JasperFx.Events.Daemon.HighWater;
@@ -118,7 +117,7 @@ public class HighWaterAgent: IDisposable
                 _logger.LogError(ex, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseIdentity);
                 await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
 
-                activity?.RecordException(ex);
+                activity?.AddException(ex);
 
                 continue;
 
@@ -126,7 +125,7 @@ public class HighWaterAgent: IDisposable
             catch (Exception e)
             {
                 _logger.LogError(e, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseIdentity);
-                activity?.RecordException(e);
+                activity?.AddException(e);
                 await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
                 continue;
             }

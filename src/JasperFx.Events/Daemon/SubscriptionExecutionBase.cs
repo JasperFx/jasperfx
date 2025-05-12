@@ -4,7 +4,6 @@ using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
-using OpenTelemetry.Trace;
 
 namespace JasperFx.Events.Daemon;
 
@@ -85,7 +84,7 @@ public abstract class SubscriptionExecutionBase: ISubscriptionExecution
         }
         catch (Exception e)
         {
-            activity?.RecordException(e);
+            activity?.AddException(e);
             _logger.LogError(e, "Error trying to process subscription {Name}", ShardIdentity);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
