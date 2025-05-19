@@ -24,7 +24,7 @@ public class ResourceSetupHostService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var list = new List<Exception>();
+        var exceptions = new List<Exception>();
         var resources = new List<IStatefulResource>();
 
         foreach (var source in _parts)
@@ -36,37 +36,19 @@ public class ResourceSetupHostService : IHostedService
             catch (Exception e)
             {
                 _logger.LogError(e, "Failed to find resource sources from {Source}", source);
-                list.Add(new ResourceSetupException(source, e));
+                exceptions.Add(new ResourceSetupException(source, e));
             }
         }
 
-        async ValueTask execute(IStatefulResource r, CancellationToken t)
+        // Order first by dependencies
+        resources = ResourceExecutor.OrderByDependencies(resources);
+
+        // Using this will catch IResourceCreator too
+        await ResourceExecutor.ExecuteSetupAsync(_logger, resources, _options.Action, exceptions, cancellationToken).ConfigureAwait(false);
+
+        if (exceptions.Any())
         {
-            try
-            {
-                await r.Setup(cancellationToken).ConfigureAwait(false);
-                _logger.LogInformation("Ran Setup() on resource {Name} of type {Type}", r.Name, r.Type);
-
-                if (_options.Action == StartupAction.ResetState)
-                {
-                    await r.ClearState(cancellationToken).ConfigureAwait(false);
-                    _logger.LogInformation("Ran ClearState() on resource {Name} of type {Type}", r.Name, r.Type);
-                }
-            }
-            catch (Exception e)
-            {
-                var wrapped = new ResourceSetupException(r, e);
-                _logger.LogError(e, "Failed to setup resource {Name} of type {Type}", r.Name, r.Type);
-
-                list.Add(wrapped);
-            }
-        }
-
-        foreach (var resource in resources) await execute(resource, cancellationToken).ConfigureAwait(false);
-
-        if (list.Any())
-        {
-            throw new AggregateException(list);
+            throw new AggregateException(exceptions);
         }
     }
 

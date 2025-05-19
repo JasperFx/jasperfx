@@ -89,9 +89,9 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
         return true;
     }
 
-    public Task<IList<IStatefulResource>> FindResources(ResourceInput input, IHost host)
+    public Task<List<IStatefulResource>> FindResources(ResourceInput input, IHost host)
     {
-        return FindResources(host.Services, input.TypeFlag, input.NameFlag);
+        return ResourceExecutor.FindResources(host.Services, input.TypeFlag, input.NameFlag);
     }
 
     internal async Task<bool> ExecuteOnEach(string heading, IList<IStatefulResource> resources, CancellationToken token,
@@ -161,42 +161,7 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
 
         return !exceptions.Any();
     }
-
-    internal static async Task<IList<IStatefulResource>> FindResources(IServiceProvider services, string? typeName,
-        string? resourceName)
-    {
-        var list = new List<IStatefulResource>();
-        var statefulResourceSources = services.GetServices<ISystemPart>().ToArray();
-        foreach (var source in statefulResourceSources)
-        {
-            var sources = await source.FindResources();
-            list.AddRange(sources);
-        }
-
-        if (resourceName.IsNotEmpty())
-        {
-            list = list.Where(x => x.Name.EqualsIgnoreCase(resourceName)).ToList();
-        }
-
-        if (typeName.IsNotEmpty())
-        {
-            list = list.Where(x => x.Type.EqualsIgnoreCase(typeName)).ToList();
-        }
-
-        // Initial sort
-        list =  list.OrderBy(x => x.Type).ThenBy(x => x.Name).ToList();
-
-        if (!list.OfType<IStatefulResourceWithDependencies>().Any()) return list;
-
-        IEnumerable<IStatefulResource> FindDependencies(IStatefulResource resource) =>
-            resource is IStatefulResourceWithDependencies x
-                ? x.FindDependencies(list)
-                : Array.Empty<IStatefulResource>();
-
-        // Again on dependencies
-        return list.TopologicalSort(FindDependencies).ToList();
-    }
-
+    
     internal class ResourceRecord
     {
         public required IStatefulResource Resource { get; init; }

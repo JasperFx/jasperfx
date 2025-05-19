@@ -35,7 +35,7 @@ public abstract class ResourceCommandContext : SystemPartBase
         return Host.CreateDefaultBuilder().ConfigureServices(CopyResources).StartAsync();
     }
         
-    internal Task<IList<IStatefulResource>> applyTheResourceFiltering()
+    internal Task<List<IStatefulResource>> applyTheResourceFiltering()
     {
         theInput.HostBuilder = Host.CreateDefaultBuilder().ConfigureServices(CopyResources);
         var command = new ResourcesCommand();

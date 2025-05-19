@@ -16,6 +16,16 @@ public interface IStatefulResourceWithDependencies : IStatefulResource
 
 #endregion
 
+/// <summary>
+/// In the case of needing to actually create new system resources like
+/// cloud artifacts, databases, or message brokers, IResourceCreator methods
+/// will be executed before any IStatefulResource services
+/// </summary>
+public interface IResourceCreator : IStatefulResource
+{
+    Task EnsureCreatedAsync(CancellationToken cancellationToken);
+}
+
 #region sample_IStatefulResource
 
 /// <summary>

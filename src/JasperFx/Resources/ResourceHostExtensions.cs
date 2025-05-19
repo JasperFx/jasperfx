@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Resources;
 
@@ -83,15 +84,11 @@ public static class ResourceHostExtensions
     /// <param name="cancellation"></param>
     /// <param name="resourceType">Optional filter on resource type name</param>
     /// <param name="resourceName">Optional filter on resource name</param>
-    public static async Task ResetResourceState(this IHost host, CancellationToken cancellation = default,
+    public static Task ResetResourceState(this IHost host, CancellationToken cancellation = default,
         string? resourceType = null, string? resourceName = null)
     {
-        var resources = await ResourcesCommand.FindResources(host.Services, resourceType, resourceName);
-        foreach (var resource in resources)
-        {
-            await resource.Setup(cancellation);
-            await resource.ClearState(cancellation);
-        }
+        return ResourceExecutor.SetupResources(host, cancellation, resourceType, resourceName,
+            StartupAction.ResetState);
     }
 
     /// <summary>
@@ -102,11 +99,10 @@ public static class ResourceHostExtensions
     /// <param name="cancellation"></param>
     /// <param name="resourceType">Optional filter on resource type name</param>
     /// <param name="resourceName">Optional filter on resource name</param>
-    public static async Task SetupResources(this IHost host, CancellationToken cancellation = default,
+    public static Task SetupResources(this IHost host, CancellationToken cancellation = default,
         string? resourceType = null, string? resourceName = null)
     {
-        var resources = await ResourcesCommand.FindResources(host.Services, resourceType, resourceName);
-        foreach (var resource in resources) await resource.Setup(cancellation);
+        return ResourceExecutor.SetupResources(host, cancellation, resourceType, resourceName);
     }
 
     /// <summary>
@@ -119,7 +115,7 @@ public static class ResourceHostExtensions
     public static async Task TeardownResources(this IHost host, CancellationToken cancellation = default,
         string? resourceType = null, string? resourceName = null)
     {
-        var resources = await ResourcesCommand.FindResources(host.Services, resourceType, resourceName);
+        var resources = await ResourceExecutor.FindResources(host.Services, resourceType, resourceName);
         foreach (var resource in resources) await resource.Teardown(cancellation);
     }
 }
