@@ -12,6 +12,11 @@ public class ArgPreprocessor
             {
                 foreach (var c in arg.TrimStart('-')) newArgs.Add("-" + c);
             }
+            else if (arg.StartsWith("--") && arg.Contains('='))
+            {
+                var parts = arg.Split('=');
+                newArgs.AddRange(parts);
+            }
             else
             {
                 newArgs.Add(arg);

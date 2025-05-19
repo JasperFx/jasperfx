@@ -1,4 +1,5 @@
 ﻿using JasperFx.CommandLine.Parsing;
+using Shouldly;
 
 namespace CommandLineTests
 {
@@ -9,6 +10,12 @@ namespace CommandLineTests
         public void should_split_multi_args()
         {
             ArgPreprocessor.Process(new[] {"-abc"}).ShouldHaveTheSameElementsAs("-a", "-b", "-c");
+        }
+
+        [Fact]
+        public void should_split_compact_flags()
+        {
+            ArgPreprocessor.Process(["--flag=blue"]).ShouldBe(["--flag", "blue"]);
         }
 
         [Fact]

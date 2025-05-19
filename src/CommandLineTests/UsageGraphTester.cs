@@ -1,5 +1,7 @@
 ﻿using JasperFx.CommandLine;
+using JasperFx.CommandLine.Commands;
 using JasperFx.CommandLine.Help;
+using JasperFx.CommandLine.Parsing;
 using JasperFx.Core.Reflection;
 using Shouldly;
 
@@ -159,7 +161,19 @@ namespace CommandLineTests
             isValidUsage("AppFolder", "PackageFolder", "NotepadFlag").ShouldBeFalse();
         }
     }
-    
+
+    public class preprocessing_compact_flags
+    {
+        [Fact]
+        public void explode_the_flag()
+        {
+            var graph = new UsageGraph(typeof(RunCommand));
+            var args = ArgPreprocessor.Process(["--environmentName=Production"]);
+            var input = graph.BuildInput(new Queue<string>(args), new ActivatorCommandCreator());
+            input.ShouldBeOfType<RunInput>().EnvironmentNameFlag.ShouldBe("Production");
+        }
+    }
+
     public class FakeLinkInput
     {
         [Description("The root directory of the web folder")]
