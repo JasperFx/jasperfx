@@ -1,6 +1,6 @@
 using JasperFx.Core;
 
-namespace JasperFx;
+namespace JasperFx.MultiTenancy;
 
 /// <summary>
 /// Marker interface for JasperFx types that

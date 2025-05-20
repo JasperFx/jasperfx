@@ -1,8 +1,8 @@
-using JasperFx;
+using JasperFx.MultiTenancy;
 using NSubstitute;
 using Shouldly;
 
-namespace CoreTests;
+namespace CoreTests.MultiTenancy;
 
 public class is_default_tenant
 {
