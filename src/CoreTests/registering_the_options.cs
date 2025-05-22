@@ -24,7 +24,7 @@ public class registering_the_options
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<JasperFxOptions>();
         
-        options.ActiveProfile.AutoCreate.ShouldBe(AutoCreate.CreateOrUpdate);
+        options.ActiveProfile.ResourceAutoCreate.ShouldBe(AutoCreate.CreateOrUpdate);
         options.ActiveProfile.GeneratedCodeMode.ShouldBe(TypeLoadMode.Dynamic);
         options.ActiveProfile.SourceCodeWritingEnabled.ShouldBe(true);
         options.ActiveProfile.AssertAllPreGeneratedTypesExist.ShouldBeFalse();
@@ -36,7 +36,7 @@ public class registering_the_options
         var services = new ServiceCollection();
         services.AddJasperFx(x =>
         {
-            x.Development.AutoCreate = AutoCreate.All;
+            x.Development.ResourceAutoCreate = AutoCreate.All;
         });
         
         services.AddSingleton(theEnvironment);
@@ -49,7 +49,7 @@ public class registering_the_options
         options.ActiveProfile.ShouldBeSameAs(options.Development);
         
         // Just seeing that we're applying the configure
-        options.ActiveProfile.AutoCreate.ShouldBe(AutoCreate.All);
+        options.ActiveProfile.ResourceAutoCreate.ShouldBe(AutoCreate.All);
     }
     
     [Fact]
@@ -58,7 +58,7 @@ public class registering_the_options
         var services = new ServiceCollection();
         services.AddJasperFx(x =>
         {
-            x.Development.AutoCreate = AutoCreate.All;
+            x.Development.ResourceAutoCreate = AutoCreate.All;
             x.DevelopmentEnvironmentName = "weird";
         });
         
@@ -72,7 +72,7 @@ public class registering_the_options
         options.ActiveProfile.ShouldBeSameAs(options.Development);
         
         // Just seeing that we're applying the configure
-        options.ActiveProfile.AutoCreate.ShouldBe(AutoCreate.All);
+        options.ActiveProfile.ResourceAutoCreate.ShouldBe(AutoCreate.All);
     }
     
     
@@ -83,9 +83,9 @@ public class registering_the_options
         var services = new ServiceCollection();
         services.AddJasperFx(x =>
         {
-            x.Development.AutoCreate = AutoCreate.All;
+            x.Development.ResourceAutoCreate = AutoCreate.All;
 
-            x.Production.AutoCreate = AutoCreate.None;
+            x.Production.ResourceAutoCreate = AutoCreate.None;
             x.Production.GeneratedCodeMode = TypeLoadMode.Static;
             x.Production.AssertAllPreGeneratedTypesExist = true;
         });
@@ -100,7 +100,7 @@ public class registering_the_options
         options.ActiveProfile.ShouldBeSameAs(options.Production);
         
         // Just seeing that we're applying the configure
-        options.ActiveProfile.AutoCreate.ShouldBe(AutoCreate.None);
+        options.ActiveProfile.ResourceAutoCreate.ShouldBe(AutoCreate.None);
         options.ActiveProfile.GeneratedCodeMode.ShouldBe(TypeLoadMode.Static);
     }
     
@@ -135,12 +135,12 @@ public class registering_the_options
             // This expands in importance to be the master "AutoCreate"
             // over every resource at runtime and not just databases
             // So this would maybe take the place of AutoProvision() in Wolverine world too
-            x.Production.AutoCreate = AutoCreate.None;
+            x.Production.ResourceAutoCreate = AutoCreate.None;
             x.Production.GeneratedCodeMode = TypeLoadMode.Static;
             x.Production.AssertAllPreGeneratedTypesExist = true;
             
             // Just for completeness sake
-            x.Development.AutoCreate = AutoCreate.All; // default is still CreateOrUpdate
+            x.Development.ResourceAutoCreate = AutoCreate.All; // default is still CreateOrUpdate
 
             // Unify the Marten/Wolverine/future critter application assembly
             // Default will always be the entry assembly
@@ -150,7 +150,7 @@ public class registering_the_options
         // keep bootstrapping...
 
         var host = builder.Build();
-        host.Services.GetRequiredService<JasperFxOptions>().Production.AutoCreate.ShouldBe(AutoCreate.None);
+        host.Services.GetRequiredService<JasperFxOptions>().Production.ResourceAutoCreate.ShouldBe(AutoCreate.None);
     }
 }
 

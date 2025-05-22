@@ -12,6 +12,25 @@ namespace JasperFx;
 public static class JasperFxServiceCollectionExtensions
 {
     /// <summary>
+    /// Configure the "Critter Stack" defaults for service name, resource auto create, application assembly,
+    /// and other shared settings. Same functionality as AddJasperFx()
+    /// </summary>
+    /// <param name="services"></param>
+    /// <param name="configure"></param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentNullException"></exception>
+    public static IServiceCollection CritterStackDefaults(this IServiceCollection services,
+        Action<JasperFxOptions> configure)
+    {
+        if (configure == null)
+        {
+            throw new ArgumentNullException(nameof(configure));
+        }
+
+        return services.AddJasperFx(configure);
+    }
+    
+    /// <summary>
     /// Configure JasperFx and Critter Stack tool behavior for resource management at runtime
     /// </summary>
     /// <param name="services"></param>

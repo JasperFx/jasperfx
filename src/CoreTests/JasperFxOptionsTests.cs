@@ -14,14 +14,14 @@ public class JasperFxOptionsTests
     public void defaults()
     {
         var options = new JasperFxOptions();
-        options.Development.AutoCreate.ShouldBe(AutoCreate.CreateOrUpdate);
+        options.Development.ResourceAutoCreate.ShouldBe(AutoCreate.CreateOrUpdate);
         options.Development.GeneratedCodeMode.ShouldBe(TypeLoadMode.Dynamic);
         options.Development.SourceCodeWritingEnabled.ShouldBeTrue();
         options.Development.AssertAllPreGeneratedTypesExist.ShouldBeFalse();
         
         options.DevelopmentEnvironmentName.ShouldBe("Development");
         
-        options.Production.AutoCreate.ShouldBe(AutoCreate.CreateOrUpdate);
+        options.Production.ResourceAutoCreate.ShouldBe(AutoCreate.CreateOrUpdate);
         options.Production.GeneratedCodeMode.ShouldBe(TypeLoadMode.Dynamic);
         options.Production.SourceCodeWritingEnabled.ShouldBeTrue();
         options.Production.AssertAllPreGeneratedTypesExist.ShouldBeFalse();

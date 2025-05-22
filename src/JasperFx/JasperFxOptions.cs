@@ -5,6 +5,7 @@ using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using JasperFx.Core.Descriptors;
 using JasperFx.Environment;
+using JasperFx.MultiTenancy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -31,6 +32,13 @@ public class JasperFxOptions : SystemPartBase
         _requiredFiles.Fill(path);
     }
 
+    
+    /// <summary>
+    /// Tenant Id naming rules for this application. Default is to use case sensitive names and not
+    /// to correct any supplied tenant id
+    /// </summary>
+    public TenantIdStyle TenantIdStyle { get; set; } = TenantIdStyle.CaseSensitive;
+
     /// <summary>
     /// Resource settings for development time. Defaults are CreateOrUpdate
     /// for resources, Dynamic for code generation
@@ -38,7 +46,7 @@ public class JasperFxOptions : SystemPartBase
     [ChildDescription]
     public Profile Development { get; private set; } = new Profile
     {
-        AutoCreate = AutoCreate.CreateOrUpdate,
+        ResourceAutoCreate = AutoCreate.CreateOrUpdate,
         GeneratedCodeMode = TypeLoadMode.Dynamic,
         SourceCodeWritingEnabled = true
     };
@@ -51,7 +59,7 @@ public class JasperFxOptions : SystemPartBase
     [ChildDescription]
     public Profile Production { get; private set; } = new Profile
     {
-        AutoCreate = AutoCreate.CreateOrUpdate,
+        ResourceAutoCreate = AutoCreate.CreateOrUpdate,
         GeneratedCodeMode = TypeLoadMode.Dynamic,
         SourceCodeWritingEnabled = true
     };
@@ -70,6 +78,11 @@ public class JasperFxOptions : SystemPartBase
     ///     but you may need to change this in testing scenarios
     /// </summary>
     public Assembly? ApplicationAssembly { get; set; } 
+    
+    /// <summary>
+    ///     Descriptive name of the running service. Used in diagnostics and testing support. Default is the entry assembly name. 
+    /// </summary>
+    public string ServiceName { get; set; } = Assembly.GetEntryAssembly()!.GetName().Name ?? "WolverineService";
     
     /// <summary>
     ///     Root folder where generated code should be placed. By default, this is the IHostEnvironment.ContentRootPath + "Internal/Generated"

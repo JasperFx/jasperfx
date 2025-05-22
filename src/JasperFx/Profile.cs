@@ -20,7 +20,7 @@ public class Profile
     ///     Whether or not any JasperFx or Critter Stack tool should attempt to create any missing infrastructure objects like database schema objects or message broker queues at runtime. This
     ///     property is "CreateOrUpdate" by default for more efficient development, but can be set to lower values for production usage.
     /// </summary>
-    public AutoCreate AutoCreate { get; set; } = AutoCreate.CreateOrUpdate;
+    public AutoCreate ResourceAutoCreate { get; set; } = AutoCreate.CreateOrUpdate;
 
     /// <summary>
     /// Add an assertion at bootstrapping time to assert that all expected pre-generated
