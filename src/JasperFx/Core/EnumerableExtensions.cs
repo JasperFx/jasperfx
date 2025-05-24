@@ -31,6 +31,23 @@ public static class EnumerableExtensions
         return -1;
     }
 
+    /// <summary>
+    /// Find the last index within the enumerable that matches the condition
+    /// </summary>
+    /// <param name="enumerable"></param>
+    /// <param name="condition"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public static int GetLastIndex<T>(this IReadOnlyList<T> enumerable, Func<T, bool> condition)
+    {
+        for (int i = enumerable.Count -1; i >= 0; i--)
+        {
+            if (condition(enumerable[i])) return i;
+        }
+
+        return -1;
+    }
+
     public static IEnumerable<T> TopologicalSort<T>(this IEnumerable<T> source,
         Func<T, IEnumerable<T>> getDependencies, bool throwOnCycle = true)
     {

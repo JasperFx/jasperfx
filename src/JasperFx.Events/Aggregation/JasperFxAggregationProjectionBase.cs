@@ -26,7 +26,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     protected JasperFxAggregationProjectionBase(AggregationScope scope)
     {
         Scope = scope;
-        base.Name = typeof(TDoc).NameInCode();
+        Name = typeof(TDoc).NameInCode();
 
         Type = scope == AggregationScope.SingleStream
             ? SubscriptionType.SingleStreamProjection
@@ -94,8 +94,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
 
     protected bool IsUsingConventionalMethods => _usesConventionalApplication;
-
-
+    
     public override void AssembleAndAssertValidity()
     {
         var overrides = methodNames.Where(isOverridden).ToArray();
@@ -148,12 +147,19 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return events.Select(x => x.EventType).Intersect(DeleteEvents).Any();
     }
 
+    /// <summary>
+    /// Potentially raise "side effects" during projection processing to either emit additional events,
+    /// or publish messages
+    /// </summary>
+    /// <param name="operations"></param>
+    /// <param name="slice"></param>
+    /// <returns></returns>
     public virtual ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice)
     {
         return new ValueTask();
     }
     
-    public virtual SubscriptionDescriptor Describe()
+    public SubscriptionDescriptor Describe()
     {
         return new SubscriptionDescriptor(this);
     }

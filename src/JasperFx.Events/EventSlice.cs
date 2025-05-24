@@ -43,7 +43,7 @@ public interface IEventSlice<T>: IEventSlice
 /// <typeparam name="TId"></typeparam>
 public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 {
-    private readonly List<IEvent> _events = new();
+    private List<IEvent> _events = new();
 
     private static readonly Action<IEvent, TId> _identitySetter;
     
@@ -97,6 +97,13 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     public EventSlice(TId id, IMetadataContext querySession, IEnumerable<IEvent>? events = null): this(id,
         querySession.TenantId, events)
     {
+    }
+
+    internal void FastForwardForCompacting()
+    {
+        var (snapshot, events) = Compacted<TDoc>.MaybeFastForward(Snapshot, _events);
+        Snapshot = snapshot;
+        _events = (List<IEvent>)events;
     }
 
     private readonly StreamActionType? _actionType;

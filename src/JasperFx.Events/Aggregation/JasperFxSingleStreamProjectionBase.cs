@@ -16,6 +16,9 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     {
         _identitySource = IEvent.CreateAggregateIdentitySource<TId>();
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
+        
+        // Necessary for stream compacting
+        IncludeType<Compacted<TDoc>>();
     }
 
     public sealed override IEventSlicer BuildSlicer(TQuerySession session)
@@ -46,6 +49,8 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
 
     async ValueTask<TDoc?> IAggregator<TDoc, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, CancellationToken cancellation)
     {
+        (snapshot, events) = Compacted<TDoc>.MaybeFastForward(snapshot, events);
+        
         if (!events.Any()) return snapshot;
         
         // get the id off of the event

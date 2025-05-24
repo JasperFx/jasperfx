@@ -142,6 +142,8 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             throw new InvalidOperationException(
                 $"TenantId does not match from the slice '{slice.TenantId}' and storage '{storage.TenantId}'");
         
+        slice.FastForwardForCompacting();
+        
         if (Projection.MatchesAnyDeleteType(slice.Events()))
         {
             if (mode == ShardExecutionMode.Continuous)

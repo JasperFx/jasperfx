@@ -19,7 +19,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
 
     public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;
 
-    public override void AssembleAndAssertValidity()
+    public sealed override void AssembleAndAssertValidity()
     {
         base.AssembleAndAssertValidity();
 
