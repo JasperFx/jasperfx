@@ -98,9 +98,7 @@ public class HighWaterAgent: IDisposable
                 break;
             }
 
-            // TODO -- See https://github.com/JasperFx/jasperfx/issues/21
-            Activity? activity = null;
-            //using var activity = MartenTracing.StartActivity(_spanName);
+            using var activity = _settings.ActivitySource?.StartActivity(_spanName);
 
             HighWaterStatistics? statistics = null;
             try

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using JasperFx.Core;
 
 namespace JasperFx.Events.Daemon;
@@ -38,6 +39,11 @@ public interface IReadOnlyDaemonSettings
 
 public class DaemonSettings: IReadOnlyDaemonSettings
 {
+    /// <summary>
+    /// For Open Telemetry tracing. May be null to denote disabled Activity tracking within the Daemon
+    /// </summary>
+    public ActivitySource? ActivitySource { get; set; }
+    
     public const int RebuildBatchSize = 1000;
 
     /// <summary>
