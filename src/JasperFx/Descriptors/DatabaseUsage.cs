@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Descriptors;
 
 public class DatabaseUsage : OptionsDescription
 {

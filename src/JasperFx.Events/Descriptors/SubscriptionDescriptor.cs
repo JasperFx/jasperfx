@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
 

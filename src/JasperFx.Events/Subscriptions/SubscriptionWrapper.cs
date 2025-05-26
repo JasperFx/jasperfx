@@ -1,4 +1,3 @@
-using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Descriptors;
 

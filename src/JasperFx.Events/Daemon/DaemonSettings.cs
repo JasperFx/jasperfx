@@ -40,6 +40,11 @@ public interface IReadOnlyDaemonSettings
 public class DaemonSettings: IReadOnlyDaemonSettings
 {
     /// <summary>
+    /// All daemon related metrics and activity spans will use this prefix
+    /// </summary>
+    public string OtelPrefix { get; set; }
+    
+    /// <summary>
     /// For Open Telemetry tracing. May be null to denote disabled Activity tracking within the Daemon
     /// </summary>
     public ActivitySource? ActivitySource { get; set; }

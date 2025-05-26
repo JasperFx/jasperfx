@@ -1,4 +1,4 @@
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Descriptors;
 
 /// <summary>
 /// Just tells the Description to add a child Description to the parent

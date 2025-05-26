@@ -1,9 +1,10 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json.Serialization;
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Descriptors;
 
 public class OptionsValue
 {

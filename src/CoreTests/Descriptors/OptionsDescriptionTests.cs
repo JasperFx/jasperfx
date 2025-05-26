@@ -1,6 +1,6 @@
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 
-namespace CoreTests.Descriptions;
+namespace CoreTests.Descriptors;
 
 public class OptionsDescriptionTests
 {

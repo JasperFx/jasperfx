@@ -3,7 +3,7 @@ using JasperFx.CodeGeneration;
 using JasperFx.CommandLine;
 using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 using JasperFx.Environment;
 using JasperFx.MultiTenancy;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,7 +34,7 @@ public class JasperFxOptions : SystemPartBase
 
     
     /// <summary>
-    /// Tenant Id naming rules for this application. Default is to use case sensitive names and not
+    /// Tenant Id naming rules for this application. Default is to use case-sensitive names and not
     /// to correct any supplied tenant id
     /// </summary>
     public TenantIdStyle TenantIdStyle { get; set; } = TenantIdStyle.CaseSensitive;

@@ -1,7 +1,6 @@
 using System.Reflection;
 using JasperFx.CommandLine.TextualDisplays;
 using JasperFx.Core;
-using JasperFx.Core.Descriptors;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

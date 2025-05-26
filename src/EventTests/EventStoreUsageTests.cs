@@ -1,4 +1,4 @@
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 using JasperFx.Events.Descriptors;
 
 namespace EventTests;

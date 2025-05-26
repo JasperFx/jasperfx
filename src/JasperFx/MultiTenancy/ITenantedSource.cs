@@ -1,5 +1,5 @@
 using ImTools;
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 
 namespace JasperFx.MultiTenancy;
 

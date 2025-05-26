@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CoreTests.Descriptions;
+namespace CoreTests.Descriptors;
 
 public static class SerializationTestExtensions
 {

@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Descriptors;
 
 /// <summary>
 /// Just a DTO that represents an Assembly reference for diagnostics

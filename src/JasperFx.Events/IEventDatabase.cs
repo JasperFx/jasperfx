@@ -10,6 +10,8 @@ public interface IEventDatabase
     /// </summary>
     string Identifier { get; }
     
+    Uri DatabaseUri { get; }
+    
     /// <summary>
     ///     *If* a projection daemon has been started for this database, this
     ///     is the ShardStateTracker for the running daemon. This is useful in testing

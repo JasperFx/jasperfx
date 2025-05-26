@@ -3,7 +3,7 @@
 using System.Reflection;
 using JasperFx.CommandLine;
 using JasperFx.Core;
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 using Spectre.Console;
 
 var options = new OptionsDescription(new SomeOptions());

@@ -1,7 +1,7 @@
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 using Shouldly;
 
-namespace CoreTests.Descriptions;
+namespace CoreTests.Descriptors;
 
 public class DatabaseDescriptorTests
 {

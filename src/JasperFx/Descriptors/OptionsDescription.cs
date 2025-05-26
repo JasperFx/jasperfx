@@ -1,6 +1,7 @@
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Descriptors;
 
 /// <summary>
 /// Just a serializable, readonly view of system configuration to be used for diagnostic purposes

@@ -204,8 +204,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         
         var metricsNaming = new MetricsNaming
         {
-            DatabaseIdentifier = Database.Identifier,
-            DefaultDatabaseIdentifier = "Default",
+            DatabaseUri = Database.DatabaseUri,
             MetricsPrefix = _store.MetricsPrefix
         };
         

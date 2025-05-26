@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
+using JasperFx.Core;
 
-namespace JasperFx.Core.Descriptors;
+namespace JasperFx.Descriptors;
 
 /// <summary>
 /// Metadata about the usage of a database, including tenant information if any

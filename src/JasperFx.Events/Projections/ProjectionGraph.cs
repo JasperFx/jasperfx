@@ -1,8 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.Core;
-using JasperFx.Core.Descriptors;
 using JasperFx.Core.Reflection;
+using JasperFx.Descriptors;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Descriptors;
@@ -20,8 +20,9 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     private readonly List<ISubscriptionSource<TOperations, TQuerySession>> _subscriptions = new();
     private Lazy<Dictionary<string, AsyncShard<TOperations, TQuerySession>>> _asyncShards;
 
-    protected ProjectionGraph(IEventRegistry events)
+    protected ProjectionGraph(IEventRegistry events, string otelPrefixName)
     {
+        OtelPrefix = otelPrefixName;
         _events = events;
     }
 

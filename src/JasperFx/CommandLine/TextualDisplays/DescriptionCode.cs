@@ -1,5 +1,5 @@
 using JasperFx.Core;
-using JasperFx.Core.Descriptors;
+using JasperFx.Descriptors;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 
