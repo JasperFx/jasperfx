@@ -109,7 +109,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
 
     IEnumerable<Type> IProjectionSource<TOperations, TQuerySession>.PublishedTypes()
     {
-        return _publishedTypes;
+        return _publishedTypes.Concat(Options.StorageTypes).Distinct().ToArray();
     }
 
 }

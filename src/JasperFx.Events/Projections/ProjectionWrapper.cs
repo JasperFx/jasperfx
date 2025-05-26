@@ -81,9 +81,6 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     [ChildDescription]
     public IJasperFxProjection<TOperations> Inner { get; }
 
-    public string Name => base.Name;
-    public uint Version => base.Version;
-
     public Type ProjectionType => _projection.GetType();
 
     public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,

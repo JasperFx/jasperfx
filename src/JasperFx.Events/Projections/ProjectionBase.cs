@@ -70,6 +70,6 @@ public abstract class ProjectionBase : EventFilterable
 
     public IEnumerable<Type> PublishedTypes()
     {
-        return _publishedTypes;
+        return _publishedTypes.Concat(Options.StorageTypes).Distinct().ToArray();
     }
 }
