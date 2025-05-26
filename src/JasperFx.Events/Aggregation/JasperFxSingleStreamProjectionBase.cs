@@ -16,9 +16,6 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     {
         _identitySource = IEvent.CreateAggregateIdentitySource<TId>();
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
-        
-        // Necessary for stream compacting
-        IncludeType<Compacted<TDoc>>();
     }
 
     public sealed override IEventSlicer BuildSlicer(TQuerySession session)
