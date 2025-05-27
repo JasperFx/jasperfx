@@ -22,7 +22,6 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
 {
     protected readonly IServiceProvider _serviceProvider;
     private readonly Type[] _publishedTypes;
-    private readonly SubscriptionDescriptor _description;
 
     public ProjectionSourceWrapperBase(IServiceProvider serviceProvider)
     {
@@ -49,8 +48,6 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
 
         // ReSharper disable once VirtualMemberCallInConstructor
         configureWithSource(source);
-
-        _description = source.Describe();
 
         _publishedTypes = source.PublishedTypes().ToArray();
     }
@@ -96,9 +93,13 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         await projection.ApplyAsync(operations, streams, cancellation).ConfigureAwait(false);
     }
 
-    SubscriptionDescriptor ISubscriptionSource<TOperations, TQuerySession>.Describe()
+    SubscriptionDescriptor ISubscriptionSource.Describe(IEventStore store)
     {
-        return _description;
+        using var scope = _serviceProvider.CreateScope();
+        var sp = scope.ServiceProvider;
+        var source = sp.GetRequiredService<TSource>();
+        var description = source.Describe(store);
+        return description;
     }
 
     IInlineProjection<TOperations> IProjectionSource<TOperations, TQuerySession>.BuildForInline()

@@ -201,14 +201,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_store, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_store, Database, _loggerFactory, shard.Name);
         var loader = _store.BuildEventLoader(Database, Logger, shard.Filters, shard.Options);
-        
-        var metricsNaming = new MetricsNaming
-        {
-            DatabaseUri = Database.DatabaseUri,
-            MetricsPrefix = _store.MetricsPrefix
-        };
-        
-        var metrics = new SubscriptionMetrics(_store.ActivitySource, _store.Meter, shard.Name, metricsNaming);
+
+        var metrics = new SubscriptionMetrics(_store, shard.Name, Database);
         
         var agent = new SubscriptionAgent(shard.Name, shard.Options, _store.TimeProvider, loader, execution,
             Database.Tracker, metrics, _loggerFactory?.CreateLogger<SubscriptionAgent>() ?? Logger);

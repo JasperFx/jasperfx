@@ -7,6 +7,38 @@ public enum MetricsType
     ObservableGauge
 }
 
+public class ActivitySpanDescriptor
+{
+    public string Name { get; }
+
+    public ActivitySpanDescriptor(string name)
+    {
+        Name = name;
+    }
+    
+    private readonly List<string> _tags = new();
+
+    public void AddTag(string tagName)
+    {
+        _tags.Add(tagName);
+    }
+    
+    public string[] Tags
+    {
+        get
+        {
+            return _tags.ToArray();
+        }
+        set
+        {
+            _tags.Clear();
+            _tags.AddRange(value);
+        }
+    }
+
+    public bool HasMultipleTenants { get; set; }
+}
+
 public class MetricDescriptor
 {
     public string Name { get; }
@@ -20,5 +52,27 @@ public class MetricDescriptor
 
     public string Units { get; set; } = "Number";
 
-    public Dictionary<string, string> Tags = new();
+    public DatabaseCardinality DatabaseCardinality { get; set; } = DatabaseCardinality.None;
+
+    private readonly List<string> _tags = new();
+
+    public void AddTag(string tagName)
+    {
+        _tags.Add(tagName);
+    }
+    
+    public string[] Tags
+    {
+        get
+        {
+            return _tags.ToArray();
+        }
+        set
+        {
+            _tags.Clear();
+            _tags.AddRange(value);
+        }
+    }
+
+    public bool HasMultipleTenants { get; set; }
 }

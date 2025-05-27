@@ -73,9 +73,9 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         return $"{_projection}, {nameof(Name)}: {Name}, {nameof(Version)}: {Version}";
     }
 
-    public SubscriptionDescriptor Describe()
+    public SubscriptionDescriptor Describe(IEventStore store)
     {
-        return new SubscriptionDescriptor(this);
+        return new SubscriptionDescriptor(this, store);
     }
 
     [ChildDescription]

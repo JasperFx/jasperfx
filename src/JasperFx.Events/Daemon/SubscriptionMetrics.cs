@@ -7,41 +7,42 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Daemon;
 
-public class MetricsNaming
-{
-    public Uri DatabaseUri { get; init; }
-    public string MetricsPrefix { get; init; }
-}
-
 public class SubscriptionMetrics: ISubscriptionMetrics
 {
     private readonly ActivitySource _activitySource;
     private readonly Meter _meter;
-    private readonly MetricsNaming _naming;
     private readonly Counter<long> _processed;
     private readonly Histogram<long> _gap;
     private readonly Uri _databaseUri;
 
-    public SubscriptionMetrics(ActivitySource activitySource, Meter meter, ShardName name, MetricsNaming naming)
+    public SubscriptionMetrics(IEventStore store, ShardName name, IEventDatabase database) : this(store, name,
+        database.DatabaseUri)
     {
-        _activitySource = activitySource;
-        _meter = meter;
-        _naming = naming;
+        
+    }
+    
+    public SubscriptionMetrics(IEventStore store, ShardName name, Uri databaseUri)
+    {
+        _activitySource = store.ActivitySource;
+        _meter = store.Meter;
         Name = name;
 
-        var identifier = $"{naming.MetricsPrefix}.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
+        var identifier = $"{store.MetricsPrefix}.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
         
-        _processed = meter.CreateCounter<long>(
+        _processed = _meter.CreateCounter<long>(
             $"{identifier}.processed");
 
-        _gap = meter.CreateHistogram<long>($"{identifier}.gap");
+        GapMetricName = $"{identifier}.gap";
+        _gap = _meter.CreateHistogram<long>(GapMetricName);
 
         ExecutionSpanName = $"{identifier}.page.execution";
         LoadingSpanName = $"{identifier}.page.loading";
         GroupingSpanName = $"{identifier}.page.grouping";
 
-        _databaseUri = naming.DatabaseUri;
+        _databaseUri = databaseUri;
     }
+
+    public string GapMetricName { get; }
 
     public string LoadingSpanName { get; }
     public string GroupingSpanName { get; }

@@ -283,11 +283,11 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         return source != null;
     }
 
-    public void Describe(EventStoreUsage usage)
+    public void Describe(EventStoreUsage usage, IEventStore store)
     {
         foreach (var source in _subscriptions)
         {
-            usage.Subscriptions.Add(new SubscriptionDescriptor(source));
+            usage.Subscriptions.Add(new SubscriptionDescriptor(source, store));
         }
 
         foreach (var eventType in _subscriptions.OfType<EventFilterable>().Concat(All.OfType<EventFilterable>()).SelectMany(x => x.IncludedEventTypes))
@@ -297,7 +297,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
         foreach (var source in All)
         {
-            usage.Subscriptions.Add(source.Describe());
+            usage.Subscriptions.Add(source.Describe(store));
         }
     }
 

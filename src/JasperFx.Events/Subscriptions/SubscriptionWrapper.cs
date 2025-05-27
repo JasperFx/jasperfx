@@ -10,9 +10,9 @@ internal class SubscriptionWrapper<TOperations, TQuerySession, TSubscription> : 
     {
     }
 
-    public override SubscriptionDescriptor Describe()
+    public override SubscriptionDescriptor Describe(IEventStore store)
     {
-        var descriptor = new SubscriptionDescriptor(this);
+        var descriptor = new SubscriptionDescriptor(this, store);
         descriptor.AddValue("Subscription", typeof(TSubscription).FullNameInCode());
         return descriptor;
     }

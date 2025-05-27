@@ -158,9 +158,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return new ValueTask();
     }
     
-    public SubscriptionDescriptor Describe()
+    public SubscriptionDescriptor Describe(IEventStore store)
     {
-        return new SubscriptionDescriptor(this);
+        return new SubscriptionDescriptor(this, store);
     }
 
     public Type ProjectionType => GetType();

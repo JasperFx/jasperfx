@@ -23,6 +23,8 @@ public interface ISubscriptionSource
     /// The actual type that implements this subscription or projection
     /// </summary>
     Type ImplementationType { get; }
+    
+    SubscriptionDescriptor Describe(IEventStore store);
 }
 
 public interface ISubscriptionSource<TOperations, TQuerySession> : ISubscriptionSource
@@ -32,5 +34,5 @@ public interface ISubscriptionSource<TOperations, TQuerySession> : ISubscription
     
     AsyncOptions Options { get; }
 
-    SubscriptionDescriptor Describe();
+    
 }

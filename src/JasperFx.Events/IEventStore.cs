@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using JasperFx.Descriptors;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
@@ -15,6 +16,15 @@ public interface IEventStore
     ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(
         string? tenantIdOrDatabaseIdentifier = null,
         ILogger? logger = null);
+    
+    Meter Meter { get; }
+    
+    ActivitySource ActivitySource { get; }
+
+    string MetricsPrefix { get; }
+    
+    DatabaseCardinality DatabaseCardinality { get; }
+    bool HasMultipleTenants { get; }
 }
 
 public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOperations : TQuerySession, IStorageOperations
@@ -29,17 +39,12 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> AllShards();
     
-    Meter Meter { get; }
-    
-    ActivitySource ActivitySource { get; }
-    
     /// <summary>
     /// TimeProvider used for event timestamping metadata. Replace for controlling the timestamps
     /// in testing
     /// </summary>
     public TimeProvider TimeProvider { get; }
-
-    string MetricsPrefix { get;}
+    
     AutoCreate AutoCreateSchemaObjects { get; }
 
     Task RewindSubscriptionProgressAsync(IEventDatabase database, string subscriptionName, CancellationToken token, long? sequenceFloor);

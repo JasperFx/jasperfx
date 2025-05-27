@@ -48,9 +48,9 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
 
     public Type ImplementationType => GetType();
 
-    public virtual SubscriptionDescriptor Describe()
+    public virtual SubscriptionDescriptor Describe(IEventStore store)
     {
-        return new SubscriptionDescriptor(this);
+        return new SubscriptionDescriptor(this, store);
     }
 
     public virtual ValueTask DisposeAsync()

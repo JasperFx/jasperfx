@@ -120,9 +120,9 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
     }
     
     public AsyncOptions Options { get; private set; } = new();
-    public SubscriptionDescriptor Describe()
+    public SubscriptionDescriptor Describe(IEventStore store)
     {
-        var descriptor = new SubscriptionDescriptor(this);
+        var descriptor = new SubscriptionDescriptor(this, store);
         descriptor.AddValue("Subscription", typeof(TSubscription).FullNameInCode());
         return descriptor;
     }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EventTests.Descriptors;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
@@ -20,7 +21,9 @@ public class SubscriptionDescriptorTests
         source.Version.Returns(1U);
         source.ImplementationType.Returns(GetType());
 
-        var descriptor = new SubscriptionDescriptor(source);
+        var store = new FakeEventStore();
+
+        var descriptor = new SubscriptionDescriptor(source, store);
         descriptor.SubscriptionType.ShouldBe(SubscriptionType.Subscription);
         descriptor.Name.ShouldBe(source.Name);
         descriptor.Version.ShouldBe(source.Version);

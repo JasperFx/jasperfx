@@ -42,9 +42,9 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
     public Type ImplementationType => GetType();
 
-    public virtual SubscriptionDescriptor Describe()
+    public virtual SubscriptionDescriptor Describe(IEventStore store)
     {
-        return new SubscriptionDescriptor(this);
+        return new SubscriptionDescriptor(this, store);
     }
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()

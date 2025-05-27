@@ -113,10 +113,10 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
         return this;
     }
 
-    public SubscriptionDescriptor Describe()
+    public SubscriptionDescriptor Describe(IEventStore store)
     {
         // TODO -- some way to understand the lifecycle
-        return new SubscriptionDescriptor(this)
+        return new SubscriptionDescriptor(this, store)
         {
             Subject = ProjectionType.FullNameInCode()
         };
