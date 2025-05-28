@@ -1,5 +1,4 @@
 ﻿using System;
-using CodegenTests.Codegen;
 using JasperFx.CodeGeneration.Model;
 using Shouldly;
 using Xunit;

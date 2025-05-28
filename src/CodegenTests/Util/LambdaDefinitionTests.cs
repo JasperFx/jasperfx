@@ -1,6 +1,5 @@
 using System;
 using System.Linq.Expressions;
-using CodegenTests.Codegen;
 using JasperFx.CodeGeneration.Expressions;
 using JasperFx.CodeGeneration.Model;
 using Shouldly;

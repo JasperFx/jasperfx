@@ -50,6 +50,12 @@ public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
             case CodeAction.write:
                 builder.WriteGeneratedCode(file => Console.WriteLine("Wrote generated code file to " + file));
                 break;
+            
+            case CodeAction.test:
+                Console.WriteLine("Trying to generate all code and compile, this might take a bit.");
+                builder.TryBuildAndCompileAll((a, s) => host.Services.GetRequiredService<IAssemblyGenerator>().Compile(a, s));
+                AnsiConsole.Write("[green]Success![/]");
+                break;
 
             default:
                 throw new ArgumentOutOfRangeException();

@@ -33,6 +33,8 @@ public class GenerationRules
     public readonly IDictionary<string, object> Properties = new Dictionary<string, object>();
 
     public readonly IList<IVariableSource> Sources = new List<IVariableSource>();
+    private bool _sourceCodeWritingEnabled = true;
+    private TypeLoadMode _typeLoadMode = TypeLoadMode.Dynamic;
 
     public GenerationRules(string applicationNamespace) : this()
     {
@@ -48,12 +50,34 @@ public class GenerationRules
     {
     }
 
-    public bool SourceCodeWritingEnabled { get; set; } = true;
+    public bool SourceCodeWritingEnabled
+    {
+        get => _sourceCodeWritingEnabled;
+        set
+        {
+            // Doesn't matter the value
+            SourceCodeWritingEnabledHasChanged = true;
+            _sourceCodeWritingEnabled = value;
+        }
+    }
+    
+    public bool SourceCodeWritingEnabledHasChanged { get; private set; }
 
 
     public string GeneratedNamespace { get; set; } = "Internal.Generated";
 
-    public TypeLoadMode TypeLoadMode { get; set; } = TypeLoadMode.Dynamic;
+    public TypeLoadMode TypeLoadMode
+    {
+        get => _typeLoadMode;
+        set
+        {
+            // Doesn't matter the value
+            TypeLoadModeHasChanged = true;
+            _typeLoadMode = value;
+        }
+    }
+    
+    public bool TypeLoadModeHasChanged { get; private set; }
 
     public string GeneratedCodeOutputPath { get; set; } = "Internal/Generated";
 

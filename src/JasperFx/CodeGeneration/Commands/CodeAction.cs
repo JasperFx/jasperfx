@@ -4,5 +4,6 @@ public enum CodeAction
 {
     preview,
     write,
-    delete
+    delete,
+    test
 }

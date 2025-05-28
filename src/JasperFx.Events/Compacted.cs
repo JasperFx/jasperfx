@@ -3,6 +3,13 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events;
 
+/// <summary>
+/// Represents a "compacted" stream snapshot of this event stream
+/// </summary>
+/// <param name="Snapshot"></param>
+/// <param name="PreviousStreamId"></param>
+/// <param name="PreviousStreamKey"></param>
+/// <typeparam name="T"></typeparam>
 public record Compacted<T>(T Snapshot, Guid PreviousStreamId, string PreviousStreamKey)
 {
     public static (T?, IReadOnlyList<IEvent>) MaybeFastForward(T? snapshot, IReadOnlyList<IEvent> events)
