@@ -63,10 +63,20 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         {
             await _cancellation.CancelAsync().ConfigureAwait(false);
             await _execution.HardStopAsync().ConfigureAwait(false);
-            PausedTime = _timeProvider.GetUtcNow();
-            Status = AgentStatus.Paused;
-            _tracker.Publish(new ShardState(Name, LastCommitted) { Action = ShardAction.Paused, Exception = ex});
 
+            if (ex is ProgressionProgressOutOfOrderException)
+            {
+                PausedTime = null;
+                Status = AgentStatus.Stopped;
+                _tracker.Publish(new ShardState(Name, LastCommitted) { Action = ShardAction.Stopped, Exception = ex});
+            }
+            else
+            {
+                PausedTime = _timeProvider.GetUtcNow();
+                Status = AgentStatus.Paused;
+                _tracker.Publish(new ShardState(Name, LastCommitted) { Action = ShardAction.Paused, Exception = ex});
+            }
+            
             if (Mode == ShardExecutionMode.Rebuild)
             {
                 _rebuild?.SetException(ex);

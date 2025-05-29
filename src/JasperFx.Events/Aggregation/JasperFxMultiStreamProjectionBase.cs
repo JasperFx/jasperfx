@@ -17,7 +17,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         Name = typeof(TDoc).Name;
     }
 
-    public TenancyGrouping TenancyGrouping { get; private set; } = TenancyGrouping.RespectTenant;
+    public TenancyGrouping TenancyGrouping { get; set; } = TenancyGrouping.RespectTenant;
 
     public sealed override void AssembleAndAssertValidity()
     {
