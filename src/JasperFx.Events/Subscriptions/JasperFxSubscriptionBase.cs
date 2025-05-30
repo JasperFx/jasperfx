@@ -18,7 +18,7 @@ public interface ISubscriptionOptions : IEventFilterable
 }
 
 /// <summary>
-/// Base class for custom subscriptions for Marten event data
+/// Base class for custom subscriptions for event data
 /// </summary>
 public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubscription>: 
     EventFilterable, 
@@ -67,7 +67,7 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     }
 
     /// <summary>
-    /// Descriptive name for Marten progress tracking and rebuild/replays
+    /// Descriptive name for progress tracking and rebuild/replays
     /// </summary>
     public string Name { get; set; }
 

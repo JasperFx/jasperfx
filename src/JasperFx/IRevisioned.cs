@@ -9,7 +9,7 @@ namespace JasperFx;
 public interface IRevisioned
 {
     /// <summary>
-    ///     Marten's version for this document
+    /// The known version for this document
     /// </summary>
     int Version { get; set; }
 }

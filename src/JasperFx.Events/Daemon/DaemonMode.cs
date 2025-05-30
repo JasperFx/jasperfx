@@ -3,13 +3,13 @@ namespace JasperFx.Events.Daemon;
 public enum DaemonMode
 {
     /// <summary>
-    ///     The projection daemon is disabled in this Marten application and
+    ///     The projection daemon is disabled in this application and
     ///     will not be started as part of the application
     /// </summary>
     Disabled,
 
     /// <summary>
-    ///     Marten will start up the complete projection daemon with the assumption
+    ///     The system will start up the complete projection daemon with the assumption
     ///     that this node is the only execution node. This is appropriate for single
     ///     node deployments and local development usage
     /// </summary>

@@ -3,7 +3,7 @@ namespace JasperFx.Events.Projections;
 public interface IEventFilterable
 {
     /// <summary>
-    ///     Short hand syntax to tell Marten that this projection takes in the event type T
+    ///     Short hand syntax to tell the system that this projection takes in the event type T
     ///     This is not mandatory, but can be used to optimize the asynchronous projections
     ///     to create an "allow list" in the IncludedEventTypes collection
     /// </summary>
@@ -11,7 +11,7 @@ public interface IEventFilterable
     void IncludeType<T>();
 
     /// <summary>
-    ///     Short hand syntax to tell Marten that this projection takes in the event type T
+    ///     Short hand syntax to tell the system that this projection takes in the event type T
     ///     This is not mandatory, but can be used to optimize the asynchronous projections
     ///     to create an "allow list" in the IncludedEventTypes collection
     /// </summary>

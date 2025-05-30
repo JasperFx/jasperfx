@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.CommandLine;
 
-[Description("Marten's asynchronous projection and projection rebuilds")]
+[Description("Asynchronous projection and projection rebuilds")]
 public class ProjectionsCommand: JasperFxAsyncCommand<ProjectionInput>
 {
     public ProjectionsCommand()

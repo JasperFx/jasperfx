@@ -11,7 +11,7 @@ public class ConcurrencyException: Exception
         if (docType.CanBeCastTo<IRevisioned>())
         {
             message +=
-                $". For documents of type {typeof(IRevisioned).FullNameInCode()}, Marten uses the current value of {nameof(IRevisioned)}.{nameof(IRevisioned.Version)} as the revision when IDocumentSession.Store() is called. You may need to explicitly call IDocumentSession.UpdateRevision() instead, or set the expected version correctly on the document itself";
+                $". For documents of type {typeof(IRevisioned).FullNameInCode()}, JasperFx uses the current value of {nameof(IRevisioned)}.{nameof(IRevisioned.Version)} as the revision when a document storage operation is requested. You may need to explicitly call IDocumentSession.UpdateRevision() instead, or set the expected version correctly on the document itself";
         }
 
         return message;

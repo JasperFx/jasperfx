@@ -128,7 +128,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     }
     
     /// <summary>
-    /// Register a projection to the Marten configuration
+    /// Register a projection to the sytem's configuration
     /// </summary>
     /// <param name="projection">Value values are Inline/Async, The default is Inline</param>
     /// <param name="lifecycle"></param>

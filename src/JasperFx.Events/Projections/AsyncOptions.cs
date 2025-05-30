@@ -34,7 +34,7 @@ public class AsyncOptions
 
     /// <summary>
     ///     Optional list of stored document or feature types that this projection
-    ///     writes. This is used by Marten to help build out schema objects if the
+    ///     writes. This is used to help build out schema objects if the
     ///     async daemon is started before the rest of the application.
     /// </summary>
     public List<Type> StorageTypes { get; } = new();
@@ -148,7 +148,7 @@ public class AsyncOptions
     /// making no other changes that would force a rebuild
     ///
     /// Direct that this projection had previously been running with an "Inline"
-    /// lifecycle now run as "Async". This will cause Marten to first check if there
+    /// lifecycle now run as "Async". This will cause the system to first check if there
     /// is any previous async progress, and if not, start the projection from the highest
     /// event sequence for the system.
     /// </summary>

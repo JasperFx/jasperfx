@@ -94,8 +94,7 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     public TimeSpan AgentPauseTime { get; set; } = 1.Seconds();
 
     /// <summary>
-    ///     Projection Daemon mode. The default is Disabled. As of V5, the async daemon needs to be
-    ///     explicitly added to the system with AddMarten().AddAsyncDaemon();
+    ///     Projection Daemon mode. The default is Disabled. 
     /// </summary>
     public DaemonMode AsyncMode { get; set; } = DaemonMode.Disabled;
 }

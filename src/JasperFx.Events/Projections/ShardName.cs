@@ -56,7 +56,7 @@ public class ShardName
     public string ShardKey { get; }
 
     /// <summary>
-    ///     {ProjectionName}:{Key}. Single identity string that should be unique within this Marten application
+    ///     {ProjectionName}:{Key}. Single identity string that should be unique within this application
     /// </summary>
     public string Identity { get; }
 

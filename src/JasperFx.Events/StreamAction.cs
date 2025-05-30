@@ -71,7 +71,7 @@ public class StreamAction
     public Type? AggregateType { get; set; }
 
     /// <summary>
-    ///     Marten's name for the aggregate type that will be persisted
+    ///     JasperFx.Events's name for the aggregate type that will be persisted
     ///     to the streams table
     /// </summary>
     public string? AggregateTypeName { get; internal set; }
@@ -466,7 +466,7 @@ public class StreamAction
         }
         else
         {
-            throw new NotSupportedException("Marten cannot build a type converter for strong typed id type " +
+            throw new NotSupportedException("Cannot build a type converter for strong typed id type " +
                                             valueTypeInfo.OuterType.FullNameInCode());
         }
 

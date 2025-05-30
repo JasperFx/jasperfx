@@ -27,8 +27,8 @@ public interface IEventRegistry
     IEventType EventMappingFor(Type eventType);
 
     /// <summary>
-    ///     Register an event type with Marten. This isn't strictly necessary for normal usage,
-    ///     but can help Marten with asynchronous projections where Marten hasn't yet encountered
+    ///     Register an event type. This isn't strictly necessary for normal usage,
+    ///     but can help with asynchronous projections where the daemon hasn't yet encountered
     ///     the event type
     /// </summary>
     /// <param name="eventType"></param>

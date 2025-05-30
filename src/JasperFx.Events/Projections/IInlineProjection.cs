@@ -1,7 +1,5 @@
 namespace JasperFx.Events.Projections;
 
-// This was effectively IProjection in Marten
-
 /// <summary>
 /// Interface for projections applied "Inline" as part of saving a transaction
 /// </summary>

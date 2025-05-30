@@ -152,7 +152,7 @@ public interface IProjectionDaemon: IDisposable
     /// <param name="subscriptionName">Name of the subscription</param>
     /// <param name="token"></param>
     /// <param name="sequenceFloor">The point at which to rewind the subscription. The default is zero</param>
-    /// <param name="timestamp">Optional parameter to rewind the subscription to rerun any events that were posted on or after this time. If Marten cannot determine the sequence, it will do nothing</param>
+    /// <param name="timestamp">Optional parameter to rewind the subscription to rerun any events that were posted on or after this time. If the system cannot determine the sequence, it will do nothing</param>
     /// <returns></returns>
     Task RewindSubscriptionAsync(string subscriptionName, CancellationToken token, long? sequenceFloor = 0,
         DateTimeOffset? timestamp = null);

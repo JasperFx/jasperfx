@@ -31,7 +31,7 @@ public abstract class ProjectionBase : EventFilterable
 
     /// <summary>
     /// Specify that this projection is a non 1 version of the original projection definition to opt
-    /// into Marten's parallel blue/green deployment of this projection.
+    /// into any JasperFx Event Store's parallel blue/green deployment of this projection.
     /// </summary>
     public uint Version { get; set; } = 1;
 

@@ -81,12 +81,12 @@ public interface IEvent
     Type EventType { get; }
 
     /// <summary>
-    ///     Marten's type alias string for the Event type
+    ///     JasperFx.Event's type alias string for the Event type
     /// </summary>
     string EventTypeName { get; set; }
 
     /// <summary>
-    ///     Marten's string representation of the event type
+    ///     JasperFx.Events's string representation of the event type
     ///     in assembly qualified name
     /// </summary>
     string DotNetTypeName { get; set; }
@@ -113,7 +113,7 @@ public interface IEvent
     bool IsArchived { get; set; }
 
     /// <summary>
-    ///     Marten's name for the aggregate type that will be persisted
+    ///     JasperFx.Events's name for the aggregate type that will be persisted
     ///     to the streams table. This will only be available when running
     ///     within the Async Daemon
     /// </summary>
@@ -165,7 +165,7 @@ public interface IEvent
         }
         else
         {
-            throw new NotSupportedException("Marten cannot build a type converter for strong typed id type " +
+            throw new NotSupportedException("Cannot build a type converter for strong typed id type " +
                                             valueTypeInfo.OuterType.FullNameInCode());
         }
 

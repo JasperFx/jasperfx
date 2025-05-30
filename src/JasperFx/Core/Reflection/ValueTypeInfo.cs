@@ -88,7 +88,7 @@ public class ValueTypeInfo
         }
         else
         {
-            throw new NotSupportedException("Marten cannot build a type converter for strong typed id type " +
+            throw new NotSupportedException("Cannot build a type converter for strong typed id type " +
                                             OuterType.FullNameInCode());
         }
 

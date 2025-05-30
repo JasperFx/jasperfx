@@ -23,7 +23,7 @@ internal class DaemonStatusGrid
         
         _table = new Table();
 
-        _table.AddColumn("Marten Projections");
+        _table.AddColumn("Projections");
         _table.Columns[0].Alignment = Justify.Center;
 
         var completion = new TaskCompletionSource();

@@ -144,7 +144,7 @@ public class MethodSlot
     {
         var slot = new MethodSlot(methodInfo, null);
         slot._errors.Add(
-            $"Unrecognized method name '{methodInfo.Name}'. Either mark with [MartenIgnore] or use one of {methodNames.Select(x => $"'{x}'").Join(", ")}");
+            $"Unrecognized method name '{methodInfo.Name}'. Either mark with [JasperFxIgnore] or use one of {methodNames.Select(x => $"'{x}'").Join(", ")}");
 
         return slot;
     }
