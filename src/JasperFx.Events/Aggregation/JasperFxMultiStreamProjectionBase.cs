@@ -115,6 +115,8 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                 var (finalSnapshot, action) = await DetermineActionAsync(operations, snapshot, slice.Id, storage, slice.Events(), cancellation);
                 storage.ApplyInline(finalSnapshot, action, slice.Id, group.TenantId);
 
+                slice.Snapshot = finalSnapshot;
+                
                 if (operations.EnableSideEffectsOnInlineProjections)
                 {
                     await RaiseSideEffects(operations, slice);
