@@ -192,7 +192,7 @@ public class MethodCall : Frame
             return new CastVariable(inner, type);
         }
 
-        return chain.TryFindVariableByName(type, param.Name!, out var variable) ? variable : chain.FindVariable(type);
+        return chain.FindVariable(param);
     }
 
     public bool TrySetArgument(Variable variable)

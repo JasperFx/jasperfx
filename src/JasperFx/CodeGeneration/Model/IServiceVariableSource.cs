@@ -6,4 +6,6 @@ public interface IServiceVariableSource : IVariableSource
 
     void StartNewType();
     void StartNewMethod();
+
+    bool TryFindKeyedService(Type type, string key, out Variable? variable);
 }

@@ -253,6 +253,11 @@ public class ConstructorFrame : SyncFrame
             return type == _current.VariableType ? _current : _inner.FindVariable(type);
         }
 
+        public Variable FindVariable(ParameterInfo parameter)
+        {
+            return _inner.FindVariable(parameter);
+        }
+
         public Variable FindVariableByName(Type dependency, string name)
         {
             return _inner.FindVariableByName(dependency, name);

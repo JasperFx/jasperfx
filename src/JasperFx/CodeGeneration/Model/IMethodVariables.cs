@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 
 namespace JasperFx.CodeGeneration.Model;
 
@@ -14,6 +15,13 @@ public interface IMethodVariables
     /// <param name="type"></param>
     /// <returns></returns>
     Variable FindVariable(Type type);
+    
+    /// <summary>
+    /// Maybe find using attributes on the parameter too
+    /// </summary>
+    /// <param name="parameter"></param>
+    /// <returns></returns>
+    Variable FindVariable(ParameterInfo parameter);
 
     /// <summary>
     ///     Find or create a variable by type and variable name
@@ -41,4 +49,6 @@ public interface IMethodVariables
     /// <param name="source"></param>
     /// <returns></returns>
     Variable? TryFindVariable(Type type, VariableSource source);
+
+    
 }

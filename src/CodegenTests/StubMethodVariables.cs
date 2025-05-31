@@ -1,4 +1,5 @@
-﻿using JasperFx.CodeGeneration.Model;
+﻿using System.Reflection;
+using JasperFx.CodeGeneration.Model;
 
 namespace CodegenTests;
 
@@ -11,6 +12,13 @@ public class StubMethodVariables : IMethodVariables
     public Variable FindVariable(Type type)
     {
         return Variables[type];
+    }
+
+    public Variable FindVariable(ParameterInfo parameter)
+    {
+        if (TryFindVariableByName(parameter.ParameterType, parameter.Name!, out Variable variable)) return variable;
+
+        return FindVariable(parameter.ParameterType);
     }
 
     public Variable FindVariableByName(Type dependency, string name)

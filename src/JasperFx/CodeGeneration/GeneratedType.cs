@@ -226,7 +226,7 @@ public class GeneratedType : IVariableSource, IGeneratedType
 
     private void writeConstructorMethod(ISourceWriter writer, IList<InjectedField> args)
     {
-        var ctorArgs = args.Select(x => x.CtorArgDeclaration).Join(", ");
+        var ctorArgs = args.Select(x => x.CtorArgDeclaration()).Join(", ");
         var declaration = $"BLOCK:public {TypeName}({ctorArgs})";
         if (BaseConstructorArguments.Any())
         {

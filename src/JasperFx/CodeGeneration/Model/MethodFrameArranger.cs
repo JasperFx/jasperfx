@@ -1,6 +1,9 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.CodeGeneration.Model;
 
@@ -21,6 +24,24 @@ internal class MethodFrameArranger : IMethodVariables
     {
         _method = method;
         _type = type;
+    }
+
+    public Variable FindVariable(ParameterInfo parameter)
+    {
+        if (_services != null && parameter.TryGetAttribute<FromKeyedServicesAttribute>(out var att))
+        {
+            if (_services.TryFindKeyedService(parameter.ParameterType, att.Key.ToString(), out var serviceVariable))
+            {
+                return serviceVariable!;
+            }
+        }
+        
+        if (TryFindVariableByName(parameter.ParameterType, parameter.Name!, out var variable))
+        {
+            return variable;
+        }
+
+        return FindVariable(parameter.ParameterType);
     }
 
     public Variable FindVariableByName(Type dependency, string name)
@@ -150,15 +171,10 @@ internal class MethodFrameArranger : IMethodVariables
 
     internal void findInjectedFields(DependencyGatherer dependencies)
     {
-        // Stupid. Can't believe I haven't fixed this in Baseline
-        var list = new List<InjectedField>();
-        dependencies.Variables.Keys().Each((key, _) =>
+        foreach (var field in dependencies.Variables.Keys().OfType<InjectedField>())
         {
-            if (key is InjectedField field)
-            {
-                _type.AllInjectedFields.Fill(field);
-            }
-        });
+            _type.AllInjectedFields.Fill(field);
+        }
     }
 
     internal void findSetters(DependencyGatherer dependencies)

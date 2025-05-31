@@ -18,7 +18,7 @@ public class InjectedField : Variable
 
     public string CtorArg { get; protected set; }
 
-    public virtual string CtorArgDeclaration => $"{ArgType.FullNameInCode()} {CtorArg}";
+    public virtual string CtorArgDeclaration() => $"{ArgType.FullNameInCode()} {CtorArg}";
 
     public override void OverrideName(string variableName)
     {

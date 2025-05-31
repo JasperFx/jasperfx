@@ -33,11 +33,11 @@ public class UnResolvableVariableException : Exception
             if (VariableName.IsNotEmpty())
             {
                 return
-                    $"Lamar was unable to resolve a variable of type {DependencyType.FullNameInCode()} with name '{VariableName}' as part of the method {methodName}";
+                    $"JasperFx was unable to resolve a variable of type {DependencyType.FullNameInCode()} with name '{VariableName}' as part of the method {methodName}";
             }
 
             return
-                $"Lamar was unable to resolve a variable of type {DependencyType.FullNameInCode()} as part of the method {methodName}";
+                $"JasperFx was unable to resolve a variable of type {DependencyType.FullNameInCode()} as part of the method {methodName}";
         }
     }
 }

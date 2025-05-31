@@ -20,8 +20,8 @@ public class Bug_7_InjectedFieldNamedAsBaseCtor
         generatedType.ArrangeFrames();
         
         // Assert
-        generatedType.AllInjectedFields[0].CtorArgDeclaration.ShouldBe("int __dependency1");
-        generatedType.AllInjectedFields[1].CtorArgDeclaration.ShouldBe("string __dependency2");
+        generatedType.AllInjectedFields[0].CtorArgDeclaration().ShouldBe("int __dependency1");
+        generatedType.AllInjectedFields[1].CtorArgDeclaration().ShouldBe("string __dependency2");
        
         // This fails because the ctor argument was not renamed
         generatedType.BaseConstructorArguments[0].Usage.ShouldBe("__dependency1");
