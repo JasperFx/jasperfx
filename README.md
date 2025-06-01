@@ -1,9 +1,9 @@
 # JasperFx
 
-Foundational elements of the "Critter Stack"
+Foundational elements of the "Critter Stack", including:
 
-This combined library contains elements of what was:
+* The inevitable grab bag of extension method utilities shared throughout the Critter Stack
+* The command line parsing and command discovery (was Oakton)
+* The runtime code generation (was JasperFx.CodeGeneration)
+* The shared event store abstractions and projection support for Marten and future Event Sourcing Critters
 
-1. Oakton
-2. JasperFx.Core
-3. JasperFx.CodeGeneration
