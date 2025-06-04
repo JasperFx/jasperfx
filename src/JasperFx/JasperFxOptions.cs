@@ -5,6 +5,7 @@ using JasperFx.CommandLine;
 using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Core.TypeScanning;
 using JasperFx.Descriptors;
 using JasperFx.Environment;
 using JasperFx.MultiTenancy;
@@ -127,7 +128,7 @@ public class JasperFxOptions : SystemPartBase
                 continue;
             }
 
-            if (assembly.HasAttribute<JasperFxIgnoreAttribute>())
+            if (assembly.HasAttribute<IgnoreAssemblyAttribute>())
             {
                 continue;
             }
