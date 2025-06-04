@@ -39,6 +39,19 @@ public class JasperFxOptionsTests
         
         options.ActiveProfile.ShouldBe(options.Development);
     }
+
+    [Fact]
+    public async Task read_application_assembly_correctly()
+    {
+        using var host = await Host.CreateDefaultBuilder()
+            .ConfigureServices(s => s.AddJasperFx())
+            .UseEnvironment("Development")
+            .StartAsync();
+        
+        var options = host.Services.GetRequiredService<JasperFxOptions>();
+        
+        options.ApplicationAssembly.ShouldBe(GetType().Assembly);
+    }
     
     [Fact]
     public void read_environment_for_production()

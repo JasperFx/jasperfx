@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Reflection;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine;
 using JasperFx.CommandLine.Descriptions;
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Environment;
 using JasperFx.MultiTenancy;
@@ -13,6 +15,13 @@ namespace JasperFx;
 
 public class JasperFxOptions : SystemPartBase
 {
+    /// <summary>
+    ///     You may use this to "help" Wolverine & other Critter Stack tools in testing scenarios to force
+    ///     it to consider this assembly as the main application assembly rather
+    ///     that assuming that the IDE or test runner assembly is the application assembly
+    /// </summary>
+    public static Assembly? RememberedApplicationAssembly;
+    
     public JasperFxOptions() : base("JasperFx Options", new Uri("system://jasperfx"))
     {
         ActiveProfile = Development;
@@ -31,7 +40,6 @@ public class JasperFxOptions : SystemPartBase
     {
         _requiredFiles.Fill(path);
     }
-
     
     /// <summary>
     /// Tenant Id naming rules for this application. Default is to use case-sensitive names and not
@@ -79,6 +87,70 @@ public class JasperFxOptions : SystemPartBase
     /// </summary>
     public Assembly? ApplicationAssembly { get; set; } 
     
+    private void establishApplicationAssembly(string? assemblyName)
+    {
+        if (assemblyName.IsNotEmpty())
+        {
+            ApplicationAssembly ??= Assembly.Load(assemblyName);
+        }
+        else if (RememberedApplicationAssembly != null)
+        {
+            ApplicationAssembly = RememberedApplicationAssembly;
+        }
+        else
+        {
+            RememberedApplicationAssembly = ApplicationAssembly = determineCallingAssembly();
+        }
+
+        if (ApplicationAssembly == null)
+        {
+            throw new InvalidOperationException("Unable to determine an application assembly");
+        }
+    }
+    
+    private Assembly? determineCallingAssembly()
+    {
+        var stack = new StackTrace();
+        var frames = stack.GetFrames();
+        var jasperfxFrame = frames.LastOrDefault(x =>
+            x.HasMethod() && x.GetMethod()?.DeclaringType?.Assembly.GetName().Name == "JasperFx");
+
+        var index = Array.IndexOf(frames, jasperfxFrame);
+
+        for (var i = index + 1; i < frames.Length; i++)
+        {
+            var candidate = frames[i];
+            var assembly = candidate.GetMethod()?.DeclaringType?.Assembly;
+
+            if (assembly is null)
+            {
+                continue;
+            }
+
+            if (assembly.HasAttribute<JasperFxIgnoreAttribute>())
+            {
+                continue;
+            }
+
+            var assemblyName = assembly.GetName().Name;
+
+            if (assemblyName is null)
+            {
+                continue;
+            }
+
+            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft"))
+            {
+                continue;
+            }
+
+            return assembly;
+        }
+
+        return Assembly.GetEntryAssembly();
+    }
+
+    
     /// <summary>
     ///     Descriptive name of the running service. Used in diagnostics and testing support. Default is the entry assembly name. 
     /// </summary>
@@ -92,9 +164,10 @@ public class JasperFxOptions : SystemPartBase
     internal void ReadHostEnvironment(IHostEnvironment environment)
     {
         GeneratedCodeOutputPath ??= environment.ContentRootPath.AppendPath("Internal", "Generated");
-        if (environment.ApplicationName.IsNotEmpty())
+        
+        if (ApplicationAssembly == null)
         {
-            ApplicationAssembly ??= Assembly.Load(environment.ApplicationName) ?? Assembly.GetEntryAssembly();
+            establishApplicationAssembly(null);
         }
 
         if (DevelopmentEnvironmentName.IsNotEmpty() && environment.EnvironmentName.EqualsIgnoreCase(DevelopmentEnvironmentName))
