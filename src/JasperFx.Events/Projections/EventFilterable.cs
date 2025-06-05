@@ -22,7 +22,6 @@ public class EventFilterable: IEventFilterable
     ///     Limit the events processed by this projection to only streams
     ///     marked with this stream type
     /// </summary>
-    [DisallowNull]
     public Type? StreamType { get; set; }
 
     /// <summary>

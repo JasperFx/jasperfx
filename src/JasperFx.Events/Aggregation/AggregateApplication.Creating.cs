@@ -10,7 +10,7 @@ namespace JasperFx.Events.Aggregation;
 
 internal partial class AggregateApplication<TAggregate, TQuerySession>
 {
-    public ValueTask<TAggregate> Create(IEvent e, TQuerySession session, CancellationToken token)
+    public ValueTask<TAggregate?> Create(IEvent e, TQuerySession session, CancellationToken token)
     {
         if (_creators.TryFind(e.EventType, out var creator))
         {
@@ -30,12 +30,12 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
     /// <param name="session"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public ValueTask<TAggregate> CreateByData<T>(T eventData, TQuerySession session) where T : notnull
+    public ValueTask<TAggregate?> CreateByData<T>(T eventData, TQuerySession session) where T : notnull
     {
         return Create(new Event<T>(eventData), session, CancellationToken.None);
     }
 
-    private Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>> determineCreator(Type eventType)
+    private Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>> determineCreator(Type eventType)
     {
         // If the event really doesn't apply at all, let's do NOTHING
         if (eventTypeIsIgnored(eventType))
@@ -78,7 +78,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
                 
                 if (_applications.TryFind(eventType, out var superApplier))
                 {
-                    return (@event, s, t) => superApplier(builder(), @event, s, t);
+                    return (@event, s, t) => superApplier(builder(), @event, s, t)!;
                 }
                 
                 var snapshot = Expression.Parameter(typeof(TAggregate), "snapshot");
@@ -88,7 +88,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
                 if (applyBody != null)
                 {
                     var apply = Expression.Lambda<Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>>>(applyBody, snapshot, e, session, cancellation).CompileFast();
-                    return (@event, s, t) => apply(builder(), @event, s, t);
+                    return (@event, s, t) => apply(builder(), @event, s, t)!;
                 }
                 
                 body = Expression.New(defaultCtor).MaybeWrapWithValueTask<TAggregate>();
@@ -107,16 +107,16 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
                     _applications.Enumerate().Any(x => eventType.CanBeCastTo(x.Key)))
                 {
                     return (_, _, _) =>
-                        throw new InvalidEventToStartAggregateException(typeof(TAggregate), _projectionType, eventType);
+                        throw new InvalidEventToStartAggregateException(typeof(TAggregate), _projectionType!, eventType);
                 }
                 
-                return (_, _, _) => new ValueTask<TAggregate>(default(TAggregate));
+                return (_, _, _) => new ValueTask<TAggregate?>(default(TAggregate));
             }
         }
 
 
         var lambda = Expression.Lambda<Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>>>(body, e, session, cancellation);
-        return lambda.CompileFast();
+        return lambda.CompileFast()!;
 
     }
 

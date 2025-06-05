@@ -45,7 +45,7 @@ public class ValueTypeInfo
 
     }
     
-    private object _converter;
+    private object? _converter;
 
     public ValueTypeInfo(Type outerType, Type simpleType, PropertyInfo valueProperty, ConstructorInfo ctor)
     {
@@ -66,8 +66,8 @@ public class ValueTypeInfo
     public Type OuterType { get; }
     public Type SimpleType { get; }
     public PropertyInfo ValueProperty { get; }
-    public MethodInfo Builder { get; }
-    public ConstructorInfo Ctor { get; }
+    public MethodInfo? Builder { get; }
+    public ConstructorInfo? Ctor { get; }
 
     public Func<TInner, TOuter> CreateWrapper<TOuter, TInner>()
     {

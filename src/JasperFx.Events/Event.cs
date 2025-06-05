@@ -15,7 +15,7 @@ public static class EventIdentity
     /// <param name="e"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public static T IdentityFor<T>(IEvent e)
+    public static T IdentityFor<T>(IEvent e) where T : notnull
     {
         if (_functions.TryFind(typeof(T), out var raw))
         {
@@ -144,16 +144,16 @@ public interface IEvent
         where TId : notnull
     {
         if (typeof(TId) == typeof(Guid)) return e => e.StreamId.As<TId>();
-        if (typeof(TId) == typeof(string)) return e => e.StreamKey.As<TId>();
+        if (typeof(TId) == typeof(string)) return e => e.StreamKey!.As<TId>();
         
         var valueTypeInfo = ValueTypeInfo.ForType(typeof(TId));
         
         var e = Expression.Parameter(typeof(IEvent), "e");
         var eMember = valueTypeInfo.SimpleType == typeof(Guid)
             ? ReflectionHelper.GetProperty<IEvent>(x => x.StreamId)
-            : ReflectionHelper.GetProperty<IEvent>(x => x.StreamKey);
+            : ReflectionHelper.GetProperty<IEvent>(x => x.StreamKey!);
 
-        var raw = Expression.Call(e, eMember.GetMethod);
+        var raw = Expression.Call(e, eMember.GetMethod!);
         Expression? wrapped = null;
         if (valueTypeInfo.Builder != null)
         {

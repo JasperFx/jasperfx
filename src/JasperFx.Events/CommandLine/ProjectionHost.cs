@@ -48,8 +48,8 @@ internal class ProjectionHost: IProjectionHost
 
     public void ListenForUserTriggeredExit()
     {
-        var assembly = Assembly.GetEntryAssembly();
-        AssemblyLoadContext.GetLoadContext(assembly).Unloading += context => Shutdown();
+        var assembly = Assembly.GetEntryAssembly()!;
+        AssemblyLoadContext.GetLoadContext(assembly)!.Unloading += context => Shutdown();
 
         Console.CancelKeyPress += (sender, eventArgs) =>
         {

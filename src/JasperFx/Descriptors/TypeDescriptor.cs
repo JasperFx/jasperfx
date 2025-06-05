@@ -9,7 +9,7 @@ namespace JasperFx.Descriptors;
 public record TypeDescriptor(string Name, string FullName, string AssemblyName)
 {
     public static TypeDescriptor For(Type type) =>
-        new TypeDescriptor(type.Name, type.FullName, type.Assembly.GetName().Name);
+        new TypeDescriptor(type.Name, type.FullName!, type.Assembly.GetName().Name!);
 
     public override string ToString()
     {

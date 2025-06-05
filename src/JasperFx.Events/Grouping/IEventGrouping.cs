@@ -22,7 +22,8 @@ public enum TenancyGrouping
 ///     Represents a grouping of a range of events by aggregate id. Used in aggregation projections
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public interface IEventGrouping<TId>
+/// <typeparam name="TId"></typeparam>
+public interface IEventGrouping<in TId>
 {
     /// <summary>
     ///     Add a single event to a single event slice by id

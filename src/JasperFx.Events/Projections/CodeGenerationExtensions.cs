@@ -16,26 +16,26 @@ public static class CodeGenerationExtensions
         return type;
     }
     
-    public static Type GetEventType(this MethodInfo method, Type aggregateType)
+    public static Type? GetEventType(this MethodInfo method, Type? aggregateType)
     {
-        var candidate = method.GetParameters().Where(x => x.ParameterType.Closes(typeof(IEvent<>)));
-        if (candidate.Count() == 1)
+        var candidate = method.GetParameters().Where(x => x.ParameterType.Closes(typeof(IEvent<>))).ToArray();
+        if (candidate.Length == 1)
         {
             return candidate.Single().ParameterType.GetGenericArguments()[0];
         }
 
         if (aggregateType == null)
         {
-            var parameters = method.GetParameters().Where(x => x.ParameterType != typeof(IEvent) && x.ParameterType.IsConcrete());
-            if (parameters.Count() == 1)
+            var parameters = method.GetParameters().Where(x => x.ParameterType != typeof(IEvent) && x.ParameterType.IsConcrete()).ToArray();
+            if (parameters.Length == 1)
             {
                 return parameters.Single().ParameterType;
             }
         }
         else
         {
-            var parameters = method.GetParameters().Where(x => x.ParameterType != typeof(IEvent) && x.ParameterType.IsConcrete() && x.ParameterType != aggregateType);
-            if (parameters.Count() == 1)
+            var parameters = method.GetParameters().Where(x => x.ParameterType != typeof(IEvent) && x.ParameterType.IsConcrete() && x.ParameterType != aggregateType).ToArray();
+            if (parameters.Length == 1)
             {
                 return parameters.Single().ParameterType;
             }

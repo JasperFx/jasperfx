@@ -30,10 +30,10 @@ public class ConcurrencyException: Exception
         Id = id;
     }
 
-    public ConcurrencyException(string? message) : base(message)
+    #nullable disable // pain
+    public ConcurrencyException(string message) : base(message)
     {
     }
-    
 
     public string DocType { get; set; }
     public object Id { get; set; }

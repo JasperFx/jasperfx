@@ -125,12 +125,12 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, this, logger);
     }
 
-    void IEntityStorage<TOperations>.Store<T>(TOperations ops, T entity)
+    void IEntityStorage<TOperations>.Store<T>(TOperations ops, T entity) 
     {
         storeEntity<T>(ops, entity);
     }
 
-    protected abstract void storeEntity<T>(TOperations ops, T entity);
+    protected abstract void storeEntity<T>(TOperations ops, T entity) where T : notnull;
     
     public sealed override void AssembleAndAssertValidity()
     {

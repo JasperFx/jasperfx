@@ -10,7 +10,7 @@ namespace JasperFx.Events.Projections;
 
 public interface IEntityStorage<TOperations>
 {
-    void Store<T>(TOperations ops, T entity);
+    void Store<T>(TOperations ops, T entity) where T : notnull;
 }
 
 public class EventProjectionApplication<TOperations>
@@ -300,7 +300,7 @@ public class EventProjectionApplication<TOperations>
             MethodInfo method);
     }
 
-    internal class CreatorBuilder<T> : ICreatorBuilder
+    internal class CreatorBuilder<T> : ICreatorBuilder where T : notnull
     {
         public Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IEntityStorage<TOperations> entityStorage,
             Type eventType, MethodInfo method)

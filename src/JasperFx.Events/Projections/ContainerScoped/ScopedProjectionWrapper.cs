@@ -13,6 +13,8 @@ namespace JasperFx.Events.Projections.ContainerScoped;
 ///     IoC services during execution
 /// </summary>
 /// <typeparam name="TProjection"></typeparam>
+/// <typeparam name="TOperations"></typeparam>
+/// <typeparam name="TQuerySession"></typeparam>
 public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : ProjectionBase,
     IJasperFxProjection<TOperations>,
     IInlineProjection<TOperations>,
@@ -89,8 +91,8 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
         await projection.ApplyAsync(operations, events, cancellation).ConfigureAwait(false);
     }
 
-    public string Name => base.Name;
-    public uint Version => base.Version;
+    public new string Name => base.Name;
+    public new uint Version => base.Version;
 
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {

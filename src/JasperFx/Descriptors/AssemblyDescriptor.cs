@@ -10,7 +10,7 @@ namespace JasperFx.Descriptors;
 public record AssemblyDescriptor(string Name, Version Version)
 {
     public static AssemblyDescriptor For(Assembly assembly) =>
-        new AssemblyDescriptor(assembly.GetName().Name, assembly.GetName().Version);
+        new AssemblyDescriptor(assembly.GetName().Name!, assembly.GetName().Version!);
 
     public override string ToString()
     {

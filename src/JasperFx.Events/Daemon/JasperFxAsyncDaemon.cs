@@ -469,7 +469,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         throw new ArgumentOutOfRangeException("TView",
-            $"No registered projection matches the type '{projectionType.FullNameInCode()} or is known to publish that type'. Available projections are {_projections.All.Select(x => x.ToString()).Join(", ")}");
+            $"No registered projection matches the type '{projectionType.FullNameInCode()} or is known to publish that type'. Available projections are {_projections.All.Select(x => x.ToString()!).Join(", ")}");
     }
 
     public Task RebuildProjectionAsync(string projectionName, TimeSpan shardTimeout, CancellationToken token)
@@ -613,7 +613,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         {
             Tracker.MarkAsRestarted(agent.Name);
             var errorOptions = _store.RebuildErrors;
-            await agent.StartAsync(new SubscriptionExecutionRequest(sequenceFloor.Value, ShardExecutionMode.Continuous,
+            await agent.StartAsync(new SubscriptionExecutionRequest(sequenceFloor!.Value, ShardExecutionMode.Continuous,
                 errorOptions, this)).ConfigureAwait(false);
             agent.MarkHighWater(HighWaterMark());
         }

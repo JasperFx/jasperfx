@@ -30,7 +30,7 @@ internal class MethodFrameArranger : IMethodVariables
     {
         if (_services != null && parameter.TryGetAttribute<FromKeyedServicesAttribute>(out var att))
         {
-            if (_services.TryFindKeyedService(parameter.ParameterType, att.Key.ToString(), out var serviceVariable))
+            if (_services.TryFindKeyedService(parameter.ParameterType, att.Key.ToString()!, out var serviceVariable))
             {
                 return serviceVariable!;
             }

@@ -57,6 +57,8 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
 
     private static readonly string[] methodNames = [nameof(DetermineAction), nameof(DetermineActionAsync), nameof(Evolve), nameof(EvolveAsync)];
+    
+    [MemberNotNull(nameof(_evolve))]
     private void establishBuildActionAndEvolve()
     {
         if (isOverridden(nameof(DetermineAction)))
@@ -88,7 +90,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     
     private bool isOverridden(string methodName)
     {
-        return GetType().GetMethod(methodName).DeclaringType.Assembly != typeof(IEvent).Assembly;
+        return GetType().GetMethod(methodName)!.DeclaringType!.Assembly != typeof(IEvent).Assembly;
     }
 
 
@@ -224,7 +226,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     public bool AppliesTo(IEnumerable<Type> eventTypes)
     {
         // Have to do this because you don't know if any events catch
-        if (!AllEventTypes.Any()) return true;
+        if (AllEventTypes.Length == 0) return true;
         
         return eventTypes
             .Intersect(AllEventTypes).Any() || eventTypes.Any(type => AllEventTypes.Any(type.CanBeCastTo));

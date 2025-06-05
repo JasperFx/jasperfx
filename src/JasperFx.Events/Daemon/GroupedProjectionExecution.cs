@@ -29,7 +29,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
     public ShardExecutionMode Mode { get; set; }
     
-    public object[] Disposables { get; set; }
+    public object[]? Disposables { get; init; }
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
@@ -42,7 +42,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
         if (Disposables != null)
         {
-            await Disposables!.MaybeDisposeAllAsync().ConfigureAwait(false);
+            await Disposables.MaybeDisposeAllAsync().ConfigureAwait(false);
         }
 
         _grouping.Complete();
@@ -213,7 +213,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
     private async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
     {
-        IProjectionBatch? batch = default;
+        IProjectionBatch? batch = null;
         try
         {
             batch = await _runner.BuildBatchAsync(range, Mode, cancellationToken).ConfigureAwait(false);

@@ -10,7 +10,7 @@ internal class DaemonStatusGrid
     private readonly LightweightCache<Uri, StoreDaemonStatus> _stores = new(subject => new StoreDaemonStatus(subject));
     private readonly BatchingBlock<DaemonStatusMessage> _batching;
     private readonly Table _table;
-    private LiveDisplayContext _context;
+    private LiveDisplayContext _context = null!;
 
     public DaemonStatusGrid()
     {

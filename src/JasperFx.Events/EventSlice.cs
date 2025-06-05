@@ -200,7 +200,7 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
     int IComparer<IEvent>.Compare(IEvent? x, IEvent? y)
     {
-        return x.Sequence.CompareTo(y.Sequence);
+        return x!.Sequence.CompareTo(y!.Sequence);
     }
 
     /// <summary>

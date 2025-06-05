@@ -11,7 +11,7 @@ namespace JasperFx.Events.Subscriptions;
 internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecutionBase where T : notnull, TSubscription
 {
     private readonly IServiceProvider _provider;
-    private readonly ISubscriptionRunner<T> _runner;
+    private readonly ISubscriptionRunner<T>? _runner;
 
     public ScopedSubscriptionExecution(object storage, IServiceProvider provider, IEventDatabase database, ShardName name, ILogger logger) : base(database, name, logger)
     {
@@ -34,7 +34,7 @@ internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecu
         {
             var subscription = sp.GetRequiredService<T>();
 
-            await _runner.ExecuteAsync(subscription, database, range, mode, cancellationToken);
+            await _runner!.ExecuteAsync(subscription, database, range, mode, cancellationToken);
         }
         finally
         {
@@ -109,7 +109,7 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
         ShardName shardName)
     {
         return new ScopedSubscriptionExecution<T, TSubscription>(store, _provider, database, shardName,
-            loggerFactory.CreateLogger(typeof(TSubscription)));
+            loggerFactory.CreateLogger<TSubscription>());
     }
 
     public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,

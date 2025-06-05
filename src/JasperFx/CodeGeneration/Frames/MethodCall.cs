@@ -111,10 +111,10 @@ public class MethodCall : Frame
     ///     How should the ReturnVariable handled within the generated code? Initialize is the default.
     /// </summary>
     public ReturnAction ReturnAction { get; set; } = ReturnAction.Initialize;
-
+    
     private IEnumerable<Variable> buildTupleCreateVariables()
     {
-        foreach (var type in ReturnType.GetGenericArguments())
+        foreach (var type in ReturnType!.GetGenericArguments())
         {
             var count = Creates.Count(x => x.VariableType == type);
             var suffix = count > 0 ? (count + 1).ToString() : string.Empty;
@@ -185,9 +185,8 @@ public class MethodCall : Frame
     {
         var type = param.ParameterType;
 
-        if (Aliases.ContainsKey(type))
+        if (Aliases.TryGetValue(type, out var actualType))
         {
-            var actualType = Aliases[type];
             var inner = chain.FindVariable(actualType);
             return new CastVariable(inner, type);
         }
@@ -211,7 +210,7 @@ public class MethodCall : Frame
 
     public bool TrySetArgument(string parameterName, Variable variable)
     {
-        var parameters = Method.GetParameters().ToArray();
+        var parameters = Method.GetParameters();
         var matching = parameters.FirstOrDefault(x =>
             variable.VariableType == x.ParameterType && x.Name == parameterName);
 
@@ -228,9 +227,10 @@ public class MethodCall : Frame
 
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
-        var parameters = Method.GetParameters().ToArray();
+        var parameters = Method.GetParameters();
         for (var i = 0; i < parameters.Length; i++)
         {
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract Arguments might be nullable here but I don't want to touch the type and the warning isn't useful.
             if (Arguments[i] != null)
             {
                 continue;

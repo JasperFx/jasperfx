@@ -26,7 +26,7 @@ internal class ApplyMethodCollection: MethodCollection
             method.AddError($"Aggregate type '{AggregateType.FullNameInCode()}' is required as a parameter");
         }
 
-        if (_validArgumentTypes.Contains(method.EventType))
+        if (_validArgumentTypes.Contains(method.EventType!))
         {
             method.DisallowEventType();
         }
