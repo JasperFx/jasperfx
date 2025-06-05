@@ -140,7 +140,7 @@ public class JasperFxOptions : SystemPartBase
                 continue;
             }
 
-            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft"))
+            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft") || assemblyName.StartsWith("ReSharperTestRunner"))
             {
                 continue;
             }
