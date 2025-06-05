@@ -51,7 +51,8 @@ public interface IEventSlicer<TDoc, TId, TQuerySession> where TId : notnull
 ///     as part of the sorting of events into aggregate slices
 /// </summary>
 /// <typeparam name="TId"></typeparam>
-public interface IJasperFxAggregateGrouper<TId, TQuerySession>
+/// <typeparam name="TQuerySession"></typeparam>
+public interface IJasperFxAggregateGrouper<out TId, in TQuerySession>
 {
     /// <summary>
     ///     Apply custom grouping rules to apply events to one or many aggregates

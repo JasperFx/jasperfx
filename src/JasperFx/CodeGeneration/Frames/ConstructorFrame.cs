@@ -17,12 +17,6 @@ public enum ConstructorCallMode
 
 public class SetterArg
 {
-    public SetterArg(string propertyName, Variable variable)
-    {
-        PropertyName = propertyName ?? throw new ArgumentNullException(nameof(propertyName));
-        Variable = variable ?? throw new ArgumentNullException(nameof(variable));
-    }
-
     public SetterArg(string propertyName, Type propertyType)
     {
         PropertyName = propertyName;
@@ -108,7 +102,7 @@ public class ConstructorFrame : SyncFrame
 
     public Variable[] Parameters { get; set; }
 
-    public FramesCollection ActivatorFrames { get; } = new(null);
+    public FramesCollection ActivatorFrames { get; } = new(null!);
 
     public ConstructorCallMode Mode { get; set; } = ConstructorCallMode.Variable;
 

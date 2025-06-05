@@ -54,7 +54,7 @@ public class ShardState
     /// <summary>
     ///     If not null, this is the exception that caused this state to be published
     /// </summary>
-    public Exception Exception { get; set; }
+    public Exception? Exception { get; set; }
 
     public override string ToString()
     {

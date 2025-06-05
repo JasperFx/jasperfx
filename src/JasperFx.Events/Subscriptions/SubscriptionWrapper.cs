@@ -4,7 +4,7 @@ using JasperFx.Events.Descriptors;
 namespace JasperFx.Events.Subscriptions;
 
 internal class SubscriptionWrapper<TOperations, TQuerySession, TSubscription> : JasperFxSubscriptionBase<TOperations, TQuerySession
-    , TSubscription> where TOperations : TQuerySession, IStorageOperations
+    , TSubscription> where TOperations : TQuerySession, IStorageOperations where TSubscription : notnull
 {
     public SubscriptionWrapper(TSubscription subscription) : base(subscription)
     {

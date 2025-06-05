@@ -203,7 +203,7 @@ public class UsageGraph
                         var member = finder.Members.Last();
 
                         return _parent.Handlers.FirstOrDefault(x => x.MemberName == member.Name);
-                    }).ToArray();
+                    }).ToArray()!;
         }
     }
 }

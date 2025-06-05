@@ -35,7 +35,7 @@ public class SubscriptionExecution<T> : SubscriptionExecutionBase
     protected override Task executeRangeAsync(IEventDatabase database, EventRange range, ShardExecutionMode mode,
         CancellationToken cancellationToken)
     {
-        return _runner.ExecuteAsync(_subscription, database, range, Mode, cancellationToken);
+        return _runner!.ExecuteAsync(_subscription, database, range, Mode, cancellationToken);
     }
 }
 

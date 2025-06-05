@@ -19,7 +19,7 @@ public class MethodSlot
         Method = method;
         EventType = method.GetEventType(aggregateType);
         ReturnType = method.ReturnType;
-        DeclaringType = method.DeclaringType;
+        DeclaringType = method.DeclaringType!;
     }
 
     public MethodSlot(Setter setter, MethodInfo method, Type eventType)
@@ -27,7 +27,7 @@ public class MethodSlot
         Setter = setter;
         Method = method;
         EventType = eventType ?? throw new ArgumentNullException(nameof(eventType));
-        DeclaringType = method.DeclaringType;
+        DeclaringType = method.DeclaringType!;
         ReturnType = method.ReturnType;
         HandlerType = setter.VariableType;
     }
@@ -36,7 +36,7 @@ public class MethodSlot
     {
         if (constructor.GetParameters().Length > 1)
         {
-            throw new ArgumentOutOfRangeException("Only single argument constructor functions can be used here.");
+            throw new ArgumentOutOfRangeException(nameof(constructor), "Only single argument constructor functions can be used here.");
         }
 
         var parameterType = constructor.GetParameters().Single().ParameterType;
@@ -56,14 +56,14 @@ public class MethodSlot
         Method = constructor;
     }
 
-    public Setter Setter { get; }
+    public Setter? Setter { get; }
     public MethodBase Method { get; }
 
     public Type DeclaringType { get; }
 
     public Type ReturnType { get; }
-
-    public Type HandlerType { get; set; }
+    // Is this ever null?
+    public Type HandlerType { get; set; } = null!;
 
     public Type? EventType { get; private set; }
 
@@ -117,7 +117,7 @@ public class MethodSlot
 
     private void validateArguments(MethodCollection collection)
     {
-        var possibleTypes = new List<Type>(collection.ValidArgumentTypes) { EventType, typeof(IEvent) };
+        List<Type?> possibleTypes = [..collection.ValidArgumentTypes, EventType, typeof(IEvent)];
 
         if (EventType != null)
         {
@@ -142,7 +142,7 @@ public class MethodSlot
 
     public static MethodSlot InvalidMethodName(MethodInfo methodInfo, string[] methodNames)
     {
-        var slot = new MethodSlot(methodInfo, null);
+        var slot = new MethodSlot(methodInfo, null!);
         slot._errors.Add(
             $"Unrecognized method name '{methodInfo.Name}'. Either mark with [JasperFxIgnore] or use one of {methodNames.Select(x => $"'{x}'").Join(", ")}");
 

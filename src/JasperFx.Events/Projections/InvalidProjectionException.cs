@@ -21,10 +21,10 @@ public class InvalidProjectionException: Exception
 
     public InvalidProjectionException(string[] messages): base(messages.Join(System.Environment.NewLine))
     {
-        InvalidMethods = new MethodSlot[0];
+        InvalidMethods = [];
     }
 
-    public MethodSlot[] InvalidMethods { get; }
+    public MethodSlot[]? InvalidMethods { get; }
 
     private static string ToMessage(object projection, IEnumerable<MethodSlot> invalidMethods)
     {

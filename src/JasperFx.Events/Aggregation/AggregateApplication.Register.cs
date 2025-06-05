@@ -50,7 +50,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession>
 
         var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
         var body = Expression.Call(caller, method, arguments).MaybeWrapWithValueTask<TAggregate>();
-        var lambda = Expression.Lambda<Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>>>(body, e, session, cancellation).CompileFast();
+        var lambda = Expression.Lambda<Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>>(body, e, session, cancellation).CompileFast();
 
         _creators = _creators.AddOrUpdate(eventType, lambda);
     }

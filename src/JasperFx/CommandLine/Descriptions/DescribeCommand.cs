@@ -21,7 +21,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
         var config = host.Services.GetRequiredService<IConfiguration>();
         var configurationPreview = new ConfigurationPreview(config);
         
-        var hosting = host.Services.GetService<IHostEnvironment>();
+        var hosting = host.Services.GetRequiredService<IHostEnvironment>();
         var about = new AboutThisAppPart(hosting);
 
         var builtInDescribers = new ISystemPart[] { about, configurationPreview, new ReferencedAssemblies() };
@@ -128,9 +128,9 @@ public class AboutThisAppPart : SystemPartBase
         table.AddColumn(new TableColumn("Name").RightAligned());
         table.AddColumn(new TableColumn("Value"));
 
-        var entryAssembly = Assembly.GetEntryAssembly();
-        table.AddRow("Entry Assembly: ", entryAssembly.GetName().Name);
-        table.AddRow("Version: ", entryAssembly.GetName().Version.ToString());
+        var entryAssembly = Assembly.GetEntryAssembly()!;
+        table.AddRow("Entry Assembly: ", entryAssembly.GetName().Name!);
+        table.AddRow("Version: ", entryAssembly.GetName().Version!.ToString());
         table.AddRow("Application Name: ", _host.ApplicationName);
         table.AddRow("Environment: ",_host.EnvironmentName);
         table.AddRow("Content Root Path: ", _host.ContentRootPath);

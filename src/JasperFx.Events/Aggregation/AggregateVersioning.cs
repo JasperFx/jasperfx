@@ -146,7 +146,7 @@ public class AggregateVersioning<T> : IAggregateVersioning
             return Convert.ToInt64(prop.GetValue(aggregate));
         }
 
-        return Convert.ToInt64(VersionMember.As<FieldInfo>().GetValue(aggregate));
+        return Convert.ToInt64(VersionMember!.As<FieldInfo>().GetValue(aggregate));
     }
 }
 
@@ -159,7 +159,7 @@ public class AggregateVersioning<T, TQuerySession> : AggregateVersioning<T>, IAg
 
     public Type IdentityType => Inner.IdentityType;
 
-    public IAggregator<T, TQuerySession> Inner { get; set; }
+    public IAggregator<T, TQuerySession> Inner { get; init; } = null!;
     
     public async ValueTask<T?> BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, T? snapshot,
         CancellationToken cancellation)

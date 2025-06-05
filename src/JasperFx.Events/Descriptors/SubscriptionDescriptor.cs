@@ -63,12 +63,9 @@ public class SubscriptionDescriptor : OptionsDescription
 
     private readonly List<MetricDescriptor> _metrics = new();
 
-    public MetricDescriptor[] Metrics
+    public new MetricDescriptor[] Metrics
     {
-        get
-        {
-            return _metrics.ToArray();
-        }
+        get => _metrics.ToArray();
         set
         {
             _metrics.Clear();

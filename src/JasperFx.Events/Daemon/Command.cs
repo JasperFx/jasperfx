@@ -6,7 +6,6 @@ public class Command
 {
     internal long HighWaterMark;
     internal long LastCommitted;
-    internal EventRange Range;
 
     internal CommandType Type;
 

@@ -8,12 +8,12 @@ public class EventRequest
     public long HighWater { get; init; }
     public int BatchSize { get; init; }
 
-    public ShardName Name { get; init; }
+    public ShardName Name { get; init; } = null!;
 
-    public ErrorHandlingOptions ErrorOptions { get; init; }
+    public ErrorHandlingOptions ErrorOptions { get; init; } = null!;
 
-    public IDaemonRuntime Runtime { get; init; }
-    public ISubscriptionMetrics Metrics { get; init; }
+    public IDaemonRuntime Runtime { get; init; } = null!;
+    public ISubscriptionMetrics Metrics { get; init; } = null!;
 
     public override string ToString()
     {

@@ -25,7 +25,7 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     ISubscriptionSource<TOperations, TQuerySession>, 
     ISubscriptionFactory<TOperations, TQuerySession>,
     ISubscriptionOptions
-    where TOperations : TQuerySession, IStorageOperations
+    where TOperations : TQuerySession, IStorageOperations where TSubscription : notnull
 {
     private readonly TSubscription _subscription;
 

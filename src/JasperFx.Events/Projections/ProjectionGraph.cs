@@ -18,7 +18,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     private readonly Dictionary<Type, object> _liveAggregateSources = new();
     private ImHashMap<Type, object> _liveAggregators = ImHashMap<Type, object>.Empty;
     private readonly List<ISubscriptionSource<TOperations, TQuerySession>> _subscriptions = new();
-    private Lazy<Dictionary<string, AsyncShard<TOperations, TQuerySession>>> _asyncShards;
+    private Lazy<Dictionary<string, AsyncShard<TOperations, TQuerySession>>> _asyncShards = null!;
 
     protected ProjectionGraph(IEventRegistry events, string otelPrefixName)
     {
@@ -271,13 +271,13 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         return _asyncShards.Value.TryGetValue(projectionOrShardName, out shard);
     }
 
-    public bool TryFindProjection(string projectionName, out IProjectionSource<TOperations, TQuerySession>? source)
+    public bool TryFindProjection(string projectionName, [NotNullWhen(true)]out IProjectionSource<TOperations, TQuerySession>? source)
     {
         source = All.FirstOrDefault(x => x.Name.EqualsIgnoreCase(projectionName));
         return source != null;
     }
 
-    internal bool TryFindSubscription(string projectionName, out ISubscriptionSource<TOperations, TQuerySession>? source)
+    internal bool TryFindSubscription(string projectionName, [NotNullWhen(true)]out ISubscriptionSource<TOperations, TQuerySession>? source)
     {
         source = _subscriptions.FirstOrDefault(x => x.Name.EqualsIgnoreCase(projectionName));
         return source != null;

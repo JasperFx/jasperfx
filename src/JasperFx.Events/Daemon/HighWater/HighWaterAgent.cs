@@ -18,8 +18,8 @@ public class HighWaterAgent: IDisposable
     private readonly ShardStateTracker _tracker;
 
     private HighWaterStatistics? _current;
-    private Task<Task> _loop;
-    private CancellationToken _token;
+    private Task<Task> _loop = null!;
+    private readonly CancellationToken _token;
     private readonly string _spanName;
     private readonly Counter<int> _skipping;
 

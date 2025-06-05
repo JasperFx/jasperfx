@@ -445,17 +445,17 @@ public class StreamAction
         where TId : notnull
     {
         if (typeof(TId) == typeof(Guid)) return e => e.Id.As<TId>();
-        if (typeof(TId) == typeof(string)) return e => e.Key.As<TId>();
+        if (typeof(TId) == typeof(string)) return e => e.Key!.As<TId>();
         
         var valueTypeInfo = ValueTypeInfo.ForType(typeof(TId));
         
         var e = Expression.Parameter(typeof(StreamAction), "e");
         var eMember = valueTypeInfo.SimpleType == typeof(Guid)
             ? ReflectionHelper.GetProperty<StreamAction>(x => x.Id)
-            : ReflectionHelper.GetProperty<StreamAction>(x => x.Key);
+            : ReflectionHelper.GetProperty<StreamAction>(x => x.Key!);
 
-        var raw = Expression.Call(e, eMember.GetMethod);
-        Expression wrapped = null;
+        var raw = Expression.Call(e, eMember.GetMethod!);
+        Expression? wrapped = null;
         if (valueTypeInfo.Builder != null)
         {
             wrapped = Expression.Call(null, valueTypeInfo.Builder, raw);

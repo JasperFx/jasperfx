@@ -4,8 +4,8 @@ namespace JasperFx.Events.Daemon;
 ///     Fluent interface option for expressing aggregation projections
 /// </summary>
 /// <typeparam name="T"></typeparam>
-
-public interface IAggregationSteps<T, TQuerySession>
+/// <typeparam name="TQuerySession"></typeparam>
+public interface IAggregationSteps<T, out TQuerySession>
 {
     /// <summary>
     ///     Create a new instance of the aggregate T when the event TEvent is encountered -- if the aggregate does

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.Core;
 using Microsoft.Extensions.Configuration;
@@ -55,6 +56,7 @@ public class NetCoreInput : IHostBuilderInput
     public string? ApplicationNameFlag { get; set; }
     
     [Description("Override the IHostEnvironment.EnvironmentName"), FlagAlias("environmentName")]
+    [MemberNotNull(nameof(EnvironmentFlag))]
     public string? EnvironmentNameFlag { get; set; }
 
     [Description("Write out much more information at startup and enables console logging")]
@@ -63,14 +65,14 @@ public class NetCoreInput : IHostBuilderInput
     [Description("Override the log level")]
     public LogLevel? LogLevelFlag { get; set; }
 
-    [IgnoreOnCommandLine] public Assembly ApplicationAssembly { get; set; }
+    [IgnoreOnCommandLine] public Assembly ApplicationAssembly { get; set; } = null!;
 
     /// <summary>
     ///     The IHostBuilder configured by your application. Can be used to build or start
     ///     up the application
     /// </summary>
     [IgnoreOnCommandLine]
-    public IHostBuilder HostBuilder { get; set; }
+    public IHostBuilder HostBuilder { get; set; } = null!;
 
     public virtual void ApplyHostBuilderInput()
     {

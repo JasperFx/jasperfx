@@ -36,10 +36,8 @@ internal abstract class MethodCollection
     protected readonly List<Type> _validArgumentTypes = new();
     protected readonly List<Type> _validReturnTypes = new();
 
-    private int _lambdaNumber;
-
     protected MethodCollection(string methodName, Type projectionType, Type aggregateType)
-        : this(new[] { methodName }, projectionType, aggregateType)
+        : this([methodName], projectionType, aggregateType)
     {
     }
 
@@ -100,7 +98,7 @@ internal abstract class MethodCollection
 
     internal IEnumerable<Type> EventTypes()
     {
-        return Methods.Where(x => x.EventType != null).Select(x => x.EventType).Distinct();
+        return Methods.Where(x => x.EventType != null).Select(x => x.EventType!).Distinct();
     }
 
     internal abstract void validateMethod(MethodSlot method);
@@ -131,8 +129,8 @@ internal abstract class MethodCollection
 
         var invalidMethods = projectionType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(x => !x.HasAttribute<JasperFxIgnoreAttribute>())
-            .Where(x => x.DeclaringType.Assembly != typeof(MethodCollection).Assembly)
-            .Where(x => !x.DeclaringType.Assembly.HasAttribute<JasperFxAssemblyAttribute>())
+            .Where(x => x.DeclaringType!.Assembly != typeof(MethodCollection).Assembly)
+            .Where(x => !x.DeclaringType!.Assembly.HasAttribute<JasperFxAssemblyAttribute>())
             .Where(x => x.DeclaringType != typeof(object))
             .Where(x => !x.IsSpecialName)
             .Where(x => !methodNames.Contains(x.Name))

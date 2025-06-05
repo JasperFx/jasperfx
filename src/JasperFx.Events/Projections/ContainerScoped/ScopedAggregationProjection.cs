@@ -14,7 +14,7 @@ internal class ScopedAggregationProjection<TSource, TDoc, TId, TOperations, TQue
     private readonly IServiceProvider _services;
     private readonly ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySession> _scopedAggregation;
     private AsyncServiceScope _scope;
-    private TSource _inner;
+    private TSource _inner = null!;
 
     public ScopedAggregationProjection(IServiceProvider services, ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySession> scopedAggregation)
     {

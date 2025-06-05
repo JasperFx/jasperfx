@@ -9,15 +9,15 @@ namespace JasperFx.Events.Aggregation;
 internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAggregate, TQuerySession>, IMetadataApplication
 {
     // This would be for external projections
-    private readonly object _projection;
-    private readonly Type _projectionType;
+    private readonly object? _projection;
+    private readonly Type? _projectionType;
     
     private ImHashMap<Type, Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>> _applications = ImHashMap<Type, Func<TAggregate, IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>>.Empty;
-    private ImHashMap<Type, Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>>> _creators = ImHashMap<Type, Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate>>>.Empty;
+    private ImHashMap<Type, Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>> _creators = ImHashMap<Type, Func<IEvent, TQuerySession, CancellationToken, ValueTask<TAggregate?>>>.Empty;
     private readonly CreateMethodCollection _createMethods;
     private readonly ApplyMethodCollection _applyMethods;
     private readonly ShouldDeleteMethodCollection _shouldDeleteMethods;
-    private readonly IMetadataApplication _metadataApplication;
+    private readonly IMetadataApplication? _metadataApplication;
 
     public AggregateApplication()
     {
@@ -142,7 +142,7 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
 
         if (snapshot != null)
         {
-            _metadataApplication.ApplyMetadata(snapshot, events.Last());
+            _metadataApplication!.ApplyMetadata(snapshot, events[^1]);
         }
 
         return snapshot;

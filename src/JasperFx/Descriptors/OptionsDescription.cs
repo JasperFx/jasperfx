@@ -20,8 +20,8 @@ public class OptionsDescription
 
         return new OptionsDescription(subject);
     }
-    
-    public string Subject { get; set; }
+
+    public string Subject { get; set; } = null!;
     public List<OptionsValue> Properties { get; set; } = new();
 
     public Dictionary<string, OptionsDescription> Children = new();

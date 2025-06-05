@@ -9,14 +9,14 @@ public class RebuildWatcher : IObserver<ShardState>
     private readonly Cache<string, ProgressTask> _shards
         = new();
 
-    private ProgressContext _context;
+    private ProgressContext _context = null!;
     private readonly TaskCompletionSource _completion;
 
     public RebuildWatcher(long highWaterMark)
     {
         _completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _shards.OnMissing = shardName => _context!.AddTask(shardName, new ProgressTaskSettings
+        _shards.OnMissing = shardName => _context.AddTask(shardName, new ProgressTaskSettings
         {
             AutoStart = true,
             MaxValue = highWaterMark

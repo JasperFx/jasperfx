@@ -19,7 +19,7 @@ public class TenantRollupSlicer<TDoc>: IEventSlicer<TDoc, string>, IEventSlicer
     }
 }
 
-public class TenantRollupSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>, IEventSlicer
+public class TenantRollupSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>, IEventSlicer where TId : notnull
 {
     private readonly Func<string,TId> _wrapper;
 

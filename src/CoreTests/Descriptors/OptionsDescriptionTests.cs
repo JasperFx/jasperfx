@@ -9,7 +9,7 @@ public class OptionsDescriptionTests
     {
         var description = new OptionsDescription();
         description.AddValue("Foo", 1);
-        var children = new OptionSet();
+        var children = new OptionSet() { Subject = ""};
         description.Sets["Children"] = children;
         children.SummaryColumns = ["a", "b"];
         children.Rows.Add(new OptionsDescription());

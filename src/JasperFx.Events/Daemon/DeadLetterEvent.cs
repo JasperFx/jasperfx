@@ -5,7 +5,9 @@ namespace JasperFx.Events.Daemon;
 
 public class DeadLetterEvent
 {
+#pragma warning disable CS8618 
     public DeadLetterEvent()
+#pragma warning restore CS8618 
     {
     }
 
@@ -18,7 +20,7 @@ public class DeadLetterEvent
 
         EventSequence = e.Sequence;
 
-        ExceptionType = ex.InnerException?.GetType().NameInCode();
+        ExceptionType = ex.InnerException?.GetType()!.NameInCode()!;
     }
 
     public Guid Id { get; set; }

@@ -24,9 +24,9 @@ public static class TypeNameExtensions
     /// <returns></returns>
     public static string FullNameInCode(this Type type)
     {
-        if (Aliases.ContainsKey(type))
+        if (Aliases.TryGetValue(type, out var code))
         {
-            return Aliases[type];
+            return code;
         }
 
         if (type.IsGenericType && !type.IsGenericTypeDefinition)
@@ -42,7 +42,7 @@ public static class TypeNameExtensions
 
             if (type.IsNested)
             {
-                return $"{type.ReflectedType.FullNameInCode()}.{cleanName}<{args}>";
+                return $"{type.ReflectedType!.FullNameInCode()}.{cleanName}<{args}>";
             }
 
             return $"{type.Namespace}.{cleanName}<{args}>";
@@ -73,9 +73,9 @@ public static class TypeNameExtensions
     /// <returns></returns>
     public static string NameInCode(this Type type)
     {
-        if (Aliases.ContainsKey(type))
+        if (Aliases.TryGetValue(type, out var code))
         {
-            return Aliases[type];
+            return code;
         }
 
         if (type.IsGenericType)
@@ -137,9 +137,9 @@ public static class TypeNameExtensions
 
     public static string ShortNameInCode(this Type type)
     {
-        if (Aliases.ContainsKey(type))
+        if (Aliases.TryGetValue(type, out var code))
         {
-            return Aliases[type];
+            return code;
         }
 
         try

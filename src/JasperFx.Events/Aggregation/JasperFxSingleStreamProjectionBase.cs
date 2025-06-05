@@ -36,9 +36,9 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return this.As<IAggregator<T, TIdentity, TQuerySession>>();
     }
 
-    private class NulloIdentitySetter<TDoc, TId> : IIdentitySetter<TDoc, TId>
+    private class NulloIdentitySetter<TDoc1, TId1> : IIdentitySetter<TDoc1, TId1>
     {
-        public void SetIdentity(TDoc document, TId identity)
+        public void SetIdentity(TDoc1 document, TId1 identity)
         {
             // Nothing
         }

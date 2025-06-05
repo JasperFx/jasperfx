@@ -242,7 +242,7 @@ public class CommandFactory : ICommandFactory
         return HelpRun(commandName);
     }
 
-    private object tryBeforeBuild(Queue<string> queue, string commandName)
+    private object? tryBeforeBuild(Queue<string> queue, string commandName)
     {
         var commandType = _commandTypes[commandName];
 

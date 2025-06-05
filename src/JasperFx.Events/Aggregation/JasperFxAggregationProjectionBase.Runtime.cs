@@ -147,9 +147,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e,
         CancellationToken cancellation)
     {
-        return snapshot == null
+        return (snapshot == null
             ? _application.Create(e, session, cancellation)
-            : _application.ApplyAsync(snapshot, e, session, cancellation);
+            : _application.ApplyAsync(snapshot, e, session, cancellation)!)!;
     }
 
     /// <summary>
