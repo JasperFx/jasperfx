@@ -41,24 +41,27 @@ public class JasperFxOptions : SystemPartBase
     {
         _requiredFiles.Fill(path);
     }
-    
+
     /// <summary>
     /// Tenant Id naming rules for this application. Default is to use case-sensitive names and not
     /// to correct any supplied tenant id
     /// </summary>
-    public TenantIdStyle TenantIdStyle { get; set; } = TenantIdStyle.CaseSensitive;
+    public TenantIdStyle TenantIdStyle
+    {
+        get => _tenantIdStyle;
+        set => _tenantIdStyle = value;
+    }
 
     /// <summary>
     /// Resource settings for development time. Defaults are CreateOrUpdate
     /// for resources, Dynamic for code generation
     /// </summary>
     [ChildDescription]
-    public Profile Development { get; private set; } = new Profile
+    public Profile Development
     {
-        ResourceAutoCreate = AutoCreate.CreateOrUpdate,
-        GeneratedCodeMode = TypeLoadMode.Dynamic,
-        SourceCodeWritingEnabled = true
-    };
+        get => _development;
+        private set => _development = value;
+    }
 
     /// <summary>
     /// Resource settings for production time. Defaults are CreateOrUpdate
@@ -66,28 +69,43 @@ public class JasperFxOptions : SystemPartBase
     /// code start times at production start
     /// </summary>
     [ChildDescription]
-    public Profile Production { get; private set; } = new Profile
+    public Profile Production
     {
-        ResourceAutoCreate = AutoCreate.CreateOrUpdate,
-        GeneratedCodeMode = TypeLoadMode.Dynamic,
-        SourceCodeWritingEnabled = true
-    };
-    
+        get => _production;
+        private set => _production = value;
+    }
+
     [ChildDescription]
-    public Profile ActiveProfile { get; private set; }
+    public Profile ActiveProfile
+    {
+        get => _activeProfile;
+        private set => _activeProfile = value;
+    }
 
     /// <summary>
     /// Use to override the environment name that JasperFx "thinks" means that you are in
     /// development mode. Default is to use "Development"
     /// </summary>
-    public string? DevelopmentEnvironmentName { get; set; } = "Development";
-    
+    public string? DevelopmentEnvironmentName
+    {
+        get => _developmentEnvironmentName;
+        set => _developmentEnvironmentName = value;
+    }
+
     /// <summary>
     ///     The main application assembly. By default this is the entry assembly for the application,
     ///     but you may need to change this in testing scenarios
     /// </summary>
-    public Assembly? ApplicationAssembly { get; set; } 
-    
+    public Assembly? ApplicationAssembly
+    {
+        get => _applicationAssembly;
+        set
+        {
+            _applicationAssembly = value;
+            _serviceName ??= _applicationAssembly.GetName().Name;
+        }
+    }
+
     private void establishApplicationAssembly(string? assemblyName)
     {
         if (assemblyName.IsNotEmpty())
@@ -151,17 +169,25 @@ public class JasperFxOptions : SystemPartBase
         return Assembly.GetEntryAssembly();
     }
 
-    
+
     /// <summary>
     ///     Descriptive name of the running service. Used in diagnostics and testing support. Default is the entry assembly name. 
     /// </summary>
-    public string ServiceName { get; set; } = Assembly.GetEntryAssembly()!.GetName().Name ?? "WolverineService";
-    
+    public string ServiceName
+    {
+        get => _serviceName;
+        set => _serviceName = value;
+    }
+
     /// <summary>
     ///     Root folder where generated code should be placed. By default, this is the IHostEnvironment.ContentRootPath + "Internal/Generated"
     /// </summary>
-    public string? GeneratedCodeOutputPath { get; set; } 
-    
+    public string? GeneratedCodeOutputPath
+    {
+        get => _generatedCodeOutputPath;
+        set => _generatedCodeOutputPath = value;
+    }
+
     internal void ReadHostEnvironment(IHostEnvironment environment)
     {
         GeneratedCodeOutputPath ??= environment.ContentRootPath.AppendPath("Internal", "Generated");
@@ -228,22 +254,57 @@ public class JasperFxOptions : SystemPartBase
 
         GeneratedCodeOutputPath = path.AppendPath("Internal", "Generated");
     }
-    
-    
-    public string? OptionsFile { get; set; }
-    
+
+
+    public string? OptionsFile
+    {
+        get => _optionsFile;
+        set => _optionsFile = value;
+    }
+
     /// <summary>
     /// Optional 
     /// </summary>
-    public Action<CommandFactory>? Factory { get; set; }
-    
+    public Action<CommandFactory>? Factory
+    {
+        get => _factory;
+        set => _factory = value;
+    }
+
     /// <summary>
     /// Default command name to execute from just "dotnet run" or if you omit the
     /// JasperFx command name. The default is "run"
     /// </summary>
-    public string DefaultCommand { get; set; } = "run";
+    public string DefaultCommand
+    {
+        get => _defaultCommand;
+        set => _defaultCommand = value;
+    }
 
     private readonly List<LambdaCheck> _checks = new List<LambdaCheck>();
+    private TenantIdStyle _tenantIdStyle = TenantIdStyle.CaseSensitive;
+    private Profile _development = new Profile
+    {
+        ResourceAutoCreate = AutoCreate.CreateOrUpdate,
+        GeneratedCodeMode = TypeLoadMode.Dynamic,
+        SourceCodeWritingEnabled = true
+    };
+
+    private Profile _production = new Profile
+    {
+        ResourceAutoCreate = AutoCreate.CreateOrUpdate,
+        GeneratedCodeMode = TypeLoadMode.Dynamic,
+        SourceCodeWritingEnabled = true
+    };
+
+    private Profile _activeProfile;
+    private string? _developmentEnvironmentName = "Development";
+    private Assembly? _applicationAssembly;
+    private string _serviceName;
+    private string? _generatedCodeOutputPath;
+    private string? _optionsFile;
+    private Action<CommandFactory>? _factory;
+    private string _defaultCommand = "run";
 
     public void RegisterEnvironmentCheck(string description, Func<IServiceProvider, CancellationToken, Task> action)
     {
