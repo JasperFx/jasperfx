@@ -16,6 +16,18 @@ namespace JasperFx;
 
 public class JasperFxOptions : SystemPartBase
 {
+    public static bool HasReferenceToJasperFxTool(Assembly assembly)
+    {
+        var names = assembly.GetReferencedAssemblies();
+        foreach (var name in names)
+        {
+            var reference = Assembly.Load(name);
+            if (reference != null && reference.HasAttribute<JasperFxToolAttribute>()) return true;
+        }
+
+        return false;
+    }
+    
     /// <summary>
     ///     You may use this to "help" Wolverine & other Critter Stack tools in testing scenarios to force
     ///     it to consider this assembly as the main application assembly rather
@@ -118,7 +130,7 @@ public class JasperFxOptions : SystemPartBase
         }
         else
         {
-            RememberedApplicationAssembly = ApplicationAssembly = determineCallingAssembly();
+            RememberedApplicationAssembly = ApplicationAssembly = DetermineCallingAssembly();
         }
 
         if (ApplicationAssembly == null)
@@ -127,8 +139,10 @@ public class JasperFxOptions : SystemPartBase
         }
     }
     
-    private Assembly? determineCallingAssembly()
+    internal static Assembly? DetermineCallingAssembly()
     {
+        if (HasReferenceToJasperFxTool(Assembly.GetEntryAssembly())) return Assembly.GetEntryAssembly();
+        
         var stack = new StackTrace();
         var frames = stack.GetFrames();
         var jasperfxFrame = frames.LastOrDefault(x =>

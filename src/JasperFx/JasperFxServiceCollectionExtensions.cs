@@ -38,9 +38,16 @@ public static class JasperFxServiceCollectionExtensions
     /// <returns></returns>
     public static IServiceCollection AddJasperFx(this IServiceCollection services, Action<JasperFxOptions>? configure = null)
     {
+        // It's actually important to do this as close as possible to this call
+        if (JasperFxOptions.RememberedApplicationAssembly == null)
+        {
+            JasperFxOptions.RememberedApplicationAssembly = JasperFxOptions.DetermineCallingAssembly();
+        }
+        
         bool exists = services.Any(x => !x.IsKeyedService && x.ServiceType == typeof(JasperFxOptions));
         
         var optionsBuilder = services.AddOptions<JasperFxOptions>();
+        
         if (configure != null)
         {
             optionsBuilder.Configure(configure!);
