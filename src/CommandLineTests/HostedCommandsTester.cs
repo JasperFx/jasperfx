@@ -2,6 +2,7 @@
 using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Shouldly;
 
 namespace CommandLineTests;
 
@@ -20,15 +21,19 @@ public class HostedCommandsTester
                     {
                         factory.RegisterCommand<TestDICommand>();
                     };
+                    
                     options.DefaultCommand = "TestDI";
                 });
             });
 
         var app = builder.Build();
 
-        await app.RunJasperFxCommands(Array.Empty<string>());
+        var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+        {
+            await app.RunJasperFxCommands(["testdi"]);
+        });
 
-        Assert.Equal(1, TestDICommand.Value);
+    ex.Message.ShouldContain("please use a default ctor");
     }
 
     public class TestInput

@@ -18,7 +18,7 @@ public class run_command_compliance
     {
         Should.Throw<ArgumentOutOfRangeException>(() =>
         {
-            new RunInput().EnvironmentFlag = value;
+            new RunInput().EnvironmentVariableFlag = value;
         });
     }
 
@@ -26,7 +26,7 @@ public class run_command_compliance
     public void use_environment_flag_once()
     {
         var input = new RunInput();
-        input.EnvironmentFlag = "one=blue";
+        input.EnvironmentVariableFlag = "one=blue";
         
         System.Environment.GetEnvironmentVariable("one").ShouldBe("blue");
     }
@@ -35,8 +35,8 @@ public class run_command_compliance
     public void use_environment_variable_multiple_times()
     {
         var input = new RunInput();
-        input.EnvironmentFlag = "one=blue";
-        input.EnvironmentFlag = "two=green";
+        input.EnvironmentVariableFlag = "one=blue";
+        input.EnvironmentVariableFlag = "two=green";
         
         System.Environment.GetEnvironmentVariable("one").ShouldBe("blue");
         System.Environment.GetEnvironmentVariable("two").ShouldBe("green");
@@ -48,7 +48,7 @@ public class run_command_compliance
         var input = new RunInput();
         input.EnvironmentFlag = "Testing";
         
-        input.EnvironmentNameFlag.ShouldBe("Testing");
+        input.EnvironmentFlag.ShouldBe("Testing");
     }
 
     [Fact]
@@ -56,12 +56,12 @@ public class run_command_compliance
     {
         var input = new RunInput
         {
-            EnvironmentNameFlag = Guid.NewGuid().ToString(),
+            EnvironmentFlag = Guid.NewGuid().ToString(),
             HostBuilder = Host.CreateDefaultBuilder()
         };
 
         var host = input.BuildHost();
-        host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName.ShouldBe(input.EnvironmentNameFlag);
+        host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName.ShouldBe(input.EnvironmentFlag);
     }
 
     [Fact]

@@ -168,9 +168,9 @@ namespace CommandLineTests
         public void explode_the_flag()
         {
             var graph = new UsageGraph(typeof(RunCommand));
-            var args = ArgPreprocessor.Process(["--environmentName=Production"]);
+            var args = ArgPreprocessor.Process(["--environment=Production"]);
             var input = graph.BuildInput(new Queue<string>(args), new ActivatorCommandCreator());
-            input.ShouldBeOfType<RunInput>().EnvironmentNameFlag.ShouldBe("Production");
+            input.ShouldBeOfType<RunInput>().EnvironmentFlag.ShouldBe("Production");
         }
     }
 

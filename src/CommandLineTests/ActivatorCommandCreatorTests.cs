@@ -19,7 +19,7 @@ namespace CommandLineTests
         {
             var creator = new ActivatorCommandCreator();
 
-            Assert.Throws<MissingMethodException>(() => creator.CreateCommand(typeof (ParamsCommand)));
+            Assert.Throws<InvalidOperationException>(() => creator.CreateCommand(typeof (ParamsCommand)));
         }
 
         public class FakeModel

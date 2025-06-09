@@ -25,6 +25,7 @@ internal class HostWrapperCommand : IJasperFxCommand
     {
         using var host = _hostSource();
         using var scope = host.Services.CreateScope();
+
         foreach (var prop in _props)
         {
             var serviceType = prop.PropertyType;
