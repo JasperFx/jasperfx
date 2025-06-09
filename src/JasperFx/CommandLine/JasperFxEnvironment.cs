@@ -8,4 +8,6 @@ public static class JasperFxEnvironment
     ///     method runs. Very useful for WebApplicationFactory testing
     /// </summary>
     public static bool AutoStartHost { get; set; }
+    
+    public static bool RunQuiet { get; set; }
 }
