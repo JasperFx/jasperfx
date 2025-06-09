@@ -61,6 +61,8 @@ public abstract class Frame
         get => _next;
         set
         {
+            if (ReferenceEquals(_next, value)) return;
+            
             if (_next != null)
             {
                 throw new InvalidOperationException(
