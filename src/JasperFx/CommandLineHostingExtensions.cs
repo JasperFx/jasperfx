@@ -141,59 +141,11 @@ public static class CommandLineHostingExtensions
     /// <param name="host">An already built IHost</param>
     /// <param name="args"></param>
     /// <returns></returns>
-    public static async Task<int> RunJasperFxCommands(this IHost host, string[] args)
-    {
-        var options = host.Services.GetService<IOptions<JasperFxOptions>>()?.Value;
-        if (options == null)
-        {
-            return await execute(new PreBuiltHostBuilder(host), null, args, null);
-        }
-        
-        try
-        {
-            using var scope = host.Services.CreateScope();
-            args = ApplyArgumentDefaults(args, options);
-    
-            var executor = scope.ServiceProvider.GetRequiredService<CommandExecutor>();
-    
-            if (executor.Factory is CommandFactory factory)
-            {
-                var originalConfigureRun = factory.ConfigureRun;
-                factory.ConfigureRun = cmd =>
-                {
-                    if (cmd.Input is IHostBuilderInput i)
-                    {
-                        i.HostBuilder = new PreBuiltHostBuilder(host);
-                    }
-    
-                    originalConfigureRun?.Invoke(cmd);
-                };
-            }
-    
-            return await executor.ExecuteAsync(args);
-        }
-        finally
-        {
-            host.SafeDispose();
-        }
-    }
-
-    private static string[] ApplyArgumentDefaults(string[] args, JasperFxOptions options)
+    public static Task<int> RunJasperFxCommands(this IHost host, string[] args)
     {
         // Workaround for IISExpress / VS2019 erroneously putting crap arguments
         args = args.FilterLauncherArgs();
-
-        // Gotta apply the options file here before the magic "run" gets in
-        if (options.OptionsFile.IsNotEmpty())
-        {
-            args = CommandExecutor.ReadOptions(options.OptionsFile).Concat(args).ToArray();
-        }
-
-        if (args == null || args.Length == 0 || args[0].StartsWith('-'))
-        {
-            args = new[] { options.DefaultCommand }.Concat(args ?? Array.Empty<string>()).ToArray();
-        }
-
-        return args;
+        
+        return execute(new PreBuiltHostBuilder(host), Assembly.GetEntryAssembly(), args, null);
     }
 }

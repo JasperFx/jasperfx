@@ -123,4 +123,6 @@ public class OptionsDescription
     public Dictionary<string, string> Tags = new();
 
     public List<MetricDescriptor> Metrics { get; set; } = new();
+    
+    public string Title { get; set; }
 }

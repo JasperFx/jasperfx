@@ -16,37 +16,38 @@ public class NetCoreInput : IHostBuilderInput
     
     [Description("Overwrite individual configuration items")]
     public Dictionary<string, string?> ConfigFlag = new();
-    
-    [Description("Value in the form <KEY=VALUE> to set an environment variable for this process")]
-    public string? EnvironmentFlag
+
+    private IHostBuilder _hostBuilder = null!;
+
+    [Description("Value in the form <KEY=VALUE> to set an environment variable for this process"), FlagAlias("env-variable",'v')]
+    public string? EnvironmentVariableFlag
     {
         set
         {
             if (value.IsEmpty())
             {
-                throw new ArgumentOutOfRangeException(nameof(EnvironmentFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentVariableFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
             }
 
             if (!value.Contains('='))
             {
-                EnvironmentNameFlag = value;
-                return;
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentVariableFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
             }
             
             var parts = value.Split('=');
             if (parts.Length != 2)
             {
-                throw new ArgumentOutOfRangeException(nameof(EnvironmentFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentVariableFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
             }
 
             if (parts.Any(x => x.IsEmpty()))
             {
-                throw new ArgumentOutOfRangeException(nameof(EnvironmentFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
+                throw new ArgumentOutOfRangeException(nameof(EnvironmentVariableFlag), CannotBeNullOrEmptyAndMustBeInTheFormKeyValue);
             }
             
             System.Environment.SetEnvironmentVariable(parts[0], parts[1]);
         }
-        get => EnvironmentNameFlag;
+        get => EnvironmentVariableFlag;
     }
     
     [Description("Override the IHostEnvironment.ContentRoot"), FlagAlias("contentRoot")]
@@ -55,9 +56,9 @@ public class NetCoreInput : IHostBuilderInput
     [Description("Override the IHostEnvironment.ApplicationName"), FlagAlias("applicationName")]
     public string? ApplicationNameFlag { get; set; }
     
-    [Description("Override the IHostEnvironment.EnvironmentName"), FlagAlias("environmentName")]
-    [MemberNotNull(nameof(EnvironmentFlag))]
-    public string? EnvironmentNameFlag { get; set; }
+    [Description("Override the IHostEnvironment.EnvironmentName")]
+    [MemberNotNull(nameof(EnvironmentVariableFlag))]
+    public string? EnvironmentFlag { get; set; }
 
     [Description("Write out much more information at startup and enables console logging")]
     public bool VerboseFlag { get; set; }
@@ -72,7 +73,20 @@ public class NetCoreInput : IHostBuilderInput
     ///     up the application
     /// </summary>
     [IgnoreOnCommandLine]
-    public IHostBuilder HostBuilder { get; set; } = null!;
+    public IHostBuilder HostBuilder
+    {
+        get => _hostBuilder;
+        set
+        {
+            _hostBuilder = value;
+
+            if (value is PreBuiltHostBuilder && EnvironmentFlag.IsNotEmpty())
+            {
+                AnsiConsole.MarkupLine($"[bold red]JasperFx cannot override the environment name when running against a pre-build IHost. Try setting dotnet run --environment Name before the \"--\" separator in your command arguments to pass it directly to the dotnet command line[/]");
+                AnsiConsole.MarkupLine("");
+            }
+        }
+    }
 
     public virtual void ApplyHostBuilderInput()
     {
@@ -128,7 +142,7 @@ public class NetCoreInput : IHostBuilderInput
 
         // The --environment flag is used to set the environment
         // property on the IHostedEnvironment within your system
-        if (EnvironmentNameFlag.IsNotEmpty())
+        if (EnvironmentFlag.IsNotEmpty())
         {
             Console.WriteLine($"Overwriting the environment to `{EnvironmentFlag}`");
             HostBuilder.UseEnvironment(EnvironmentFlag);

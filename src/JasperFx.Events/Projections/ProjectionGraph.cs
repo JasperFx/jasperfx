@@ -107,12 +107,18 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         {
             p.AssembleAndAssertValidity();
             p.Lifecycle = lifecycle;
+
+            foreach (var eventType in p.IncludedEventTypes)
+            {
+                _events.AddEventType(eventType);
+            }
         }
 
         if (projection is IProjectionSource<TOperations, TQuerySession> source)
         {
             asyncConfiguration?.Invoke(source.Options);
             All.Add(source);
+            
         }
         else
         {

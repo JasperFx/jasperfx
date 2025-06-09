@@ -99,6 +99,7 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
             };
 
             AnsiConsole.Write(rule);
+            AnsiConsole.WriteLine();
 
             await part.WriteToConsole();
 

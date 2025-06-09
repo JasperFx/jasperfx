@@ -29,7 +29,7 @@ public static class OptionDescriptionWriter
     {
         foreach (var property in description.Properties.OrderBy(x => x.Name))
         {
-            parent.AddNode($"[blue]{property.Name.EscapeMarkup()}[/]: {property.Value}");
+            parent.AddNode($"[blue]{property.Name.EscapeMarkup()}[/]: {property.Value.EscapeMarkup()}");
         }
     }
 
@@ -51,6 +51,36 @@ public static class OptionDescriptionWriter
 
     public static void WriteOptionSet(this IHasTreeNodes parent, OptionSet set)
     {
+        if (set.RenderMode == SetRenderMode.Table)
+        {
+            writeOptionSetAsTable(parent, set);
+        }
+        else
+        {
+            writeOptionSetAsTree(parent, set);
+        }
+    }
+
+    private static void writeOptionSetAsTree(IHasTreeNodes parent, OptionSet set)
+    {
+        parent = parent.AddNode(set.Subject);
+        
+        foreach (var child in set.Rows.OrderBy(x => x.Title))
+        {
+            var node = parent.AddNode($"[blue]{child.Title.EscapeMarkup()}[/]");
+            node.WriteProperties(child);
+            node.WriteChildren(child);
+
+            foreach (var pair in child.Sets.OrderBy(x => x.Key))
+            {
+                var setNode = node.AddNode($"[blue]{pair.Key.EscapeMarkup()}[/]");
+                setNode.WriteOptionSet(pair.Value);
+            }
+        }
+    }
+
+    private static void writeOptionSetAsTable(IHasTreeNodes parent, OptionSet set)
+    {
         var columns = set.SummaryColumns;
         if (!columns.Any())
         {
@@ -68,7 +98,7 @@ public static class OptionDescriptionWriter
             var values = columns.Select(column =>
             {
                 var prop = description.Properties.FirstOrDefault(x => x.Name == column);
-                return prop?.Value ?? string.Empty;
+                return prop?.Value.EscapeMarkup() ?? string.Empty;
             }).ToArray();
 
             table.AddRow(values);

@@ -16,6 +16,13 @@ public class DatabaseDescriptor : OptionsDescription
     public DatabaseDescriptor(object subject) : base(subject)
     {
     }
+    
+    public DatabaseDescriptor(object subject, Uri subjectUri) : base(subject)
+    {
+        SubjectUri = subjectUri;
+    }
+
+    public Uri SubjectUri { get; set; } = "database://unknown".ToUri();
 
     /// <summary>
     /// Describes the basic type of database. Example: "PostgreSQL", "SqlServer", "RavenDb"
