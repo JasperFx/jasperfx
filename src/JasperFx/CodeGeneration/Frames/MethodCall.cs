@@ -3,6 +3,7 @@ using System.Reflection;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Descriptors;
 
 namespace JasperFx.CodeGeneration.Frames;
 
@@ -80,11 +81,17 @@ public class MethodCall : Frame
         }
     }
 
+    [IgnoreDescription]
     public Dictionary<Type, Type> Aliases { get; } = new();
 
     public Type HandlerType { get; }
+    
+    [IgnoreDescription]
     public MethodInfo Method { get; }
 
+    public string MethodSignature => $"{Method.Name}({Method.GetParameters().Select(x => x.ParameterType.ShortNameInCode()).Join(", ")})";
+
+    [IgnoreDescription]
     public Variable? ReturnVariable { get; private set; }
 
     public Type? ReturnType { get; }
@@ -101,8 +108,10 @@ public class MethodCall : Frame
     /// </summary>
     public bool IsLocal { get; set; }
 
+    [IgnoreDescription]
     public Variable? Target { get; set; }
 
+    [IgnoreDescription]
     public Variable[] Arguments { get; }
 
     public DisposalMode DisposalMode { get; set; } = DisposalMode.UsingBlock;
