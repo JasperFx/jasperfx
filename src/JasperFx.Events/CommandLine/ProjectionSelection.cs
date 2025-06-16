@@ -54,6 +54,7 @@ public class ProjectionSelection(EventStoreUsage storage)
         
         if (usage.Database.Cardinality == DatabaseCardinality.Single)
         {
+            selection.DatabaseIdentifiers.Add(usage.Database.MainDatabase.Identifier);
             return true;
         }
 
