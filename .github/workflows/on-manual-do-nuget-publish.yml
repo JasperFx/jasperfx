@@ -1,4 +1,4 @@
-name: Marten NuGet Manual Publish
+name: JasperFx NuGet Manual Publish
 
 on: [ workflow_dispatch ]
 
