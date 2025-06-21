@@ -50,7 +50,7 @@ public class CommandExecutor
             }
             catch (Exception)
             {
-                AnsiConsole.Write(ex.ToString());
+                Console.Write(ex.ToString());
             }
 
             return 1;
