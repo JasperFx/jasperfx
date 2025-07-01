@@ -125,6 +125,12 @@ public class VariableTests
     {
         Variable.DefaultArgName<Lock>().ShouldBe("@lock");
     }
+
+    [Fact]
+    public void custom_operator_classes()
+    {
+        Variable.DefaultArgName<Operator>().ShouldBe("@operator");
+    }
     
 }
 
@@ -163,3 +169,5 @@ public class HyperdriveMotivator
 
 // Because of course, someone did this
 public class Lock{}
+
+public class Operator{}

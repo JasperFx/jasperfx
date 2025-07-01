@@ -12,8 +12,95 @@ namespace JasperFx.CodeGeneration.Model;
 
 public class Variable
 {
-    private static readonly string[] _reservedNames = new string[]
-        { "lock", "switch", "case", "if", "base", "catch", "class", "continue", "default" };
+    // private static readonly string[] _reservedNames = new string[]
+    //     { "lock", "switch", "case", "if", "base", "catch", "class", "continue", "default", "operator" };
+
+    private static readonly string[] _reservedNames;
+
+    static Variable()
+    {
+        _reservedNames = _reserved.ReadLines().Where(x => !x.IsEmpty()).ToArray();
+    }
+
+    private static readonly string _reserved = @"
+abstract
+as
+base
+bool
+break
+byte
+case
+catch
+char
+checked
+class
+const
+continue
+decimal
+default
+delegate
+do
+double
+else
+enum
+event
+explicit
+extern
+false
+finally
+fixed
+float
+for
+foreach
+goto
+if
+implicit
+in
+int
+interface
+internal
+is
+lock
+long
+namespace
+new
+null
+object
+operator
+out
+override
+params
+private
+protected
+public
+readonly
+ref
+return
+sbyte
+sealed
+short
+sizeof
+stackalloc
+static
+string
+struct
+switch
+this
+throw
+true
+try
+typeof
+uint
+ulong
+unchecked
+unsafe
+ushort
+using
+virtual
+void
+volatile
+while
+";
     
     private Frame? _frame;
 
