@@ -43,6 +43,29 @@ public class ShardStateTrackerTests : IDisposable
     }
 
     [Fact]
+    public async Task mark_skipping()
+    {
+        var observer1 = new Observer();
+        var observer2 = new Observer();
+        var observer3 = new Observer();
+        
+        theTracker.Subscribe(observer1);
+        theTracker.Subscribe(observer2);
+        theTracker.Subscribe(observer3);
+        
+        theTracker.MarkSkipping(1000, 1100);
+        
+        await theTracker.Complete();
+
+        var state = observer1.States.Last();
+        
+        state.ShardName.ShouldBe("HighWaterMark");
+        state.Action.ShouldBe(ShardAction.Skipped);
+        state.PreviousGoodMark.ShouldBe(1000);
+        state.Sequence.ShouldBe(1100);
+    }
+
+    [Fact]
     public void default_state_action_is_update()
     {
         new ShardState("foo", 22L)

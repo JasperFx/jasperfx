@@ -8,9 +8,9 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
 
-public class ProjectionWrapper<TOperations, TQuerySession> : 
-    ProjectionBase, 
-    IProjectionSource<TOperations, TQuerySession>, 
+public class ProjectionWrapper<TOperations, TQuerySession> :
+    ProjectionBase,
+    IProjectionSource<TOperations, TQuerySession>,
     ISubscriptionFactory<TOperations, TQuerySession>,
     IInlineProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations
@@ -21,15 +21,15 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     {
         _projection = projection;
         Lifecycle = lifecycle;
-        base.Name = projection.GetType().Name;
+        Name = projection.GetType().Name;
 
         Inner = _projection;
 
         // TODO -- unit test this!
-        base.Version = 1;
+        Version = 1;
         if (_projection.GetType().TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
-            base.Version = att.Version;
+            Version = att.Version;
         }
 
         if (projection is ISubscriptionSource subscriptionSource)
@@ -44,10 +44,10 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         if (projection is ProjectionBase source)
         {
             // TODO -- Unit test all of this in JasperFx.Events
-            base.Name = source.Name;
-            base.Version = source.Version;
-            base.Version = source.Version;
-            
+            Name = source.Name;
+            Version = source.Version;
+            Version = source.Version;
+
             replaceOptions(source.Options);
 
             if (source is EventFilterable filterable)
@@ -57,54 +57,46 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
                 IncludeArchivedEvents = filterable.IncludeArchivedEvents;
             }
 
-            foreach (var publishedType in source.PublishedTypes())
-            {
-                RegisterPublishedType(publishedType);
-            }
+            foreach (var publishedType in source.PublishedTypes()) RegisterPublishedType(publishedType);
         }
     }
 
-    public SubscriptionType Type { get; }
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
-    public Type ImplementationType => _projection.GetType();
+    [ChildDescription] public IJasperFxProjection<TOperations> Inner { get; }
 
-    public override string ToString()
+    public Type ProjectionType => _projection.GetType();
+
+    Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams,
+        CancellationToken cancellation)
     {
-        return $"{_projection}, {nameof(Name)}: {Name}, {nameof(Version)}: {Version}";
+        var events = streams.SelectMany(x => x.Events).ToList();
+        return _projection.ApplyAsync(operations, events, cancellation);
     }
+
+    public SubscriptionType Type { get; }
+
+    public ShardName[] ShardNames()
+    {
+        return [new ShardName(Name, ShardName.All, Version)];
+    }
+
+    public Type ImplementationType => _projection.GetType();
 
     public SubscriptionDescriptor Describe(IEventStore store)
     {
         return new SubscriptionDescriptor(this, store);
     }
 
-    [ChildDescription]
-    public IJasperFxProjection<TOperations> Inner { get; }
-
-    public Type ProjectionType => _projection.GetType();
-
-    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
-        ShardName shardName)
-    {
-        var logger = loggerFactory.CreateLogger(GetType());
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, _projection, logger);
-    }
-
-    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
-        ShardName shardName)
-    {
-        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, _projection, logger);
-    }
-
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return
         [
-            new(Options, ShardRole.Projection, new ShardName(base.Name, "All", Version), this, this)
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection,
+                new ShardName(Name, "All", Version), this, this)
         ];
     }
 
-    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)]out IReplayExecutor? executor)
+    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
+        [NotNullWhen(true)] out IReplayExecutor? executor)
     {
         executor = default;
         return false;
@@ -114,10 +106,26 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     {
         return this;
     }
-    
-    Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
+        ILoggerFactory loggerFactory,
+        ShardName shardName)
     {
-        var events = streams.SelectMany(x => x.Events).ToList();
-        return _projection.ApplyAsync(operations, events, cancellation);
+        var logger = loggerFactory.CreateLogger(GetType());
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, _projection,
+            logger);
+    }
+
+    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
+        ILogger logger,
+        ShardName shardName)
+    {
+        return new ProjectionExecution<TOperations, TQuerySession>(shardName, Options, store, database, _projection,
+            logger);
+    }
+
+    public override string ToString()
+    {
+        return $"{_projection}, {nameof(Name)}: {Name}, {nameof(Version)}: {Version}";
     }
 }

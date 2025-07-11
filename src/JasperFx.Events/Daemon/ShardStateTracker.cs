@@ -82,6 +82,11 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     {
         Publish(new ShardState(ShardState.HighWaterMark, sequence));
     }
+    
+    public void MarkSkipping(long lastKnownGoodHighWaterMark, long newHighWaterMark)
+    {
+        Publish(new ShardState(ShardState.HighWaterMark, newHighWaterMark){PreviousGoodMark = lastKnownGoodHighWaterMark, Action = ShardAction.Skipped});
+    }
 
     /// <summary>
     ///     Use to "wait" for an expected projection shard state
@@ -231,4 +236,5 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
             }
         }
     }
+
 }
