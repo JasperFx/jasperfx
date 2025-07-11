@@ -56,6 +56,12 @@ public class ShardState
     /// </summary>
     public Exception? Exception { get; set; }
 
+    /// <summary>
+    /// Marks the previous "good" high water mark when the ShardState is publishing a "skipping"
+    /// event
+    /// </summary>
+    public long PreviousGoodMark { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";

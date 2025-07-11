@@ -21,5 +21,11 @@ public enum ShardAction
     ///     The projection shard was paused and will be restarted
     ///     after a set amount of time based on error handling policies
     /// </summary>
-    Paused
+    Paused,
+    
+    /// <summary>
+    /// Recorded for the high water mark when it had to "skip" over stale
+    /// data and potential holes in the event sequence 
+    /// </summary>
+    Skipped
 }
