@@ -15,11 +15,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         foreach (var @event in events)
         {
-            if (@event is IEvent<Archived>)
-            {
-                return snapshot;
-            }
-
             try
             {
                 snapshot = await EvolveAsync(snapshot, id, session, @event, cancellation);
@@ -45,11 +40,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         foreach (var @event in events)
         {
-            if (@event is IEvent<Archived>)
-            {
-                return new ValueTask<TDoc?>(snapshot);
-            }
-
             try
             {
                 snapshot = Evolve(snapshot, id, @event);
