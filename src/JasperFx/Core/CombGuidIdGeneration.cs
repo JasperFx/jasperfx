@@ -3,7 +3,7 @@
 namespace JasperFx.Core;
 
 /// <summary>
-///     Comb Guid Id Generation. More info http://www.informit.com/articles/article.aspx?p=25862
+///     Comb Guid Id Generation. More info https://web.archive.org/web/20250000000000*/http://www.informit.com/articles/article.aspx?p=25862
 /// </summary>
 public class CombGuidIdGeneration
 {
