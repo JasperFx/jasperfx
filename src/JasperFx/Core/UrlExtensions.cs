@@ -78,5 +78,18 @@
 
             return segments.Skip(1).Join("/");
         }
+
+        /// <summary>
+        /// Either returns the original Uri if the schema already matches or
+        /// modifies the scheme of the Uri
+        /// </summary>
+        /// <param name="uri"></param>
+        /// <param name="scheme"></param>
+        /// <returns></returns>
+        public static Uri MaybeCorrectScheme(this Uri uri, string scheme)
+        {
+            if (uri.Scheme == scheme) return uri;
+            return new Uri($"{scheme}://{uri.Authority}{uri.PathAndQuery.TrimEnd('/')}");
+        }
     }
 }

@@ -27,4 +27,21 @@ public class UriExtensionsTests
     {
         new Uri(target).Matches(new Uri(match)).ShouldBe(matches);
     }
+
+    [Fact]
+    public void maybe_correct_schema_do_nothing_if_schema_matches()
+    {
+        var uri = new Uri("bar://two/longer/still");
+        uri.MaybeCorrectScheme("bar").ShouldBeSameAs(uri);
+    }
+
+    [Theory]
+    [InlineData("foo://one", "bar://one")]
+    [InlineData("foo://one/two", "bar://one/two")]
+    [InlineData("foo://one/two/", "bar://one/two")]
+    [InlineData("foo://one/two/three", "bar://one/two/three")]
+    public void correct_schema_when_it_is_different(string provided, string expected)
+    {
+        new Uri(provided).MaybeCorrectScheme("bar").ShouldBe(new Uri(expected));
+    }
 }
