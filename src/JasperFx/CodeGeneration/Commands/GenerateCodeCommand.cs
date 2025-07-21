@@ -20,6 +20,8 @@ public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
 
     public override bool Execute(GenerateCodeInput input)
     {
+        DynamicCodeBuilder.WithinCodegenCommand = true;
+        
         using var host = input.BuildHost();
 
         var collections = host.Services.GetServices<ICodeFileCollection>().ToArray();
