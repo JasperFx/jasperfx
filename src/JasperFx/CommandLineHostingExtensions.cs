@@ -41,6 +41,20 @@ public static class CommandLineHostingExtensions
     {
         return execute(builder, Assembly.GetEntryAssembly(), args, optionsFile);
     }
+    
+    /// <summary>
+    ///     Execute the extended JasperFx command line support for your configured WebHostBuilder.
+    ///     This method would be called within the int Program.Main(string[] args) method
+    ///     of your AspNetCore application
+    /// </summary>
+    /// <param name="builder"></param>
+    /// <param name="args"></param>
+    /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
+    /// <returns></returns>
+    public static int RunJasperFxCommandsSynchronously(this IHostBuilder builder, string[] args, string? optionsFile = null)
+    {
+        return execute(builder, Assembly.GetEntryAssembly(), args, optionsFile).GetAwaiter().GetResult();
+    }
 
     /// <summary>
     ///     Execute the extended JasperFx command line support for your configured IHost.
@@ -54,6 +68,20 @@ public static class CommandLineHostingExtensions
     public static Task<int> RunJasperFxCommands(this IHost host, string[] args, string? optionsFile = null)
     {
         return execute(new PreBuiltHostBuilder(host), Assembly.GetEntryAssembly(), args, optionsFile);
+    }
+    
+    /// <summary>
+    ///     Execute the extended JasperFx command line support for your configured IHost.
+    ///     This method would be called within the int Program.Main(string[] args) method
+    ///     of your AspNetCore application. This usage is appropriate for WebApplication bootstrapping
+    /// </summary>
+    /// <param name="host">An already built IHost</param>
+    /// <param name="args"></param>
+    /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
+    /// <returns></returns>
+    public static int RunJasperFxCommandsSynchronously(this IHost host, string[] args, string? optionsFile = null)
+    {
+        return execute(new PreBuiltHostBuilder(host), Assembly.GetEntryAssembly(), args, optionsFile).GetAwaiter().GetResult();
     }
 
     internal static string[] ApplyArgumentDefaults(this string[] args, string? optionsFile)
