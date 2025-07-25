@@ -4,6 +4,55 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events;
 
+/// <summary>
+/// Utility to build event wrappers for JasperFx event stores
+/// </summary>
+public static class Event
+{
+    /// <summary>
+    /// Convenience method to wrap an object with the JasperFx Event typed wrapper
+    /// </summary>
+    /// <param name="data"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public static IEvent<T> For<T>(T data) where T : notnull => new Event<T>(data);
+
+    /// <summary>
+    /// Wrap an object with the correct JasperFx event envelope
+    /// </summary>
+    /// <param name="data"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public static IEvent<T> AsEvent<T>(this T data) where T : notnull => For(data);
+
+    /// <summary>
+    /// Set the timestamp of an event
+    /// </summary>
+    /// <param name="e"></param>
+    /// <param name="timestamp"></param>
+    /// <returns></returns>
+    public static IEvent AtTimestamp(this IEvent e, DateTimeOffset timestamp)
+    {
+        e.Timestamp = timestamp;
+        return e;
+    }
+
+    /// <summary>
+    /// Add an event to just this event
+    /// </summary>
+    /// <param name="e"></param>
+    /// <param name="key"></param>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public static IEvent WithHeader(this IEvent e, string key, object value)
+    {
+        e.SetHeader(key, value);
+        return e;
+    }
+    
+    // More???????
+}
+
 public interface IEvent
 {
     /// <summary>
