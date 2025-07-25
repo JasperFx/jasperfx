@@ -322,13 +322,17 @@ public class StreamAction
     {
         foreach (var @event in _events)
         {
-            if (@event.Id == Guid.Empty)
+            if (@event.Id == default)
             {
                 @event.Id = CombGuidIdGeneration.NewGuid();
             }
 
             @event.TenantId = session.TenantId;
-            @event.Timestamp = timestamp;
+            
+            if (@event.Timestamp == default(DateTimeOffset))
+            {
+                @event.Timestamp = timestamp;
+            }
 
             ProcessMetadata(@event, graph, session);
         }
@@ -353,7 +357,11 @@ public class StreamAction
             }
 
             @event.TenantId = session.TenantId;
-            @event.Timestamp = timestamp;
+            
+            if (@event.Timestamp == default(DateTimeOffset))
+            {
+                @event.Timestamp = timestamp;
+            }
 
             ProcessMetadata(@event, graph, session);
         }

@@ -1,5 +1,8 @@
+using System.Collections;
 using JasperFx;
+using JasperFx.Core;
 using JasperFx.Events;
+using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using Shouldly;
 
@@ -144,6 +147,25 @@ public class StreamActionTests
             
         action.IsStarting().ShouldBeTrue();
     }
-    
-    
+
+    [Fact]
+    public void overwrite_timestamp_on_selected_events_rich_append()
+    {
+        var currentTime = DateTime.Today;
+        theEvents.TimeProvider = new FakeTimeProvider(currentTime);
+        theEvents.AppendMode = EventAppendMode.Rich;
+        
+        var action = StreamAction.Append(theEvents, Guid.NewGuid(), new AEvent(), new BEvent(), new CEvent(),
+            new DEvent());
+
+        action.Events[0].Timestamp = currentTime.Subtract(1.Hours());
+        
+        var queue = new Queue<long>();
+        queue.Enqueue(10);
+        queue.Enqueue(11);
+        queue.Enqueue(12);
+        queue.Enqueue(13);
+        
+        action.PrepareEvents(5, theEvents, queue, theSession);
+    }
 }
