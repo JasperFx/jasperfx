@@ -393,7 +393,7 @@ public class StreamAction
 
         if (metadata.CorrelationIdEnabled)
         {
-            @event.CorrelationId = metadata.CorrelationId;
+            @event.CorrelationId ??= metadata.CorrelationId;
         }
 
         if (!metadata.HeadersEnabled)
