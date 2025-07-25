@@ -113,4 +113,37 @@ public class StreamActionTests
         action.Events[2].Version.ShouldBe(8);
         action.Events[3].Version.ShouldBe(9);
     }
+
+    [Fact]
+    public void is_starting_with_start_action_type()
+    {
+        var action = StreamAction.Start(theEvents, Guid.NewGuid(), new AEvent(), new BEvent(), new CEvent(),
+            new DEvent());
+        
+        action.IsStarting().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void is_not_starting_with_append()
+    {
+        var action = StreamAction.Append(theEvents, Guid.NewGuid(), new AEvent(), new BEvent(), new CEvent(),
+            new DEvent());
+
+        action.Events[0].Version = 3;
+            
+        action.IsStarting().ShouldBeFalse();
+    }
+
+    [Fact]
+    public void is_starting_event_with_append_action_if_the_first_version_is_1()
+    {
+        var action = StreamAction.Append(theEvents, Guid.NewGuid(), new AEvent(), new BEvent(), new CEvent(),
+            new DEvent());
+
+        action.Events[0].Version = 1;
+            
+        action.IsStarting().ShouldBeTrue();
+    }
+    
+    
 }
