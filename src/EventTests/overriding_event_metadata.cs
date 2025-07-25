@@ -68,6 +68,22 @@ public class overriding_event_metadata
         theAction.Events[2].Timestamp.ShouldBe(theCurrentTime);
         theAction.Events[3].Timestamp.ShouldBe(theCurrentTime);
     }
+    
+    [Fact]
+    public void override_timestamp_with_quick_metadata_with_server_timestamps()
+    {
+        theEvents.AppendMode = EventAppendMode.QuickWithServerTimestamps;
+        
+        var oneHourAgo = theCurrentTime.Subtract(1.Hours());
+        theAction.Events[0].Timestamp = oneHourAgo;
+        
+        theAction.PrepareEvents(5, theEvents, sequences, theSession);
+        
+        theAction.Events[0].Timestamp.ShouldBe(oneHourAgo);
+        theAction.Events[1].Timestamp.ShouldBe(theCurrentTime);
+        theAction.Events[2].Timestamp.ShouldBe(theCurrentTime);
+        theAction.Events[3].Timestamp.ShouldBe(theCurrentTime);
+    }
 
     [Fact]
     public void override_correlation_id()
@@ -118,4 +134,6 @@ public class overriding_event_metadata
         theAction.Events[2].Id.ShouldNotBe(Guid.Empty);
         theAction.Events[3].Id.ShouldNotBe(Guid.Empty);
     }
+    
+    
 }

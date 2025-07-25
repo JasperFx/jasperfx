@@ -10,7 +10,14 @@ public enum EventAppendMode
 
     /// <summary>
     /// Stripped down, more performant mode of appending events that will omit some event metadata within
-    /// inline projections
+    /// inline projections. Event timestamps are taken from the database server
     /// </summary>
-    Quick
+    Quick,
+    
+    /// <summary>
+    /// Stripped down, more performant mode of appending events that will omit some event metadata within
+    /// inline projections. Event timestamps are taken from TimeProvider in .NET. Use this option if you
+    /// need to override event timestamps
+    /// </summary>
+    QuickWithServerTimestamps
 }
