@@ -9,6 +9,25 @@ namespace JasperFx.Events;
 public static class EventTypeExtensions
 {
     /// <summary>
+    /// Get the event type name based on a style
+    /// </summary>
+    /// <param name="eventType"></param>
+    /// <param name="style"></param>
+    /// <returns></returns>
+    public static string GetEventTypeName(this Type eventType, EventNamingStyle style)
+    {
+        switch (style)
+        {
+            case EventNamingStyle.ClassicTypeName:
+                return eventType.GetEventTypeName();
+            case EventNamingStyle.SmarterTypeName:
+                return eventType.GetSmarterEventTypeName();
+            default:
+                return eventType.FullNameInCode();
+        }
+    }
+    
+    /// <summary>
     ///     Translates by convention the CLR type name into string event type name.
     ///     It can handle both regular and generic types.
     /// </summary>
@@ -16,6 +35,18 @@ public static class EventTypeExtensions
     /// <returns>Mapped string event type name</returns>
     public static string GetEventTypeName(this Type eventType)
     {
+        return eventType.IsGenericType ? eventType.ShortNameInCode() : eventType.Name.ToTableAlias();
+    }
+
+    public static string GetSmarterEventTypeName(this Type eventType)
+    {
+        if (eventType.IsNested)
+        {
+            var outer = eventType.DeclaringType.GetEventTypeName();
+            var inner = eventType.IsGenericType ? eventType.ShortNameInCode() : eventType.Name.ToTableAlias();
+            return $"{outer}.{inner}";
+        }
+        
         return eventType.IsGenericType ? eventType.ShortNameInCode() : eventType.Name.ToTableAlias();
     }
 

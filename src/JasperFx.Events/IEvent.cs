@@ -4,11 +4,35 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events;
 
+public enum EventNamingStyle
+{
+    /// <summary>
+    /// The default, "classic" style of event name that converts *just* the type name in Pascal Case to
+    /// all lower case w/ snake casing
+    /// </summary>
+    ClassicTypeName,
+    
+    /// <summary>
+    /// Like the "classic" style, but handles inner type names by prepending the [outer type].[inner type] to disambiguate
+    /// the naming for inner types
+    /// </summary>
+    SmarterTypeName,
+    
+    /// <summary>
+    /// Use the full name for the event type alias. Note that this is going to be a little more brittle if you move
+    /// event types into different namespaces, but hey, it will disambiguate event types with the same name in the same
+    /// application
+    /// </summary>
+    FullTypeName
+}
+
 /// <summary>
 /// Utility to build event wrappers for JasperFx event stores
 /// </summary>
 public static class Event
 {
+    public static EventNamingStyle NamingStyle { get; set; } = EventNamingStyle.ClassicTypeName;
+    
     /// <summary>
     /// Convenience method to wrap an object with the JasperFx Event typed wrapper
     /// </summary>
