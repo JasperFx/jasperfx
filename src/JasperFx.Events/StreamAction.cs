@@ -396,6 +396,11 @@ public class StreamAction
             @event.CorrelationId ??= metadata.CorrelationId;
         }
 
+        if (metadata.UserNameEnabled)
+        {
+            @event.UserName ??= metadata.CurrentUserName ?? metadata.LastModifiedBy;
+        }
+
         if (!metadata.HeadersEnabled)
         {
             return;
