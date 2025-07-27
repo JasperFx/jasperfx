@@ -219,4 +219,16 @@ public interface IEvent
 
         return lambda.CompileFast();
     }
+    
+    /// <summary>
+    ///     Optional metadata describing the user name or
+    ///     process name for the unit of work that captured this event
+    /// </summary>
+    string? UserName { get; set; }
+    
+    /// <summary>
+    /// No, this is *not* idiomatic event sourcing, but this may be used as metadata to direct
+    /// projection replays or subscription rewinding as an event that should not be used
+    /// </summary>
+    bool IsSkipped { get; set; }
 }

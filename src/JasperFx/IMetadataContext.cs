@@ -20,7 +20,10 @@ public interface IMetadataContext
     ///     Optional metadata describing the user name or
     ///     process name for this unit of work
     /// </summary>
+    [Obsolete("Prefer CurrentUserName")]
     string? LastModifiedBy { get; set; }
+    
+    string? CurrentUserName { get; set; }
 
     /// <summary>
     ///     Optional metadata values. This may be null.
@@ -30,4 +33,5 @@ public interface IMetadataContext
     bool CausationIdEnabled { get; }
     bool CorrelationIdEnabled { get; }
     bool HeadersEnabled { get; }
+    bool UserNameEnabled { get; }
 }

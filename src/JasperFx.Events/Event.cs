@@ -41,6 +41,14 @@ public class Event<T>: IEvent<T> where T : notnull
     public bool IsArchived { get; set; }
 
     public string? AggregateTypeName { get; set; }
+    
+    /// <summary>
+    ///     Optional metadata describing the user name or
+    ///     process name for this unit of work
+    /// </summary>
+    public string? UserName { get; set; }
+
+    public bool IsSkipped { get; set; }
 
     protected bool Equals(Event<T> other)
     {
