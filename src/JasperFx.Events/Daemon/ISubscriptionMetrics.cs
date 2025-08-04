@@ -11,4 +11,5 @@ public interface ISubscriptionMetrics
     void UpdateGap(long highWaterMark, long lastCeiling);
     void UpdateProcessed(long count);
     Activity? TrackGrouping(EventRange page);
+    void IncrementSkips();
 }

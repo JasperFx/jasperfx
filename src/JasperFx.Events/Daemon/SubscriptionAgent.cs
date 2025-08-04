@@ -185,6 +185,11 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         }
     }
 
+    public void MarkSkipped(long sequence)
+    {
+        Metrics.IncrementSkips();
+    }
+
     public Task RecordDeadLetterEventAsync(DeadLetterEvent @event)
     {
         return _runtime.RecordDeadLetterEventAsync(@event);

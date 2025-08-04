@@ -27,4 +27,11 @@ public interface ISubscriptionAgent : ISubscriptionController
     Task RecordDeadLetterEventAsync(DeadLetterEvent @event);
 
     Task ReplayAsync(SubscriptionExecutionRequest request, long highWaterMark, TimeSpan timeout);
+    
+    /// <summary>
+    /// Mark an event as having been skipped during asynchronous messaging. This helps
+    /// track execution metrics
+    /// </summary>
+    /// <param name="sequence"></param>
+    void MarkSkipped(long sequence);
 }

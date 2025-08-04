@@ -10,11 +10,12 @@ namespace JasperFx.Events.Projections;
 public class EventRange
 {
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    public EventRange(ShardName name, long floor, long ceiling)
+    public EventRange(ShardName name, long floor, long ceiling, ISubscriptionAgent agent)
     {
         ShardName = name;
         SequenceFloor = floor;
         SequenceCeiling = ceiling;
+        Agent = agent;
     }
     
     public EventRange(ISubscriptionAgent agent, long floor, long ceiling)
@@ -130,6 +131,8 @@ public class EventRange
         var events = Events.ToList();
         events.RemoveAll(e => e.Sequence == eventSequence);
         Events = events;
+        
+        Agent.MarkSkipped(eventSequence);
 
         await SliceAsync(Slicer);
     }

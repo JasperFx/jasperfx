@@ -8,6 +8,12 @@ public class HighWaterStatistics
     public bool HasChanged => CurrentMark > LastMark;
     public DateTimeOffset? LastUpdated { get; set; }
     public long SafeStartMark { get; set; }
+    
+    /// <summary>
+    /// Did this determination of the "high water" mark include skipping over stale
+    /// gaps in the event sequence?
+    /// </summary>
+    public bool IncludesSkipping { get; set; }
     public DateTimeOffset Timestamp { get; set; } = default;
 
     public HighWaterStatus InterpretStatus(HighWaterStatistics previous)

@@ -14,6 +14,7 @@ public class SubscriptionMetrics: ISubscriptionMetrics
     private readonly Counter<long> _processed;
     private readonly Histogram<long> _gap;
     private readonly Uri _databaseUri;
+    private readonly Counter<long> _skipped;
 
     public SubscriptionMetrics(IEventStore store, ShardName name, IEventDatabase database) : this(store, name,
         database.DatabaseUri)
@@ -35,12 +36,18 @@ public class SubscriptionMetrics: ISubscriptionMetrics
         GapMetricName = $"{identifier}.gap";
         _gap = _meter.CreateHistogram<long>(GapMetricName);
 
+        SkippedMetricName = $"{identifier}.skipped";
+
+        _skipped = _meter.CreateCounter<long>(SkippedMetricName, "number", "Skipped Events");
+
         ExecutionSpanName = $"{identifier}.page.execution";
         LoadingSpanName = $"{identifier}.page.loading";
         GroupingSpanName = $"{identifier}.page.grouping";
 
         _databaseUri = databaseUri;
     }
+
+    public string SkippedMetricName { get; }
 
     public string GapMetricName { get; }
 
@@ -77,6 +84,14 @@ public class SubscriptionMetrics: ISubscriptionMetrics
         activity?.AddTag(OtelConstants.DatabaseUri, _databaseUri);
 
         return activity;
+    }
+
+    public void IncrementSkips()
+    {
+        _skipped.Add(1, new TagList
+        {
+            {OtelConstants.DatabaseUri, _databaseUri}
+        });
     }
 
     public void UpdateGap(long highWaterMark, long lastCeiling)

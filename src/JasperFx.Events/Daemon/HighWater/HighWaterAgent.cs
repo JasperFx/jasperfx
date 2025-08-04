@@ -166,7 +166,10 @@ public class HighWaterAgent: IDisposable
                     status = tagActivity(statistics, activity);
                     activity?.SetTag("last.mark", lastKnown);
 
-                    _tracker.MarkSkipping(lastKnown, statistics.CurrentMark);
+                    if (statistics.IncludesSkipping)
+                    {
+                        _tracker.MarkSkipping(lastKnown, statistics.CurrentMark);
+                    }
                     
                     _skipping.Add(1);
 
