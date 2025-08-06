@@ -51,7 +51,10 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         if (!events.Any()) return snapshot;
         
         // get the id off of the event
-        (snapshot, _) = await DetermineActionAsync(session, snapshot, _identitySource(events[0]), new NulloIdentitySetter<TDoc, TId>(), events, cancellation);
+        var id = _identitySource(events[0]);
+        var nulloIdentitySetter = new NulloIdentitySetter<TDoc, TId>();
+        (snapshot, _) = await DetermineActionAsync(session, snapshot, id, nulloIdentitySetter, events, cancellation);
+        tryApplyMetadata(events, snapshot, id, nulloIdentitySetter);
         
         return snapshot;
     }
@@ -64,6 +67,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         
         // get the id off of the event
         (snapshot, _) = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
+        tryApplyMetadata(events, snapshot, id, identitySetter);
 
         return snapshot;
     }
@@ -95,6 +99,9 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
                 var tenantedSession = session.CorrectSessionForTenancy<TQuerySession>(stream.TenantId);
 
                 var (transformed, action) = await DetermineActionAsync(tenantedSession, snapshot, id, storage, stream.Events, cancellation);
+                
+                // Moved out of the application to avoid it getting double called
+                (_, transformed) = tryApplyMetadata(stream.Events, transformed, id, storage);
                 
                 if (transformed == null && action != ActionType.Delete && action != ActionType.HardDelete) continue;
                 

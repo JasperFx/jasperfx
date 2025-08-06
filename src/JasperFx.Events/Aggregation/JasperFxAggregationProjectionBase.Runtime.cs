@@ -113,7 +113,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
         
         snapshot = await _evolve(snapshot, identity, session, events, cancellation);
-        (_, snapshot) = tryApplyMetadata(events, snapshot, identity, identitySetter);
 
         if (snapshot == null)
         {
