@@ -178,7 +178,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 break;
             case ActionType.Store:
                 cache.Store(slice.Id, snapshot!);
-                storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
+                storage.Store(snapshot!);
                 break;
             case ActionType.HardDelete:
                 cache.TryRemove(slice.Id);
@@ -187,10 +187,10 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             case ActionType.UnDeleteAndStore:
                 storage.UnDelete(snapshot!);
                 cache.Store(slice.Id, snapshot!);
-                storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
+                storage.Store(snapshot!);
                 break;
             case ActionType.StoreThenSoftDelete:
-                storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
+	            storage.Store(snapshot!);
                 cache.TryRemove(slice.Id);
                 storage.Delete(slice.Id);
                 break;
