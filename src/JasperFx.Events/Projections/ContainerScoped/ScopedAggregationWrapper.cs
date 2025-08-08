@@ -16,7 +16,8 @@ namespace JasperFx.Events.Projections.ContainerScoped;
 /// <typeparam name="TOperations"></typeparam>
 /// <typeparam name="TQuerySession"></typeparam>
 public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySession> :
-    ProjectionSourceWrapperBase<TSource, TOperations, TQuerySession>, IJasperFxProjection<TOperations>
+    ProjectionSourceWrapperBase<TSource, TOperations, TQuerySession>, IJasperFxProjection<TOperations>,
+    IAggregateProjection
     where TOperations : TQuerySession, IStorageOperations
     where TSource : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
     where TDoc : notnull
@@ -79,4 +80,8 @@ public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySes
             return await slicer.SliceAsync(events);
         }
     }
+
+    public Type IdentityType => typeof(TId);
+    public Type AggregateType => typeof(TDoc);
+    public Type[] AllEventTypes => IncludedEventTypes.ToArray();
 }

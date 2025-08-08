@@ -201,11 +201,12 @@ public class HighWaterAgent: IDisposable
         // don't bother sending updates if the current position is 0
         if (statistics.CurrentMark == 0 || statistics.CurrentMark == _tracker.HighWaterMark)
         {
+            // No matter what, if the status isn't stale, use the current statistics
             if (status != HighWaterStatus.Stale)
             {
                 // Update the current stats if the status is not stale
                 // This ensures the current stats timestamp is up-to-date, and not just set to the time of the last changed
-                // Without this, the StaleSequeceThreshold gets applied to the timestamp of the last changed highwatermark
+                // Without this, the StaleSequenceThreshold gets applied to the timestamp of the last changed highwatermark
                 // meaning that a time break in events larger than the StaleSequeceThreshold makes the safeHarbourTime less that the timestamp of the processing statistics
                 _current = statistics;
             }
