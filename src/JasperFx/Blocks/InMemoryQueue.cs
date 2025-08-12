@@ -8,6 +8,7 @@ public interface IBlock<T> : IAsyncDisposable
 {
     ValueTask PostAsync(T item);
     Task WaitForCompletionAsync();
+    void Post(T item);
 }
 
 public class InMemoryQueue<T> : IBlock<T>
@@ -17,6 +18,7 @@ public class InMemoryQueue<T> : IBlock<T>
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Task[] _tasks;
     private bool _latched;
+    private uint _count = 0;
 
     public InMemoryQueue(Func<T, CancellationToken, Task> action) : this(1, action)
     {
@@ -55,36 +57,16 @@ public class InMemoryQueue<T> : IBlock<T>
 
     public async Task WaitForCompletionAsync()
     {
-        _latched = true;
-        
-        _channel.Writer.Complete();
+        Complete();
 
-        if (_channel.Reader.Count == 0) return;
+        if (_count == 0) return;
 
         await Task.WhenAll(_tasks);
 
-        while (!_cancellation.IsCancellationRequested && _channel.Reader.Count > 0)
+        while (!_cancellation.IsCancellationRequested && _count > 0)
         {
-            var item = await _channel.Reader.ReadAsync(_cancellation.Token);
-
-            try
-            {
-                await _action(item, _cancellation.Token);
-            }
-            catch (Exception e)
-            {
-                _onError(item, e);
-            }
-        }
-        
-        Debug.WriteLine("What?");
-    }
-
-    private async Task processAsync()
-    {
-        while (!_cancellation.IsCancellationRequested)
-        {
-            await _channel.Reader.WaitToReadAsync();
+            var isData = await _channel.Reader.WaitToReadAsync(_cancellation.Token);
+            if (!isData) return;
 
             if (_channel.Reader.TryRead(out var item))
             {
@@ -97,8 +79,43 @@ public class InMemoryQueue<T> : IBlock<T>
                     _onError(item, e);
                 }
             }
+        }
+    }
 
-            if (_latched && _channel.Reader.Count == 0) return;
+    private async Task processAsync()
+    {
+        while (!_cancellation.IsCancellationRequested)
+        {
+            var isData = await _channel.Reader.WaitToReadAsync(_cancellation.Token);
+            if (!isData) return;
+
+            if (_channel.Reader.TryRead(out var item))
+            {
+                try
+                {
+                    await _action(item, _cancellation.Token);
+                }
+                catch (Exception e)
+                {
+                    _onError(item, e);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _count);
+                }
+            }
+            
+            
+            if (_latched) return;
+        }
+    }
+
+    public void Post(T item)
+    {
+        Interlocked.Increment(ref _count);
+        if (!_channel.Writer.TryWrite(item))
+        {
+            Debug.WriteLine($"Was not able to write {item} to the queue synchronously!");
         }
     }
 
@@ -106,17 +123,30 @@ public class InMemoryQueue<T> : IBlock<T>
     {
         if (_latched) throw new InvalidOperationException("This SequentialQueue is latched");
         
+        Interlocked.Increment(ref _count);
         return _channel.Writer.WriteAsync(item, _cancellation.Token);
     }
-    
-    public async ValueTask DisposeAsync()
+
+    public uint Count => _count;
+
+    public ValueTask DisposeAsync()
     {
-        await _cancellation.CancelAsync();
         _cancellation.SafeDispose();
 
         foreach (var task in _tasks)
         {
             task.SafeDispose();   
         }
+
+        return new ValueTask();
+    }
+
+    public void Complete()
+    {
+        if (_latched) return;
+        
+        _latched = true;
+
+        _channel.Writer.TryComplete();
     }
 }
