@@ -60,14 +60,9 @@ public class ProjectionController
 
         foreach (var selection in selections)
         {
-            if (input.AdvanceFlag)
-            {
-                await _host.AdvanceHighWaterMarkToLatestAsync(selection, CancellationToken.None).ConfigureAwait(false);
-            }
-
             if (input.Action == ProjectionAction.rebuild)
             {
-                return await ExecuteRebuilds(selection, shardTimeout);
+                return await ExecuteRebuilds(input, selection, shardTimeout);
             }
 
             await RunContinuously(selections);
@@ -76,7 +71,8 @@ public class ProjectionController
         return true;
     }
 
-    public async Task<bool> ExecuteRebuilds(ProjectionSelection selection, TimeSpan? shardTimeout)
+    public async Task<bool> ExecuteRebuilds(ProjectionInput input, ProjectionSelection selection,
+        TimeSpan? shardTimeout)
     {
         var stopwatch = Stopwatch.StartNew();
         
@@ -88,7 +84,7 @@ public class ProjectionController
             {
                 var subscriptionNames = selection.Subscriptions.Select(x => x.Name).ToArray();
                 var databaseIdentifier = new EventStoreDatabaseIdentifier(selection.Storage.SubjectUri, database);
-                var status = await _host.TryRebuildShardsAsync(databaseIdentifier, subscriptionNames ,shardTimeout).ConfigureAwait(false);
+                var status = await _host.TryRebuildShardsAsync(databaseIdentifier, input, subscriptionNames ,shardTimeout).ConfigureAwait(false);
 
                 if (status == RebuildStatus.NoData)
                 {

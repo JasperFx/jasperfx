@@ -15,6 +15,7 @@ public interface IProjectionHost
     Task<IReadOnlyList<EventStoreUsage>> AllStoresAsync();
     void ListenForUserTriggeredExit();
     Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier,
+        ProjectionInput input,
         string[] names, TimeSpan? shardTimeout = null);
     Task StartShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier, string[] projectionNames);
     Task WaitForExitAsync();
