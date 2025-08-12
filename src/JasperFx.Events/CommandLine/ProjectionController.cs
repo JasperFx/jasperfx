@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Spectre.Console;
@@ -77,6 +78,8 @@ public class ProjectionController
 
     public async Task<bool> ExecuteRebuilds(ProjectionSelection selection, TimeSpan? shardTimeout)
     {
+        var stopwatch = Stopwatch.StartNew();
+        
         foreach (var database in selection.DatabaseIdentifiers)
         {
             _view.WriteStartingToRebuildProjections(selection, database);
@@ -94,6 +97,7 @@ public class ProjectionController
                 else
                 {
                     _view.DisplayRebuildIsComplete();
+                    AnsiConsole.WriteLine($"[purple]Finished rebuild in {stopwatch.ElapsedMilliseconds} ms[/]");
                 }
             }
             catch (Exception)

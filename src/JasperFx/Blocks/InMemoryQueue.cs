@@ -4,26 +4,41 @@ using JasperFx.Core;
 
 namespace JasperFx.Blocks;
 
-public class SequentialQueue<T> : IAsyncDisposable
+public interface IBlock<T> : IAsyncDisposable
+{
+    ValueTask PostAsync(T item);
+    Task WaitForCompletionAsync();
+}
+
+public class InMemoryQueue<T> : IBlock<T>
 {
     private readonly Func<T, CancellationToken, Task> _action;
     private readonly Channel<T> _channel;
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly Task _task;
+    private readonly Task[] _tasks;
     private bool _latched;
 
-    public SequentialQueue(Func<T, CancellationToken, Task> action)
+    public InMemoryQueue(Func<T, CancellationToken, Task> action) : this(1, action)
+    {
+
+    }
+
+    public InMemoryQueue(int parallelCount, Func<T, CancellationToken, Task> action)
     {
         _action = action;
         
         // TODO -- what about on dropping????????
         _channel = Channel.CreateBounded<T>(new BoundedChannelOptions(10000)
         {
-            SingleReader = true,
+            SingleReader = parallelCount == 1,
             SingleWriter = false
         });
 
-        _task = Task.Run(processAsync, _cancellation.Token);
+        _tasks = new Task[parallelCount];
+        for (int i = 0; i < parallelCount; i++)
+        {
+            _tasks[i] = Task.Run(processAsync, _cancellation.Token);
+        }
     }
 
     private Action<T, Exception> _onError = (item, ex) =>
@@ -41,10 +56,12 @@ public class SequentialQueue<T> : IAsyncDisposable
     public async Task WaitForCompletionAsync()
     {
         _latched = true;
+        
+        _channel.Writer.Complete();
 
         if (_channel.Reader.Count == 0) return;
-        
-        await _task;
+
+        await Task.WhenAll(_tasks);
 
         while (!_cancellation.IsCancellationRequested && _channel.Reader.Count > 0)
         {
@@ -59,6 +76,8 @@ public class SequentialQueue<T> : IAsyncDisposable
                 _onError(item, e);
             }
         }
+        
+        Debug.WriteLine("What?");
     }
 
     private async Task processAsync()
@@ -94,7 +113,10 @@ public class SequentialQueue<T> : IAsyncDisposable
     {
         await _cancellation.CancelAsync();
         _cancellation.SafeDispose();
-        
-        _task.SafeDispose();   
+
+        foreach (var task in _tasks)
+        {
+            task.SafeDispose();   
+        }
     }
 }
