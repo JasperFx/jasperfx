@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks.Dataflow;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Projections;
@@ -44,7 +45,7 @@ public abstract class SubscriptionExecutionBase: ISubscriptionExecution
     private readonly IEventDatabase _database;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly ActionBlock<EventRange> _executionBlock;
+    private readonly InMemoryQueue<EventRange> _executionBlock;
     
 
     public SubscriptionExecutionBase(IEventDatabase database, ShardName name, ILogger logger)
@@ -52,13 +53,13 @@ public abstract class SubscriptionExecutionBase: ISubscriptionExecution
         _database = database;
         _logger = logger;
 
-        _executionBlock = new ActionBlock<EventRange>(executeRange, _cancellation.Token.SequentialOptions());
+        _executionBlock = new InMemoryQueue<EventRange>(executeRange);
         
         // TODO -- revisit this. 
         ShardIdentity = $"{name.Identity}@{database.Identifier}";
     }
 
-    private async Task executeRange(EventRange range)
+    private async Task executeRange(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested) return;
 
@@ -119,8 +120,7 @@ public abstract class SubscriptionExecutionBase: ISubscriptionExecution
 
     public async Task StopAndDrainAsync(CancellationToken token)
     {
-        _executionBlock.Complete();
-        await _executionBlock.Completion.ConfigureAwait(false);
+        await _executionBlock.WaitForCompletionAsync().ConfigureAwait(false);
         await _cancellation.CancelAsync().ConfigureAwait(false);
     }
 

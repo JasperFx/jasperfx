@@ -1,4 +1,5 @@
 using System.Threading.Tasks.Dataflow;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Daemon;
 using Microsoft.Extensions.Logging;
@@ -13,7 +14,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     private readonly IEventDatabase _database;
     private readonly IJasperFxProjection<TOperations> _projection;
     private readonly ILogger _logger;
-    private readonly ActionBlock<EventRange> _building;
+    private readonly InMemoryQueue<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
 
     public ProjectionExecution(ShardName shardName, AsyncOptions options,
@@ -27,11 +28,10 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         _projection = projection;
         _logger = logger;
         
-        var singleFileOptions = _cancellation.Token.SequentialOptions();
-        _building = new ActionBlock<EventRange>(processRange, singleFileOptions);
+        _building = new InMemoryQueue<EventRange>(processRangeAsync);
     }
     
-    private async Task processRange(EventRange range)
+    private async Task processRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)
         {
@@ -177,9 +177,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
     public async Task StopAndDrainAsync(CancellationToken token)
     {
-        _building.Complete();
-        await _building.Completion.ConfigureAwait(false);
-        
+        await _building.WaitForCompletionAsync();
         await _cancellation.CancelAsync().ConfigureAwait(false);
     }
 

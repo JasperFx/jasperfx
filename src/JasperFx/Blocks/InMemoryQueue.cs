@@ -4,14 +4,119 @@ using JasperFx.Core;
 
 namespace JasperFx.Blocks;
 
-public interface IBlock<T> : IAsyncDisposable
+public interface IBlockSet<T> : IBlock<T>
+{
+    public IBlockSet<TBefore> PushUpstream<TBefore>(Func<TBefore, CancellationToken, Task<T>> transformation);
+    public IBlockSet<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, CancellationToken, Task<T>> transformation);
+    
+    public IBlockSet<TBefore> PushUpstream<TBefore>(Func<TBefore, T> transformation);
+    public IBlockSet<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, T> transformation);
+}
+
+public class BlockSet<T> : IBlockSet<T>
+{
+    private readonly List<IBlock> _blocks;
+    private readonly IBlock<T> _top;
+
+    public BlockSet(IBlock<T> top, List<IBlock> previous)
+    {
+        previous.Insert(0, top);
+        _blocks = previous;
+        _top = top;
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(Func<TBefore, CancellationToken, Task<T>> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(async (item, token) =>
+        {
+            var transformed = await transformation(item, token);
+            await _top.PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, _blocks);
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, CancellationToken, Task<T>> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(parallelCount, async (item, token) =>
+        {
+            var transformed = await transformation(item, token);
+            await _top.PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, _blocks);
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(Func<TBefore, T> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(async (item, token) =>
+        {
+            var transformed = transformation(item);
+            await _top.PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, _blocks);
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, T> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(parallelCount, async (item, token) =>
+        {
+            var transformed = transformation(item);
+            await _top.PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, _blocks);
+    }
+
+    public async Task WaitForCompletionAsync()
+    {
+        foreach (var block in _blocks)
+        {
+            block.Complete();
+            await block.WaitForCompletionAsync();
+        }
+    }
+
+    public void Complete()
+    {
+        _top.Complete();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var block in _blocks)
+        {
+            await block.DisposeAsync();
+        }
+    }
+
+    public ValueTask PostAsync(T item)
+    {
+        return _top.PostAsync(item);
+    }
+
+    public void Post(T item)
+    {
+        _top.Post(item);
+    }
+}
+
+public interface IBlock : IAsyncDisposable
+{
+    Task WaitForCompletionAsync();
+
+    void Complete();
+}
+
+public interface IBlock<T> : IBlock
 {
     ValueTask PostAsync(T item);
-    Task WaitForCompletionAsync();
+    
     void Post(T item);
 }
 
-public class InMemoryQueue<T> : IBlock<T>
+public class InMemoryQueue<T> : IBlock<T>, IBlockSet<T>
 {
     private readonly Func<T, CancellationToken, Task> _action;
     private readonly Channel<T> _channel;
@@ -24,6 +129,17 @@ public class InMemoryQueue<T> : IBlock<T>
     {
 
     }
+
+    public InMemoryQueue(Action<T> action) : this(1, (item, _) =>
+    {
+        action(item);
+        return Task.CompletedTask;
+    }){}
+    
+    /// <summary>
+    /// A CancellationToken for the overarching process
+    /// </summary>
+    public CancellationToken Cancellation { get; set;  } = CancellationToken.None;
 
     public InMemoryQueue(int parallelCount, Func<T, CancellationToken, Task> action)
     {
@@ -60,26 +176,39 @@ public class InMemoryQueue<T> : IBlock<T>
         Complete();
 
         if (_count == 0) return;
+        
+        //await _cancellation.CancelAsync();
 
         await Task.WhenAll(_tasks);
 
-        while (!_cancellation.IsCancellationRequested && _count > 0)
+        while (!Cancellation.IsCancellationRequested && _count > 0)
         {
-            var isData = await _channel.Reader.WaitToReadAsync(_cancellation.Token);
-            if (!isData) return;
-
+            try
+            {
+                var isData = await _channel.Reader.WaitToReadAsync(_cancellation.Token);
+                if (!isData) return;
+            }
+            catch (TaskCanceledException )
+            {
+                return;
+            }
+            
             if (_channel.Reader.TryRead(out var item))
             {
                 try
                 {
-                    await _action(item, _cancellation.Token);
+                    await _action(item, Cancellation);
                 }
                 catch (Exception e)
                 {
+                    // TODO - try/catch/finally this
                     _onError(item, e);
+                    Interlocked.Decrement(ref _count);
                 }
             }
         }
+        
+        
     }
 
     private async Task processAsync()
@@ -148,5 +277,49 @@ public class InMemoryQueue<T> : IBlock<T>
         _latched = true;
 
         _channel.Writer.TryComplete();
+    }
+    
+    public IBlockSet<TBefore> PushUpstream<TBefore>(Func<TBefore, CancellationToken, Task<T>> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(async (item, token) =>
+        {
+            var transformed = await transformation(item, token);
+            await PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, []);
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, CancellationToken, Task<T>> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(parallelCount, async (item, token) =>
+        {
+            var transformed = await transformation(item, token);
+            await PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, []);
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(Func<TBefore, T> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(async (item, token) =>
+        {
+            var transformed = transformation(item);
+            await PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, []);
+    }
+
+    public IBlockSet<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, T> transformation)
+    {
+        var top = new InMemoryQueue<TBefore>(parallelCount, async (item, token) =>
+        {
+            var transformed = transformation(item);
+            await PostAsync(transformed);
+        });
+
+        return new BlockSet<TBefore>(top, []);
     }
 }

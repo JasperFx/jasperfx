@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Threading.Tasks.Dataflow;
 using ImTools;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
@@ -12,7 +13,7 @@ namespace JasperFx.Events.Daemon;
 /// </summary>
 public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, IDisposable
 {
-    private readonly ActionBlock<ShardState> _block;
+    private readonly InMemoryQueue<ShardState> _block;
     private readonly ILogger _logger;
     private readonly IDisposable _subscription;
     private ImmutableList<IObserver<ShardState>> _listeners = ImmutableList<IObserver<ShardState>>.Empty;
@@ -21,8 +22,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     public ShardStateTracker(ILogger logger)
     {
         _logger = logger;
-        _block = new ActionBlock<ShardState>(publish,
-            new ExecutionDataflowBlockOptions { EnsureOrdered = true, MaxDegreeOfParallelism = 1 });
+        _block = new InMemoryQueue<ShardState>(publish);
 
         _subscription = Subscribe(this);
     }
@@ -172,7 +172,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     public Task Complete()
     {
         _block.Complete();
-        return _block.Completion;
+        return _block.WaitForCompletionAsync();
     }
 
     private void publish(ShardState state)

@@ -26,7 +26,7 @@ public class LambdaItemHandler<T> : IItemHandler<T>
 
 public class RetryBlock<T> : IDisposable
 {
-    private readonly ActionBlock<Item> _block;
+    private readonly InMemoryQueue<Item> _block;
     private readonly CancellationToken _cancellationToken;
     private readonly IItemHandler<T> _handler;
     private readonly ILogger _logger;
@@ -37,6 +37,7 @@ public class RetryBlock<T> : IDisposable
     {
     }
 
+    // TODO -- make the usage of ExecutionDataflowBlockOptions [Obsolete]
     public RetryBlock(Func<T, CancellationToken, Task> handler, ILogger logger, CancellationToken cancellationToken,
         ExecutionDataflowBlockOptions options)
     {
@@ -48,7 +49,7 @@ public class RetryBlock<T> : IDisposable
 
         _cancellationToken = cancellationToken;
 
-        _block = new ActionBlock<Item>(executeAsync, options);
+        _block = new InMemoryQueue<Item>(executeAsync);
     }
 
     public RetryBlock(IItemHandler<T> handler, ILogger logger, CancellationToken cancellationToken,
@@ -66,7 +67,7 @@ public class RetryBlock<T> : IDisposable
 
         _cancellationToken = cancellationToken;
 
-        _block = new ActionBlock<Item>(executeAsync, options);
+        _block = new InMemoryQueue<Item>(executeAsync);
     }
 
     public int MaximumAttempts { get; set; } = 3;
@@ -110,7 +111,7 @@ public class RetryBlock<T> : IDisposable
         return Pauses[attempt - 1];
     }
 
-    private async Task executeAsync(Item item)
+    private async Task executeAsync(Item item, CancellationToken _)
     {
         if (_cancellationToken.IsCancellationRequested) return;
 
@@ -145,8 +146,7 @@ public class RetryBlock<T> : IDisposable
 
     public Task DrainAsync()
     {
-        _block.Complete();
-        return _block.Completion;
+        return _block.WaitForCompletionAsync();
     }
 
     public class Item

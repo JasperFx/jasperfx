@@ -1,5 +1,7 @@
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks.Dataflow;
 using ImTools;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
@@ -48,13 +50,16 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             // This will need to pass in the database somehow for slicers that use a Marten database
             await range.SliceAsync(Slicer);
         }
-        
-        var builder = new ActionBlock<EventSliceExecution>(async execution =>
+
+        var exceptions = new List<Exception>();
+        var builder = new InMemoryQueue<EventSliceExecution>(10, async (execution, _) =>
         {
             if (cancellation.IsCancellationRequested) return;
         
             await ApplyChangesAsync(mode, batch, execution.Operations, execution.Slice, execution.Storage, execution.Cache, cancellation);
-        }, new ExecutionDataflowBlockOptions{CancellationToken = cancellation});
+        });
+
+        builder.OnError = (_, e) => exceptions.Add(e);
 
         var caches = new List<IAggregateCache<TId, TDoc>>();
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
@@ -95,8 +100,16 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             }
         }
         
-        builder.Complete();
-        await builder.Completion.ConfigureAwait(false);
+        await builder.WaitForCompletionAsync().ConfigureAwait(false);
+
+        if (exceptions.Count == 1)
+        {
+            ExceptionDispatchInfo.Throw(exceptions[0]);
+        }
+        else if (exceptions.Any())
+        {
+            throw new AggregateException(exceptions);
+        }
 
         try
         {

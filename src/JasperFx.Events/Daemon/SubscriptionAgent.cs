@@ -1,4 +1,5 @@
 using System.Threading.Tasks.Dataflow;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
@@ -14,7 +15,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
     private readonly ILogger _logger;
     public ShardName Name { get; }
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly ActionBlock<Command> _commandBlock;
+    private readonly InMemoryQueue<Command> _commandBlock;
     private IDaemonRuntime _runtime = new NulloDaemonRuntime();
 
     public SubscriptionAgent(ShardName name, AsyncOptions options, TimeProvider timeProvider, IEventLoader loader,
@@ -29,7 +30,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         _logger = logger;
         Name = name;
 
-        _commandBlock = new ActionBlock<Command>(Apply, _cancellation.Token.SequentialOptions());
+        _commandBlock = new InMemoryQueue<Command>(Apply);
 
         ProjectionShardIdentity = name.Identity;
     }
@@ -100,7 +101,6 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         {
             // Let the command block finish first
             _commandBlock.Complete();
-            await _commandBlock.Completion.ConfigureAwait(false);
             
             await _cancellation.CancelAsync().ConfigureAwait(false);
 
@@ -211,7 +211,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
     }
 
 
-    public async Task Apply(Command command)
+    public async Task Apply(Command command, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested) return;
 

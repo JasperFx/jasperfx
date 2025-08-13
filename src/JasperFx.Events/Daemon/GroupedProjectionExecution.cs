@@ -1,4 +1,5 @@
 using System.Threading.Tasks.Dataflow;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
@@ -7,9 +8,8 @@ namespace JasperFx.Events.Daemon;
 
 public class GroupedProjectionExecution: ISubscriptionExecution
 {
-    private readonly ActionBlock<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly TransformBlock<EventRange, EventRange> _grouping;
+    private readonly IBlockSet<EventRange> _grouping;
     private readonly ShardName _shardName;
     private readonly ILogger _logger;
     private readonly IGroupedProjectionRunner _runner;
@@ -19,10 +19,8 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         _shardName = shardName;
         _logger = logger;
 
-        var singleFileOptions = _cancellation.Token.SequentialOptions();
-        _grouping = new TransformBlock<EventRange, EventRange>(groupEventRange, singleFileOptions);
-        _building = new ActionBlock<EventRange>(processRange, singleFileOptions);
-        _grouping.LinkTo(_building, x => x != null);
+        var block = new InMemoryQueue<EventRange>(processRangeAsync);
+        _grouping = block.PushUpstream<EventRange>(groupEventRangeAsync);
 
         _runner = runner;
     }
@@ -38,15 +36,13 @@ public class GroupedProjectionExecution: ISubscriptionExecution
 
     public async ValueTask DisposeAsync()
     {
+        _grouping.Complete();
         await _cancellation.CancelAsync().ConfigureAwait(false);
 
         if (Disposables != null)
         {
             await Disposables.MaybeDisposeAllAsync().ConfigureAwait(false);
         }
-
-        _grouping.Complete();
-        _building.Complete();
     }
 
     public void Enqueue(EventPage page, ISubscriptionAgent subscriptionAgent)
@@ -67,10 +63,8 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     public async Task StopAndDrainAsync(CancellationToken token)
     {
         _grouping.Complete();
-        await _grouping.Completion.ConfigureAwait(false);
-        _building.Complete();
-        await _building.Completion.ConfigureAwait(false);
-        
+        await _grouping.WaitForCompletionAsync().ConfigureAwait(false);
+
         await _cancellation.CancelAsync().ConfigureAwait(false);
     }
 
@@ -78,10 +72,9 @@ public class GroupedProjectionExecution: ISubscriptionExecution
     {
         await _cancellation.CancelAsync().ConfigureAwait(false);
         _grouping.Complete();
-        _building.Complete();
     }
 
-    private async Task<EventRange> groupEventRange(EventRange range)
+    private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)
         {
@@ -121,7 +114,7 @@ public class GroupedProjectionExecution: ISubscriptionExecution
         }
     }
 
-    private async Task processRange(EventRange range)
+    private async Task processRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)
         {
@@ -199,6 +192,16 @@ public class GroupedProjectionExecution: ISubscriptionExecution
             try
             {
                 batch = await buildBatchAsync(range, cancellationToken).ConfigureAwait(false);
+            }
+            catch (AggregateException a)
+            {
+                var applyErrors = a.InnerExceptions.OfType<ApplyEventException>().ToArray();
+                foreach (var error in applyErrors)
+                {
+                    await range.SkipEventSequence(error.Event.Sequence).ConfigureAwait(false);
+                    await range.Agent.RecordDeadLetterEventAsync(new DeadLetterEvent(error.Event, range.ShardName, error))
+                        .ConfigureAwait(false);
+                }
             }
             catch (ApplyEventException e)
             {
