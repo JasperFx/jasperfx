@@ -26,7 +26,7 @@ public class SubscriptionAgentTests
     {
         await theAgent.Apply(Command.Started(0, 0), CancellationToken.None);
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class SubscriptionAgentTests
     {
         await theAgent.Apply(Command.Started(5, 5), CancellationToken.None);
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.HighWaterMark.ShouldBe(5);
         theAgent.LastCommitted.ShouldBe(5);
@@ -67,7 +67,7 @@ public class SubscriptionAgentTests
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class SubscriptionAgentTests
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public class SubscriptionAgentTests
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class SubscriptionAgentTests
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -170,7 +170,7 @@ public class SubscriptionAgentTests
 
         // Hold on, don't do anything else
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.LastCommitted.ShouldBe(500); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
@@ -191,7 +191,7 @@ public class SubscriptionAgentTests
 
         // Hold on, don't do anything else
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.LastCommitted.ShouldBe(500); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
@@ -225,7 +225,7 @@ public class SubscriptionAgentTests
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class SubscriptionAgentTests
 
         // Hold on, don't do anything else, let more events come in to batch up more
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.LastCommitted.ShouldBe(7000); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);

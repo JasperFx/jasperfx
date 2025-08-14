@@ -24,9 +24,9 @@ public class LambdaItemHandler<T> : IItemHandler<T>
     }
 }
 
-public class RetryBlock<T> : IDisposable
+public class RetryBlock<T> : IRetryBlock<T>, IDisposable
 {
-    private readonly InMemoryQueue<Item> _block;
+    private readonly Block<Item> _block;
     private readonly CancellationToken _cancellationToken;
     private readonly IItemHandler<T> _handler;
     private readonly ILogger _logger;
@@ -49,7 +49,7 @@ public class RetryBlock<T> : IDisposable
 
         _cancellationToken = cancellationToken;
 
-        _block = new InMemoryQueue<Item>(executeAsync);
+        _block = new Block<Item>(executeAsync);
     }
 
     public RetryBlock(IItemHandler<T> handler, ILogger logger, CancellationToken cancellationToken,
@@ -67,7 +67,7 @@ public class RetryBlock<T> : IDisposable
 
         _cancellationToken = cancellationToken;
 
-        _block = new InMemoryQueue<Item>(executeAsync);
+        _block = new Block<Item>(executeAsync);
     }
 
     public int MaximumAttempts { get; set; } = 3;

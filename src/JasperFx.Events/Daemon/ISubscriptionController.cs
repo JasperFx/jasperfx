@@ -14,7 +14,7 @@ public interface ISubscriptionController
     ShardName Name { get; }
     AsyncOptions Options { get; }
 
-    void MarkSuccess(long processedCeiling);
+    ValueTask MarkSuccessAsync(long processedCeiling);
 
     /// <summary>
     ///     Tell the governing subscription agent that there was a critical error that

@@ -57,7 +57,7 @@ public class HighWaterAgent: IDisposable
 
         _current = await _detector.Detect(_token).ConfigureAwait(false);
 
-        _tracker.Publish(
+        await _tracker.PublishAsync(
             new ShardState(ShardState.HighWaterMark, _current.CurrentMark) { Action = ShardAction.Started });
 
         _loop = Task.Factory.StartNew(detectChanges, _token,
@@ -81,7 +81,7 @@ public class HighWaterAgent: IDisposable
             if (_current == null || next.CurrentMark > _current.CurrentMark)
             {
                 _current = next;
-                _tracker.MarkHighWater(_current.CurrentMark);
+                await _tracker.MarkHighWaterAsync(_current.CurrentMark);
             }
         }
         catch (Exception e)
@@ -168,7 +168,7 @@ public class HighWaterAgent: IDisposable
 
                     if (statistics.IncludesSkipping)
                     {
-                        _tracker.MarkSkipping(lastKnown, statistics.CurrentMark);
+                        await _tracker.MarkSkippingAsync(lastKnown, statistics.CurrentMark);
                     }
                     
                     _skipping.Add(1);
@@ -222,7 +222,7 @@ public class HighWaterAgent: IDisposable
 
         _current = statistics;
 
-        _tracker.MarkHighWater(statistics.CurrentMark);
+        await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
 
         await Task.Delay(delayTime, _token).ConfigureAwait(false);
     }
@@ -258,7 +258,7 @@ public class HighWaterAgent: IDisposable
         // Get out of here if you're at the initial, empty state
         if (initialHighMark == 1 && statistics.CurrentMark == 0)
         {
-            _tracker.MarkHighWater(statistics.CurrentMark);
+            await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
             return;
         }
 
@@ -268,7 +268,7 @@ public class HighWaterAgent: IDisposable
             statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);
         }
 
-        _tracker.MarkHighWater(statistics.CurrentMark);
+        await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
     }
 
     public async Task StopAsync()

@@ -3,6 +3,7 @@ using JasperFx.Core;
 
 namespace JasperFx.Blocks;
 
+[Obsolete("This will be replaced in JasperFx 2.0 by the Channels backed BatchingChannel")]
 public class BatchingBlock<T> : IDisposable
 {
     private readonly BatchBlock<T> _batchBlock;

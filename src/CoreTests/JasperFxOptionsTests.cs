@@ -2,6 +2,7 @@ using JasperFx;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine.Descriptions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
 using Shouldly;
@@ -52,14 +53,21 @@ public class JasperFxOptionsTests
         
         options.ApplicationAssembly.ShouldBe(GetType().Assembly);
     }
+
+    public class StubHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Development";
+        public string ApplicationName { get; set; } = "JasperFxApp";
+        public string ContentRootPath { get; set; } = "./";
+        public IFileProvider ContentRootFileProvider { get; set; } = Substitute.For<IFileProvider>();
+    }
     
     [Fact]
     public void read_environment_for_production()
     {
         var options = new JasperFxOptions();
 
-        var environment = Substitute.For<IHostEnvironment>();
-        environment.EnvironmentName.Returns("Production");
+        var environment = new StubHostEnvironment { EnvironmentName = "Production" };
         
         options.ReadHostEnvironment(environment);
         

@@ -23,7 +23,7 @@ public class InMemoryQueueTests
         var list = new List<Guid>();
         var expected = randomList(100);
 
-        await using var queue = new InMemoryQueue<Guid>(async (n, _) =>
+        await using var queue = new Block<Guid>(async (n, _) =>
         {
             await Task.Delay(Random.Shared.Next(50, 100), _);
             list.Add(n);
@@ -49,7 +49,7 @@ public class InMemoryQueueTests
         
         var list = new List<Guid>();
         
-        await using var queue = new InMemoryQueue<Guid>(async (n, _) =>
+        await using var queue = new Block<Guid>(async (n, _) =>
         {
             await Task.Delay(Random.Shared.Next(10, 25), _);
             list.Add(n);
@@ -91,7 +91,7 @@ public class InMemoryQueueTests
         
         var list = new ConcurrentBag<Guid>();
         
-        await using var queue = new InMemoryQueue<Guid>(10, async (n, _) =>
+        await using var queue = new Block<Guid>(10, async (n, _) =>
         {
             await Task.Delay(Random.Shared.Next(10, 25), _);
             list.Add(n);

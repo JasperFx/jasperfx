@@ -29,9 +29,9 @@ public class ShardStateTrackerTests : IDisposable
         theTracker.Subscribe(observer2);
         theTracker.Subscribe(observer3);
 
-        theTracker.Publish(state1);
-        theTracker.Publish(state2);
-        theTracker.Publish(state3);
+        await theTracker.PublishAsync(state1);
+        await theTracker.PublishAsync(state2);
+        await theTracker.PublishAsync(state3);
 
         await theTracker.Complete();
 
@@ -53,7 +53,7 @@ public class ShardStateTrackerTests : IDisposable
         theTracker.Subscribe(observer2);
         theTracker.Subscribe(observer3);
         
-        theTracker.MarkSkipping(1000, 1100);
+        await theTracker.MarkSkippingAsync(1000, 1100);
         
         await theTracker.Complete();
 

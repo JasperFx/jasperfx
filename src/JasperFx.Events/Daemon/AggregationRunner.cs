@@ -1,20 +1,21 @@
 using System.Runtime.ExceptionServices;
-using System.Threading.Tasks.Dataflow;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
+public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner
+    where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
-    private readonly IEventStore<TOperations, TQuerySession> _store;
+    private readonly object _cacheLock = new();
     private readonly IEventDatabase _database;
     private readonly ILogger _logger;
+    private readonly IEventStore<TOperations, TQuerySession> _store;
+    private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
 
     public AggregationRunner(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         IAggregationProjection<TDoc, TId, TOperations, TQuerySession> projection,
@@ -28,6 +29,8 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         Slicer = slicer;
     }
 
+    public IAggregationProjection<TDoc, TId, TOperations, TQuerySession> Projection { get; }
+
     public IEventSlicer Slicer { get; }
 
     public ValueTask DisposeAsync()
@@ -35,13 +38,13 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return new ValueTask();
     }
 
-    public IAggregationProjection<TDoc, TId, TOperations, TQuerySession> Projection { get; }
     public SliceBehavior SliceBehavior { get; }
+
     public async Task<IProjectionBatch> BuildBatchAsync(EventRange range, ShardExecutionMode mode,
         CancellationToken cancellation)
     {
         Projection.StartBatch();
-        
+
         var batch = await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
@@ -52,11 +55,15 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         }
 
         var exceptions = new List<Exception>();
-        var builder = new InMemoryQueue<EventSliceExecution>(10, async (execution, _) =>
+        var builder = new Block<EventSliceExecution>(10, async (execution, _) =>
         {
-            if (cancellation.IsCancellationRequested) return;
-        
-            await ApplyChangesAsync(mode, batch, execution.Operations, execution.Slice, execution.Storage, execution.Cache, cancellation);
+            if (cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await ApplyChangesAsync(mode, batch, execution.Operations, execution.Slice, execution.Storage,
+                execution.Cache, cancellation);
         });
 
         builder.OnError = (_, e) => exceptions.Add(e);
@@ -71,15 +78,15 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
             var needToBeFetched = new List<EventSlice<TDoc, TId>>();
             var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
-            
+
             foreach (var slice in group.Slices)
             {
                 // If you can find the snapshot in the cache, use that
                 if (cache.TryFind(slice.Id, out var snapshot))
                 {
                     slice.Snapshot = snapshot;
-                    
-                    builder.Post(new EventSliceExecution(slice, operations, storage, cache));
+
+                    await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
                 }
                 else
                 {
@@ -95,11 +102,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 {
                     slice.Snapshot = snapshot;
                 }
-                
-                builder.Post(new EventSliceExecution(slice, operations, storage, cache));
+
+                await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
             }
         }
-        
+
         await builder.WaitForCompletionAsync().ConfigureAwait(false);
 
         if (exceptions.Count == 1)
@@ -113,10 +120,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         try
         {
-            foreach (var cache in caches)
-            {
-                cache.CompactIfNecessary();
-            }
+            foreach (var cache in caches) cache.CompactIfNecessary();
         }
         catch (Exception e)
         {
@@ -127,8 +131,6 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         return batch;
     }
-
-    private record EventSliceExecution(EventSlice<TDoc, TId> Slice, TOperations Operations, IProjectionStorage<TDoc, TId> Storage, IAggregateCache<TId, TDoc> Cache);
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)
     {
@@ -152,25 +154,31 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         CancellationToken cancellation)
     {
         if (slice.TenantId != storage.TenantId)
+        {
             throw new InvalidOperationException(
                 $"TenantId does not match from the slice '{slice.TenantId}' and storage '{storage.TenantId}'");
-        
+        }
+
         slice.FastForwardForCompacting();
-        
+
         if (Projection.MatchesAnyDeleteType(slice.Events()))
         {
             if (mode == ShardExecutionMode.Continuous)
             {
                 await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
             }
-            
+
             maybeArchiveStream(storage, slice);
             storage.Delete(slice.Id);
             return;
         }
 
-        var (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage, slice.Events(), cancellation);
-        if (action == ActionType.Nothing) return;
+        var (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage,
+            slice.Events(), cancellation);
+        if (action == ActionType.Nothing)
+        {
+            return;
+        }
 
         (var lastEvent, snapshot) = Projection.TryApplyMetadata(slice.Events(), snapshot, slice.Id, storage);
 
@@ -208,12 +216,8 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 storage.Delete(slice.Id);
                 break;
         }
-
     }
-    
-    private readonly object _cacheLock = new();
-    private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
-    
+
     public IAggregateCache<TId, TDoc> CacheFor(string tenantId)
     {
         if (_caches.TryFind(tenantId, out var cache))
@@ -237,7 +241,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             return cache;
         }
     }
-    
+
     private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice)
     {
         if (Projection.Scope == AggregationScope.SingleStream && slice.Events().OfType<IEvent<Archived>>().Any())
@@ -247,10 +251,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     }
 
     // Look at AggregateApplicationRuntime processPossibleSideEffects
-    private async Task processPossibleSideEffects(IProjectionBatch batch, TOperations operations, EventSlice<TDoc,TId> slice)
+    private async Task processPossibleSideEffects(IProjectionBatch batch, TOperations operations,
+        EventSlice<TDoc, TId> slice)
     {
         await Projection.RaiseSideEffects(operations, slice);
-        
+
         if (slice.RaisedEvents != null)
         {
             slice.BuildOperations(_store.Registry, batch, Projection.Scope);
@@ -259,9 +264,13 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         if (slice.PublishedMessages != null)
         {
             foreach (var message in slice.PublishedMessages)
-            {
                 await batch.PublishMessageAsync(message, slice.TenantId).ConfigureAwait(false);
-            }
         }
     }
+
+    private record EventSliceExecution(
+        EventSlice<TDoc, TId> Slice,
+        TOperations Operations,
+        IProjectionStorage<TDoc, TId> Storage,
+        IAggregateCache<TId, TDoc> Cache);
 }
