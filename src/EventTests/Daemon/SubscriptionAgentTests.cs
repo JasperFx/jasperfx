@@ -24,17 +24,17 @@ public class SubscriptionAgentTests
     [Fact]
     public async Task when_starting_and_the_high_water_is_zero_do_nothing()
     {
-        await theAgent.Apply(Command.Started(0, 0));
+        await theAgent.Apply(Command.Started(0, 0), CancellationToken.None);
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
     }
 
     [Fact]
     public async Task when_starting_and_the_last_committed_is_equal_to_the_high_water_mark_do_nothing()
     {
-        await theAgent.Apply(Command.Started(5, 5));
+        await theAgent.Apply(Command.Started(5, 5), CancellationToken.None);
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.HighWaterMark.ShouldBe(5);
         theAgent.LastCommitted.ShouldBe(5);
@@ -60,14 +60,14 @@ public class SubscriptionAgentTests
 
         theLoader.LoadAsync(request, theAgent.CancellationToken).Returns(page);
 
-        await theAgent.Apply(Command.Started(highWaterMark, lastCommitted));
+        await theAgent.Apply(Command.Started(highWaterMark, lastCommitted), CancellationToken.None);
 
         theAgent.LastCommitted.ShouldBe(lastCommitted);
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -88,14 +88,14 @@ public class SubscriptionAgentTests
 
         theLoader.LoadAsync(expectedRequest, theAgent.CancellationToken).Returns(page);
 
-        await theAgent.Apply(Command.Started(highWaterMark, lastCommitted));
+        await theAgent.Apply(Command.Started(highWaterMark, lastCommitted), CancellationToken.None);
 
         theAgent.LastCommitted.ShouldBe(lastCommitted);
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -118,13 +118,13 @@ public class SubscriptionAgentTests
 
         theLoader.LoadAsync(expectedRequest, theAgent.CancellationToken).Returns(page);
 
-        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark));
+        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark), CancellationToken.None);
         theAgent.LastCommitted.ShouldBe(500); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -148,13 +148,13 @@ public class SubscriptionAgentTests
 
         theLoader.LoadAsync(expectedRequest, theAgent.CancellationToken).Returns(page);
 
-        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark));
+        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark), CancellationToken.None);
         theAgent.LastCommitted.ShouldBe(400); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -166,11 +166,11 @@ public class SubscriptionAgentTests
 
         var highWaterMark = theAgent.HighWaterMark + 2500;
 
-        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark));
+        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark), CancellationToken.None);
 
         // Hold on, don't do anything else
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.LastCommitted.ShouldBe(500); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
@@ -187,11 +187,11 @@ public class SubscriptionAgentTests
 
         var highWaterMark = theAgent.HighWaterMark + 2500;
 
-        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark));
+        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark), CancellationToken.None);
 
         // Hold on, don't do anything else
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.LastCommitted.ShouldBe(500); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
@@ -219,13 +219,13 @@ public class SubscriptionAgentTests
 
         theLoader.LoadAsync(expectedRequest, theAgent.CancellationToken).Returns(page);
 
-        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark));
+        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark), CancellationToken.None);
         theAgent.LastCommitted.ShouldBe(400); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
 
         theAgent.LastEnqueued.ShouldBe(page.Ceiling);
 
-        theExecution.Received().Enqueue(page, theAgent);
+        await theExecution.Received().EnqueueAsync(page, theAgent);
     }
 
     [Fact]
@@ -240,11 +240,11 @@ public class SubscriptionAgentTests
 
         var highWaterMark = theAgent.HighWaterMark + 25;
 
-        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark));
+        await theAgent.Apply(Command.HighWaterMarkUpdated(highWaterMark), CancellationToken.None);
 
         // Hold on, don't do anything else, let more events come in to batch up more
         await theLoader.DidNotReceiveWithAnyArgs().LoadAsync(null, CancellationToken.None);
-        theExecution.DidNotReceiveWithAnyArgs().Enqueue(null, theAgent);
+        await theExecution.DidNotReceiveWithAnyArgs().EnqueueAsync(null, theAgent);
 
         theAgent.LastCommitted.ShouldBe(7000); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);

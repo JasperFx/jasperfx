@@ -1,20 +1,20 @@
-using System.Threading.Tasks.Dataflow;
-using JasperFx.Core;
+using JasperFx.Blocks;
 using JasperFx.Events.Daemon;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
 
-public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExecution where TOperations : TQuerySession, IStorageOperations
+public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExecution
+    where TOperations : TQuerySession, IStorageOperations
 {
-    private readonly ShardName _shardName;
-    private readonly AsyncOptions _options;
-    private readonly IEventStore<TOperations, TQuerySession> _store;
-    private readonly IEventDatabase _database;
-    private readonly IJasperFxProjection<TOperations> _projection;
-    private readonly ILogger _logger;
-    private readonly ActionBlock<EventRange> _building;
+    private readonly Block<EventRange> _building;
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly IEventDatabase _database;
+    private readonly ILogger _logger;
+    private readonly AsyncOptions _options;
+    private readonly IJasperFxProjection<TOperations> _projection;
+    private readonly ShardName _shardName;
+    private readonly IEventStore<TOperations, TQuerySession> _store;
 
     public ProjectionExecution(ShardName shardName, AsyncOptions options,
         IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
@@ -26,12 +26,53 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         _database = database;
         _projection = projection;
         _logger = logger;
-        
-        var singleFileOptions = _cancellation.Token.SequentialOptions();
-        _building = new ActionBlock<EventRange>(processRange, singleFileOptions);
+
+        _building = new Block<EventRange>(processRangeAsync);
     }
-    
-    private async Task processRange(EventRange range)
+
+    public async ValueTask DisposeAsync()
+    {
+        await _cancellation.CancelAsync().ConfigureAwait(false);
+
+        _building.Complete();
+    }
+
+    public ValueTask EnqueueAsync(EventPage page, ISubscriptionAgent subscriptionAgent)
+    {
+        if (_cancellation.IsCancellationRequested)
+        {
+            return new ValueTask();
+        }
+
+        var range = new EventRange(subscriptionAgent, page.Floor, page.Ceiling)
+        {
+            Events = page
+        };
+
+        return _building.PostAsync(range);
+    }
+
+    public async Task StopAndDrainAsync(CancellationToken token)
+    {
+        await _building.WaitForCompletionAsync();
+        await _cancellation.CancelAsync().ConfigureAwait(false);
+    }
+
+    public async Task HardStopAsync()
+    {
+        await _cancellation.CancelAsync().ConfigureAwait(false);
+        _building.Complete();
+    }
+
+    public ShardExecutionMode Mode { get; set; }
+
+    public bool TryBuildReplayExecutor(out IReplayExecutor executor)
+    {
+        executor = default!;
+        return false;
+    }
+
+    private async Task processRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)
         {
@@ -75,7 +116,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
             // probably deserves a full circuit break
             await batch.ExecuteAsync(_cancellation.Token).ConfigureAwait(false);
 
-            range.Agent.MarkSuccess(range.SequenceCeiling);
+            await range.Agent.MarkSuccessAsync(range.SequenceCeiling);
 
             if (Mode == ShardExecutionMode.Continuous)
             {
@@ -134,7 +175,6 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
                 await using var session = batch.SessionForTenant(group.Key);
                 await _projection.ApplyAsync(session, group.ToList(), cancellationToken);
             }
-
         }
         catch (Exception e)
         {
@@ -151,48 +191,5 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         }
 
         return batch;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await _cancellation.CancelAsync().ConfigureAwait(false);
-        
-        _building.Complete();
-    }
-
-    public void Enqueue(EventPage page, ISubscriptionAgent subscriptionAgent)
-    {
-        if (_cancellation.IsCancellationRequested)
-        {
-            return;
-        }
-
-        var range = new EventRange(subscriptionAgent, page.Floor, page.Ceiling)
-        {
-            Events = page
-        };
-
-        _building.Post(range);
-    }
-
-    public async Task StopAndDrainAsync(CancellationToken token)
-    {
-        _building.Complete();
-        await _building.Completion.ConfigureAwait(false);
-        
-        await _cancellation.CancelAsync().ConfigureAwait(false);
-    }
-
-    public async Task HardStopAsync()
-    {
-        await _cancellation.CancelAsync().ConfigureAwait(false);
-        _building.Complete();
-    }
-
-    public ShardExecutionMode Mode { get; set; }
-    public bool TryBuildReplayExecutor(out IReplayExecutor executor)
-    {
-        executor = default!;
-        return false;
     }
 }

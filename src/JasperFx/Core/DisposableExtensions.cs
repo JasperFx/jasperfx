@@ -18,6 +18,23 @@ public static class DisposableExtensions
             // That's right, swallow that exception
         }
     }
+    
+    /// <summary>
+    ///     Attempts to call DisposeAsync() *synchronously*, but swallows and discards any
+    ///     exceptions thrown
+    /// </summary>
+    /// <param name="disposable"></param>
+    public static void SafeDisposeSynchronously(this IAsyncDisposable disposable)
+    {
+        try
+        {
+            disposable.DisposeAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // That's right, swallow that exception
+        }
+    }
 
     /// <summary>
     ///     Will loop through the collection and call DisposeAsync() on

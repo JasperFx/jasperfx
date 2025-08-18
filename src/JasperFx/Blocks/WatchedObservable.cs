@@ -6,18 +6,14 @@ namespace JasperFx.Blocks;
 
 public class WatchedObservable<T> : IObservable<T>, IDisposable
 {
-    private readonly ActionBlock<T> _block;
+    private readonly Block<T> _block;
     private readonly ILogger _logger;
     private ImmutableList<IObserver<T>> _listeners = ImmutableList<IObserver<T>>.Empty;
 
     public WatchedObservable(ILogger logger)
     {
         _logger = logger;
-        _block = new ActionBlock<T>(publish, new ExecutionDataflowBlockOptions
-        {
-            EnsureOrdered = true,
-            MaxDegreeOfParallelism = 1
-        });
+        _block = new Block<T>(publish);
     }
 
     public virtual void Dispose()
@@ -37,7 +33,7 @@ public class WatchedObservable<T> : IObservable<T>, IDisposable
         return new Unsubscriber(this, observer);
     }
 
-    internal void Publish(T state)
+    public void Publish(T state)
     {
         _block.Post(state);
     }
@@ -61,8 +57,7 @@ public class WatchedObservable<T> : IObservable<T>, IDisposable
 
     internal Task DrainAsync()
     {
-        _block.Complete();
-        return _block.Completion;
+        return _block.WaitForCompletionAsync();
     }
 
     private class Unsubscriber : IDisposable

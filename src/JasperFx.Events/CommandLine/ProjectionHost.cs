@@ -68,6 +68,7 @@ internal class ProjectionHost: IProjectionHost
     }
 
     public async Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier,
+        ProjectionInput input,
         string[] projectionNames, TimeSpan? shardTimeout = null)
     {
         if (!_stores.TryFind(databaseIdentifier.SubjectUri, out var store))
@@ -150,7 +151,7 @@ internal class ProjectionHost: IProjectionHost
         return _completion.Task;
     }
 
-    public Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none)
+    public async Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none)
     {
         throw new NotImplementedException();
     }

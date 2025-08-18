@@ -1,20 +1,21 @@
-using System.Threading.Tasks.Dataflow;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
+public class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 {
-    private readonly TimeProvider _timeProvider;
-    private readonly IEventLoader _loader;
-    private readonly ISubscriptionExecution _execution;
-    private readonly ShardStateTracker _tracker;
-    private readonly ILogger _logger;
-    public ShardName Name { get; }
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly ActionBlock<Command> _commandBlock;
+    private readonly Block<Command> _commandBlock;
+    private readonly ISubscriptionExecution _execution;
+    private readonly IEventLoader _loader;
+    private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
+    private readonly ShardStateTracker _tracker;
+
+    private TaskCompletionSource? _rebuild;
     private IDaemonRuntime _runtime = new NulloDaemonRuntime();
 
     public SubscriptionAgent(ShardName name, AsyncOptions options, TimeProvider timeProvider, IEventLoader loader,
@@ -29,18 +30,14 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         _logger = logger;
         Name = name;
 
-        _commandBlock = new ActionBlock<Command>(Apply, _cancellation.Token.SequentialOptions());
+        _commandBlock = new Block<Command>(Apply);
 
         ProjectionShardIdentity = name.Identity;
     }
 
-    public AsyncOptions Options { get; }
-
-    public string ProjectionShardIdentity { get; private set; }
+    public string ProjectionShardIdentity { get; }
 
     public CancellationToken CancellationToken => _cancellation.Token;
-
-    public ErrorHandlingOptions ErrorOptions { get; private set; } = new();
 
     // Making the setter internal so the test harness can override it
     // It's naughty, will make some people get very upset, and
@@ -51,10 +48,23 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
     public long HighWaterMark { get; set; }
 
+    public async ValueTask DisposeAsync()
+    {
+        await _cancellation.CancelAsync().ConfigureAwait(false);
+        _commandBlock.Complete();
+        await _execution.DisposeAsync().ConfigureAwait(false);
+    }
+
+    public ShardName Name { get; }
+
+    public AsyncOptions Options { get; }
+
+    public ErrorHandlingOptions ErrorOptions { get; private set; } = new();
+
     public async Task ReportCriticalFailureAsync(Exception ex, long lastProcessed)
     {
         await ReportCriticalFailureAsync(ex).ConfigureAwait(false);
-        MarkSuccess(lastProcessed);
+        await MarkSuccessAsync(lastProcessed);
     }
 
     public async Task ReportCriticalFailureAsync(Exception ex)
@@ -68,15 +78,17 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
             {
                 PausedTime = null;
                 Status = AgentStatus.Stopped;
-                _tracker.Publish(new ShardState(Name, LastCommitted) { Action = ShardAction.Stopped, Exception = ex});
+                await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+                    { Action = ShardAction.Stopped, Exception = ex });
             }
             else
             {
                 PausedTime = _timeProvider.GetUtcNow();
                 Status = AgentStatus.Paused;
-                _tracker.Publish(new ShardState(Name, LastCommitted) { Action = ShardAction.Paused, Exception = ex});
+                await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+                    { Action = ShardAction.Paused, Exception = ex });
             }
-            
+
             if (Mode == ShardExecutionMode.Rebuild)
             {
                 _rebuild?.SetException(ex);
@@ -100,8 +112,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         {
             // Let the command block finish first
             _commandBlock.Complete();
-            await _commandBlock.Completion.ConfigureAwait(false);
-            
+
             await _cancellation.CancelAsync().ConfigureAwait(false);
 
             await _execution.StopAndDrainAsync(token).ConfigureAwait(false);
@@ -109,7 +120,6 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         catch (TaskCanceledException)
         {
             // Just get out of here.
-            return;
         }
         catch (OperationCanceledException)
         {
@@ -130,24 +140,21 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
     {
         await _execution.HardStopAsync().ConfigureAwait(false);
         await DisposeAsync().ConfigureAwait(false);
-        _tracker.Publish(new ShardState(Name, LastCommitted){Action = ShardAction.Stopped});
+        await _tracker.PublishAsync(new ShardState(Name, LastCommitted) { Action = ShardAction.Stopped });
     }
 
-    public Task StartAsync(SubscriptionExecutionRequest request)
+    public async Task StartAsync(SubscriptionExecutionRequest request)
     {
         Mode = request.Mode;
         _execution.Mode = request.Mode;
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
 
-        _commandBlock.Post(Command.Started(_tracker.HighWaterMark, request.Floor));
-        _tracker.Publish(new ShardState(Name, request.Floor){Action = ShardAction.Started});
+        await _commandBlock.PostAsync(Command.Started(_tracker.HighWaterMark, request.Floor));
+        await _tracker.PublishAsync(new ShardState(Name, request.Floor) { Action = ShardAction.Started });
 
         _logger.LogInformation("Started projection agent {Name}", ProjectionShardIdentity);
-        return Task.CompletedTask;
     }
-
-    private TaskCompletionSource? _rebuild;
 
     public async Task ReplayAsync(SubscriptionExecutionRequest request, long highWaterMark, TimeSpan timeout)
     {
@@ -162,14 +169,15 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         {
             if (_execution.TryBuildReplayExecutor(out var executor))
             {
-                _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}", Name.Identity);
+                _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
+                    Name.Identity);
                 var cancellationSource = new CancellationTokenSource(timeout);
                 await executor.StartAsync(request, this, cancellationSource.Token).ConfigureAwait(false);
             }
             else
             {
-                _tracker.Publish(new ShardState(Name, request.Floor) { Action = ShardAction.Started });
-                _commandBlock.Post(Command.Started(highWaterMark, request.Floor));
+                await _tracker.PublishAsync(new ShardState(Name, request.Floor) { Action = ShardAction.Started });
+                await _commandBlock.PostAsync(Command.Started(highWaterMark, request.Floor));
 
                 await _rebuild.Task.TimeoutAfterAsync((int)timeout.TotalMilliseconds).ConfigureAwait(false);
             }
@@ -203,17 +211,28 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
     public DateTimeOffset? PausedTime { get; private set; }
 
-    public async ValueTask DisposeAsync()
+    public ISubscriptionMetrics Metrics { get; }
+
+    public async ValueTask MarkSuccessAsync(long processedCeiling)
     {
-        await _cancellation.CancelAsync().ConfigureAwait(false);
-        _commandBlock.Complete();
-        await _execution.DisposeAsync().ConfigureAwait(false);
+        await _commandBlock.PostAsync(Command.Completed(processedCeiling));
+        await _tracker.PublishAsync(new ShardState(Name, processedCeiling) { Action = ShardAction.Updated });
     }
 
-
-    public async Task Apply(Command command)
+    public void MarkHighWater(long sequence)
     {
-        if (_cancellation.IsCancellationRequested) return;
+        _commandBlock.Post(Command.HighWaterMarkUpdated(sequence));
+    }
+
+    public ShardExecutionMode Mode { get; private set; } = ShardExecutionMode.Continuous;
+
+
+    public async Task Apply(Command command, CancellationToken _)
+    {
+        if (_cancellation.IsCancellationRequested)
+        {
+            return;
+        }
 
         switch (command.Type)
         {
@@ -243,13 +262,21 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
                 {
                     try
                     {
-                        _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}", Name.Identity);
-                        await executor.StartAsync(new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime), this, _cancellation.Token).ConfigureAwait(false);
-                        _logger.LogInformation("Finished with optimized rebuild for projection/subscription {ShardName}, proceeding to normal, continuous operation", Name.Identity);
+                        _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
+                            Name.Identity);
+                        await executor
+                            .StartAsync(
+                                new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime),
+                                this, _cancellation.Token).ConfigureAwait(false);
+                        _logger.LogInformation(
+                            "Finished with optimized rebuild for projection/subscription {ShardName}, proceeding to normal, continuous operation",
+                            Name.Identity);
                     }
                     catch (Exception e)
                     {
-                        _logger.LogError(e, "Error trying to perform an optimized rebuild/replay of subscription {ShardName}", Name.Identity);
+                        _logger.LogError(e,
+                            "Error trying to perform an optimized rebuild/replay of subscription {ShardName}",
+                            Name.Identity);
                     }
                 }
 
@@ -258,7 +285,7 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
             case CommandType.RangeCompleted:
                 LastCommitted = command.LastCommitted;
-                _tracker.Publish(new ShardState(Name, LastCommitted));
+                await _tracker.PublishAsync(new ShardState(Name, LastCommitted));
 
                 if (LastCommitted == HighWaterMark && Mode == ShardExecutionMode.Rebuild)
                 {
@@ -275,13 +302,23 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
         var inflight = LastEnqueued - LastCommitted;
 
         // Back pressure, slow down
-        if (inflight >= Options.MaximumHopperSize) return;
+        if (inflight >= Options.MaximumHopperSize)
+        {
+            return;
+        }
 
         // If all caught up, do nothing!
         // Not sure how either of these numbers could actually be higher than
         // the high water mark
-        if (LastCommitted >= HighWaterMark) return;
-        if (LastEnqueued >= HighWaterMark) return;
+        if (LastCommitted >= HighWaterMark)
+        {
+            return;
+        }
+
+        if (LastEnqueued >= HighWaterMark)
+        {
+            return;
+        }
 
         // You could maybe get a full size batch, so go get the next
         if (HighWaterMark - LastEnqueued > Options.BatchSize)
@@ -299,8 +336,6 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
             }
         }
     }
-
-    public ISubscriptionMetrics Metrics { get; }
 
     private async Task loadNextAsync()
     {
@@ -325,12 +360,13 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
 
             if (_logger.IsEnabled(LogLevel.Debug) && Mode == ShardExecutionMode.Continuous)
             {
-                _logger.LogDebug("Loaded {Number} of Events from {Floor} to {Ceiling} for Subscription {Name}", page.Count, page.Floor, page.Ceiling, ProjectionShardIdentity);
+                _logger.LogDebug("Loaded {Number} of Events from {Floor} to {Ceiling} for Subscription {Name}",
+                    page.Count, page.Floor, page.Ceiling, ProjectionShardIdentity);
             }
 
             LastEnqueued = page.Ceiling;
 
-            _execution.Enqueue(page, this);
+            await _execution.EnqueueAsync(page, this);
         }
         catch (Exception e)
         {
@@ -338,21 +374,4 @@ public class SubscriptionAgent: ISubscriptionAgent, IAsyncDisposable
             await ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
     }
-
-
-    public void MarkSuccess(long processedCeiling)
-    {
-        _commandBlock.Post(Command.Completed(processedCeiling));
-        _tracker.Publish(new ShardState(Name, processedCeiling){Action = ShardAction.Updated});
-    }
-
-    public void MarkHighWater(long sequence)
-    {
-        _commandBlock.Post(Command.HighWaterMarkUpdated(sequence));
-    }
-
-    public ShardExecutionMode Mode { get; private set; } = ShardExecutionMode.Continuous;
-
-
-
 }

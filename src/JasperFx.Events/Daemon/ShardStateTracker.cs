@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
-using System.Threading.Tasks.Dataflow;
 using ImTools;
+using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
@@ -12,7 +12,7 @@ namespace JasperFx.Events.Daemon;
 /// </summary>
 public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, IDisposable
 {
-    private readonly ActionBlock<ShardState> _block;
+    private readonly Block<ShardState> _block;
     private readonly ILogger _logger;
     private readonly IDisposable _subscription;
     private ImmutableList<IObserver<ShardState>> _listeners = ImmutableList<IObserver<ShardState>>.Empty;
@@ -21,8 +21,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     public ShardStateTracker(ILogger logger)
     {
         _logger = logger;
-        _block = new ActionBlock<ShardState>(publish,
-            new ExecutionDataflowBlockOptions { EnsureOrdered = true, MaxDegreeOfParallelism = 1 });
+        _block = new Block<ShardState>(publish);
 
         _subscription = Subscribe(this);
     }
@@ -68,6 +67,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         _states = _states.AddOrUpdate(value.ShardName, value);
     }
 
+    [Obsolete("Try to eliminate this")]
     public void Publish(ShardState state)
     {
         if (state.ShardName == ShardState.HighWaterMark)
@@ -77,15 +77,25 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
         _block.Post(state);
     }
-
-    public void MarkHighWater(long sequence)
+    
+    public ValueTask PublishAsync(ShardState state)
     {
-        Publish(new ShardState(ShardState.HighWaterMark, sequence));
+        if (state.ShardName == ShardState.HighWaterMark)
+        {
+            HighWaterMark = state.Sequence;
+        }
+
+        return _block.PostAsync(state);
+    }
+
+    public ValueTask MarkHighWaterAsync(long sequence)
+    {
+        return PublishAsync(new ShardState(ShardState.HighWaterMark, sequence));
     }
     
-    public void MarkSkipping(long lastKnownGoodHighWaterMark, long newHighWaterMark)
+    public ValueTask MarkSkippingAsync(long lastKnownGoodHighWaterMark, long newHighWaterMark)
     {
-        Publish(new ShardState(ShardState.HighWaterMark, newHighWaterMark){PreviousGoodMark = lastKnownGoodHighWaterMark, Action = ShardAction.Skipped});
+        return PublishAsync(new ShardState(ShardState.HighWaterMark, newHighWaterMark){PreviousGoodMark = lastKnownGoodHighWaterMark, Action = ShardAction.Skipped});
     }
 
     /// <summary>
@@ -172,7 +182,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     public Task Complete()
     {
         _block.Complete();
-        return _block.Completion;
+        return _block.WaitForCompletionAsync();
     }
 
     private void publish(ShardState state)
