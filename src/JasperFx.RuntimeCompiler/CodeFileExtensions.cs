@@ -92,9 +92,19 @@ namespace JasperFx.RuntimeCompiler
                 var generatedAssembly = parent.StartAssembly(rules);
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = parent is ICodeFileCollectionWithServices ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource : null;
+                if (serviceVariables != null && file.TryReplaceServiceProvider(out var serviceProvider))
+                {
+                    serviceVariables.ReplaceServiceProvider(serviceProvider);
+                }
 
                 var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
+
+                if (serviceVariables != null && serviceVariables.ServiceLocations().Any())
+                {
+                    file.AssertServiceLocationsAreAllowed(serviceVariables.ServiceLocations(), services);
+                }
+                
                 file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
 
                 return;
@@ -117,9 +127,18 @@ namespace JasperFx.RuntimeCompiler
                 var generatedAssembly = parent.StartAssembly(rules);
                 file.AssembleTypes(generatedAssembly);
                 var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
+                if (serviceVariables != null && file.TryReplaceServiceProvider(out var serviceProvider))
+                {
+                    serviceVariables.ReplaceServiceProvider(serviceProvider);
+                }
 
                 var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
                 compiler.Compile(generatedAssembly, serviceVariables);
+                
+                if (serviceVariables != null && serviceVariables.ServiceLocations().Any())
+                {
+                    file.AssertServiceLocationsAreAllowed(serviceVariables.ServiceLocations(), services);
+                }
                 
                 file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
 
