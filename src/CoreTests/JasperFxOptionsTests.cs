@@ -33,8 +33,7 @@ public class JasperFxOptionsTests
     {
         var options = new JasperFxOptions();
 
-        var environment = Substitute.For<IHostEnvironment>();
-        environment.EnvironmentName.Returns(options.DevelopmentEnvironmentName);
+        var environment = new StubHostEnvironment{EnvironmentName = options.DevelopmentEnvironmentName};
         
         options.ReadHostEnvironment(environment);
         
