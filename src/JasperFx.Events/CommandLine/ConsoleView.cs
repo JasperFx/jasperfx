@@ -66,7 +66,7 @@ internal class ConsoleView: IConsoleView
 
     public void WriteStartingToRebuildProjections(ProjectionSelection selection, string databaseName)
     {
-        AnsiConsole.WriteLine($"Starting to rebuild projections {selection.Subscriptions.Select(x => x.Name).Join(", ")} ");
+        AnsiConsole.WriteLine($"Starting to rebuild projections {selection.Subscriptions.Select(x => x.Name).Join(", ")} in {databaseName}");
     }
 
     public void DisplayNoAsyncProjections()
