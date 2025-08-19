@@ -329,6 +329,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
 
+            _cancellation.TryReset();
             _deadLetterBlock = buildDeadLetterBlock();
         }
         finally
