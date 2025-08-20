@@ -514,6 +514,34 @@ public static partial class StringExtensions
         }
     }
     
+    // Borrowed from https://pzy.io/blog/dotnet-string-hashcode/
+    /// <summary>
+    /// Deterministic hash of a string that is consistent with Java. Will
+    /// deliver different results than our GetDeterministicHashCode method
+    /// </summary>
+    /// <param name="text"></param>
+    /// <returns></returns>
+    public static int DeterministicJavaCompliantHash(this string text)
+    {
+        if (text.Length <= 0)
+        {
+            return 0;
+        }
+
+        Span<byte> bytes = Encoding.UTF8.GetBytes(text);
+
+        int hashCode = 0;
+
+        foreach (var b in bytes)
+        {
+            //hashCode = (hashCode << 5) - hashCode + b
+            hashCode = 31 * hashCode + b;
+        }
+
+        return hashCode;
+    }
+    
+
     /// <summary>
     /// Converts a pascal cased string to snake case for
     /// naming for database tables

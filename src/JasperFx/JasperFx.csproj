@@ -4,7 +4,7 @@
         <AssemblyName>JasperFx</AssemblyName>
         <PackageId>JasperFx</PackageId>
         <VersionPrefix>1.6.0</VersionPrefix>
-        <VersionSuffix>alpha-2</VersionSuffix>
+        <VersionSuffix>alpha-3</VersionSuffix>
     </PropertyGroup>
 
     <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">

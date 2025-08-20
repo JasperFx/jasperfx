@@ -7,7 +7,7 @@
         <PackageIconUrl>https://raw.githubusercontent.com/JasperFx/jasperfx/refs/heads/main/logo.jpg</PackageIconUrl>
         <PackageProjectUrl>http://github.com/jasperfx/jasperfx</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
-        <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+        <TargetFrameworks>net9.0</TargetFrameworks>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable>
