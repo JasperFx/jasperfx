@@ -37,7 +37,8 @@ public class Block<T> : BlockBase<T>
         _channel = Channel.CreateBounded<T>(new BoundedChannelOptions(10000)
         {
             SingleReader = parallelCount == 1,
-            SingleWriter = false
+            SingleWriter = false,
+            AllowSynchronousContinuations = true
         });
 
         _tasks = new Task[parallelCount];
