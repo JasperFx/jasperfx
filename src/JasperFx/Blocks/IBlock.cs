@@ -8,6 +8,8 @@ public interface IBlock : IAsyncDisposable
     Task WaitForCompletionAsync();
 
     void Complete();
+    
+    uint Count { get; }
 }
 
 /// <summary>
@@ -66,6 +68,8 @@ public interface IBlock<T> : IBlock
     /// <typeparam name="TBefore"></typeparam>
     /// <returns></returns>
     public IBlock<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, T> transformation);
+
+    uint Count { get; }
 }
 
 public static class BlockExtensions

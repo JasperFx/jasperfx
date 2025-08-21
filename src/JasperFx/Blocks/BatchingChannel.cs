@@ -37,6 +37,8 @@ public class BatchingChannel<T> : BlockBase<T>
         }, null, Timeout.Infinite, Timeout.Infinite);
     }
 
+    public override uint Count => (uint)_current.Count + _inner.Count;
+
     private void triggerBatch()
     {
         lock (_syncLock)

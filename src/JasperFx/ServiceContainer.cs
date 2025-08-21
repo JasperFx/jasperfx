@@ -150,7 +150,7 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return false;
     }
 
-    internal ServicePlan PlanFor(ServiceDescriptor descriptor, List<ServiceDescriptor> trail)
+    public ServicePlan PlanFor(ServiceDescriptor descriptor, List<ServiceDescriptor> trail)
     {
         if (descriptor == null)
         {
@@ -266,7 +266,7 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return family.Default;
     }
 
-    internal ServicePlan? FindDefault(Type type, List<ServiceDescriptor> trail)
+    public ServicePlan? FindDefault(Type type, List<ServiceDescriptor> trail)
     {
         if (_defaults.TryFind(type, out var plan)) return plan;
 
@@ -279,7 +279,7 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return plan;
     }
 
-    internal IReadOnlyList<ServicePlan> FindAll(Type serviceType, List<ServiceDescriptor> trail)
+    public IReadOnlyList<ServicePlan> FindAll(Type serviceType, List<ServiceDescriptor> trail)
     {
         return findFamily(serviceType).Services.Select(descriptor => PlanFor(descriptor, trail)).ToArray();
     }

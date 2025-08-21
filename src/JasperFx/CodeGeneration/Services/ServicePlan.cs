@@ -5,7 +5,7 @@ namespace JasperFx.CodeGeneration.Services;
 
 // Honestly, this needs to be an abstract type with a couple different
 // sub types for scoped or transient 
-internal abstract class ServicePlan
+public abstract class ServicePlan
 {
     public ServiceDescriptor Descriptor { get; }
 

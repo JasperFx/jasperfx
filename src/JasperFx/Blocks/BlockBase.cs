@@ -63,4 +63,6 @@ public abstract class BlockBase<T> : IBlock<T>
 
         return new BlockSet<TBefore>(top, []);
     }
+
+    public abstract uint Count { get; }
 }

@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.CodeGeneration.Services;
 
-internal class ServiceVariables : IEnumerable<Variable>, IMethodVariables
+public class ServiceVariables : IEnumerable<Variable>, IMethodVariables
 {
     private readonly List<Variable> _all = new();
     private readonly Dictionary<ServiceDescriptor, Variable> _tracking = new();

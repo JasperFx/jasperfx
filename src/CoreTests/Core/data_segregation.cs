@@ -18,7 +18,7 @@ public class data_segregation
         var list = new List<Guid>();
         for (int i = 0; i < 1000; i++)
         {
-            list.Add(Guid.CreateVersion7());
+            list.Add(Guid.NewGuid());
         }
 
         var values = new int[4];

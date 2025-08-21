@@ -152,7 +152,7 @@ public class Block<T> : BlockBase<T>
         return _channel.Writer.WriteAsync(item, _cancellation.Token);
     }
 
-    public uint Count => _count;
+    public override uint Count => _count;
 
     public override ValueTask DisposeAsync()
     {

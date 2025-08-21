@@ -16,6 +16,14 @@ public class BlockSet<T> : IBlock<T>
         _top = top;
     }
 
+    public uint Count
+    {
+        get
+        {
+            return _top.Count + (uint)_blocks.Sum(x => x.Count);
+        }
+    }
+
     public IBlock<TBefore> PushUpstream<TBefore>(Func<TBefore, CancellationToken, Task<T>> transformation)
     {
         var top = new Block<TBefore>(async (item, token) =>
