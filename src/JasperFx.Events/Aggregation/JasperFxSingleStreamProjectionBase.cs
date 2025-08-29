@@ -36,14 +36,6 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return this.As<IAggregator<T, TIdentity, TQuerySession>>();
     }
 
-    private class NulloIdentitySetter<TDoc1, TId1> : IIdentitySetter<TDoc1, TId1>
-    {
-        public void SetIdentity(TDoc1 document, TId1 identity)
-        {
-            // Nothing
-        }
-    }
-
     async ValueTask<TDoc?> IAggregator<TDoc, TQuerySession>.BuildAsync(IReadOnlyList<IEvent> events, TQuerySession session, TDoc? snapshot, CancellationToken cancellation)
     {
         (snapshot, events) = Compacted<TDoc>.MaybeFastForward(snapshot, events);
@@ -148,4 +140,14 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
             storage.ArchiveStream(id, action.TenantId);
         }
     }
+}
+
+public class NulloIdentitySetter<TDoc1, TId1> : IIdentitySetter<TDoc1, TId1>
+{
+    public void SetIdentity(TDoc1 document, TId1 identity)
+    {
+        // Nothing
+    }
+
+    public Type IdType => typeof(TId1);
 }
