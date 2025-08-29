@@ -7,8 +7,10 @@ public static class DisposableExtensions
     ///     exceptions thrown
     /// </summary>
     /// <param name="disposable"></param>
-    public static void SafeDispose(this IDisposable disposable)
+    public static void SafeDispose(this IDisposable? disposable)
     {
+        if (disposable == null) return;
+        
         try
         {
             disposable.Dispose();
@@ -24,8 +26,10 @@ public static class DisposableExtensions
     ///     exceptions thrown
     /// </summary>
     /// <param name="disposable"></param>
-    public static void SafeDisposeSynchronously(this IAsyncDisposable disposable)
+    public static void SafeDisposeSynchronously(this IAsyncDisposable? disposable)
     {
+        if (disposable is null) return;
+        
         try
         {
             disposable.DisposeAsync().GetAwaiter().GetResult();
