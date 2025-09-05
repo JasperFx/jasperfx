@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -12,6 +13,15 @@ namespace JasperFx.CodeGeneration;
 
 public class DynamicCodeBuilder
 {
+    static DynamicCodeBuilder()
+    {
+        var args = System.Environment.GetCommandLineArgs();
+        if (args.Any(x => x.EqualsIgnoreCase("codegen")))
+        {
+            WithinCodegenCommand = true;
+        }
+    }
+    
     public DynamicCodeBuilder(IServiceProvider services, ICodeFileCollection[] collections)
     {
         Services = services;

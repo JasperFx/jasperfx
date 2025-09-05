@@ -33,7 +33,16 @@ public static class TypeExtensions
         typeof(ValueTuple<,,,,>),
         typeof(ValueTuple<,,,,,>),
         typeof(ValueTuple<,,,,,,>),
-        typeof(ValueTuple<,,,,,,,>)
+        typeof(ValueTuple<,,,,,,,>),
+        
+        typeof(Tuple<>),
+        typeof(Tuple<,>),
+        typeof(Tuple<,,>),
+        typeof(Tuple<,,,>),
+        typeof(Tuple<,,,,>),
+        typeof(Tuple<,,,,,>),
+        typeof(Tuple<,,,,,,>),
+        typeof(Tuple<,,,,,,,>),
     };
 
     public static bool IsStatic(this Type type)
