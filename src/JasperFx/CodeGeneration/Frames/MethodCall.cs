@@ -182,9 +182,17 @@ public class MethodCall : Frame
 
         if (type.CanBeCastTo<Task>())
         {
-            return type.GetGenericArguments().First();
+            var inner = type.GetGenericArguments().First();
+            if (inner.FullNameInCode() == "Microsoft.FSharp.Core.Unit")
+            {
+                return null;
+            }
+
+            return inner;
         }
 
+        // Let the F# folks cook!
+        if (type.FullNameInCode() == "Microsoft.FSharp.Core.Unit") return null;
 
         return type;
     }
