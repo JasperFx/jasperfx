@@ -552,5 +552,10 @@ public static partial class StringExtensions
     {
         return name.SplitPascalCase().ToLower().Replace(" ", "_");
     }
+    
+    public static string PascalToKebabCase(this string value)
+    {
+        return value.SplitPascalCase().Replace(' ', '_').ToLowerInvariant();
+    }
 
 }

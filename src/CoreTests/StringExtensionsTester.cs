@@ -81,6 +81,12 @@ public class StringExtensionsTester
     }
 
     [Fact]
+    public void pascal_to_kebab_case()
+    {
+        "BigChiefTablet".PascalToKebabCase().ShouldBe("big_chief_tablet");
+    }
+
+    [Fact]
     public void numbers_with_commas_and_periods_should_be_valid()
     {
         var numbers = new[]
