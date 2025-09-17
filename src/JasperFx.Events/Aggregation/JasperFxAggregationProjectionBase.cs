@@ -6,6 +6,7 @@ using JasperFx.Events.Descriptors;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
+using JasperFx.MultiTenancy;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Aggregation;
@@ -256,6 +257,22 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return new ValueTask();
     }
 
+    /// <summary>
+    /// Hook that you can override in order to do "event enrichment" where you might batch up
+    /// database lookups to add information to events prior to applying them in a projection
+    /// running asynchronously. Note that this method is called *after* slicing, but before applying
+    /// events
+    /// </summary>
+    /// <param name="group"></param>
+    /// <param name="querySession"></param>
+    /// <param name="cancellation"></param>
+    /// <returns></returns>
+    public virtual Task EnrichEventsAsync(SliceGroup<TDoc, TId> group, TQuerySession querySession,
+        CancellationToken cancellation)
+    {
+        return Task.CompletedTask;
+    }
+
     (IEvent?, TDoc?) IAggregationProjection<TDoc, TId, TOperations, TQuerySession>.TryApplyMetadata(
         IReadOnlyList<IEvent> events, TDoc? aggregate, TId id, IIdentitySetter<TDoc, TId> identitySetter)
     {
@@ -278,6 +295,11 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             
             storage.SetIdentity(aggregate, id);
             _versioning.TrySetVersion(aggregate, lastEvent);
+        }
+
+        if (lastEvent != null && aggregate is IHasTenantId tenanted)
+        {
+            tenanted.TenantId = lastEvent.TenantId;
         }
 
         return (lastEvent, aggregate);

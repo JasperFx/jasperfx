@@ -27,6 +27,7 @@ public enum StreamActionType
 public class StreamAction
 {
     private readonly List<IEvent> _events = new();
+    private string _tenantId = null!;
 
     public StreamAction(Guid stream, StreamActionType actionType)
     {
@@ -79,7 +80,18 @@ public class StreamAction
     /// <summary>
     ///     The Id of the current tenant
     /// </summary>
-    public string TenantId { get; set; } = null!;
+    public string TenantId
+    {
+        get => _tenantId;
+        set
+        {
+            _tenantId = value;
+            foreach (var @event in _events)
+            {
+                @event.TenantId = value;
+            }
+        }
+    }
 
     /// <summary>
     ///     The events involved in this action
@@ -125,6 +137,7 @@ public class StreamAction
 
         @event.StreamId = Id;
         @event.StreamKey = Key;
+        @event.TenantId = TenantId;
 
         _events.Add(@event);
 
@@ -356,7 +369,10 @@ public class StreamAction
                 @event.Sequence = sequence;
             }
 
-            @event.TenantId = session.TenantId;
+            if (@event.TenantId.IsEmpty())
+            {
+                @event.TenantId = session.TenantId;
+            }
             
             if (@event.Timestamp == default(DateTimeOffset))
             {

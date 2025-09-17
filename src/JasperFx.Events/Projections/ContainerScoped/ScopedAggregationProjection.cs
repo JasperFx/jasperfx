@@ -27,6 +27,11 @@ internal class ScopedAggregationProjection<TSource, TDoc, TId, TOperations, TQue
         return _inner.RaiseSideEffects(operations, slice);
     }
 
+    public Task EnrichEventsAsync(SliceGroup<TDoc, TId> group, TQuerySession querySession, CancellationToken cancellation)
+    {
+        return _inner.EnrichEventsAsync(group, querySession, cancellation);
+    }
+
     public AggregationScope Scope => _scopedAggregation.Scope;
     public bool MatchesAnyDeleteType(IReadOnlyList<IEvent> events)
     {
