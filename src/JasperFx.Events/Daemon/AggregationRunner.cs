@@ -72,39 +72,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
         foreach (var group in groups)
         {
-            var operations = batch.SessionForTenant(group.TenantId);
-            var cache = CacheFor(group.TenantId);
-            caches.Add(cache);
-
-            var needToBeFetched = new List<EventSlice<TDoc, TId>>();
-            var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
-
-            foreach (var slice in group.Slices)
-            {
-                // If you can find the snapshot in the cache, use that
-                if (cache.TryFind(slice.Id, out var snapshot))
-                {
-                    slice.Snapshot = snapshot;
-
-                    await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
-                }
-                else
-                {
-                    // Otherwise, this will need to be fetched
-                    needToBeFetched.Add(slice);
-                }
-            }
-
-            var snapshots = await storage.LoadManyAsync(needToBeFetched.Select(x => x.Id).ToArray(), cancellation);
-            foreach (var slice in needToBeFetched)
-            {
-                if (snapshots.TryGetValue(slice.Id, out var snapshot))
-                {
-                    slice.Snapshot = snapshot;
-                }
-
-                await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
-            }
+            await processBatchAsync(cancellation, batch, group, caches, builder);
         }
 
         await builder.WaitForCompletionAsync().ConfigureAwait(false);
@@ -130,6 +98,46 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         await Projection.EndBatchAsync();
 
         return batch;
+    }
+
+    private async Task processBatchAsync(CancellationToken cancellation, IProjectionBatch<TOperations, TQuerySession> batch, SliceGroup<TDoc, TId> group,
+        List<IAggregateCache<TId, TDoc>> caches, Block<EventSliceExecution> builder)
+    {
+        var operations = batch.SessionForTenant(group.TenantId);
+        var cache = CacheFor(group.TenantId);
+        caches.Add(cache);
+
+        var needToBeFetched = new List<EventSlice<TDoc, TId>>();
+        var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
+
+        await Projection.EnrichEventsAsync(group, operations, cancellation);
+
+        foreach (var slice in group.Slices)
+        {
+            // If you can find the snapshot in the cache, use that
+            if (cache.TryFind(slice.Id, out var snapshot))
+            {
+                slice.Snapshot = snapshot;
+
+                await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
+            }
+            else
+            {
+                // Otherwise, this will need to be fetched
+                needToBeFetched.Add(slice);
+            }
+        }
+
+        var snapshots = await storage.LoadManyAsync(needToBeFetched.Select(x => x.Id).ToArray(), cancellation);
+        foreach (var slice in needToBeFetched)
+        {
+            if (snapshots.TryGetValue(slice.Id, out var snapshot))
+            {
+                slice.Snapshot = snapshot;
+            }
+
+            await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
+        }
     }
 
     public bool TryBuildReplayExecutor(out IReplayExecutor executor)

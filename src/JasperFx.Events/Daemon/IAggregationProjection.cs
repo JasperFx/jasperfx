@@ -13,7 +13,7 @@ public enum AggregationScope
     MultiStream
 }
 
-public interface IAggregationProjection<TDoc, TId, in TOperations, in TQuerySession> where TOperations : TQuerySession
+public interface IAggregationProjection<TDoc, TId, in TOperations, in TQuerySession> where TOperations : TQuerySession where TId : notnull
 {
     /// <summary>
     /// Use to create "side effects" when running an aggregation (single stream, custom projection, multi-stream)
@@ -49,4 +49,5 @@ public interface IAggregationProjection<TDoc, TId, in TOperations, in TQuerySess
     IEventSlicer BuildSlicer(TQuerySession session);
     void StartBatch();
     ValueTask EndBatchAsync();
+    Task EnrichEventsAsync(SliceGroup<TDoc, TId> group, TQuerySession querySession, CancellationToken cancellation);
 }
