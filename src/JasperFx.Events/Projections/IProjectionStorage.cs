@@ -1,2 +1,0 @@
-namespace JasperFx.Events.Projections;
-
