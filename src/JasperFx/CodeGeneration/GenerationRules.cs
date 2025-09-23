@@ -50,6 +50,8 @@ public class GenerationRules
     {
     }
 
+    public List<IMethodPreCompilationPolicy> MethodPreCompilation { get; } = new();
+
     public bool SourceCodeWritingEnabled
     {
         get => _sourceCodeWritingEnabled;

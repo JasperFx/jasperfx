@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
@@ -11,10 +12,25 @@ namespace CodegenTests.Compilation;
 
 public class end_to_end_compilation
 {
+    public class InsertStuff : IMethodPreCompilationPolicy
+    {
+        public void Apply(IGeneratedMethod method)
+        {
+            method.Frames.Insert(0, new MethodCall(typeof(InsertStuff), nameof(InsertStuff.SaySomething)));
+        }
+
+        public static void SaySomething()
+        {
+            Debug.WriteLine("I said something");
+        }
+    }
+    
     [Fact]
     public void generate_dynamic_types_with_no_fields()
     {
         var rules = new GenerationRules("Lamar.Compilation");
+        rules.MethodPreCompilation.Add(new InsertStuff());
+        
         var assembly = new GeneratedAssembly(rules);
 
 
@@ -35,6 +51,7 @@ public class end_to_end_compilation
             .As<INumberGenerator>()
             .Generate(3, 4).ShouldBe(12);
 
+        adder.SourceCode.ShouldContain("SaySomething");
         adder.SourceCode.ShouldContain("System.CodeDom.Compiler.GeneratedCode");
         adder.SourceCode.ShouldContain("public sealed class Adder");
         multiplier.SourceCode.ShouldContain("public sealed class Multiplier");
