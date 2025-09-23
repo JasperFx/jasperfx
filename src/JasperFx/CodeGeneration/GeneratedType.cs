@@ -280,7 +280,17 @@ public class GeneratedType : IVariableSource, IGeneratedType
 
     public void ArrangeFrames(IServiceVariableSource? services = null)
     {
-        foreach (var method in _methods.Where(x => x.WillGenerate())) method.ArrangeFrames(this, services);
+        foreach (var method in _methods.Where(x => x.WillGenerate()))
+        {
+            // Last second code generation pre-compilation rules
+            // that may modify the FramesCollection
+            foreach (var policy in Rules.MethodPreCompilation)
+            {
+                policy.Apply(method);
+            }
+            
+            method.ArrangeFrames(this, services);
+        }
 
         var duplicateFields = AllInjectedFields.GroupBy(x => x.Usage).Where(x => x.Count() > 1);
         foreach (var group in duplicateFields)

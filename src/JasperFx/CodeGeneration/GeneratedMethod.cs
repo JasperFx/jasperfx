@@ -6,6 +6,17 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx.CodeGeneration;
 
+/// <summary>
+/// Hook to apply some kind of policy against a generated method
+/// immediately before JasperFx tries to arrange the frame collection
+/// and generated the source code. Use this to modify the Frames collection
+/// at the last second
+/// </summary>
+public interface IMethodPreCompilationPolicy
+{
+    void Apply(IGeneratedMethod method);
+}
+
 public interface IGeneratedMethod
 {
     FramesCollection Frames { get; }
