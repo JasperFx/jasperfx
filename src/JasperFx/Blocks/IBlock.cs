@@ -84,6 +84,11 @@ public static class BlockExtensions
     /// <returns></returns>
     public static IBlock<T> BatchUpstream<T>(this IBlock<T[]> block, TimeSpan timeOut, int batchSize = 100)
     {
+        if (block == null)
+        {
+            throw new ArgumentNullException(nameof(block));
+        }
+
         return new BatchingChannel<T>(timeOut, block, batchSize);
     }
 }
