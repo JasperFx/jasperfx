@@ -8,6 +8,14 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events;
 
+public record EventStoreIdentity(string Name, string Type)
+{
+    public override string ToString()
+    {
+        return $"{Name}:{Type}";
+    }
+}
+
 public interface IEventStore
 {
     Task<EventStoreUsage?> TryCreateUsage(CancellationToken token);
@@ -17,6 +25,8 @@ public interface IEventStore
         string? tenantIdOrDatabaseIdentifier = null,
         ILogger? logger = null);
     
+    ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(DatabaseId id);
+
     Meter Meter { get; }
     
     ActivitySource ActivitySource { get; }
@@ -25,6 +35,11 @@ public interface IEventStore
     
     DatabaseCardinality DatabaseCardinality { get; }
     bool HasMultipleTenants { get; }
+    
+    /// <summary>
+    /// Identifies the event store within an application
+    /// </summary>
+    EventStoreIdentity Identity { get; }
 }
 
 public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOperations : TQuerySession, IStorageOperations

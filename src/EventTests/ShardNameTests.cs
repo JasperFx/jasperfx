@@ -15,6 +15,26 @@ public class ShardNameTests
         name.Identity.ShouldBe("Foo:All");
     }
 
+    [Theory]
+    [InlineData("foo", "All", 1, "foo/all")]
+    [InlineData("foo", "All", 2, "foo/all/v2")]
+    [InlineData("foo", "All", 3, "foo/all/v3")]
+    public void relative_url(string name, string key, uint version, string expected)
+    {
+        var shardName = new ShardName(name, key, version);
+        shardName.RelativeUrl.ShouldBe(expected);
+    }
+    
+    [Theory]
+    [InlineData("foo", "All", 1, "foo:All")]
+    [InlineData("foo", "All", 2, "foo:V2:All")]
+    [InlineData("foo", "All", 3, "foo:V3:All")]
+    public void identity(string name, string key, uint version, string expected)
+    {
+        var shardName = new ShardName(name, key, version);
+        shardName.Identity.ShouldBe(expected);
+    }
+
     [Fact]
     public void identifier_for_different_key_and_version_is_one()
     {

@@ -155,7 +155,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             _semaphore.Release();
         }
     }
-
+    
+    
     public async Task StartAgentAsync(string shardName, CancellationToken token)
     {
         if (!_highWater.IsRunning)
@@ -195,6 +196,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // Could not be started
             await d.DisposeAsync().ConfigureAwait(false);
         }
+    }
+    
+    public async Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token)
+    {
+        await StartAgentAsync(name.Identity, token);
+        if (_agents.TryFind(name.Identity, out var agent)) return agent;
+
+        // Should not ever happen, but real life man
+        throw new Exception("Unable to start a subscription agent for " + name);
+    }
+
+    public Task StopAgentAsync(ShardName shardName, Exception? ex = null)
+    {
+        return StopAgentAsync(shardName.Identity);
     }
 
     private SubscriptionAgent buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard)

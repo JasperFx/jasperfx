@@ -1,4 +1,6 @@
 #nullable enable
+using JasperFx.Events.Projections;
+
 namespace JasperFx.Events.Daemon;
 
 /// <summary>
@@ -86,6 +88,14 @@ public interface IProjectionDaemon: IDisposable
     /// <param name="token"></param>
     /// <returns></returns>
     Task StartAgentAsync(string shardName, CancellationToken token);
+    
+    /// <summary>
+    ///     Starts a single projection shard by name
+    /// </summary>
+    /// <param name="shardName">The full identity of the desired shard. Example 'Trip:All'</param>
+    /// <param name="token"></param>
+    /// <returns></returns>
+    Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token);
 
     /// <summary>
     ///     Stops a single projection shard by name
@@ -94,6 +104,14 @@ public interface IProjectionDaemon: IDisposable
     /// <param name="ex"></param>
     /// <returns></returns>
     Task StopAgentAsync(string shardName, Exception? ex = null);
+    
+    /// <summary>
+    ///     Stops a single projection shard by name
+    /// </summary>
+    /// <param name="shardName">The full identity of the desired shard. Example 'Trip:All'</param>
+    /// <param name="ex"></param>
+    /// <returns></returns>
+    Task StopAgentAsync(ShardName shardName, Exception? ex = null);
 
     /// <summary>
     ///     Starts all known projections shards
