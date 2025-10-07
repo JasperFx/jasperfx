@@ -121,6 +121,25 @@ namespace CommandLineTests
                 .ToUsageDescription()
                 .ShouldBe("[-s, --slag <slag1 slag2 slag3 ...>]");
         }
+
+        [Fact]
+        public void handle_enumerable_flag_of_guid()
+        {
+            var queue = new Queue<string>();
+            queue.Enqueue("--guidarray");
+            queue.Enqueue(Guid.NewGuid().ToString());
+            queue.Enqueue(Guid.NewGuid().ToString());
+            queue.Enqueue(Guid.NewGuid().ToString());
+            var flagTarget = new FlagTarget();
+            forArg(x => x.GuidArrayFlag).Handle(flagTarget, queue);
+            
+            flagTarget.GuidArrayFlag.Count().ShouldBe(3);
+            foreach (var guid in flagTarget.GuidArrayFlag)
+            {
+                guid.ShouldNotBe(Guid.Empty);
+            }
+        }
+
     }
 
     public enum FlagEnum
@@ -152,6 +171,9 @@ namespace CommandLineTests
         public string Flag { get; set; }
 
         public IEnumerable<string> SlagFlag { get; set; }
+        
+        [FlagAlias("guidarray")]
+        public IEnumerable<Guid> GuidArrayFlag { get; set; }
     }
 
     #region sample_FileInput

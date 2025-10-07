@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
@@ -363,9 +364,31 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         await _highWater.StartAsync().ConfigureAwait(false);
     }
 
-    public Task WaitForNonStaleData(TimeSpan timeout)
+    private ConcurrentBag<ShardState>? _shardStateTracker;
+    
+    public async Task WaitForNonStaleData(TimeSpan timeout)
     {
-        return Database.WaitForNonStaleProjectionDataAsync(timeout);
+        _shardStateTracker = new ConcurrentBag<ShardState>();
+        
+        try
+        {
+            await Database.WaitForNonStaleProjectionDataAsync(timeout);
+        }
+        catch (TimeoutException e)
+        {
+            var exceptions = _shardStateTracker.Select(x => x.Exception).Where(x => x != null).ToArray();
+            if (exceptions.Any())
+            {
+                throw new AggregateException([e, ..exceptions!]);
+            }
+
+            throw;
+        }
+        finally
+        {
+            _shardStateTracker = null;
+        }
+        
     }
 
     public Task WaitForShardToBeRunning(string shardName, TimeSpan timeout)
@@ -442,6 +465,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 agent.MarkHighWater(value.Sequence);
             }
         }
+        
+        _shardStateTracker?.Add(value);
     }
 
     public Task RecordDeadLetterEventAsync(DeadLetterEvent @event)
