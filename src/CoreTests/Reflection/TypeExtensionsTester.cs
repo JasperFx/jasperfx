@@ -126,6 +126,8 @@ public class TypeExtensionsTester
         Assert.IsTrue(typeof(string).IsSimple());
         Assert.IsTrue(typeof(DoNext).IsSimple());
         Assert.IsFalse(typeof(IRouteVisitor).IsSimple());
+        
+        typeof(Guid).IsSimple().ShouldBeTrue();
     }
 
     [Fact]

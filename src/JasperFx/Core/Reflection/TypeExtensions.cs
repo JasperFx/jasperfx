@@ -281,7 +281,7 @@ public static class TypeExtensions
     public static bool IsSimple(this Type type)
     {
         var typeInfo = type.GetTypeInfo();
-        return typeInfo.IsPrimitive || IsString(type) || typeInfo.IsEnum;
+        return typeInfo.IsPrimitive || IsString(type) || typeInfo.IsEnum || typeInfo == typeof(Guid);
     }
 
     public static bool IsConcrete(this Type? type)
