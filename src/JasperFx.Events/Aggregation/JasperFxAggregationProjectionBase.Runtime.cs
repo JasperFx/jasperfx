@@ -123,15 +123,20 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     }
 
     /// <summary>
-    ///     Override this method to write explicit logic for this aggregation to evolve or create a snapshot
-    ///     based on a single event at a time
+    /// Override this method to write explicit logic for this aggregation to evolve or create a snapshot
+    /// based on a single event at a time.  
+    /// Returning <c>null</c> when the document previously existed will cause the document to be deleted.
     /// </summary>
-    /// <param name="snapshot"></param>
-    /// <param name="id"></param>
-    /// <param name="session"></param>
-    /// <param name="e"></param>
-    /// <param name="cancellation"></param>
-    /// <returns></returns>
+    /// <param name="snapshot">The current snapshot, if it exists</param>
+    /// <param name="id">The aggregate identifier</param>
+    /// <param name="session">The current query session</param>
+    /// <param name="e">The event to apply</param>
+    /// <param name="cancellation">Cancellation token</param>
+    /// <returns>
+    ///     The evolved snapshot, a new snapshot, or <c>null</c>.  
+    ///     Returning <c>null</c> when the document previously existed deletes the document,  
+    ///     returning <c>null</c> when no document existed does nothing.
+    /// </returns>
     [JasperFxIgnore]
     public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e,
         CancellationToken cancellation)
@@ -142,13 +147,18 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     }
 
     /// <summary>
-    /// Override this method to write explicit logic for this aggregation to evolve or create a snapshot
-    /// based on a single event at a time using only synchronous code
+    ///     Override this method to write explicit logic for this aggregation to evolve or create a snapshot
+    ///     based on a single event at a time using only synchronous code.  
+    ///     Returning <c>null</c> when the document previously existed will cause the document to be deleted.
     /// </summary>
-    /// <param name="snapshot"></param>
-    /// <param name="id"></param>
-    /// <param name="e"></param>
-    /// <returns></returns>
+    /// <param name="snapshot">The current snapshot, if it exists</param>
+    /// <param name="id">The aggregate identifier</param>
+    /// <param name="e">The event to apply</param>
+    /// <returns>
+    ///     The evolved snapshot, a new snapshot, or <c>null</c>.  
+    ///     Returning <c>null</c> when the document previously existed deletes the document,  
+    ///     returning <c>null</c> when no document existed does nothing.
+    /// </returns>
     [JasperFxIgnore]
     public virtual TDoc? Evolve(TDoc? snapshot, TId id, IEvent e)
     {
