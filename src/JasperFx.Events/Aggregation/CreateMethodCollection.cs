@@ -19,7 +19,7 @@ internal class CreateMethodCollection: MethodCollection
 
         var constructors = aggregateType
             .GetConstructors()
-            .Where(x => x.GetParameters().Length == 1 && (x.GetParameters().Single().ParameterType.IsClass || x.GetParameters().Single().ParameterType.Closes(typeof(IEvent<>))));
+            .Where(x => x.GetParameters().Length == 1 && (!x.GetParameters().Single().ParameterType.IsSimple() || x.GetParameters().Single().ParameterType.Closes(typeof(IEvent<>))));
 
         foreach (var constructor in constructors)
         {
