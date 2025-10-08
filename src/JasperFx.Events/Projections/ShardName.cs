@@ -20,10 +20,12 @@ public class ShardName
         if (version > 1)
         {
             Identity = $"{name}:V{version}:{shardKey}";
+            RelativeUrl = $"{name}/{shardKey}/v{version}".ToLowerInvariant();
         }
         else
         {
             Identity = $"{name}:{shardKey}";
+            RelativeUrl = $"{name}/{shardKey}".ToLowerInvariant();
         }
         
         if (name == ShardState.HighWaterMark)
@@ -36,6 +38,8 @@ public class ShardName
     public ShardName(string name): this(name, All, 1)
     {
     }
+    
+    public string RelativeUrl { get; }
 
     public ShardName CloneForDatabase(Uri database)
     {

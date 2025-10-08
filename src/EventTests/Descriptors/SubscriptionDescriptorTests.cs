@@ -98,6 +98,13 @@ public class FakeEventStore : IEventStore
         throw new NotImplementedException();
     }
 
+    public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(DatabaseId id)
+    {
+        throw new NotImplementedException();
+    }
+
+    public EventStoreIdentity Identity => new("fake", "fake");
+
     public Meter Meter { get; } = new Meter("Fake");
     public ActivitySource ActivitySource { get; } = new ActivitySource("Fake");
     public string MetricsPrefix { get; } = "fake";

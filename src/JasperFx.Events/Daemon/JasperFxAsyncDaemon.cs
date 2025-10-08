@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
@@ -155,7 +156,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             _semaphore.Release();
         }
     }
-
+    
+    
     public async Task StartAgentAsync(string shardName, CancellationToken token)
     {
         if (!_highWater.IsRunning)
@@ -195,6 +197,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // Could not be started
             await d.DisposeAsync().ConfigureAwait(false);
         }
+    }
+    
+    public async Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token)
+    {
+        await StartAgentAsync(name.Identity, token);
+        if (_agents.TryFind(name.Identity, out var agent)) return agent;
+
+        // Should not ever happen, but real life man
+        throw new Exception("Unable to start a subscription agent for " + name);
+    }
+
+    public Task StopAgentAsync(ShardName shardName, Exception? ex = null)
+    {
+        return StopAgentAsync(shardName.Identity);
     }
 
     private SubscriptionAgent buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard)
@@ -348,9 +364,31 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         await _highWater.StartAsync().ConfigureAwait(false);
     }
 
-    public Task WaitForNonStaleData(TimeSpan timeout)
+    private ConcurrentBag<ShardState>? _shardStateTracker;
+    
+    public async Task WaitForNonStaleData(TimeSpan timeout)
     {
-        return Database.WaitForNonStaleProjectionDataAsync(timeout);
+        _shardStateTracker = new ConcurrentBag<ShardState>();
+        
+        try
+        {
+            await Database.WaitForNonStaleProjectionDataAsync(timeout);
+        }
+        catch (TimeoutException e)
+        {
+            var exceptions = _shardStateTracker.Select(x => x.Exception).Where(x => x != null).ToArray();
+            if (exceptions.Any())
+            {
+                throw new AggregateException([e, ..exceptions!]);
+            }
+
+            throw;
+        }
+        finally
+        {
+            _shardStateTracker = null;
+        }
+        
     }
 
     public Task WaitForShardToBeRunning(string shardName, TimeSpan timeout)
@@ -427,6 +465,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 agent.MarkHighWater(value.Sequence);
             }
         }
+        
+        _shardStateTracker?.Add(value);
     }
 
     public Task RecordDeadLetterEventAsync(DeadLetterEvent @event)

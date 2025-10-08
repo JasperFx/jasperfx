@@ -35,6 +35,13 @@ namespace CommandLineTests
         }
 
         [Fact]
+        public void tokenize_guids()
+        {
+            var guid = Guid.NewGuid();
+            StringTokenizer.Tokenize($"name \"{guid}\" age").ShouldBe(["name", guid.ToString(), "age"]);
+        }
+
+        [Fact]
         public void tokenize_string_marked_with_parantheses()
         {
             StringTokenizer.Tokenize("name \"jeremy miller\" age").ShouldHaveTheSameElementsAs("name", "jeremy miller", "age");

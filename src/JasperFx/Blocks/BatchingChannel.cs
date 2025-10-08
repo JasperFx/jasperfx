@@ -28,7 +28,7 @@ public class BatchingChannel<T> : BlockBase<T>
         {
             try
             {
-                triggerBatch();
+                TriggerBatch();
             }
             catch (Exception)
             {
@@ -39,7 +39,7 @@ public class BatchingChannel<T> : BlockBase<T>
 
     public override uint Count => (uint)_current.Count + _inner.Count;
 
-    private void triggerBatch()
+    public void TriggerBatch()
     {
         lock (_syncLock)
         {

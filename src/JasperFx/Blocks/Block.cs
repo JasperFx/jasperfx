@@ -147,7 +147,7 @@ public class Block<T> : BlockBase<T>
 
     public override ValueTask PostAsync(T item)
     {
-        if (_latched) throw new InvalidOperationException("This SequentialQueue is latched");
+        if (_latched) return ValueTask.CompletedTask;
         
         Interlocked.Increment(ref _count);
         return _channel.Writer.WriteAsync(item, _cancellation.Token);
