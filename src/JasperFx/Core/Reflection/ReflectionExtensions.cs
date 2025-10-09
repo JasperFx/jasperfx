@@ -326,4 +326,21 @@ public static class ReflectionExtensions
             .FirstOrDefault(x => x.GetParameters().Any(p => p.ParameterType == argumentType));
         return method != null;
     }
+
+    /// <summary>
+    /// Determines if a parameter is marked as nullable using C# nullable reference types
+    /// </summary>
+    /// <param name="parameter"></param>
+    /// <returns></returns>
+    public static bool IsNullableReferenceType(this ParameterInfo parameter)
+    {
+        if (parameter.ParameterType.IsValueType)
+        {
+            return false;
+        }
+
+        var nullableContext = new NullabilityInfoContext();
+        var nullability = nullableContext.Create(parameter);
+        return nullability.WriteState == NullabilityState.Nullable;
+    }
 }

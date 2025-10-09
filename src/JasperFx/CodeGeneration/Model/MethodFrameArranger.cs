@@ -41,7 +41,19 @@ internal class MethodFrameArranger : IMethodVariables
             return variable;
         }
 
-        return FindVariable(parameter.ParameterType);
+        var foundVariable = TryFindVariable(parameter.ParameterType, VariableSource.All);
+
+        if (foundVariable != null)
+        {
+            return foundVariable;
+        }
+
+        if (parameter.IsNullableReferenceType())
+        {
+            return new NullVariable(parameter.ParameterType, parameter.Name!);
+        }
+
+        throw new UnResolvableVariableException(parameter.ParameterType, parameter.Name!, _method);
     }
 
     public Variable FindVariableByName(Type dependency, string name)
@@ -209,7 +221,6 @@ internal class MethodFrameArranger : IMethodVariables
             yield return _services;
         }
     }
-
 
     private Variable? findVariable(Type type, VariableSource variableSource)
     {
