@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using JasperFx.CodeGeneration.Model;
+using JasperFx.CodeGeneration.Services;
 using JasperFx.Core;
 
 namespace JasperFx.CodeGeneration;
@@ -50,6 +51,32 @@ public class GenerationRules
     {
     }
 
+    /// <summary>
+    /// Use a scoped IServiceProvider to resolve the service T in all cases even
+    /// if other services can be built through constructors. Work around for Wolverine
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public GenerationRules AlwaysUseServiceLocationFor<T>()
+    {
+        return AlwaysUseServiceLocationFor(typeof(T));
+    }
+    
+    /// <summary>
+    /// Use a scoped IServiceProvider to resolve the service T in all cases even
+    /// if other services can be built through constructors. Work around for Wolverine
+    /// </summary>
+    /// <param name="serviceType"></param>
+    /// <returns></returns>
+    public GenerationRules AlwaysUseServiceLocationFor(Type serviceType)
+    {
+        var source = new LazyServiceLocationVariableSource(serviceType);
+        Sources.Add(source);
+        return this;
+    }
+    
+    
+    
     public List<IMethodPreCompilationPolicy> MethodPreCompilation { get; } = new();
 
     public bool SourceCodeWritingEnabled
