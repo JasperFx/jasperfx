@@ -46,7 +46,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         var id = _identitySource(events[0]);
         var nulloIdentitySetter = new NulloIdentitySetter<TDoc, TId>();
         (snapshot, _) = await DetermineActionAsync(session, snapshot, id, nulloIdentitySetter, events, cancellation);
-        tryApplyMetadata(events, snapshot, id, nulloIdentitySetter);
+        (_, snapshot) = tryApplyMetadata(events, snapshot, id, nulloIdentitySetter);
         
         return snapshot;
     }
@@ -59,7 +59,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         
         // get the id off of the event
         (snapshot, _) = await DetermineActionAsync(session, snapshot, id, identitySetter, events, cancellation);
-        tryApplyMetadata(events, snapshot, id, identitySetter);
+        (_, snapshot) = tryApplyMetadata(events, snapshot, id, identitySetter);
 
         return snapshot;
     }
