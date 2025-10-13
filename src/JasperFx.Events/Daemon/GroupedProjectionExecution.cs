@@ -130,6 +130,11 @@ public class GroupedProjectionExecution : ISubscriptionExecution
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
                 : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
 
+            // Has to be the result of configuring apply event skipping *and*
+            // hitting an error in skipping. Just get out of here. The Projection/Subscription
+            // should be stopped in this case
+            if (batch == null) return;
+
             // Executing the SQL commands for the ProjectionUpdateBatch
             await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
 
