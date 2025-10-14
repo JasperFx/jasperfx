@@ -32,8 +32,14 @@ public class UnResolvableVariableException : Exception
 
             if (VariableName.IsNotEmpty())
             {
-                return
-                    $"JasperFx was unable to resolve a variable of type {DependencyType.FullNameInCode()} with name '{VariableName}' as part of the method {methodName}";
+                var message = $"JasperFx was unable to resolve a variable of type {DependencyType.FullNameInCode()} with name '{VariableName}' as part of the method {methodName}";
+                
+                if (!DependencyType.IsValueType)
+                {
+                    message += ". If this parameter is optional in certain contexts (e.g., when used as both an HTTP endpoint and message handler), consider making it nullable by using '?' (e.g., HttpContext? httpContext).";
+                }
+                
+                return message;
             }
 
             return
