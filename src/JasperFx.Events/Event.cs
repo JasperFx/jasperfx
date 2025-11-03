@@ -98,7 +98,7 @@ public class Event<T>: IEvent<T> where T : notnull
     ///     An alternative Guid identifier to identify
     ///     events across databases
     /// </summary>
-    public Guid Id { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
 
     /// <summary>
     ///     An event's version position within its event stream
@@ -137,6 +137,14 @@ public class Event<T>: IEvent<T> where T : notnull
 
 public static class EventExtensions
 {
+    /// <summary>
+    /// Clones the metadata from one event wrapper to another with replaced data.
+    /// This is useful for "event enrichment" during projections
+    /// </summary>
+    /// <param name="event"></param>
+    /// <param name="eventData"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
     public static IEvent<T> WithData<T>(this IEvent @event, T eventData) where T : notnull
     {
         return new Event<T>(eventData)
@@ -147,7 +155,8 @@ public static class EventExtensions
             Version = @event.Version,
             StreamId = @event.StreamId,
             StreamKey = @event.StreamKey,
-            Timestamp = @event.Timestamp
+            Timestamp = @event.Timestamp,
+            Headers = @event.Headers,
         };
     }
 

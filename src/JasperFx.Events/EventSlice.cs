@@ -341,4 +341,45 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
             }
         }
     }
+
+    /// <summary>
+    /// Replace the supplied event within the slice with the new event data
+    /// but with a copy of the original event's metadata. This is meant for
+    /// event enrichment within the execution of projections 
+    /// </summary>
+    /// <param name="event"></param>
+    /// <param name="data"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public IEvent ReplaceEvent<T>(IEvent @event, T data)
+    {
+        var index = _events.IndexOf(@event);
+        if (index < 0) throw new ArgumentOutOfRangeException(nameof(@event), "Cannot find this event within the slice");
+
+        var copy = @event.CloneEventWithNewData(data);
+        _events[index] = copy;
+
+        return copy;
+    }
+    
+    /// <summary>
+    /// Replace the supplied event within the slice with the new event data
+    /// but with a copy of the original event's metadata. This is meant for
+    /// event enrichment within the execution of projections 
+    /// </summary>
+    /// <param name="event"></param>
+    /// <param name="data"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public IEvent ReplaceEvent<T>(int index, T data)
+    {
+        if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
+
+        var @event = _events[index];
+
+        var copy = @event.CloneEventWithNewData(data);
+        _events[index] = copy;
+
+        return copy;
+    }
 }
