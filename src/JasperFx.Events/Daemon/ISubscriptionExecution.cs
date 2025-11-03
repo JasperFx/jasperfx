@@ -12,6 +12,7 @@ public interface ISubscriptionExecution: IAsyncDisposable
 
     ShardExecutionMode Mode { get; set; }
     bool TryBuildReplayExecutor([NotNullWhen(true)]out IReplayExecutor? executor);
+    Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage events, CancellationToken cancellation);
 }
 
 /// <summary>

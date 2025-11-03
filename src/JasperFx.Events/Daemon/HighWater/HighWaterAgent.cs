@@ -250,6 +250,16 @@ public class HighWaterAgent: IDisposable
         }
     }
 
+    /// <summary>
+    /// Optimized for the quickest possible check of the high water mark for testing
+    /// </summary>
+    /// <param name="cancellation"></param>
+    /// <returns></returns>
+    public Task<HighWaterStatistics> DetermineCurrentMarkAsync(CancellationToken cancellation)
+    {
+        return _detector.Detect(cancellation);
+    }
+
     public async Task CheckNowAsync()
     {
         var statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);

@@ -120,6 +120,19 @@ public interface IProjectionDaemon: IDisposable
     Task StartAllAsync();
 
     /// <summary>
+    /// Optimized mechanism to advance all asynchronous projections
+    /// and subscriptions to the high water mark inline. This is meant
+    /// for test automation and assumes a relatively small database size
+    ///
+    /// This will first stop any running agents before continuing. You will have to
+    /// explicitly restart the daemon after executing this
+    ///
+    /// Not meant for production usage!
+    /// </summary>
+    /// <returns></returns>
+    Task CatchUpAsync(CancellationToken cancellation);
+
+    /// <summary>
     ///     Stops all known projection shards
     /// </summary>
     /// <returns></returns>
