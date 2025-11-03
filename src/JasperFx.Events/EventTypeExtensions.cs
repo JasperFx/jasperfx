@@ -151,7 +151,8 @@ public static class EventTypeExtensions
             Version = @event.Version,
             StreamId = @event.StreamId,
             StreamKey = @event.StreamKey,
-            Timestamp = @event.Timestamp
+            Timestamp = @event.Timestamp,
+            Headers = @event.Headers
         };
     }
 

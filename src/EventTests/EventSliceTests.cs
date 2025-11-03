@@ -87,6 +87,8 @@ public class EventSliceTests
 
         last.StreamKey.ShouldBe(id.Value);
     }
+
+
 }
 
 public record StringId(string Value);
