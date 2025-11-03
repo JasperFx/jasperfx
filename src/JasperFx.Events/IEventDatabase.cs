@@ -55,4 +55,16 @@ public interface IEventDatabase
     
     string StorageIdentifier { get; }
     Task<long> FetchHighestEventSequenceNumber(CancellationToken token);
+    
+    /// <summary>
+    ///     Check the current progress of all asynchronous projections
+    /// </summary>
+    /// <param name="token"></param>
+    /// <param name="tenantId">
+    ///     Specify the database containing this tenant id. If omitted, this method uses the default
+    ///     database
+    /// </param>
+    /// <returns></returns>
+    Task<IReadOnlyList<ShardState>> AllProjectionProgress(
+        CancellationToken token = default);
 }

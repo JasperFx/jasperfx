@@ -83,6 +83,16 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
         return _executionBlock.PostAsync(range);
     }
 
+    public Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage page, CancellationToken cancellation)
+    {
+        var range = new EventRange(subscriptionAgent, page.Floor, page.Ceiling)
+        {
+            Events = page
+        };
+
+        return executeRange(range, cancellation);
+    }
+
     public async Task StopAndDrainAsync(CancellationToken token)
     {
         await _executionBlock.WaitForCompletionAsync().ConfigureAwait(false);

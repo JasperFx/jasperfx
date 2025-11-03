@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
+public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 {
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Block<Command> _commandBlock;

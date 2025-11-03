@@ -52,6 +52,16 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         return _building.PostAsync(range);
     }
 
+    public async Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage page, CancellationToken cancellation)
+    {
+        var range = new EventRange(subscriptionAgent, page.Floor, page.Ceiling)
+        {
+            Events = page
+        };
+
+        await processRangeAsync(range, cancellation);
+    }
+
     public async Task StopAndDrainAsync(CancellationToken token)
     {
         await _building.WaitForCompletionAsync();

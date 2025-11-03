@@ -683,5 +683,21 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         return agents;
     }
+    
+    public async Task CatchUpAsync(CancellationToken cancellation)
+    {
+        await StopAllAsync();
+        await _highWater.CheckNowAsync();
+
+        var progress = await Database.AllProjectionProgress(cancellation);
+
+        foreach (var asyncShard in _store.AllShards())
+        {
+            var state = progress.FirstOrDefault(x => x.ShardName == asyncShard.Name.Identity)
+                ?? new ShardState(asyncShard.Name, 0);
+            var agent = buildAgentForShard(asyncShard);
+            await agent.CatchUpAsync(HighWaterMark(), state, cancellation);
+        }
+    }
 }
 

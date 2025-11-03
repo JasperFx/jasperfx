@@ -73,6 +73,19 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         _grouping.Complete();
     }
 
+    public async Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage page,
+        CancellationToken cancellation)
+    {
+        var range = new EventRange(subscriptionAgent, page.Floor, page.Ceiling)
+        {
+            Events = page
+        };
+
+        await groupEventRangeAsync(range, cancellation);
+
+        await processRangeAsync(range, cancellation);
+    }
+
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)
