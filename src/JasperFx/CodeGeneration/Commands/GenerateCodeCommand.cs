@@ -62,6 +62,10 @@ public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
             default:
                 throw new ArgumentOutOfRangeException();
         }
+        
+        // This *is* necessary so that this value is still set
+        // and the IHost in Wolverine doesn't try to do a bunch of stuff
+        DynamicCodeBuilder.WithinCodegenCommand = true;
 
 
         return true;
