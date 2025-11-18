@@ -7,9 +7,11 @@ using Shouldly;
 
 namespace CoreTests;
 
+
+
 public class registering_the_options
 {
-    private readonly IHostEnvironment theEnvironment = Substitute.For<IHostEnvironment>();
+    private readonly IHostEnvironment theEnvironment = new JasperFxOptionsTests.StubHostEnvironment();
     
     [Fact]
     public void register_all_defaults()
@@ -18,7 +20,7 @@ public class registering_the_options
         services.AddJasperFx();
         services.AddSingleton(theEnvironment);
 
-        theEnvironment.EnvironmentName.Returns("Production");
+        theEnvironment.EnvironmentName = "Production";
 
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<JasperFxOptions>();
@@ -29,7 +31,7 @@ public class registering_the_options
         options.ActiveProfile.AssertAllPreGeneratedTypesExist.ShouldBeFalse();
     }
 
-    //[Fact] - NSubstitute gets flaky with this
+    [Fact] 
     public void pick_up_development_mode()
     {
         var services = new ServiceCollection();
@@ -40,7 +42,7 @@ public class registering_the_options
         
         services.AddSingleton(theEnvironment);
 
-        theEnvironment.EnvironmentName.Returns("Development");
+        theEnvironment.EnvironmentName = "Development";
         
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<JasperFxOptions>();
@@ -51,7 +53,7 @@ public class registering_the_options
         options.ActiveProfile.ResourceAutoCreate.ShouldBe(AutoCreate.All);
     }
     
-    //[Fact] - NSubstitute gets flaky with this
+    [Fact] 
     public void pick_up_development_mode_with_alternative_environment_name()
     {
         var services = new ServiceCollection();
@@ -63,7 +65,7 @@ public class registering_the_options
         
         services.AddSingleton(theEnvironment);
 
-        theEnvironment.EnvironmentName.Returns("Weird");
+        theEnvironment.EnvironmentName = "Weird";
         
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<JasperFxOptions>();
@@ -76,7 +78,7 @@ public class registering_the_options
     
     
     
-    //[Fact] - NSubstitute gets flaky with this
+    [Fact] 
     public void pick_up_production_mode()
     {
         var services = new ServiceCollection();
@@ -91,7 +93,7 @@ public class registering_the_options
         
         services.AddSingleton(theEnvironment);
 
-        theEnvironment.EnvironmentName.Returns("Production");
+        theEnvironment.EnvironmentName = "Production";
         
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<JasperFxOptions>();
