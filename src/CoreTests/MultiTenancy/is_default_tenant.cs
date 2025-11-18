@@ -12,8 +12,12 @@ public class is_default_tenant
     [InlineData("blue", false)]
     public void has_default_tenant_id(string value, bool isDefault)
     {
-        var hasTenant = Substitute.For<IHasTenantId>();
-        hasTenant.TenantId.Returns(value);
+        var hasTenant = new StubHasTenantId { TenantId = value };
         hasTenant.IsDefaultTenant().ShouldBe(isDefault);
     }
+}
+
+public class StubHasTenantId : IHasTenantId
+{
+    public string? TenantId { get; set; }
 }
