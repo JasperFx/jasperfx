@@ -54,7 +54,7 @@ public class DatabaseDescriptor : OptionsDescription
             SchemaOrNamespace
         };
         
-        return new Uri($"{Engine.ToLowerInvariant()}://{parts.Where(x => x.IsNotEmpty()).Join("/")}");
+        return new Uri($"{Engine.ToLowerInvariant()}://{parts.Where(x => x.IsNotEmpty()).Select(Uri.EscapeDataString).Join("/")}");
     }
 
     /// <summary>
