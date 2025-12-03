@@ -5,6 +5,9 @@ namespace JasperFx.Core;
 /// <summary>
 ///     Comb Guid Id Generation. More info https://web.archive.org/web/20250000000000*/http://www.informit.com/articles/article.aspx?p=25862
 /// </summary>
+#if NET9_0_OR_GREATER
+[Obsolete("Replaced by the built-in `Guid.CreateVersion7()`. This type will be removed in a future release.")]
+#endif
 public class CombGuidIdGeneration
 {
     /*
@@ -58,12 +61,8 @@ public class CombGuidIdGeneration
 
     public static Guid Create(Guid value, DateTimeOffset timestamp)
     {
-#if NET5_0_OR_GREATER
         Span<byte> bytes = stackalloc byte[16];
         value.TryWriteBytes(bytes);
-#else
-            var bytes = value.ToByteArray();
-#endif
 
         // Overwrite the first six bytes with unix time
         WriteDateTime(bytes, timestamp);
@@ -72,12 +71,9 @@ public class CombGuidIdGeneration
 
     public static DateTimeOffset GetTimestamp(Guid comb)
     {
-#if NET5_0_OR_GREATER
         Span<byte> bytes = stackalloc byte[16];
         comb.TryWriteBytes(bytes);
-#else
-            var bytes = comb.ToByteArray();
-#endif
+
         return BytesToDateTime(bytes);
     }
 }
