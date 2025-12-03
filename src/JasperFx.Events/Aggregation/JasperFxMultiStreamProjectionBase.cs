@@ -113,6 +113,9 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
             {
                 snapshots.TryGetValue(slice.Id, out var snapshot);
                 var (finalSnapshot, action) = await DetermineActionAsync(operations, snapshot, slice.Id, storage, slice.Events(), cancellation);
+
+                (_, finalSnapshot) = tryApplyMetadata(slice.Events(), finalSnapshot, slice.Id, storage);
+                
                 storage.ApplyInline(finalSnapshot, action, slice.Id, group.TenantId);
 
                 slice.Snapshot = finalSnapshot;
