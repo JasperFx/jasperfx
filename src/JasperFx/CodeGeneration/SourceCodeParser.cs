@@ -11,18 +11,20 @@ internal class SourceCodeParser : IDisposable
 
     internal SourceCodeParser(string code)
     {
-        foreach (var line in code.ReadLines())
+        foreach (var (line, _) in code.SplitLines())
         {
             if (_current == null)
             {
-                if (line.IsEmpty())
+                if (line.IsEmpty)
                 {
                     continue;
                 }
 
                 if (line.Trim().StartsWith("// START"))
                 {
-                    _name = line.Split(':').Last().Trim();
+                    var index = line.IndexOf(':');
+                    
+                    _name = line.Slice(index + 1).Trim().ToString();
 
                     // dispose the old writer before overriding the reference
                     _current?.Dispose();
