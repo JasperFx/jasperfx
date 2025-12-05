@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using System.Reflection;
+using FastExpressionCompiler;
 
 namespace JasperFx.Core.Reflection;
 
@@ -20,7 +21,7 @@ public static class LambdaBuilder
             : Expression.Lambda<Func<TTarget, TProperty>>(Expression.Convert(callGetMethod, typeof(TProperty)),
                 target);
 
-        return lambda.Compile();
+        return lambda.CompileFast();
     }
 
     /// <summary>
@@ -50,7 +51,7 @@ public static class LambdaBuilder
 
         var lambda = Expression.Lambda<Action<TTarget, TProperty>>(callSetMethod, target, value);
 
-        return lambda.Compile();
+        return lambda.CompileFast();
     }
 
 
@@ -64,7 +65,7 @@ public static class LambdaBuilder
             ? Expression.Lambda<Func<TTarget, TField>>(fieldAccess, target)
             : Expression.Lambda<Func<TTarget, TField>>(Expression.Convert(fieldAccess, typeof(TField)), target);
 
-        return lambda.Compile();
+        return lambda.CompileFast();
     }
 
     public static Func<TTarget, TMember> Getter<TTarget, TMember>(MemberInfo member)
@@ -85,7 +86,7 @@ public static class LambdaBuilder
 
         var lambda = Expression.Lambda<Action<TTarget, TField>>(fieldSetter, target, value);
 
-        return lambda.Compile();
+        return lambda.CompileFast();
     }
 
 
