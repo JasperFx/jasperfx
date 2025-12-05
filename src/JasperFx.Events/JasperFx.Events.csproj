@@ -3,18 +3,11 @@
     <PropertyGroup>
         <Description>Foundational Event Store Abstractions and Projections for the Critter Stack</Description>
         <PackageId>JasperFx.Events</PackageId>
-        <Version>1.12.1</Version>
+        <Version>1.12.2</Version>
     </PropertyGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
-    </ItemGroup>
-
-    <ItemGroup>
-        <Compile Remove="CommandLine\ProjectionStore.cs"/>
-        <Compile Remove="CommandLine\ProjectionDatabase.cs"/>
-        <Compile Remove="CommandLine\ProjectionCommand.cs"/>
-        <Compile Remove="CommandLine\IProjectionStore.cs"/>
     </ItemGroup>
 
 </Project>
