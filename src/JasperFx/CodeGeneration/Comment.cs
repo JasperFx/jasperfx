@@ -34,8 +34,8 @@ public class MultiLineComment : ICodeFragment
     public void Write(ISourceWriter writer)
     {
         writer.Write("/*");
-        var lines = Text.ReadLines();
-        foreach (var line in lines) writer.Write("* " + line);
+        var lines = Text.SplitLines();
+        foreach (var line in lines) writer.Write($"* {line}");
 
         writer.Write("*/");
     }

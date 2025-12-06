@@ -265,7 +265,7 @@ public static partial class StringExtensions
         return new Regex(_validNumberPattern, RegexOptions.ECMAScript).IsMatch(number);
     }
 
-    public static IList<string> getPathParts(this string path)
+    public static List<string> getPathParts(this string path)
     {
         return path.Split([Path.DirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries).ToList();
     }
@@ -284,21 +284,7 @@ public static partial class StringExtensions
             yield return line;
         }
     }
-
-    /// <summary>
-    ///     Reads text and calls back for each line of text
-    /// </summary>
-    /// <param name="text"></param>
-    /// <returns></returns>
-    public static void ReadLines(this string text, Action<string> callback)
-    {
-        var reader = new StringReader(text);
-        string? line;
-        while ((line = reader.ReadLine()) != null)
-        {
-            callback(line);
-        }
-    }
+    
 
     /// <summary>
     ///     Just uses MD5 to create a repeatable hash

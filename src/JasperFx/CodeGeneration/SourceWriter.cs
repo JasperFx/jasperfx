@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 using JasperFx.Core;
 
@@ -34,28 +35,39 @@ public class SourceWriter : ISourceWriter, IDisposable
             return;
         }
 
-        text.ReadLines(line =>
+        foreach (var (line, _) in text.SplitLines())
         {
-            line = line.Replace('`', '"');
-
-            if (line.IsEmpty())
+            var buffer = ArrayPool<char>.Shared.Rent(line.Length);
+            try
             {
-                BlankLine();
+                // constrain the span to the string length, this is important as the buffer returned might be larger than we need
+                var bufferSpan = buffer.AsSpan(0, line.Length);
+                line.Replace(bufferSpan, '`', '"');
+                
+                if (bufferSpan.IsEmpty)
+                {
+                    BlankLine();
+                }
+                else if (bufferSpan.StartsWith("BLOCK:"))
+                {
+                    WriteLine(bufferSpan.Slice(6));
+                    StartBlock();
+                }
+                else if (bufferSpan.StartsWith("END"))
+                {
+                    FinishBlock(bufferSpan.Slice(3));
+                }
+                else
+                {
+                    WriteLine(bufferSpan);
+                }
             }
-            else if (line.StartsWith("BLOCK:"))
+            finally
             {
-                WriteLine(line.AsSpan(6));
-                StartBlock();
+                ArrayPool<char>.Shared.Return(buffer);
             }
-            else if (line.StartsWith("END"))
-            {
-                FinishBlock(line.AsSpan(3));
-            }
-            else
-            {
-                WriteLine(line);
-            }
-        });
+            
+        }
     }
 
     public void WriteLine(string text)

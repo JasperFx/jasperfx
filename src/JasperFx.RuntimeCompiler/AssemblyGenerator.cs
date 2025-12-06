@@ -20,8 +20,8 @@ namespace JasperFx.RuntimeCompiler
 	public class AssemblyGenerator : IAssemblyGenerator
 	{
 
-		private readonly IList<MetadataReference> _references = new List<MetadataReference>();
-		private readonly IList<Assembly> _assemblies = new List<Assembly>();
+		private readonly List<MetadataReference> _references = [];
+		private readonly List<Assembly> _assemblies = [];
 
 		public static string[]? HintPaths { get; set; }
 
@@ -142,7 +142,7 @@ namespace JasperFx.RuntimeCompiler
 			var syntaxTree = CSharpSyntaxTree.ParseText(code);
 
 			var references = _references.ToArray();
-			var compilation = CSharpCompilation.Create(assemblyName, new[] {syntaxTree}, references,
+			var compilation = CSharpCompilation.Create(assemblyName, [syntaxTree], references,
 				new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
 
