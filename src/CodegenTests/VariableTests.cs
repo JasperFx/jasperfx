@@ -1,4 +1,5 @@
-﻿using JasperFx.CodeGeneration.Model;
+﻿using System.Collections.Immutable;
+using JasperFx.CodeGeneration.Model;
 using Shouldly;
 
 namespace CodegenTests;
@@ -56,6 +57,13 @@ public class VariableTests
     }
 
     [Fact]
+    public void default_name_of_immutable_hash_set()
+    {
+        Variable.DefaultArgName<ImmutableHashSet<string>>()
+            .ShouldBe("stringValueImmutableHashSet");
+    }
+
+    [Fact]
     public void default_arg_name_of_Collection()
     {
         Variable.DefaultArgName<ICollection<IWidget>>()
@@ -64,6 +72,8 @@ public class VariableTests
         Variable.DefaultArgName<IReadOnlyCollection<IWidget>>()
             .ShouldBe("widgetIReadOnlyCollection");
     }
+
+    public class Foo<T1, T2, T3>;
 
     [Fact]
     public void default_arg_name_of_enumerable()

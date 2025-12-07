@@ -24,7 +24,13 @@ public static class EnumerableTypeExtensions
             return true;
         }
 
-        return type.IsGenericType && _enumerableTypes.Contains(type.GetGenericTypeDefinition());
+        if (!type.IsGenericType) return false;
+
+        if (_enumerableTypes.Contains(type.GetGenericTypeDefinition())) return true;
+
+        if (type.FullNameInCode().StartsWith("System") && _enumerableTypes.Any(x => type.Closes(x))) return true;
+
+        return false;
     }
 
     /// <summary>

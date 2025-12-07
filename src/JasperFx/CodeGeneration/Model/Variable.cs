@@ -180,7 +180,7 @@ while
             return "@" + variableName;
         }
         
-        return variableName.Replace('<', '_').Replace('>', '_');
+        return variableName.Replace('<', '_').Replace('>', '_').Replace(".", "_").TrimEnd('_');
     }
 
     public static string DefaultArgName(Type argType)
@@ -203,7 +203,7 @@ while
         if (argType == typeof(bool)) return "boolValue";
         if (argType == typeof(int)) return "intValue";
         if (argType == typeof(long)) return "longValue";
-
+        
         var parts = argType.Name.SplitPascalCase().Split(' ');
         if (argType.GetTypeInfo().IsInterface && parts.First() == "I")
         {
