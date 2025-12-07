@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Collections.Frozen;
 using System.Linq.Expressions;
 using System.Reflection;
 using JasperFx.CodeGeneration.Expressions;
@@ -15,92 +13,94 @@ public class Variable
     // private static readonly string[] _reservedNames = new string[]
     //     { "lock", "switch", "case", "if", "base", "catch", "class", "continue", "default", "operator" };
 
-    private static readonly string[] _reservedNames;
-
+    private static readonly FrozenSet<string> ReservedNames;
+    
     static Variable()
     {
-        _reservedNames = _reserved.ReadLines().Where(x => !x.IsEmpty()).ToArray();
+        ReservedNames = _reserved.ReadLines().Where(x => !x.IsEmpty()).ToFrozenSet();
     }
 
-    private static readonly string _reserved = @"
-abstract
-as
-base
-bool
-break
-byte
-case
-catch
-char
-checked
-class
-const
-continue
-decimal
-default
-delegate
-do
-double
-else
-enum
-event
-explicit
-extern
-false
-finally
-fixed
-float
-for
-foreach
-goto
-if
-implicit
-in
-int
-interface
-internal
-is
-lock
-long
-namespace
-new
-null
-object
-operator
-out
-override
-params
-private
-protected
-public
-readonly
-ref
-return
-sbyte
-sealed
-short
-sizeof
-stackalloc
-static
-string
-struct
-switch
-this
-throw
-true
-try
-typeof
-uint
-ulong
-unchecked
-unsafe
-ushort
-using
-virtual
-void
-volatile
-while
-";
+    private static readonly string _reserved = """
+
+                                               abstract
+                                               as
+                                               base
+                                               bool
+                                               break
+                                               byte
+                                               case
+                                               catch
+                                               char
+                                               checked
+                                               class
+                                               const
+                                               continue
+                                               decimal
+                                               default
+                                               delegate
+                                               do
+                                               double
+                                               else
+                                               enum
+                                               event
+                                               explicit
+                                               extern
+                                               false
+                                               finally
+                                               fixed
+                                               float
+                                               for
+                                               foreach
+                                               goto
+                                               if
+                                               implicit
+                                               in
+                                               int
+                                               interface
+                                               internal
+                                               is
+                                               lock
+                                               long
+                                               namespace
+                                               new
+                                               null
+                                               object
+                                               operator
+                                               out
+                                               override
+                                               params
+                                               private
+                                               protected
+                                               public
+                                               readonly
+                                               ref
+                                               return
+                                               sbyte
+                                               sealed
+                                               short
+                                               sizeof
+                                               stackalloc
+                                               static
+                                               string
+                                               struct
+                                               switch
+                                               this
+                                               throw
+                                               true
+                                               try
+                                               typeof
+                                               uint
+                                               ulong
+                                               unchecked
+                                               unsafe
+                                               ushort
+                                               using
+                                               virtual
+                                               void
+                                               volatile
+                                               while
+
+                                               """;
     
     private Frame? _frame;
 
@@ -175,7 +175,7 @@ while
 
     public static string SanitizeVariableName(string variableName)
     {
-        if (_reservedNames.Contains(variableName))
+        if (ReservedNames.Contains(variableName))
         {
             return "@" + variableName;
         }

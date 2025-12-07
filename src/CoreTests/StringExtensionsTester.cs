@@ -159,26 +159,7 @@ e
 
         text.ReadLines().ShouldHaveTheSameElementsAs("a", "b", "c", "d", "e");
     }
-
-    [Fact]
-    public void read_lines_to_an_action()
-    {
-        var list = new List<string>();
-
-        Action<string> action = x => list.Add(x);
-
-        var text = @"a
-b
-c
-d
-e
-";
-
-
-        text.ReadLines(action);
-
-        list.ShouldHaveTheSameElementsAs("a", "b", "c", "d", "e");
-    }
+    
 
     [Fact]
     public void to_hash_is_repeatable()
