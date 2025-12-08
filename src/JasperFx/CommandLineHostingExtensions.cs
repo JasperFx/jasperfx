@@ -173,7 +173,15 @@ public static class CommandLineHostingExtensions
     {
         // Workaround for IISExpress / VS2019 erroneously putting crap arguments
         args = args.FilterLauncherArgs();
+
+        if (args.Any(x => _aspnetCoreFlags.Any(flag => x.EqualsIgnoreCase(flag))))
+        {
+            Console.WriteLine("Detected reserved AspNetCore or .NET flags, so bypassing JasperFx command line and using IHost.RunAsync()");
+            return host.RunAsync().ContinueWith(_ => 0);
+        }
         
         return execute(new PreBuiltHostBuilder(host), Assembly.GetEntryAssembly(), args, null);
     }
+
+    private static string[] _aspnetCoreFlags = ["--urls", "--http_ports", "--https_ports"];
 }
