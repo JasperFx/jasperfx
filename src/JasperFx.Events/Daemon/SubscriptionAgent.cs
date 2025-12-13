@@ -77,7 +77,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             if (ex is ProgressionProgressOutOfOrderException)
             {
                 PausedTime = null;
-                Status = AgentStatus.Stopped;
+                Status = AgentStatus.Faulted;
                 await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
                     { Action = ShardAction.Stopped, Exception = ex });
             }

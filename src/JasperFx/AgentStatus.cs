@@ -18,5 +18,10 @@ public enum AgentStatus
     ///     to failures and will be re-started after a set amount
     ///     of time
     /// </summary>
-    Paused
+    Paused,
+    
+    /// <summary>
+    /// The projection shard has encountered an unrecoverable exception
+    /// </summary>
+    Faulted
 }
