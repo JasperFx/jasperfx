@@ -4,6 +4,15 @@ using JasperFx.Core.Reflection;
 namespace JasperFx.Descriptors;
 
 /// <summary>
+/// Marks an object as having tags to be
+/// included into an OptionsDescription
+/// </summary>
+public interface ITagged
+{
+    string[] Tags { get; }
+}
+
+/// <summary>
 /// Just a serializable, readonly view of system configuration to be used for diagnostic purposes
 /// </summary>
 public class OptionsDescription
@@ -19,6 +28,26 @@ public class OptionsDescription
         if (subject is IDescribeMyself describeMyself) return describeMyself.ToDescription();
 
         return new OptionsDescription(subject);
+    }
+
+    private readonly List<string> _tags = [];
+    
+    public void AddTag(string tagName)
+    {
+        _tags.Fill(tagName);
+    }
+    
+    public string[] Tags
+    {
+        get
+        {
+            return _tags.ToArray();
+        }
+        set
+        {
+            _tags.Clear();
+            _tags.AddRange(value);
+        }
     }
 
     public string Subject { get; set; } = null!;
@@ -45,14 +74,19 @@ public class OptionsDescription
 
     public OptionsDescription(object subject)
     {
-        ReadProperties(subject);
+        readProperties(subject);
     }
 
-    private void ReadProperties(object subject)
+    private void readProperties(object subject)
     {
         if (subject == null)
         {
             throw new ArgumentNullException(nameof(subject));
+        }
+
+        if (subject is ITagged tagged)
+        {
+            _tags.Fill(tagged.Tags);
         }
 
         var type = subject.GetType();
@@ -119,8 +153,6 @@ public class OptionsDescription
     {
         return Properties.FirstOrDefault(x => x.Name.EqualsIgnoreCase(name));
     }
-    
-    public Dictionary<string, string> Tags = new();
 
     public List<MetricDescriptor> Metrics { get; set; } = new();
     
