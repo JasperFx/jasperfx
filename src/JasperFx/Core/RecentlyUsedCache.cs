@@ -9,6 +9,8 @@ public interface IAggregateCache<TKey, TItem> where TKey: notnull where TItem: n
     void Store(TKey key, TItem item);
     void CompactIfNecessary();
     void TryRemove(TKey key);
+
+    bool Contains(TKey key);
 }
 
 public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
@@ -33,6 +35,8 @@ public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem> whe
     {
         // nothing
     }
+
+    public bool Contains(TKey key) => false;
 }
 
 public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
@@ -43,6 +47,8 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
     public int Limit = 100;
 
     public int Count => _items.Count();
+
+    public bool Contains(TKey key) => _items.Contains(key);
 
     public bool TryFind(TKey key, [NotNullWhen(true)]out TItem? item)
     {
