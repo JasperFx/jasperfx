@@ -93,6 +93,11 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
         return executeRange(range, cancellation);
     }
 
+    public Task ProcessRangeAsync(EventRange range)
+    {
+        return executeRange(range, CancellationToken.None);
+    }
+
     public async Task StopAndDrainAsync(CancellationToken token)
     {
         await _executionBlock.WaitForCompletionAsync().ConfigureAwait(false);

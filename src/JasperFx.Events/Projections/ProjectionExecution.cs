@@ -8,13 +8,13 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly Block<EventRange> _building;
-    private readonly CancellationTokenSource _cancellation = new();
-    private readonly IEventDatabase _database;
-    private readonly ILogger _logger;
-    private readonly AsyncOptions _options;
+    protected readonly CancellationTokenSource _cancellation = new();
+    protected readonly IEventDatabase _database;
+    protected readonly ILogger _logger;
+    protected readonly AsyncOptions _options;
     private readonly IJasperFxProjection<TOperations> _projection;
-    private readonly ShardName _shardName;
-    private readonly IEventStore<TOperations, TQuerySession> _store;
+    protected readonly ShardName _shardName;
+    protected readonly IEventStore<TOperations, TQuerySession> _store;
 
     public ProjectionExecution(ShardName shardName, AsyncOptions options,
         IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
@@ -82,6 +82,11 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         return false;
     }
 
+    public Task ProcessRangeAsync(EventRange range)
+    {
+        return processRangeAsync(range, CancellationToken.None);
+    }
+
     private async Task processRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)
@@ -93,14 +98,13 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
         try
         {
-            var options = _store.ErrorHandlingOptions(Mode);
-
-            await using var batch = options.SkipApplyErrors
-                ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
-                : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
+            await using var batch = await buildBatchAsync(range, _);
 
             // Executing the SQL commands for the ProjectionUpdateBatch
-            await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+            if (range.BatchBehavior == BatchBehavior.Individual)
+            {
+                await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+            }
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
         }
@@ -115,6 +119,25 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         finally
         {
             activity?.Stop();
+        }
+    }
+
+    protected virtual async Task<IProjectionBatch> buildBatchAsync(EventRange range)
+    {
+        IProjectionBatch? batch = null;
+        try
+        {
+            var options = _store.ErrorHandlingOptions(Mode);
+
+            batch = options.SkipApplyErrors
+                ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
+                : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
+            return batch;
+        }
+        catch
+        {
+            await batch.DisposeAsync();
+            throw;
         }
     }
 
@@ -172,12 +195,12 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         return batch!;
     }
 
-    private async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
+    protected virtual async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
     {
         IProjectionBatch<TOperations, TQuerySession>? batch = null;
         try
         {
-            batch = await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
+            batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
 
             var groups = range.Events.GroupBy(x => x.TenantId).ToArray();
             foreach (var group in groups)

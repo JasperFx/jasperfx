@@ -45,7 +45,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     {
         Projection.StartBatch();
 
-        var batch = await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
+        var batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
         {

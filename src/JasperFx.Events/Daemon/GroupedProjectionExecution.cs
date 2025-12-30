@@ -85,6 +85,12 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         await processRangeAsync(range, cancellation);
     }
+    
+    public async Task ProcessRangeAsync(EventRange range)
+    {
+        await groupEventRangeAsync(range, CancellationToken.None);
+        await processRangeAsync(range, CancellationToken.None);
+    }
 
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
@@ -148,8 +154,11 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             // should be stopped in this case
             if (batch == null) return;
 
-            // Executing the SQL commands for the ProjectionUpdateBatch
-            await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+            if (range.BatchBehavior == BatchBehavior.Individual)
+            {
+                // Executing the SQL commands for the ProjectionUpdateBatch
+                await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+            }
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
         }
