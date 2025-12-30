@@ -165,8 +165,8 @@ public class EventRange
         await SliceAsync(Slicer);
     }
 
-    private readonly List<object> _updates = new();
-    public IReadOnlyList<object> Updates => _updates;
+    private readonly List<IUpdatedEntity> _updates = new();
+    public IReadOnlyList<IUpdatedEntity> Updates => _updates;
 
     public void MarkUpdated<T>(string tenantId, T entity)
     {

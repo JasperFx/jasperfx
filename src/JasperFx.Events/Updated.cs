@@ -6,4 +6,18 @@ namespace JasperFx.Events;
 /// </summary>
 /// <param name="Document"></param>
 /// <typeparam name="T"></typeparam>
-public record Updated<T>(string TenantId, T Entity);
+public record Updated<T>(string TenantId, T Entity) : IUpdatedEntity
+{
+    public IEvent ToEvent()
+    {
+        return new Event<Updated<T>>(this);
+    }
+
+    object IUpdatedEntity.Entity => Entity;
+}
+
+public interface IUpdatedEntity
+{
+    IEvent ToEvent();
+    object Entity { get; }
+}
