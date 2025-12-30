@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using JasperFx.Blocks;
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
@@ -96,6 +98,12 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
     public Task ProcessRangeAsync(EventRange range)
     {
         return executeRange(range, CancellationToken.None);
+    }
+
+    bool ISubscriptionExecution.TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching)
+    {
+        caching = null;
+        return false;
     }
 
     public async Task StopAndDrainAsync(CancellationToken token)

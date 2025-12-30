@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Blocks;
 using JasperFx.Core;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
@@ -90,6 +92,12 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     {
         await groupEventRangeAsync(range, CancellationToken.None);
         await processRangeAsync(range, CancellationToken.None);
+    }
+
+    public bool TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching)
+    {
+        caching = _runner as IAggregateCaching<TId, TDoc>;
+        return caching != null;
     }
 
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)

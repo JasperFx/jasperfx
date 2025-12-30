@@ -1,4 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Blocks;
+using JasperFx.Core;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
 using Microsoft.Extensions.Logging;
 
@@ -85,6 +88,12 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     public Task ProcessRangeAsync(EventRange range)
     {
         return processRangeAsync(range, CancellationToken.None);
+    }
+
+    bool ISubscriptionExecution.TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching)
+    {
+        caching = null;
+        return false;
     }
 
     private async Task processRangeAsync(EventRange range, CancellationToken _)

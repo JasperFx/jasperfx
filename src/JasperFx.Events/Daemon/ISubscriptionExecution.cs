@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using JasperFx.Core;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Daemon;
@@ -15,6 +17,15 @@ public interface ISubscriptionExecution: IAsyncDisposable
     Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage events, CancellationToken cancellation);
     
     Task ProcessRangeAsync(EventRange range);
+
+    /// <summary>
+    /// Try to find an aggregate cache for the designated id and aggregate type
+    /// </summary>
+    /// <param name="caching"></param>
+    /// <typeparam name="TId"></typeparam>
+    /// <typeparam name="TDoc"></typeparam>
+    /// <returns></returns>
+    bool TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching);
 }
 
 /// <summary>

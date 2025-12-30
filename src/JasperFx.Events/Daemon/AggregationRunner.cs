@@ -2,13 +2,14 @@ using System.Runtime.ExceptionServices;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner
+public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>
     where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
     private readonly object _cacheLock = new();
