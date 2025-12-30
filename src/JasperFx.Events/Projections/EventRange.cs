@@ -52,10 +52,11 @@ public class EventRange
     /// When running a projection as a composite, you need to create clean
     /// clones of the initial EventRange
     /// </summary>
+    /// <param name="leafName">ShardName of the projection about to be executed with this range</param>
     /// <returns></returns>
-    public EventRange Clone()
+    public EventRange CloneForExecutionLeaf(ShardName leafName)
     {
-        return new EventRange(ShardName, SequenceFloor, SequenceCeiling, Agent)
+        return new EventRange(leafName, SequenceFloor, SequenceCeiling, Agent)
         {
             Events = Events,
             BatchBehavior = BatchBehavior,

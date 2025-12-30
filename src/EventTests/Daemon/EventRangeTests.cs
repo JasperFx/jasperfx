@@ -86,9 +86,10 @@ public class EventRangeTests
         range.BatchBehavior = BatchBehavior.Composite;
         range.ActiveBatch = Substitute.For<IProjectionBatch>();
 
-        var cloned = range.Clone();
+        var leafName = new ShardName("Bar", "All", 1);
+        var cloned = range.CloneForExecutionLeaf(leafName);
         
-        cloned.ShardName.ShouldBe(range.ShardName);
+        cloned.ShardName.ShouldBe(leafName);
         cloned.SequenceFloor.ShouldBe(range.SequenceFloor);
         cloned.SequenceCeiling.ShouldBe(range.SequenceCeiling);
         cloned.Agent.ShouldBe(range.Agent);

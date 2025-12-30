@@ -7,6 +7,8 @@ namespace JasperFx.Events.Daemon;
 
 public interface ISubscriptionExecution: IAsyncDisposable
 {
+    ShardName ShardName { get; }
+    
     ValueTask EnqueueAsync(EventPage page, ISubscriptionAgent subscriptionAgent);
 
     Task StopAndDrainAsync(CancellationToken token);

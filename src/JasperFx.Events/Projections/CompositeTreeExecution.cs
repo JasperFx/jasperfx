@@ -27,9 +27,12 @@ public record ProjectionStage(ISubscriptionExecution[] Executions)
         {
             return Task.Run(async () =>
             {
-                var cloned = range.Clone();
+                var cloned = range.CloneForExecutionLeaf(execution.ShardName);
                 cloned.BatchBehavior = BatchBehavior.Composite;
 
+                // Need to record the individual progress even though it's locked together
+                await cloned.ActiveBatch!.RecordProgress(cloned);
+                
                 await execution.ProcessRangeAsync(cloned);
 
                 return cloned.Updates;

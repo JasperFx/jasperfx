@@ -33,6 +33,8 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         _building = new Block<EventRange>(processRangeAsync);
     }
 
+    public ShardName ShardName => _shardName;
+
     public async ValueTask DisposeAsync()
     {
         await _cancellation.CancelAsync().ConfigureAwait(false);

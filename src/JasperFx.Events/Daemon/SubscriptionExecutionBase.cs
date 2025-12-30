@@ -60,7 +60,10 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
 
         // TODO -- revisit this. 
         ShardIdentity = $"{name.Identity}@{database.Identifier}";
+        ShardName = name;
     }
+
+    public ShardName ShardName { get; }
 
     public string ShardIdentity { get; }
 

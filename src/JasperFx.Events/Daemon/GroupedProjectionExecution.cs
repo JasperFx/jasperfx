@@ -13,11 +13,10 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     private readonly IBlock<EventRange> _grouping;
     private readonly ILogger _logger;
     private readonly IGroupedProjectionRunner _runner;
-    private readonly ShardName _shardName;
 
     public GroupedProjectionExecution(ShardName shardName, IGroupedProjectionRunner runner, ILogger logger)
     {
-        _shardName = shardName;
+        ShardName = shardName;
         _logger = logger;
 
         var block = new Block<EventRange>(processRangeAsync);
@@ -25,6 +24,8 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         _runner = runner;
     }
+
+    public ShardName ShardName { get; }
 
     public object[]? Disposables { get; init; }
 
@@ -119,7 +120,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
                 {
                     _logger.LogDebug(
                         "Subscription {Name} successfully grouped {Number} events with a floor of {Floor} and ceiling of {Ceiling}",
-                        _shardName.Identity, range.Events.Count, range.SequenceFloor, range.SequenceCeiling);
+                        ShardName.Identity, range.Events.Count, range.SequenceFloor, range.SequenceCeiling);
                 }
             }
 
@@ -129,7 +130,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         {
             activity?.AddException(e);
             _logger.LogError(e, "Failure trying to group events for {Name} from {Floor} to {Ceiling}",
-                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+                ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
 
             return null!;
@@ -175,7 +176,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             activity?.AddException(e);
             _logger.LogError(e,
                 "Error trying to build and apply changes to event subscription {Name} from {Floor} to {Ceiling}",
-                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+                ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
         finally
@@ -197,7 +198,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             if (Mode == ShardExecutionMode.Continuous)
             {
                 _logger.LogInformation("Shard '{_shardName.Identity}': Executed updates for {Range}",
-                    _shardName.Identity, range);
+                    ShardName.Identity, range);
             }
         }
         catch (Exception e)
@@ -206,7 +207,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             {
                 _logger.LogError(e,
                     "Failure in shard '{_shardName.Identity}' trying to execute an update batch for {Range}",
-                    _shardName.Identity,
+                    ShardName.Identity,
                     range);
                 throw;
             }
@@ -260,7 +261,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         {
             _logger.LogError(e,
                 "Subscription {Name} failed while creating a SQL batch for updates for events from {Floor} to {Ceiling}",
-                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+                ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
 
             if (batch != null)
             {
