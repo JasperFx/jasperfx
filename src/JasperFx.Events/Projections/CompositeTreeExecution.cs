@@ -17,7 +17,7 @@ public class CompositeTreeExecution<TOperations, TQuerySession> : ProjectionExec
         _inners = inners;
     }
 
-    protected override async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
+    protected override async Task<IProjectionBatch> buildBatchWithNoSkippingAsync(EventRange range, CancellationToken cancellationToken)
     {
         IProjectionBatch<TOperations, TQuerySession>? batch = null;
         try

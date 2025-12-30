@@ -98,7 +98,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
         try
         {
-            await using var batch = await buildBatchAsync(range, _);
+            await using var batch = await buildBatchAsync(range);
 
             // Executing the SQL commands for the ProjectionUpdateBatch
             if (range.BatchBehavior == BatchBehavior.Individual)
@@ -131,7 +131,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
             batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
-                : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
+                : await buildBatchWithNoSkippingAsync(range, _cancellation.Token).ConfigureAwait(false);
             return batch;
         }
         catch
@@ -182,7 +182,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         {
             try
             {
-                batch = await buildBatchAsync(range, cancellationToken).ConfigureAwait(false);
+                batch = await buildBatchWithNoSkippingAsync(range, cancellationToken).ConfigureAwait(false);
             }
             catch (ApplyEventException e)
             {
@@ -195,12 +195,13 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         return batch!;
     }
 
-    protected virtual async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)
+    protected virtual async Task<IProjectionBatch> buildBatchWithNoSkippingAsync(EventRange range, CancellationToken cancellationToken)
     {
         IProjectionBatch<TOperations, TQuerySession>? batch = null;
         try
         {
-            batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
+            batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ??
+                    await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
 
             var groups = range.Events.GroupBy(x => x.TenantId).ToArray();
             foreach (var group in groups)
