@@ -69,13 +69,24 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         builder.OnError = (_, e) => exceptions.Add(e);
 
         var caches = new List<IAggregateCache<TId, TDoc>>();
-        var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
+        var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>().ToArray();
         foreach (var group in groups)
         {
             await processBatchAsync(cancellation, batch, group, caches, builder);
         }
 
         await builder.WaitForCompletionAsync().ConfigureAwait(false);
+
+        foreach (var group in groups)
+        {
+            foreach (var slice in group.Slices)
+            {
+                if (slice.Snapshot != null)
+                {
+                    range.MarkUpdated(group.TenantId, slice.Snapshot);
+                }
+            }
+        }
 
         if (exceptions.Count == 1)
         {
