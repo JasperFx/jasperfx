@@ -14,10 +14,31 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer where TId : notnull
     public async ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events)
     {
         var groups = new List<object>();
-        var byTenant = ByTenantSlicer.Group(events);
+        var byTenant = events.GroupBy(x => x.TenantId)
+            .Select(g => new TenantGroup(g.Key, g)).ToList();
         foreach (var tenantGroup in byTenant)
         {
             var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId);
+            await _inner.SliceAsync(tenantGroup.Events, group);
+            
+            groups.Add(group);
+        }
+
+        return groups;
+    }
+
+    public async ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
+    {
+        var groups = new List<object>();
+        var byTenant = range.Events.GroupBy(x => x.TenantId)
+            .Select(g => new TenantGroup(g.Key, g)).ToList();
+        foreach (var tenantGroup in byTenant)
+        {
+            var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId)
+            {
+                Upstream = range.Upstream
+            };
+            
             await _inner.SliceAsync(tenantGroup.Events, group);
             
             groups.Add(group);
@@ -41,10 +62,35 @@ public class TenantedEventSlicer<TDoc, TId, TQuerySession> : IEventSlicer where 
     public async ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events)
     {
         var groups = new List<object>();
-        var byTenant = ByTenantSlicer.Group(events);
+        var byTenant = events.GroupBy(x => x.TenantId)
+            .Select(g => new TenantGroup(g.Key, g)).ToList();
         foreach (var tenantGroup in byTenant)
         {
             var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId);
+
+            var tenantSession = _session is ITenantedQuerySession<TQuerySession> tenanted
+                ? tenanted.ForTenant(tenantGroup.TenantId)
+                : _session;
+            
+            await _inner.SliceAsync(tenantSession, tenantGroup.Events, group);
+            
+            groups.Add(group);
+        }
+
+        return groups;
+    }
+
+    public async ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
+    {
+        var groups = new List<object>();
+        var byTenant = range.Events.GroupBy(x => x.TenantId)
+            .Select(g => new TenantGroup(g.Key, g)).ToList();
+        foreach (var tenantGroup in byTenant)
+        {
+            var group = new SliceGroup<TDoc, TId>(tenantGroup.TenantId)
+            {
+                Upstream = range.Upstream
+            };
 
             var tenantSession = _session is ITenantedQuerySession<TQuerySession> tenanted
                 ? tenanted.ForTenant(tenantGroup.TenantId)

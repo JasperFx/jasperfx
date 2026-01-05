@@ -151,7 +151,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     }
 
     // Used by composite projections to relay aggregate cache dependencies
-    internal List<ISubscriptionExecution> Upstream { get; } = [];
+    internal List<ISubscriptionExecution> Upstream { get; set; } = [];
 
     public EntityStep<TEntity> EnrichWith<TEntity>(IStorageOperations session)
     {

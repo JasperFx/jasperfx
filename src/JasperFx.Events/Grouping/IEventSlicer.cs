@@ -1,8 +1,11 @@
+using JasperFx.Events.Projections;
+
 namespace JasperFx.Events.Grouping;
 
 public interface IEventSlicer
 {
     ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events);
+    ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range);
 }
 
 public class AcrossTenantSlicer<TDoc, TId, TQuerySession> : IEventSlicer where TId : notnull
@@ -20,6 +23,17 @@ public class AcrossTenantSlicer<TDoc, TId, TQuerySession> : IEventSlicer where T
     {
         var grouping = new SliceGroup<TDoc, TId>(StorageConstants.DefaultTenantId);
         await _inner.SliceAsync(_session, events, grouping);
+        return [grouping];
+    }
+
+    public async ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
+    {
+        var grouping = new SliceGroup<TDoc, TId>(StorageConstants.DefaultTenantId)
+        {
+            Upstream = range.Upstream
+        };
+        
+        await _inner.SliceAsync(_session, range.Events, grouping);
         return [grouping];
     }
 }
