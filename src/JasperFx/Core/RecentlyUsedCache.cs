@@ -13,6 +13,41 @@ public interface IAggregateCache<TKey, TItem> where TKey: notnull where TItem: n
     bool Contains(TKey key);
 }
 
+public class DictionaryAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem>
+{
+    private readonly IReadOnlyDictionary<TKey, TItem> _inner;
+
+    public DictionaryAggregateCache(IReadOnlyDictionary<TKey, TItem> inner)
+    {
+        _inner = inner;
+    }
+
+    public bool TryFind(TKey key, [NotNullWhen(true)] out TItem? item)
+    {
+        return _inner.TryGetValue(key, out item);
+    }
+
+    public void Store(TKey key, TItem item)
+    {
+        // nothing
+    }
+
+    public void CompactIfNecessary()
+    {
+        // nothing
+    }
+
+    public void TryRemove(TKey key)
+    {
+        // nothing
+    }
+
+    public bool Contains(TKey key)
+    {
+        return _inner.ContainsKey(key);
+    }
+}
+
 public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
 {
     public bool TryFind(TKey key, out TItem item)

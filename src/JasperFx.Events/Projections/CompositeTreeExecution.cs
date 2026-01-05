@@ -61,9 +61,9 @@ public class CompositeTreeExecution<TOperations, TQuerySession> : ProjectionExec
         IProjectionBatch<TOperations, TQuerySession>? batch = null;
         try
         {
-            // TODO -- will need to also mark progress too!
-            
             batch = await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
+            await batch.RecordProgress(range);
+            
             range.ActiveBatch = batch;
 
             foreach (var stage in _inners)

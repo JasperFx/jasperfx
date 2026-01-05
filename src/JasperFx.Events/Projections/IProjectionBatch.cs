@@ -23,6 +23,4 @@ public interface IProjectionBatch : IAsyncDisposable
 public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch where TOperations : TQuerySession, IStorageOperations
 {
     TOperations SessionForTenant(string tenantId);
-
-
 }

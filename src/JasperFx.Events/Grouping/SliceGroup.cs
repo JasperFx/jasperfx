@@ -1,5 +1,6 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Grouping;
 
@@ -21,11 +22,9 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         Slices = new LightweightCache<TId, EventSlice<TDoc, TId>>(id => new EventSlice<TDoc, TId>(id, tenantId));
     }
 
-    public SliceGroup(string tenantId, IEnumerable<EventSlice<TDoc, TId>> slices) : this(tenantId)
-    {
-        foreach (var slice in slices) Slices[slice.Id] = slice;
-    }
-
+    /// <summary>
+    /// Really only for testing
+    /// </summary>
     public SliceGroup() : this(StorageConstants.DefaultTenantId)
     {
     }
@@ -148,6 +147,84 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         foreach (var slice in Slices)
         {
             slice.ApplyFanOutRules(fanoutRules);
+        }
+    }
+
+    // Used by composite projections to relay aggregate cache dependencies
+    internal List<ISubscriptionExecution> Upstream { get; } = [];
+
+    public EntityStep<TEntity> EnrichWith<TEntity>(IStorageOperations session)
+    {
+        return new EntityStep<TEntity>(this, session);
+    }
+
+    public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    {
+        public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session);
+    }
+
+    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    {
+        public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
+            Func<TEvent, TEntityId> identitySource) =>
+            new(parent, session, identitySource);
+    }
+
+    public class IdentityStep<TEntity, TEvent, TEntityId>(
+        SliceGroup<TDoc, TId> parent,
+        IStorageOperations session,
+        Func<TEvent, TEntityId> identitySource)
+    {
+        public async Task Enrich(
+            Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
+        {
+            var cache = await FetchEntities(parent.Slices.SelectMany(x => x.Events()));
+
+            foreach (EventSlice<TDoc, TId> eventSlice in parent.Slices)
+            {
+                var events = eventSlice.Events().OfType<IEvent<TEvent>>().ToArray();
+                foreach (var @event in events)
+                {
+                    var id = identitySource(@event.Data);
+                    if (cache.TryFind(id, out var entity))
+                    {
+                        application(eventSlice, @event, entity);
+                    }
+                }
+            }
+        }
+
+        public async Task<IAggregateCache<TEntityId, TEntity>> FetchEntities(IEnumerable<IEvent> events)
+        {
+            var cache = findCache();
+
+            var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
+            var ids = events.OfType<IEvent<TEvent>>().Select(x => identitySource(x.Data)).ToArray();
+            if (cache == null)
+            {
+                var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+                return new DictionaryAggregateCache<TEntityId, TEntity>(dict);
+            }
+
+            var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+            var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+            foreach (var pair in loaded)
+            {
+                cache.Store(pair.Key, pair.Value);
+            }
+
+            return cache;
+        }
+
+        private IAggregateCache<TEntityId, TEntity>? findCache()
+        {
+            foreach (var execution in parent.Upstream)
+            {
+                if (execution.TryGetAggregateCache<TEntityId, TEntity>(out var cache)) return cache.CacheFor(parent.TenantId);
+            }
+
+            return null;
         }
     }
 }
