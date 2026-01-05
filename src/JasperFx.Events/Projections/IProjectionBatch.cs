@@ -24,6 +24,5 @@ public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch
 {
     TOperations SessionForTenant(string tenantId);
 
-    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId);
-    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>();
+
 }
