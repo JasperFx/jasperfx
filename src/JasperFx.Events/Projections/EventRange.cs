@@ -60,7 +60,8 @@ public class EventRange
         {
             Events = Events,
             BatchBehavior = BatchBehavior,
-            ActiveBatch = ActiveBatch
+            ActiveBatch = ActiveBatch,
+            Upstream = Upstream
         };
     }
     
@@ -173,4 +174,6 @@ public class EventRange
     {
         _updates.Add(new Updated<T>(tenantId, entity));
     }
+
+    internal List<ISubscriptionExecution> Upstream { get; set; } = [];
 }

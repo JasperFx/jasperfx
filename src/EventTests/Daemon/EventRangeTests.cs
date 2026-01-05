@@ -71,6 +71,9 @@ public class EventRangeTests
     public void clone()
     {
         var subscriptionAgent = Substitute.For<ISubscriptionAgent>();
+        var execution = Substitute.For<ISubscriptionExecution>();
+        var execution2 = Substitute.For<ISubscriptionExecution>();
+        
         var range = new EventRange(new ShardName("name"), 0, 100, subscriptionAgent)
         {
             Events = new List<IEvent>
@@ -80,8 +83,11 @@ public class EventRangeTests
                 new Event<AEvent>(new AEvent()),
                 new Event<AEvent>(new AEvent()),
                 new Event<AEvent>(new AEvent())
-            }
+            },
+            Upstream = [execution, execution2]
         };
+
+        
 
         range.BatchBehavior = BatchBehavior.Composite;
         range.ActiveBatch = Substitute.For<IProjectionBatch>();
@@ -96,6 +102,8 @@ public class EventRangeTests
         cloned.BatchBehavior.ShouldBe(range.BatchBehavior);
         cloned.ActiveBatch.ShouldBe(range.ActiveBatch);
         cloned.Events.ShouldBe(range.Events);
+        
+        cloned.Upstream.ShouldBe([execution, execution2]);
     }
 
     [Fact]

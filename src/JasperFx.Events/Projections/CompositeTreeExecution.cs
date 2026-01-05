@@ -34,6 +34,10 @@ public record ProjectionStage(ISubscriptionExecution[] Executions)
                 await cloned.ActiveBatch!.RecordProgress(cloned);
                 
                 await execution.ProcessRangeAsync(cloned);
+                
+                // This allows us to propagate the aggregate cache data to
+                // downstream aggregations
+                range.Upstream.Add(execution);
 
                 return cloned.Updates;
             });
