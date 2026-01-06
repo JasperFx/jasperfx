@@ -41,6 +41,11 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     /// <returns></returns>
     public bool TryFind(int stageNumber, [NotNullWhen(true)] out ProjectionStage<TOperations, TQuerySession>? stage)
     {
+        if (stageNumber <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(stageNumber), "The stage numbers are 1-based");
+        }
+        
         stage = _stages.FirstOrDefault(x => x.Order == stageNumber);
         return stage != null;
     }
