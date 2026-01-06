@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
 
-public class CompositeProjection<TOperations, TQuerySession> : ISubscriptionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
+public class CompositeProjection<TOperations, TQuerySession> : IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
 {
     public CompositeProjection(string name)
     {
@@ -19,7 +19,23 @@ public class CompositeProjection<TOperations, TQuerySession> : ISubscriptionSour
     private readonly List<ProjectionStage<TOperations, TQuerySession>> _stages = new();
 
     public IReadOnlyList<ProjectionStage<TOperations, TQuerySession>> Stages => _stages;
-    
+
+    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)] out IReplayExecutor? executor)
+    {
+        executor = null;
+        return false;
+    }
+
+    public IInlineProjection<TOperations> BuildForInline()
+    {
+        throw new NotSupportedException("Composite Projections must run asynchronously");
+    }
+
+    public IEnumerable<Type> PublishedTypes()
+    {
+        return Stages.SelectMany(stage => stage.Projections.SelectMany(x => x.PublishedTypes()));
+    }
+
     public string Name { get; }
     public uint Version => 0;
     public SubscriptionType Type => SubscriptionType.CompositeProjection;
@@ -77,7 +93,7 @@ public class ProjectionStage<TOperations, TQuerySession>(int Order)
         return description;
     }
 
-    public List<ISubscriptionSource<TOperations, TQuerySession>> Projections { get; } = [];
+    public List<IProjectionSource<TOperations, TQuerySession>> Projections { get; } = [];
 }
 
 public record ExecutionStage(ISubscriptionExecution[] Executions)
