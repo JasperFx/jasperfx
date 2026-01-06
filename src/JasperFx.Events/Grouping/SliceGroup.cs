@@ -175,10 +175,10 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         IStorageOperations session,
         Func<TEvent, TEntityId> identitySource)
     {
-        public async Task Enrich(
+        public async Task EnrichAsync(
             Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
         {
-            var cache = await FetchEntities(parent.Slices.SelectMany(x => x.Events()));
+            var cache = await FetchEntitiesAsync(parent.Slices.SelectMany(x => x.Events()));
 
             foreach (EventSlice<TDoc, TId> eventSlice in parent.Slices)
             {
@@ -194,7 +194,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             }
         }
 
-        public async Task<IAggregateCache<TEntityId, TEntity>> FetchEntities(IEnumerable<IEvent> events)
+        public async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync(IEnumerable<IEvent> events)
         {
             var cache = findCache();
 
