@@ -2,9 +2,13 @@ using JasperFx.Descriptors;
 
 namespace JasperFx.Events.Projections.Composite;
 
-public class ProjectionStage<TOperations, TQuerySession>(int Order)
+public class ProjectionStage<TOperations, TQuerySession>(int order)
     where TOperations : TQuerySession, IStorageOperations
 {
+    public int Order { get; } = order;
+
+    private readonly List<IProjectionSource<TOperations, TQuerySession>> _projections = new();
+
     public OptionsDescription ToDescription(IEventStore store)
     {
         var description = new OptionsDescription(this);
@@ -18,5 +22,12 @@ public class ProjectionStage<TOperations, TQuerySession>(int Order)
         return description;
     }
 
-    public List<IProjectionSource<TOperations, TQuerySession>> Projections { get; } = [];
+    public void Add<T>() where T : IProjectionSource<TOperations, TQuerySession>, new()
+    {
+        _projections.Add(new T());
+    }
+
+    public void Add(IProjectionSource<TOperations, TQuerySession> projection) => _projections.Add(projection);
+
+    public IReadOnlyList<IProjectionSource<TOperations, TQuerySession>> Projections => _projections;
 }

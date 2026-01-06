@@ -343,3 +343,4 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         }
     }
 }
+

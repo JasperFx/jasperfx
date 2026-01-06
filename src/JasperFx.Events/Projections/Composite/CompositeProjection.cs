@@ -6,16 +6,44 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections.Composite;
 
-public class CompositeProjection<TOperations, TQuerySession> : IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
+public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
 {
     public CompositeProjection(string name)
     {
         Name = name;
+        Version = 0;
+        
+        _stages.Add(new ProjectionStage<TOperations, TQuerySession>(1));
+    }
+
+    public override void AssembleAndAssertValidity()
+    {
+        base.AssembleAndAssertValidity();
     }
 
     private readonly List<ProjectionStage<TOperations, TQuerySession>> _stages = new();
 
     public IReadOnlyList<ProjectionStage<TOperations, TQuerySession>> Stages => _stages;
+
+    public ProjectionStage<TOperations, TQuerySession> LastStage => _stages.Last();
+
+    public ProjectionStage<TOperations, TQuerySession> AddStage()
+    {
+        _stages.Add(new ProjectionStage<TOperations, TQuerySession>(_stages.Count + 1));
+        return _stages.Last();
+    }
+
+    /// <summary>
+    /// Try to find an existing stage by its *1-based* order
+    /// </summary>
+    /// <param name="stageNumer"></param>
+    /// <param name="stage"></param>
+    /// <returns></returns>
+    public bool TryFind(int stageNumber, [NotNullWhen(true)] out ProjectionStage<TOperations, TQuerySession>? stage)
+    {
+        stage = _stages.FirstOrDefault(x => x.Order == stageNumber);
+        return stage != null;
+    }
 
     public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)] out IReplayExecutor? executor)
     {
@@ -28,15 +56,12 @@ public class CompositeProjection<TOperations, TQuerySession> : IProjectionSource
         throw new NotSupportedException("Composite Projections must run asynchronously");
     }
 
-    public IEnumerable<Type> PublishedTypes()
+    public override IEnumerable<Type> PublishedTypes()
     {
         return Stages.SelectMany(stage => stage.Projections.SelectMany(x => x.PublishedTypes()));
     }
 
-    public string Name { get; }
-    public uint Version => 0;
     public SubscriptionType Type => SubscriptionType.CompositeProjection;
-    public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
     public ShardName[] ShardNames()
     {
         return [new ShardName(Name, ShardName.All, 0)];
@@ -70,6 +95,4 @@ public class CompositeProjection<TOperations, TQuerySession> : IProjectionSource
     {
         throw new NotImplementedException();
     }
-
-    public AsyncOptions Options { get; } = new();
 }
