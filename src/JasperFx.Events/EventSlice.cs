@@ -1,4 +1,5 @@
 #nullable enable
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -381,5 +382,29 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         _events[index] = copy;
 
         return copy;
+    }
+
+    public void Reference<T>(T entity)
+    {
+        var @event = Event.For(new References<T>(entity));
+        _events.Add(@event);
+    }
+
+    public IEnumerable<T> AllReferenced<T>()
+    {
+        return _events.OfType<IEvent<References<T>>>().Select(x => x.Data.Entity);
+    }
+
+    public bool TryFindReference<T>([NotNullWhen(true)] out T? entity) where T : class
+    {
+        var match = _events.OfType<IEvent<References<T>>>().FirstOrDefault();
+        if (match != null)
+        {
+            entity = match.Data.Entity;
+            return true;
+        }
+
+        entity = null;
+        return false;
     }
 }
