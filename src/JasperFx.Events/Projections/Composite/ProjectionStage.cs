@@ -1,4 +1,7 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
+using JasperFx.Events.Subscriptions;
+using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections.Composite;
 
@@ -22,12 +25,31 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
         return description;
     }
 
-    public void Add<T>() where T : IProjectionSource<TOperations, TQuerySession>, new()
-    {
-        _projections.Add(new T());
-    }
-
     public void Add(IProjectionSource<TOperations, TQuerySession> projection) => _projections.Add(projection);
 
     public IReadOnlyList<IProjectionSource<TOperations, TQuerySession>> Projections => _projections;
+
+    public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory)
+    {
+        var executions = Projections.Select(projection =>
+        {
+            var shardName = new ShardName(projection.Name, ShardName.All, projection.Version);
+            return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
+                .BuildExecution(store, database, loggerFactory, shardName);
+        }).ToArray();
+
+        return new ExecutionStage(executions);
+    }
+
+    public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger) 
+    {
+        var executions = Projections.Select(projection =>
+        {
+            var shardName = new ShardName(projection.Name, ShardName.All, projection.Version);
+            return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
+                .BuildExecution(store, database, logger, shardName);
+        }).ToArray();
+
+        return new ExecutionStage(executions);
+    }
 }

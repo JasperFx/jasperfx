@@ -150,11 +150,14 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         using var activity = range.Agent.Metrics.TrackExecution(range);
 
+        IProjectionBatch batch = null;
+        
         try
         {
             var options = _runner.ErrorHandlingOptions(Mode);
 
-            await using var batch = options.SkipApplyErrors
+            // CANNOT dispose the batch with using declaration here in the case of Composite batches
+            batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
                 : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
 
@@ -165,8 +168,15 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
             if (range.BatchBehavior == BatchBehavior.Individual)
             {
-                // Executing the SQL commands for the ProjectionUpdateBatch
-                await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+                try
+                {
+                    // Executing the SQL commands for the ProjectionUpdateBatch
+                    await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await batch.DisposeAsync();
+                }
             }
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
@@ -181,6 +191,11 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         }
         finally
         {
+            if (range.BatchBehavior == BatchBehavior.Individual && batch is not null)
+            {
+                await batch.DisposeAsync();
+            }
+            
             activity?.Stop();
         }
     }

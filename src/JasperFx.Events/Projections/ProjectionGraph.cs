@@ -6,6 +6,7 @@ using JasperFx.Descriptors;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Descriptors;
+using JasperFx.Events.Projections.Composite;
 using JasperFx.Events.Subscriptions;
 
 namespace JasperFx.Events.Projections;
@@ -69,6 +70,19 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     public bool TryFindAggregate(Type documentType, [NotNullWhen(true)]out IAggregateProjection? projection)
     {
         projection = All.OfType<IAggregateProjection>().FirstOrDefault(x => x.AggregateType == documentType);
+
+        if (projection == null)
+        {
+            var composite = All.OfType<CompositeProjection<TOperations, TQuerySession>>()
+                .FirstOrDefault(x => x.PublishedTypes().Contains(documentType));
+
+            if (composite is not null)
+            {
+                projection = composite.AllChildren().OfType<IAggregateProjection>()
+                    .FirstOrDefault(x => x.AggregateType == documentType);
+            }
+        }
+        
         return projection != null;
     }
 
@@ -239,7 +253,16 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     
     private IAggregatorSource<TQuerySession> tryFindProjectionSourceForAggregateType<T>() where T : class
     {
-        var candidate = All.OfType<IAggregatorSource<TQuerySession>>().FirstOrDefault(x => x.AggregateType == typeof(T));
+        var optionsFromComposites = All
+            .OfType<CompositeProjection<TOperations, TQuerySession>>()
+            .SelectMany(x => x.AllChildren())
+            .OfType<IAggregatorSource<TQuerySession>>();
+        
+        var candidate = All
+            .OfType<IAggregatorSource<TQuerySession>>()
+            .Concat(optionsFromComposites) 
+            .FirstOrDefault(x => x.AggregateType == typeof(T));
+        
         if (candidate != null)
         {
             return candidate;

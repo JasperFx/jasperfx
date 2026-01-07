@@ -6,14 +6,14 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections.Composite;
 
-public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
+public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, IJasperFxProjection<TOperations>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
 {
     public CompositeProjection(string name)
     {
         Name = name;
         Version = 0;
         
-        _stages.Add(new ProjectionStage<TOperations, TQuerySession>(1));
+        Stages.Add(new ProjectionStage<TOperations, TQuerySession>(1));
     }
 
     public override void AssembleAndAssertValidity()
@@ -21,42 +21,33 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         base.AssembleAndAssertValidity();
     }
 
-    private readonly List<ProjectionStage<TOperations, TQuerySession>> _stages = new();
+    protected internal List<ProjectionStage<TOperations, TQuerySession>> Stages { get; } = new();
 
-    public IReadOnlyList<ProjectionStage<TOperations, TQuerySession>> Stages => _stages;
-
-    public ProjectionStage<TOperations, TQuerySession> LastStage => _stages.Last();
-
-    public ProjectionStage<TOperations, TQuerySession> AddStage()
-    {
-        _stages.Add(new ProjectionStage<TOperations, TQuerySession>(_stages.Count + 1));
-        return _stages.Last();
-    }
-
-    /// <summary>
-    /// Try to find an existing stage by its *1-based* order
-    /// </summary>
-    /// <param name="stageNumer"></param>
-    /// <param name="stage"></param>
-    /// <returns></returns>
-    public bool TryFind(int stageNumber, [NotNullWhen(true)] out ProjectionStage<TOperations, TQuerySession>? stage)
+    protected internal ProjectionStage<TOperations, TQuerySession> StageFor(int stageNumber)
     {
         if (stageNumber <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(stageNumber), "The stage numbers are 1-based");
+            throw new ArgumentOutOfRangeException(nameof(stageNumber),
+                "The stages of a CompositeProjection are 1-based");
         }
         
-        stage = _stages.FirstOrDefault(x => x.Order == stageNumber);
-        return stage != null;
+        var stage = Stages.FirstOrDefault(x => x.Order == stageNumber);
+        if (stage == null)
+        {
+            stage = new ProjectionStage<TOperations, TQuerySession>(stageNumber);
+            Stages.Add(stage);
+        }
+
+        return stage;
     }
 
-    public bool TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)] out IReplayExecutor? executor)
+    bool IProjectionSource<TOperations, TQuerySession>.TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)] out IReplayExecutor? executor)
     {
         executor = null;
         return false;
     }
 
-    public IInlineProjection<TOperations> BuildForInline()
+    IInlineProjection<TOperations> IProjectionSource<TOperations, TQuerySession>.BuildForInline()
     {
         throw new NotSupportedException("Composite Projections must run asynchronously");
     }
@@ -66,18 +57,20 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         return Stages.SelectMany(stage => stage.Projections.SelectMany(x => x.PublishedTypes()));
     }
 
-    public SubscriptionType Type => SubscriptionType.CompositeProjection;
-    public ShardName[] ShardNames()
+    SubscriptionType ISubscriptionSource.Type => SubscriptionType.CompositeProjection;
+
+    ShardName[] ISubscriptionSource.ShardNames()
     {
         return [new ShardName(Name, ShardName.All, 0)];
     }
 
-    public Type ImplementationType => GetType();
-    public SubscriptionDescriptor Describe(IEventStore store)
+    Type ISubscriptionSource.ImplementationType => GetType();
+
+    SubscriptionDescriptor ISubscriptionSource.Describe(IEventStore store)
     {
         var descriptor = new SubscriptionDescriptor(this, store);
         var stages = descriptor.AddChildSet(nameof(Stages));
-        foreach (var stage in _stages)
+        foreach (var stage in Stages)
         {
             stages.Rows.Add(stage.ToDescription(store));
         }
@@ -85,19 +78,37 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         return descriptor;
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
+    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
-        throw new NotImplementedException();
+        var executionStages = Stages.Select(x => x.BuildExecution(store, database, loggerFactory)).ToArray();
+        return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
+            loggerFactory.CreateLogger(GetType()), executionStages);
     }
 
-    public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName shardName)
+    ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName shardName)
     {
-        throw new NotImplementedException();
+        var executionStages = Stages.Select(x => x.BuildExecution(store, database, logger)).ToArray();
+        return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
+            logger, executionStages);
     }
 
-    public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
+    IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {
-        throw new NotImplementedException();
+        var shardName = new ShardName(Name, ShardName.All, Version);
+        return
+        [
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, shardName, this, this)
+        ];
+    }
+
+    Task IJasperFxProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events, CancellationToken cancellation)
+    {
+        throw new NotSupportedException();
+    }
+
+    internal IEnumerable<IProjectionSource<TOperations, TQuerySession>> AllChildren()
+    {
+        return Stages.SelectMany(x => x.Projections);
     }
 }

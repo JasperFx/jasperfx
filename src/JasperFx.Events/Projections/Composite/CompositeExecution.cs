@@ -18,7 +18,6 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
         try
         {
             batch = await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
-            await batch.RecordProgress(range);
             
             range.ActiveBatch = batch;
 
