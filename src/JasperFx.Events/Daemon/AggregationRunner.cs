@@ -122,6 +122,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         var needToBeFetched = new List<EventSlice<TDoc, TId>>();
         var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
 
+        group.Operations = operations;
         await Projection.EnrichEventsAsync(group, operations, cancellation);
 
         foreach (var slice in group.Slices)

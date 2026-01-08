@@ -152,10 +152,16 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
     // Used by composite projections to relay aggregate cache dependencies
     internal List<ISubscriptionExecution> Upstream { get; set; } = [];
+    internal IStorageOperations? Operations { get; set; }
 
-    public EntityStep<TEntity> EnrichWith<TEntity>(IStorageOperations session)
+    public EntityStep<TEntity> EnrichWith<TEntity>()
     {
-        return new EntityStep<TEntity>(this, session);
+        if (Operations == null)
+        {
+            throw new InvalidOperationException("This method can only be used within projection execution");
+        }
+        
+        return new EntityStep<TEntity>(this, Operations);
     }
 
     public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
@@ -178,7 +184,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         public async Task EnrichAsync(
             Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
         {
-            var cache = await FetchEntitiesAsync(parent.Slices.SelectMany(x => x.Events()));
+            var cache = await FetchEntitiesAsync();
 
             foreach (EventSlice<TDoc, TId> eventSlice in parent.Slices)
             {
@@ -194,12 +200,19 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             }
         }
 
-        public async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync(IEnumerable<IEvent> events)
+        internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
         {
             var cache = findCache();
-
+            
             var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
+            var events = parent.Slices.SelectMany(x => x.Events());
+            
             var ids = events.OfType<IEvent<TEvent>>().Select(x => identitySource(x.Data)).ToArray();
+            if (!ids.Any())
+            {
+                return new NulloAggregateCache<TEntityId, TEntity>();
+            }
+            
             if (cache == null)
             {
                 var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
