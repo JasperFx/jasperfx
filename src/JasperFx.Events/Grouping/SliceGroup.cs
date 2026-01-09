@@ -220,6 +220,8 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             }
 
             var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+            if (!toLoad.Any()) return cache;
+            
             var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
 
             foreach (var pair in loaded)
