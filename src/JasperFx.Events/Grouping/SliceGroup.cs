@@ -236,7 +236,10 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         {
             foreach (var execution in parent.Upstream)
             {
-                if (execution.TryGetAggregateCache<TEntityId, TEntity>(out var cache)) return cache.CacheFor(parent.TenantId);
+                if (execution.TryGetAggregateCache<TEntityId, TEntity>(out var cache))
+                {
+                    return cache.CacheFor(parent.TenantId);
+                }
             }
 
             return null;
