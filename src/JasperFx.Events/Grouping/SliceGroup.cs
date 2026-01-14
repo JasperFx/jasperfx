@@ -270,4 +270,57 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         }
 
     }
+
+    /// <summary>
+    /// If you have a parallel projected view (or document) that shares
+    /// the same identity, this will look up and reference the matching T
+    /// for each active event slice
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public async Task ReferencePeerView<T>()
+    {
+        if (Operations == null)
+        {
+            throw new InvalidOperationException("This method can only be used within projection execution");
+        }
+
+        var cache = await loadPeerEntities<T>(Operations);
+        foreach (var slice in Slices)
+        {
+            if (cache.TryFind(slice.Id, out var item))
+            {
+                slice.Reference(item);
+            }
+        }
+    }
+
+    private async Task<IAggregateCache<TId, T>> loadPeerEntities<T>(IStorageOperations session)
+    {
+        var cache = findCache<TId, T>();
+        var storage = await session.FetchProjectionStorageAsync<T, TId>(TenantId, CancellationToken.None);
+
+        var ids = Slices.Select(x => x.Id).ToArray();
+        if (!ids.Any())
+        {
+            return new NulloAggregateCache<TId, T>();
+        }
+            
+        if (cache == null)
+        {
+            var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+            return new DictionaryAggregateCache<TId, T>(dict);
+        }
+
+        var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+        if (!toLoad.Any()) return cache;
+            
+        var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+        foreach (var pair in loaded)
+        {
+            cache.Store(pair.Key, pair.Value);
+        }
+
+        return cache;
+    }
 }

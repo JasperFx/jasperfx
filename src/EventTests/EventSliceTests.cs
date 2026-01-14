@@ -99,7 +99,7 @@ public class EventSliceTests
         var user = new User("admin", "Comic Book Guy");
         slice.Reference(user);
         
-        slice.TryFindReference<User>(out var refUser).ShouldBeTrue();
+        slice.Events().TryFindReference<User>(out var refUser).ShouldBeTrue();
         refUser.ShouldBe(user);
 
         slice.Events().Last().ShouldBeOfType<Event<References<User>>>()
@@ -116,7 +116,7 @@ public class EventSliceTests
         var user = new User("admin", "Comic Book Guy");
         slice.AddEvent(Event.For(new Updated<User>(StorageConstants.DefaultTenantId, user)));
         
-        slice.TryFindReference<User>(out var refUser).ShouldBeTrue();
+        slice.Events().TryFindReference<User>(out var refUser).ShouldBeTrue();
         refUser.ShouldBe(user);
     }
     
@@ -128,7 +128,7 @@ public class EventSliceTests
         var slice = new EventSlice<SimpleAggregate, StringId>(id,
             "foo");
         
-        slice.TryFindReference<User>(out var user).ShouldBeFalse();
+        slice.Events().TryFindReference<User>(out var user).ShouldBeFalse();
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class EventSliceTests
         var slice = new EventSlice<SimpleAggregate, StringId>(id,
             "foo");
         
-        slice.AllReferenced<User>().Any().ShouldBeFalse();
+        slice.Events().AllReferenced<User>().Any().ShouldBeFalse();
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public class EventSliceTests
         slice.Reference(user1);
         slice.Reference(user2);
 
-        var referenced = slice.AllReferenced<User>().ToArray();
+        var referenced = slice.Events().AllReferenced<User>().ToArray();
         referenced[0].ShouldBe(user1);
         referenced[1].ShouldBe(user2);
     }
