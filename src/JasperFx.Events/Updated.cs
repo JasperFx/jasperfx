@@ -6,7 +6,7 @@ namespace JasperFx.Events;
 /// </summary>
 /// <param name="Document"></param>
 /// <typeparam name="T"></typeparam>
-public record Updated<T>(string TenantId, T Entity) : IUpdatedEntity
+public record Updated<T>(string TenantId, T Entity) : References<T>(Entity), IUpdatedEntity
 {
     public IEvent ToEvent()
     {

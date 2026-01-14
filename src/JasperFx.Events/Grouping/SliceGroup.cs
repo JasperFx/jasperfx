@@ -170,6 +170,19 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         
         return new EntityStep<TEntity>(this, Operations);
     }
+    
+    private IAggregateCache<TEntityId, TEntity>? findCache<TEntityId, TEntity>()
+    {
+        foreach (var execution in Upstream)
+        {
+            if (execution.TryGetAggregateCache<TEntityId, TEntity>(out var cache))
+            {
+                return cache.CacheFor(TenantId);
+            }
+        }
+
+        return null;
+    }
 
     public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
     {
@@ -226,7 +239,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
         internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
         {
-            var cache = findCache();
+            var cache = parent.findCache<TEntityId, TEntity>();
             
             var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
             var events = parent.Slices.SelectMany(x => x.Events());
@@ -256,17 +269,5 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             return cache;
         }
 
-        private IAggregateCache<TEntityId, TEntity>? findCache()
-        {
-            foreach (var execution in parent.Upstream)
-            {
-                if (execution.TryGetAggregateCache<TEntityId, TEntity>(out var cache))
-                {
-                    return cache.CacheFor(parent.TenantId);
-                }
-            }
-
-            return null;
-        }
     }
 }

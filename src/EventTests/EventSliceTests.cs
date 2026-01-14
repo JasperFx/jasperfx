@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.Core.Reflection;
 using JasperFx.Events;
 using Shouldly;
@@ -104,6 +105,21 @@ public class EventSliceTests
         slice.Events().Last().ShouldBeOfType<Event<References<User>>>()
             .Data.Entity.ShouldBe(user);
     }
+    
+    [Fact]
+    public void update_a_document_and_retrieve_it_back_out()
+    {
+        var id = new StringId(Guid.NewGuid().ToString());
+        var slice = new EventSlice<SimpleAggregate, StringId>(id,
+            "foo");
+
+        var user = new User("admin", "Comic Book Guy");
+        slice.AddEvent(Event.For(new Updated<User>(StorageConstants.DefaultTenantId, user)));
+        
+        slice.TryFindReference<User>(out var refUser).ShouldBeTrue();
+        refUser.ShouldBe(user);
+    }
+    
 
     [Fact]
     public void miss_on_try_find_reference()
