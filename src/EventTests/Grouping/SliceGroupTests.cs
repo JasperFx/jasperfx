@@ -22,6 +22,24 @@ public class SliceGroupTests
     }
 
     [Fact]
+    public void do_not_add_event_if_the_id_is_default()
+    {
+        var events = new TestEventSet();
+        events.Added(1, "blue");
+        events.Added(2, "blue");
+        events.Added(3, "blue");
+        var group = new SliceGroup<SimpleAggregate, Guid>();
+
+        group.AddEvents(Guid.Empty, events.All);
+        
+        group.Slices.Any().ShouldBeFalse();
+        
+        group.AddEvent(Guid.Empty, events.All.First());
+        
+        group.Slices.Any().ShouldBeFalse();
+    }
+
+    [Fact]
     public void sort_by_event_type()
     {
         var events = new TestEventSet();

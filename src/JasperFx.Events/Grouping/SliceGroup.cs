@@ -122,7 +122,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     /// <param name="event"></param>
     public void AddEvent(TId id, IEvent @event)
     {
-        if (id != null)
+        if (id != null && !id.Equals(default(TId)))
         {
             Slices[id].AddEvent(@event);
         }
@@ -136,7 +136,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     /// <param name="events"></param>
     public void AddEvents(TId id, IEnumerable<IEvent> events)
     {
-        if (id != null)
+        if (id != null && !id.Equals(default(TId)))
         {
             Slices[id].AddEvents(events);
         }
