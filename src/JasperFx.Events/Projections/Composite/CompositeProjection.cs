@@ -16,10 +16,8 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         Stages.Add(new ProjectionStage<TOperations, TQuerySession>(1));
     }
 
-    public override void AssembleAndAssertValidity()
-    {
-        base.AssembleAndAssertValidity();
-    }
+    public IReadOnlyList<IProjectionSource<TOperations, TQuerySession>> AllProjections() =>
+        Stages.SelectMany(x => x.Projections).ToList();
 
     protected internal List<ProjectionStage<TOperations, TQuerySession>> Stages { get; } = new();
 
