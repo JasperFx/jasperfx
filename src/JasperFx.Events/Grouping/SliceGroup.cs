@@ -154,6 +154,13 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     internal List<ISubscriptionExecution> Upstream { get; set; } = [];
     internal IStorageOperations? Operations { get; set; }
 
+    /// <summary>
+    /// Apply "enrichment" to the event groups to add contextual inforation with data
+    /// lookups from other data in the system or upstream projections
+    /// </summary>
+    /// <typeparam name="TEntity"></typeparam>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
     public EntityStep<TEntity> EnrichWith<TEntity>()
     {
         if (Operations == null)
@@ -166,11 +173,24 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
     public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
     {
+        /// <summary>
+        /// On which event type can you find an identity of type TId for the entity TDoc?
+        /// This can be a marker interface. Think of this as equivalent to the LINQ OfType<T>() operator
+        /// </summary>
+        /// <typeparam name="TEvent"></typeparam>
+        /// <returns></returns>
         public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session);
     }
 
     public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
     {
+        /// <summary>
+        /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
+        /// of type TEntity
+        /// </summary>
+        /// <param name="identitySource"></param>
+        /// <typeparam name="TEntityId"></typeparam>
+        /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
             Func<TEvent, TEntityId> identitySource) =>
             new(parent, session, identitySource);
@@ -181,6 +201,10 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         IStorageOperations session,
         Func<TEvent, TEntityId> identitySource)
     {
+        /// <summary>
+        /// Apply the enrichment logic
+        /// </summary>
+        /// <param name="application"></param>
         public async Task EnrichAsync(
             Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
         {

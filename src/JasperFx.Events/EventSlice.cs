@@ -384,17 +384,35 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         return copy;
     }
 
+    /// <summary>
+    /// Add a reference to the entity of type T to this EventSlice
+    /// </summary>
+    /// <param name="entity"></param>
+    /// <typeparam name="T"></typeparam>
     public void Reference<T>(T entity)
     {
         var @event = Event.For(new References<T>(entity));
         _events.Add(@event);
     }
 
+    /// <summary>
+    /// Retrieve all referenced entities of type T in this event slice by looking for
+    /// References<T> events 
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
     public IEnumerable<T> AllReferenced<T>()
     {
         return _events.OfType<IEvent<References<T>>>().Select(x => x.Data.Entity);
     }
 
+    /// <summary>
+    /// Tries to find a referenced entity of type T in this EventSlice. Finds the first in the events order
+    /// if more than one is found
+    /// </summary>
+    /// <param name="entity"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
     public bool TryFindReference<T>([NotNullWhen(true)] out T? entity) where T : class
     {
         var match = _events.OfType<IEvent<References<T>>>().FirstOrDefault();
