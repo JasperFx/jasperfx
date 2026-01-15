@@ -221,6 +221,13 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
             return family;
         }
         
+        if (serviceType == typeof(IServiceScopeFactory))
+        {
+            family = new ServiceScopeFactoryFamily();
+            _families = _families.AddOrUpdate(serviceType, family);
+            return family;
+        }
+        
         if (IsEnumerable(serviceType))
         {
             family = new ArrayFamily(serviceType);

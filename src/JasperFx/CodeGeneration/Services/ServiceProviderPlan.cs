@@ -17,6 +17,20 @@ internal class ServiceProviderFamily : ServiceFamily
     }
 }
 
+internal class ServiceScopeFactoryFamily : ServiceFamily
+{
+    public ServiceScopeFactoryFamily() : base(typeof(IServiceScopeFactory), Array.Empty<ServiceDescriptor>())
+    {
+        
+    }
+
+    public override ServicePlan? BuildDefaultPlan(ServiceContainer graph, List<ServiceDescriptor> trail)
+    {
+        return new ServiceProviderPlan(new ServiceDescriptor(typeof(IServiceScopeFactory), typeof(ServiceDescriptor),
+            ServiceLifetime.Singleton));
+    }
+}
+
 internal class ServiceProviderPlan : ServicePlan
 {
     public ServiceProviderPlan(ServiceDescriptor descriptor) : base(descriptor)
