@@ -599,6 +599,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 Logger.LogError(e, "Error trying to stop and drain agent {Name} after rebuilding", agent.Name.Identity);
             }
         }
+
+        if (source.Lifecycle == ProjectionLifecycle.Inline)
+        {
+            // Tear down the current state
+            await _store.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
+        }
     }
 
     private async Task stopRunningAgents(string subscriptionName)
