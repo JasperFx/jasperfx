@@ -237,6 +237,15 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             }
         }
 
+        /// <summary>
+        /// Adds a References<TEntity> to each slice with a matching TEvent
+        /// </summary>
+        /// <returns></returns>
+        public Task AddReferences()
+        {
+            return EnrichAsync((slice, _, entity) => slice.Reference(entity));
+        }
+
         internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
         {
             var cache = parent.findCache<TEntityId, TEntity>();
