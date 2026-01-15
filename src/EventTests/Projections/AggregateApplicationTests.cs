@@ -155,6 +155,10 @@ public class LetterCountsProjection
     public static LetterCounts Create(IEvent<DEvent> e) => new LetterCounts { DCount = 1 };
 }
 
+public record Assigned(string UserName);
+
+public record AssignedToUser(User User);
+
 public class LetterCounts
 {
     public LetterCounts()
@@ -166,6 +170,10 @@ public class LetterCounts
         ACount = letters.A;
         BCount = letters.B;
     }
+    
+    public User? User { get; set; }
+
+    public void Apply(AssignedToUser e) => User = e.User;
 
     public void Apply(AEvent e) => ACount++;
 

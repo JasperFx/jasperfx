@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Blocks;
 using JasperFx.Core;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
@@ -11,11 +13,10 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     private readonly IBlock<EventRange> _grouping;
     private readonly ILogger _logger;
     private readonly IGroupedProjectionRunner _runner;
-    private readonly ShardName _shardName;
 
     public GroupedProjectionExecution(ShardName shardName, IGroupedProjectionRunner runner, ILogger logger)
     {
-        _shardName = shardName;
+        ShardName = shardName;
         _logger = logger;
 
         var block = new Block<EventRange>(processRangeAsync);
@@ -23,6 +24,8 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         _runner = runner;
     }
+
+    public ShardName ShardName { get; }
 
     public object[]? Disposables { get; init; }
 
@@ -85,6 +88,18 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         await processRangeAsync(range, cancellation);
     }
+    
+    public async Task ProcessRangeAsync(EventRange range)
+    {
+        await groupEventRangeAsync(range, CancellationToken.None);
+        await processRangeAsync(range, CancellationToken.None);
+    }
+
+    public bool TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching)
+    {
+        caching = _runner as IAggregateCaching<TId, TDoc>;
+        return caching != null;
+    }
 
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
@@ -105,7 +120,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
                 {
                     _logger.LogDebug(
                         "Subscription {Name} successfully grouped {Number} events with a floor of {Floor} and ceiling of {Ceiling}",
-                        _shardName.Identity, range.Events.Count, range.SequenceFloor, range.SequenceCeiling);
+                        ShardName.Identity, range.Events.Count, range.SequenceFloor, range.SequenceCeiling);
                 }
             }
 
@@ -115,7 +130,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         {
             activity?.AddException(e);
             _logger.LogError(e, "Failure trying to group events for {Name} from {Floor} to {Ceiling}",
-                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+                ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
 
             return null!;
@@ -135,11 +150,14 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         using var activity = range.Agent.Metrics.TrackExecution(range);
 
+        IProjectionBatch batch = null;
+        
         try
         {
             var options = _runner.ErrorHandlingOptions(Mode);
 
-            await using var batch = options.SkipApplyErrors
+            // CANNOT dispose the batch with using declaration here in the case of Composite batches
+            batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
                 : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
 
@@ -148,8 +166,18 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             // should be stopped in this case
             if (batch == null) return;
 
-            // Executing the SQL commands for the ProjectionUpdateBatch
-            await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+            if (range.BatchBehavior == BatchBehavior.Individual)
+            {
+                try
+                {
+                    // Executing the SQL commands for the ProjectionUpdateBatch
+                    await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await batch.DisposeAsync();
+                }
+            }
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
         }
@@ -158,11 +186,16 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             activity?.AddException(e);
             _logger.LogError(e,
                 "Error trying to build and apply changes to event subscription {Name} from {Floor} to {Ceiling}",
-                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+                ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
         finally
         {
+            if (range.BatchBehavior == BatchBehavior.Individual && batch is not null)
+            {
+                await batch.DisposeAsync();
+            }
+            
             activity?.Stop();
         }
     }
@@ -180,7 +213,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             if (Mode == ShardExecutionMode.Continuous)
             {
                 _logger.LogInformation("Shard '{_shardName.Identity}': Executed updates for {Range}",
-                    _shardName.Identity, range);
+                    ShardName.Identity, range);
             }
         }
         catch (Exception e)
@@ -189,7 +222,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             {
                 _logger.LogError(e,
                     "Failure in shard '{_shardName.Identity}' trying to execute an update batch for {Range}",
-                    _shardName.Identity,
+                    ShardName.Identity,
                     range);
                 throw;
             }
@@ -243,7 +276,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         {
             _logger.LogError(e,
                 "Subscription {Name} failed while creating a SQL batch for updates for events from {Floor} to {Ceiling}",
-                _shardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+                ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
 
             if (batch != null)
             {

@@ -16,12 +16,6 @@ public class FakeOperations : FakeSession, IStorageOperations
         throw new NotImplementedException();
     }
 
-    public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(
-        CancellationToken cancellationToken)
-    {
-        throw new NotImplementedException();
-    }
-
     public bool EnableSideEffectsOnInlineProjections { get; } = false;
     public ValueTask<IMessageSink> GetOrStartMessageSink()
     {

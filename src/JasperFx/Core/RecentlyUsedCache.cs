@@ -9,6 +9,43 @@ public interface IAggregateCache<TKey, TItem> where TKey: notnull where TItem: n
     void Store(TKey key, TItem item);
     void CompactIfNecessary();
     void TryRemove(TKey key);
+
+    bool Contains(TKey key);
+}
+
+public class DictionaryAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem>
+{
+    private readonly IReadOnlyDictionary<TKey, TItem> _inner;
+
+    public DictionaryAggregateCache(IReadOnlyDictionary<TKey, TItem> inner)
+    {
+        _inner = inner;
+    }
+
+    public bool TryFind(TKey key, [NotNullWhen(true)] out TItem? item)
+    {
+        return _inner.TryGetValue(key, out item);
+    }
+
+    public void Store(TKey key, TItem item)
+    {
+        // nothing
+    }
+
+    public void CompactIfNecessary()
+    {
+        // nothing
+    }
+
+    public void TryRemove(TKey key)
+    {
+        // nothing
+    }
+
+    public bool Contains(TKey key)
+    {
+        return _inner.ContainsKey(key);
+    }
 }
 
 public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
@@ -33,6 +70,8 @@ public class NulloAggregateCache<TKey, TItem> : IAggregateCache<TKey, TItem> whe
     {
         // nothing
     }
+
+    public bool Contains(TKey key) => false;
 }
 
 public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where TKey : notnull where TItem : notnull
@@ -43,6 +82,8 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
     public int Limit = 100;
 
     public int Count => _items.Count();
+
+    public bool Contains(TKey key) => _items.Contains(key);
 
     public bool TryFind(TKey key, [NotNullWhen(true)]out TItem? item)
     {

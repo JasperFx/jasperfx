@@ -5,7 +5,7 @@ namespace JasperFx.Events.Aggregation;
 /// </summary>
 /// <typeparam name="T"></typeparam>
 /// <typeparam name="TId"></typeparam>
-public interface IIdentitySetter<in T, in TId>
+public interface IIdentitySetter<in T, TId>
 {
     /// <summary>
     ///     Assign the given identity to the document
@@ -13,4 +13,6 @@ public interface IIdentitySetter<in T, in TId>
     /// <param name="document"></param>
     /// <param name="identity"></param>
     void SetIdentity(T document, TId identity);
+
+    TId Identity(T document);
 }

@@ -150,4 +150,9 @@ public class NulloIdentitySetter<TDoc1, TId1> : IIdentitySetter<TDoc1, TId1>
     }
 
     public Type IdType => typeof(TId1);
+
+    public TId1 Identity(TDoc1 document)
+    {
+        throw new NotSupportedException();
+    }
 }

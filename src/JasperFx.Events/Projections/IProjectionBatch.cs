@@ -12,12 +12,15 @@ public interface IProjectionBatch : IAsyncDisposable
     
     // This is for publishing side effects from event slices in aggregation projections
     Task PublishMessageAsync(object message, string tenantId);
+
+    /// <summary>
+    /// Only necessary within composite projection execution
+    /// </summary>
+    /// <param name="range"></param>
+    ValueTask RecordProgress(EventRange range);
 }
 
 public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch where TOperations : TQuerySession, IStorageOperations
 {
     TOperations SessionForTenant(string tenantId);
-
-    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>(string tenantId);
-    IProjectionStorage<TDoc, TId> ProjectionStorageFor<TDoc, TId>();
 }

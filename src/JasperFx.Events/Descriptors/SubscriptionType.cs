@@ -6,5 +6,6 @@ public enum SubscriptionType
     MultiStreamProjection,
     Subscription,
     FlatTableProjection,
-    EventProjection
+    EventProjection,
+    CompositeProjection
 }

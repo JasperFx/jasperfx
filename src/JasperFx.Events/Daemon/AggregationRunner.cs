@@ -2,13 +2,14 @@ using System.Runtime.ExceptionServices;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner
+public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>
     where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
     private readonly object _cacheLock = new();
@@ -45,7 +46,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     {
         Projection.StartBatch();
 
-        var batch = await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
+        var batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
         {
@@ -69,13 +70,24 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         builder.OnError = (_, e) => exceptions.Add(e);
 
         var caches = new List<IAggregateCache<TId, TDoc>>();
-        var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>();
+        var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>().ToArray();
         foreach (var group in groups)
         {
             await processBatchAsync(cancellation, batch, group, caches, builder);
         }
 
         await builder.WaitForCompletionAsync().ConfigureAwait(false);
+
+        foreach (var group in groups)
+        {
+            foreach (var slice in group.Slices)
+            {
+                if (slice.Snapshot != null)
+                {
+                    range.MarkUpdated(group.TenantId, slice.Snapshot);
+                }
+            }
+        }
 
         if (exceptions.Count == 1)
         {
@@ -110,6 +122,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         var needToBeFetched = new List<EventSlice<TDoc, TId>>();
         var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
 
+        group.Operations = operations;
         await Projection.EnrichEventsAsync(group, operations, cancellation);
 
         foreach (var slice in group.Slices)

@@ -1,6 +1,71 @@
 using JasperFx;
+using JasperFx.Events;
 
 namespace EventTests;
+
+/// <summary>
+/// Basically an ObjectMother for the A/B/C/D/Event types
+/// </summary>
+public static class LetterEvents
+{
+    public static IEnumerable<IEvent> ToLetterEventsWithWrapper(this string text)
+    {
+        foreach (var character in text.ToLowerInvariant())
+        {
+            switch (character)
+            {
+                case 'a':
+                    yield return Event.For(new AEvent());
+                    break;
+
+                case 'b':
+                    yield return Event.For(new BEvent());
+                    break;
+
+                case 'c':
+                    yield return Event.For(new CEvent());
+                    break;
+
+                case 'd':
+                    yield return Event.For(new DEvent());
+                    break;
+
+                case 'e':
+                    yield return Event.For(new EEvent());
+                    break;
+            }
+        }
+    }
+    
+    public static IEnumerable<object> ToLetterEvents(this string text)
+    {
+        foreach (var character in text.ToLowerInvariant())
+        {
+            switch (character)
+            {
+                case 'a':
+                    yield return new AEvent();
+                    break;
+
+                case 'b':
+                    yield return new BEvent();
+                    break;
+
+                case 'c':
+                    yield return new CEvent();
+                    break;
+
+                case 'd':
+                    yield return new DEvent();
+                    break;
+
+                case 'e':
+                    yield return new EEvent();
+                    break;
+            }
+        }
+    }
+}
 
 public class MyAggregate
 {

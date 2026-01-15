@@ -1,4 +1,5 @@
 #nullable enable
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -382,4 +383,16 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
         return copy;
     }
+
+    /// <summary>
+    /// Add a reference to the entity of type T to this EventSlice
+    /// </summary>
+    /// <param name="entity"></param>
+    /// <typeparam name="T"></typeparam>
+    public void Reference<T>(T entity)
+    {
+        var @event = Event.For(new References<T>(entity));
+        _events.Add(@event);
+    }
 }
+

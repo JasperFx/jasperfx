@@ -1,5 +1,6 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Grouping;
 
@@ -21,11 +22,9 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         Slices = new LightweightCache<TId, EventSlice<TDoc, TId>>(id => new EventSlice<TDoc, TId>(id, tenantId));
     }
 
-    public SliceGroup(string tenantId, IEnumerable<EventSlice<TDoc, TId>> slices) : this(tenantId)
-    {
-        foreach (var slice in slices) Slices[slice.Id] = slice;
-    }
-
+    /// <summary>
+    /// Really only for testing
+    /// </summary>
     public SliceGroup() : this(StorageConstants.DefaultTenantId)
     {
     }
@@ -123,7 +122,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     /// <param name="event"></param>
     public void AddEvent(TId id, IEvent @event)
     {
-        if (id != null)
+        if (id != null && !id.Equals(default(TId)))
         {
             Slices[id].AddEvent(@event);
         }
@@ -137,7 +136,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     /// <param name="events"></param>
     public void AddEvents(TId id, IEnumerable<IEvent> events)
     {
-        if (id != null)
+        if (id != null && !id.Equals(default(TId)))
         {
             Slices[id].AddEvents(events);
         }
@@ -149,5 +148,188 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         {
             slice.ApplyFanOutRules(fanoutRules);
         }
+    }
+
+    // Used by composite projections to relay aggregate cache dependencies
+    internal List<ISubscriptionExecution> Upstream { get; set; } = [];
+    internal IStorageOperations? Operations { get; set; }
+
+    /// <summary>
+    /// Apply "enrichment" to the event groups to add contextual inforation with data
+    /// lookups from other data in the system or upstream projections
+    /// </summary>
+    /// <typeparam name="TEntity"></typeparam>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    public EntityStep<TEntity> EnrichWith<TEntity>()
+    {
+        if (Operations == null)
+        {
+            throw new InvalidOperationException("This method can only be used within projection execution");
+        }
+        
+        return new EntityStep<TEntity>(this, Operations);
+    }
+    
+    private IAggregateCache<TEntityId, TEntity>? findCache<TEntityId, TEntity>()
+    {
+        foreach (var execution in Upstream)
+        {
+            if (execution.TryGetAggregateCache<TEntityId, TEntity>(out var cache))
+            {
+                return cache.CacheFor(TenantId);
+            }
+        }
+
+        return null;
+    }
+
+    public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    {
+        /// <summary>
+        /// On which event type can you find an identity of type TId for the entity TDoc?
+        /// This can be a marker interface. Think of this as equivalent to the LINQ OfType<T>() operator
+        /// </summary>
+        /// <typeparam name="TEvent"></typeparam>
+        /// <returns></returns>
+        public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session);
+    }
+
+    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    {
+        /// <summary>
+        /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
+        /// of type TEntity
+        /// </summary>
+        /// <param name="identitySource"></param>
+        /// <typeparam name="TEntityId"></typeparam>
+        /// <returns></returns>
+        public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
+            Func<TEvent, TEntityId> identitySource) =>
+            new(parent, session, identitySource);
+    }
+
+    public class IdentityStep<TEntity, TEvent, TEntityId>(
+        SliceGroup<TDoc, TId> parent,
+        IStorageOperations session,
+        Func<TEvent, TEntityId> identitySource)
+    {
+        /// <summary>
+        /// Apply the enrichment logic
+        /// </summary>
+        /// <param name="application"></param>
+        public async Task EnrichAsync(
+            Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
+        {
+            var cache = await FetchEntitiesAsync();
+
+            foreach (EventSlice<TDoc, TId> eventSlice in parent.Slices)
+            {
+                var events = eventSlice.Events().OfType<IEvent<TEvent>>().ToArray();
+                foreach (var @event in events)
+                {
+                    var id = identitySource(@event.Data);
+                    if (cache.TryFind(id, out var entity))
+                    {
+                        application(eventSlice, @event, entity);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Adds a References<TEntity> to each slice with a matching TEvent
+        /// </summary>
+        /// <returns></returns>
+        public Task AddReferences()
+        {
+            return EnrichAsync((slice, _, entity) => slice.Reference(entity));
+        }
+
+        internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
+        {
+            var cache = parent.findCache<TEntityId, TEntity>();
+            
+            var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
+            var events = parent.Slices.SelectMany(x => x.Events());
+            
+            var ids = events.OfType<IEvent<TEvent>>().Select(x => identitySource(x.Data)).ToArray();
+            if (!ids.Any())
+            {
+                return new NulloAggregateCache<TEntityId, TEntity>();
+            }
+            
+            if (cache == null)
+            {
+                var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+                return new DictionaryAggregateCache<TEntityId, TEntity>(dict);
+            }
+
+            var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+            if (!toLoad.Any()) return cache;
+            
+            var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+            foreach (var pair in loaded)
+            {
+                cache.Store(pair.Key, pair.Value);
+            }
+
+            return cache;
+        }
+
+    }
+
+    /// <summary>
+    /// If you have a parallel projected view (or document) that shares
+    /// the same identity, this will look up and reference the matching T
+    /// for each active event slice
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    public async Task ReferencePeerView<T>()
+    {
+        if (Operations == null)
+        {
+            throw new InvalidOperationException("This method can only be used within projection execution");
+        }
+
+        var cache = await loadPeerEntities<T>(Operations);
+        foreach (var slice in Slices)
+        {
+            if (cache.TryFind(slice.Id, out var item))
+            {
+                slice.Reference(item);
+            }
+        }
+    }
+
+    private async Task<IAggregateCache<TId, T>> loadPeerEntities<T>(IStorageOperations session)
+    {
+        var cache = findCache<TId, T>();
+        var storage = await session.FetchProjectionStorageAsync<T, TId>(TenantId, CancellationToken.None);
+
+        var ids = Slices.Select(x => x.Id).ToArray();
+        if (!ids.Any())
+        {
+            return new NulloAggregateCache<TId, T>();
+        }
+            
+        if (cache == null)
+        {
+            var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+            return new DictionaryAggregateCache<TId, T>(dict);
+        }
+
+        var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+        if (!toLoad.Any()) return cache;
+            
+        var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+        foreach (var pair in loaded)
+        {
+            cache.Store(pair.Key, pair.Value);
+        }
+
+        return cache;
     }
 }

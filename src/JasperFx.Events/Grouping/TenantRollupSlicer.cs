@@ -1,5 +1,6 @@
 #nullable enable
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Grouping;
 
@@ -15,6 +16,17 @@ public class TenantRollupSlicer<TDoc>: IEventSlicer<TDoc, string>, IEventSlicer
     {
         var grouping = new SliceGroup<TDoc, string>(StorageConstants.DefaultTenantId);
         grouping.AddEvents<IEvent>(e => e.TenantId, events);
+        return new ValueTask<IReadOnlyList<object>>([grouping]);
+    }
+
+    public ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
+    {
+        var grouping = new SliceGroup<TDoc, string>(StorageConstants.DefaultTenantId)
+        {
+            Upstream = range.Upstream
+        };
+        
+        grouping.AddEvents<IEvent>(e => e.TenantId, range.Events);
         return new ValueTask<IReadOnlyList<object>>([grouping]);
     }
 }
@@ -38,6 +50,17 @@ public class TenantRollupSlicer<TDoc, TId>: IEventSlicer<TDoc, TId>, IEventSlice
     {
         var grouping = new SliceGroup<TDoc, TId>(StorageConstants.DefaultTenantId);
         grouping.AddEvents<IEvent>(e => _wrapper(e.TenantId), events);
+        return new ValueTask<IReadOnlyList<object>>([grouping]);
+    }
+
+    public ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
+    {
+        var grouping = new SliceGroup<TDoc, TId>(StorageConstants.DefaultTenantId)
+        {
+            Upstream = range.Upstream
+        };
+        
+        grouping.AddEvents<IEvent>(e => _wrapper(e.TenantId), range.Events);
         return new ValueTask<IReadOnlyList<object>>([grouping]);
     }
 }

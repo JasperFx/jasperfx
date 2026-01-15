@@ -3,6 +3,12 @@ using JasperFx.Events.Grouping;
 
 namespace JasperFx.Events.Projections;
 
+public enum BatchBehavior
+{
+    Composite,
+    Individual
+}
+
 /// <summary>
 ///     Used to specify then track a range of events by sequence number
 ///     within the asynchronous projections
@@ -38,8 +44,27 @@ public class EventRange
         ShardName = shardName;
         SequenceCeiling = ceiling;
     }
-#pragma warning restore CS8618 
+#pragma warning restore CS8618
 
+    public BatchBehavior BatchBehavior { get; set; } = BatchBehavior.Individual;
+
+    /// <summary>
+    /// When running a projection as a composite, you need to create clean
+    /// clones of the initial EventRange
+    /// </summary>
+    /// <param name="leafName">ShardName of the projection about to be executed with this range</param>
+    /// <returns></returns>
+    public EventRange CloneForExecutionLeaf(ShardName leafName)
+    {
+        return new EventRange(leafName, SequenceFloor, SequenceCeiling, Agent)
+        {
+            Events = Events,
+            BatchBehavior = BatchBehavior,
+            ActiveBatch = ActiveBatch,
+            Upstream = Upstream
+        };
+    }
+    
     /// <summary>
     ///     Identifies the projection shard consuming this event range
     /// </summary>
@@ -70,6 +95,11 @@ public class EventRange
     public ISubscriptionAgent Agent { get; }
 
     public IEventSlicer Slicer { get; private set; } = new NulloEventSlicer();
+    
+    /// <summary>
+    /// For composite projections, this would be the active projection batch
+    /// </summary>
+    public IProjectionBatch? ActiveBatch { get; set; }
 
     public async ValueTask SliceAsync(IEventSlicer slicer)
     {
@@ -137,4 +167,13 @@ public class EventRange
         await SliceAsync(Slicer);
     }
 
+    private readonly List<IUpdatedEntity> _updates = new();
+    public IReadOnlyList<IUpdatedEntity> Updates => _updates;
+
+    public void MarkUpdated<T>(string tenantId, T entity)
+    {
+        _updates.Add(new Updated<T>(tenantId, entity));
+    }
+
+    internal List<ISubscriptionExecution> Upstream { get; set; } = [];
 }

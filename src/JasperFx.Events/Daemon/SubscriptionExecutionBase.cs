@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using JasperFx.Blocks;
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
@@ -58,7 +60,10 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
 
         // TODO -- revisit this. 
         ShardIdentity = $"{name.Identity}@{database.Identifier}";
+        ShardName = name;
     }
+
+    public ShardName ShardName { get; }
 
     public string ShardIdentity { get; }
 
@@ -91,6 +96,17 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
         };
 
         return executeRange(range, cancellation);
+    }
+
+    public Task ProcessRangeAsync(EventRange range)
+    {
+        return executeRange(range, CancellationToken.None);
+    }
+
+    bool ISubscriptionExecution.TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching)
+    {
+        caching = null;
+        return false;
     }
 
     public async Task StopAndDrainAsync(CancellationToken token)

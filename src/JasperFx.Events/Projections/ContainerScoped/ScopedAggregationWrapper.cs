@@ -79,6 +79,15 @@ public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySes
             var slicer = source.BuildSlicer(_session);
             return await slicer.SliceAsync(events);
         }
+
+        public async ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
+        {
+            using var scope = _services.CreateScope();
+            var sp = scope.ServiceProvider;
+            var source = sp.GetRequiredService<TSource>();
+            var slicer = source.BuildSlicer(_session);
+            return await slicer.SliceAsync(range);
+        }
     }
 
     public Type IdentityType => typeof(TId);

@@ -20,8 +20,6 @@ internal class ScopedSubscriptionExecution<T, TSubscription> : SubscriptionExecu
         if (_runner == null)
             throw new ArgumentOutOfRangeException(nameof(storage),
                 $"Must implement {typeof(ISubscriptionRunner<T>).FullNameInCode()}");
-
-
     }
 
     protected override async Task executeRangeAsync(IEventDatabase database, EventRange range, ShardExecutionMode mode,

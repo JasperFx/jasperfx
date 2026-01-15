@@ -35,6 +35,11 @@ public abstract class ProjectionBase : EventFilterable
     /// </summary>
     public uint Version { get; set; } = 1;
 
+    public void OverwriteVersion(uint version)
+    {
+        Version = version;
+    }
+
     [Obsolete("Use Name instead.")]
     public string ProjectionName
     {
@@ -68,7 +73,7 @@ public abstract class ProjectionBase : EventFilterable
         _publishedTypes.Add(publishedType);
     }
 
-    public IEnumerable<Type> PublishedTypes()
+    public virtual IEnumerable<Type> PublishedTypes()
     {
         return _publishedTypes.Concat(Options.StorageTypes).Distinct().ToArray();
     }

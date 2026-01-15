@@ -26,6 +26,17 @@ public class RecentlyUsedCacheTests
     }
 
     [Fact]
+    public void contains()
+    {
+        theCache.Contains(Guid.NewGuid()).ShouldBeFalse();
+
+        var id = Guid.NewGuid();
+        theCache.Store(id, new Item(id));
+        
+        theCache.Contains(id).ShouldBeTrue();
+    }
+
+    [Fact]
     public void compact_moves_off_the_first_ones()
     {
         var items = new List<Item>();
