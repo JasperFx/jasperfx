@@ -5,6 +5,11 @@ namespace JasperFx.Events.Subscriptions;
 
 public interface ISubscriptionSource
 {
+    void OverwriteVersion(uint version)
+    {
+        // Do nothing.   
+    }
+    
     string Name { get; }
     
     /// <summary>

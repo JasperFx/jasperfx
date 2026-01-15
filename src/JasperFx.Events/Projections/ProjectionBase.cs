@@ -35,6 +35,11 @@ public abstract class ProjectionBase : EventFilterable
     /// </summary>
     public uint Version { get; set; } = 1;
 
+    public void OverwriteVersion(uint version)
+    {
+        Version = version;
+    }
+
     [Obsolete("Use Name instead.")]
     public string ProjectionName
     {
