@@ -192,27 +192,20 @@ public class JasperFxOptions : SystemPartBase
     /// <returns>The resolved project root path, or null if resolution fails or is not applicable</returns>
     public static string? ResolveProjectRoot(string currentPath)
     {
-        // Only attempt resolution if we appear to be in a bin folder
-        var separatorChar = Path.DirectorySeparatorChar;
-        var binPattern = $"{separatorChar}bin{separatorChar}";
-        
-        if (!currentPath.Contains(binPattern))
-        {
-            return null;
-        }
-
+        // In CI (like Azure DevOps), the current directory is often the project root
+        // In local dev, we are usually in bin/Debug/net9.0
         var directory = new DirectoryInfo(currentPath);
-        
         while (directory != null)
         {
-            // Look for .csproj files first (more specific to project root)
-            if (directory.GetFiles("*.csproj").Any())
+            // If we find a .csproj, we've found a project root.
+            // If there are multiple (unlikely in this structure), the closest one wins.
+            if (directory.GetFiles("*.csproj").Length != 0)
             {
                 return directory.FullName;
             }
             
             // Fall back to .sln if no .csproj found at this level
-            if (directory.GetFiles("*.sln").Any())
+            if (directory.GetFiles("*.sln").Length != 0)
             {
                 return directory.FullName;
             }
