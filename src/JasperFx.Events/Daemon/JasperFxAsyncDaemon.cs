@@ -566,7 +566,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         // Tear down the current state
-        await _store.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
+        await _store.TeardownExistingProjectionStateAsync(Database, subscriptionName, token).ConfigureAwait(false);
 
         if (token.IsCancellationRequested)
         {
@@ -603,7 +603,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         if (source.Lifecycle == ProjectionLifecycle.Inline)
         {
             // Tear down the current state
-            await _store.TeardownExistingProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
+            await _store.DeleteProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
         }
     }
 
