@@ -108,18 +108,10 @@ public class JasperFxOptionsTests
     }
     
     [Fact]
-    public void resolve_project_root_returns_null_for_non_bin_path()
+    public void resolve_project_root_returns_null_for_nonexistent_path()
     {
-        // Path that doesn't contain bin folder should return null
-        var result = JasperFxOptions.ResolveProjectRoot("/some/project/path");
-        result.ShouldBeNull();
-    }
-    
-    [Fact]
-    public void resolve_project_root_returns_null_for_path_without_bin_separator()
-    {
-        // Path that contains "bin" but not as a directory should return null
-        var result = JasperFxOptions.ResolveProjectRoot("/some/binary/path");
+        // Non-existent path should return null gracefully without throwing
+        var result = JasperFxOptions.ResolveProjectRoot("/nonexistent/fake/path/xyz123");
         result.ShouldBeNull();
     }
     

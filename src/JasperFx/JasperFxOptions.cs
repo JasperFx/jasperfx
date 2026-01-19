@@ -197,7 +197,13 @@ public class JasperFxOptions : SystemPartBase
         var directory = new DirectoryInfo(currentPath);
         while (directory != null)
         {
-            // If we find a .csproj, we've found a project root.
+            if (!directory.Exists)
+            {
+                directory = directory.Parent;
+                continue;
+            }
+                
+            // If we find a .csproj, we've found a project root
             // If there are multiple (unlikely in this structure), the closest one wins.
             if (directory.GetFiles("*.csproj").Length != 0)
             {
