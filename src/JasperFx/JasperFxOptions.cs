@@ -183,6 +183,44 @@ public class JasperFxOptions : SystemPartBase
         return Assembly.GetEntryAssembly();
     }
 
+    /// <summary>
+    /// Attempts to resolve the project root directory by climbing up from the current path
+    /// looking for .csproj or .sln files. This is useful for Console apps where
+    /// ContentRootPath defaults to the bin folder.
+    /// </summary>
+    /// <param name="currentPath">The current path (typically from IHostEnvironment.ContentRootPath)</param>
+    /// <returns>The resolved project root path, or null if resolution fails or is not applicable</returns>
+    public static string? ResolveProjectRoot(string currentPath)
+    {
+        // In CI (like Azure DevOps), the current directory is often the project root
+        // In local dev, we are usually in bin/Debug/net9.0
+        var directory = new DirectoryInfo(currentPath);
+        while (directory != null)
+        {
+            if (!directory.Exists)
+            {
+                directory = directory.Parent;
+                continue;
+            }
+                
+            // If we find a .csproj, we've found a project root
+            // If there are multiple (unlikely in this structure), the closest one wins.
+            if (directory.GetFiles("*.csproj").Length != 0)
+            {
+                return directory.FullName;
+            }
+            
+            // Fall back to .sln if no .csproj found at this level
+            if (directory.GetFiles("*.sln").Length != 0)
+            {
+                return directory.FullName;
+            }
+            
+            directory = directory.Parent;
+        }
+        
+        return null;
+    }
 
     /// <summary>
     ///     Descriptive name of the running service. Used in diagnostics and testing support. Default is the entry assembly name. 
@@ -202,9 +240,37 @@ public class JasperFxOptions : SystemPartBase
         set => _generatedCodeOutputPath = value;
     }
 
+    /// <summary>
+    ///     When true, automatically resolves the project root during codegen commands by climbing
+    ///     up from bin folders to find the directory containing .csproj or .sln files.
+    ///     Useful for Console apps where ContentRootPath defaults to the bin folder.
+    ///     Default is false for backward compatibility.
+    /// </summary>
+    public bool AutoResolveProjectRoot
+    {
+        get => _autoResolveProjectRoot;
+        set => _autoResolveProjectRoot = value;
+    }
+
     internal void ReadHostEnvironment(IHostEnvironment environment)
     {
-        GeneratedCodeOutputPath ??= environment.ContentRootPath.AppendPath("Internal", "Generated");
+        if (GeneratedCodeOutputPath == null)
+        {
+            var basePath = environment.ContentRootPath;
+            
+            // When running codegen commands and auto-resolve is enabled,
+            // attempt to find the actual project root if we're in a bin folder
+            if (AutoResolveProjectRoot && DynamicCodeBuilder.WithinCodegenCommand)
+            {
+                var resolvedRoot = ResolveProjectRoot(basePath);
+                if (resolvedRoot != null)
+                {
+                    basePath = resolvedRoot;
+                }
+            }
+            
+            GeneratedCodeOutputPath = basePath.AppendPath("Internal", "Generated");
+        }
         
         if (ApplicationAssembly == null)
         {
@@ -319,6 +385,7 @@ public class JasperFxOptions : SystemPartBase
     private string? _optionsFile;
     private Action<CommandFactory>? _factory;
     private string _defaultCommand = "run";
+    private bool _autoResolveProjectRoot = false;
 
     public void RegisterEnvironmentCheck(string description, Func<IServiceProvider, CancellationToken, Task> action)
     {
