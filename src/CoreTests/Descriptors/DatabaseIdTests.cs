@@ -37,4 +37,27 @@ public class DatabaseIdTests
     {
         DatabaseId.TryParse(text, out var id).ShouldBeFalse();
     }
+
+    [Fact]
+    public void escape_slashes()
+    {
+        var id = new DatabaseId("/some/host", "tom");
+        id.ToString().ShouldBe("~some~host.tom");
+    }
+
+    [Fact]
+    public void parse_with_tilde()
+    {
+        var id = DatabaseId.Parse("~some~host.tom");
+        id.Server.ShouldBe("/some/host");
+        id.Name.ShouldBe("tom");
+    }
+
+    [Fact]
+    public void try_parse_with_tilde()
+    {
+        DatabaseId.TryParse("~some~host.tom", out var id).ShouldBeTrue();
+        id.Server.ShouldBe("/some/host");
+        id.Name.ShouldBe("tom");
+    }
 }

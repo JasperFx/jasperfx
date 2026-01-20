@@ -8,13 +8,13 @@ public record DatabaseId(string Server, string Name)
 
     public static DatabaseId Parse(string text)
     {
-        var parts = text.ToDelimitedArray('.');
+        var parts = text.Replace('~', '/').ToDelimitedArray('.');
         return new DatabaseId(parts[0], parts[1]);
     }
 
     public static bool TryParse(string text, out DatabaseId id)
     {
-        var parts = text.ToDelimitedArray('.');
+        var parts = text.Replace('~', '/').ToDelimitedArray('.');
         if (parts.Length != 2)
         {
             id = default;
@@ -27,6 +27,6 @@ public record DatabaseId(string Server, string Name)
 
     public override string ToString()
     {
-        return Identity;
+        return Identity.Replace('/', '~');
     }
 }
