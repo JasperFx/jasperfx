@@ -18,7 +18,8 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
     }
 
-    public sealed override IEventSlicer BuildSlicer(TQuerySession session)
+    // This actually does need to be overridable in Marten
+    public override IEventSlicer BuildSlicer(TQuerySession session)
     {
         // Doesn't hurt anything if it's not actually tenanted
         return new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>());
