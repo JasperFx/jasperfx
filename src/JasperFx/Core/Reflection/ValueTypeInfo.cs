@@ -36,7 +36,7 @@ public class ValueTypeInfo
         if (builder != null)
         {
             valueType = new ValueTypeInfo(type, valueProperty.PropertyType, valueProperty, builder);
-            _valueTypes = _valueTypes.AddOrUpdate(type, valueType);
+            Register(valueType);
             return valueType;
         }
 
@@ -44,7 +44,12 @@ public class ValueTypeInfo
             "Unable to determine either a builder static method or a constructor to use");
 
     }
-    
+
+    public static void Register(ValueTypeInfo valueType)
+    {
+        _valueTypes = _valueTypes.AddOrUpdate(valueType.OuterType, valueType);
+    }
+
     private object? _converter;
 
     public ValueTypeInfo(Type outerType, Type simpleType, PropertyInfo valueProperty, ConstructorInfo ctor)
