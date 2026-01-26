@@ -10,11 +10,15 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer where TId : notnull
     {
         _inner = inner;
     }
+    
+    public bool ForceSingleTenancy { get; set; }
 
     public async ValueTask<IReadOnlyList<object>> SliceAsync(IReadOnlyList<IEvent> events)
     {
         var groups = new List<object>();
-        var byTenant = events.GroupBy(x => x.TenantId)
+        var byTenant= ForceSingleTenancy
+            ? [new TenantGroup(StorageConstants.DefaultTenantId, events)]
+            : events.GroupBy(x => x.TenantId)
             .Select(g => new TenantGroup(g.Key, g)).ToList();
         foreach (var tenantGroup in byTenant)
         {
