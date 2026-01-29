@@ -5,6 +5,7 @@ using JasperFx.Core.Reflection;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.Events.Daemon;
 
@@ -43,7 +44,7 @@ public class SubscriptionExecution<T> : SubscriptionExecutionBase
     }
 }
 
-public abstract class SubscriptionExecutionBase : ISubscriptionExecution
+public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLogger
 {
     private readonly CancellationTokenSource _cancellation = new();
     private readonly IEventDatabase _database;
@@ -61,6 +62,18 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution
         // TODO -- revisit this. 
         ShardIdentity = $"{name.Identity}@{database.Identifier}";
         ShardName = name;
+    }
+
+    public ILogger? Logger { get; set; } = NullLogger.Instance;
+
+    /// <summary>
+    /// Override this to attach a different ILogger<T> than the
+    /// concrete type of this projection
+    /// </summary>
+    /// <param name="loggerFactory"></param>
+    public virtual void AttachLogger(ILoggerFactory loggerFactory)
+    {
+        Logger = loggerFactory.CreateLogger(GetType());
     }
 
     public ShardName ShardName { get; }
