@@ -1,6 +1,7 @@
 using JasperFx;
 using JasperFx.Core.Reflection;
 using JasperFx.Events;
+using JasperFx.Events.Daemon;
 using Shouldly;
 
 namespace EventTests;
@@ -114,7 +115,7 @@ public class EventSliceTests
             "foo");
 
         var user = new User("admin", "Comic Book Guy");
-        slice.AddEvent(Event.For(new Updated<User>(StorageConstants.DefaultTenantId, user)));
+        slice.AddEvent(Event.For(new Updated<User>(StorageConstants.DefaultTenantId, user, ActionType.Store)));
         
         slice.Events().TryFindReference<User>(out var refUser).ShouldBeTrue();
         refUser.ShouldBe(user);
@@ -156,6 +157,29 @@ public class EventSliceTests
         var referenced = slice.Events().AllReferenced<User>().ToArray();
         referenced[0].ShouldBe(user1);
         referenced[1].ShouldBe(user2);
+    }
+
+    [Fact]
+    public void default_action_is_nothing()
+    {
+        var id = new StringId(Guid.NewGuid().ToString());
+        var slice = new EventSlice<SimpleAggregate, StringId>(id,
+            "foo");
+        
+        slice.ResultingAction.ShouldBe(ActionType.Nothing);
+    }
+
+    [Fact]
+    public void override_action()
+    {
+        var id = new StringId(Guid.NewGuid().ToString());
+        var slice = new EventSlice<SimpleAggregate, StringId>(id,
+            "foo");
+        
+        slice.RecordAction(ActionType.Delete);
+        
+        slice.ResultingAction.ShouldBe(ActionType.Delete);
+        
     }
 }
 

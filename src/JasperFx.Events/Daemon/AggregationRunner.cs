@@ -82,10 +82,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         {
             foreach (var slice in group.Slices)
             {
-                if (slice.Snapshot != null)
-                {
-                    range.MarkUpdated(group.TenantId, slice.Snapshot);
-                }
+                range.MarkSliceAction(group.TenantId, slice);
             }
         }
 
@@ -196,6 +193,9 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         var (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage,
             slice.Events(), cancellation);
+
+        slice.RecordAction(action);
+        
         if (action == ActionType.Nothing)
         {
             return;

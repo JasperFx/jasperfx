@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Projections.Composite;
@@ -23,11 +24,16 @@ public record ExecutionStage(ISubscriptionExecution[] Executions)
                 // downstream aggregations
                 range.Upstream.Add(execution);
 
-                return cloned.Updates;
+                return cloned.AllRecordedActions();
             });
         }).ToArray();
 
         var updates = await Task.WhenAll(tasks);
+
+        if (updates.SelectMany(x => x).OfType<ProjectionDeleted>().Any())
+        {
+            Debug.WriteLine("Okay, should have gotten here.");
+        }
 
         // This propagates changes from upstream to downstream stages
         range.Events.InsertRange(0, updates.SelectMany(x => x.Select(o => o.ToEvent())));

@@ -394,5 +394,12 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         var @event = Event.For(new References<T>(entity));
         _events.Add(@event);
     }
+
+    public ActionType ResultingAction { get; private set; } = Daemon.ActionType.Nothing;
+
+    public void RecordAction(ActionType action)
+    {
+        ResultingAction = action;
+    }
 }
 
