@@ -130,6 +130,67 @@ public class EventRangeTests
         
         e.TenantId.ShouldBe("foo");
     }
+    
+    [Fact]
+    public void mark_updated_by_slice_when_stored()
+    {
+        var subscriptionAgent = Substitute.For<ISubscriptionAgent>();
+        var range = new EventRange(new ShardName("name"), 0, 100, subscriptionAgent)
+        {
+            Events = new List<IEvent>
+            {
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent())
+            }
+        };
+
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "Foo", []);
+        slice.Snapshot = new User("Beast", "Hank McCoy");
+        slice.RecordAction(ActionType.Store);
+        
+        range.MarkSliceAction("foo", slice);
+
+
+        var e = range.Updates.Single().ShouldBeOfType<Updated<User>>();
+        e
+            .Entity.ShouldBe(slice.Snapshot);
+        
+        e.TenantId.ShouldBe("foo");
+    }
+    
+        
+    [Fact]
+    public void mark_updated_by_slice_when_deleted()
+    {
+        var subscriptionAgent = Substitute.For<ISubscriptionAgent>();
+        var range = new EventRange(new ShardName("name"), 0, 100, subscriptionAgent)
+        {
+            Events = new List<IEvent>
+            {
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent()),
+                new Event<AEvent>(new AEvent())
+            }
+        };
+
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "Foo", []);
+
+        slice.RecordAction(ActionType.Delete);
+        
+        range.MarkSliceAction("foo", slice);
+
+
+        var e = range.AllRecordedActions().OfType<ProjectionDeleted<User, Guid>>().Single();
+        e
+            .Identity.ShouldBe(slice.Id);
+        
+        e.TenantId.ShouldBe("foo");
+    }
 }
 
 public record WorkflowStatus(Guid Id);

@@ -1,3 +1,5 @@
+using JasperFx.Events.Daemon;
+
 namespace JasperFx.Events;
 
 /// <summary>
@@ -6,7 +8,7 @@ namespace JasperFx.Events;
 /// </summary>
 /// <param name="Document"></param>
 /// <typeparam name="T"></typeparam>
-public record Updated<T>(string TenantId, T Entity) : References<T>(Entity), IUpdatedEntity
+public record Updated<T>(string TenantId, T Entity, ActionType Action) : References<T>(Entity), IUpdatedEntity
 {
     public IEvent ToEvent()
     {
@@ -16,7 +18,12 @@ public record Updated<T>(string TenantId, T Entity) : References<T>(Entity), IUp
     object IUpdatedEntity.Entity => Entity;
 }
 
-public interface IUpdatedEntity
+public interface ICanWrapEvent
+{
+    IEvent ToEvent();
+}
+
+public interface IUpdatedEntity : ICanWrapEvent
 {
     IEvent ToEvent();
     object Entity { get; }

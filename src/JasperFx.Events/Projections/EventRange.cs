@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
 
@@ -167,12 +168,33 @@ public class EventRange
         await SliceAsync(Slicer);
     }
 
-    private readonly List<IUpdatedEntity> _updates = new();
-    public IReadOnlyList<IUpdatedEntity> Updates => _updates;
+    private readonly List<ICanWrapEvent> _updates = new();
+    public IReadOnlyList<IUpdatedEntity> Updates => _updates.OfType<IUpdatedEntity>().ToList();
 
+    public IReadOnlyList<ICanWrapEvent> AllRecordedActions() => _updates;
+
+    [Obsolete("Will be removed in 2.0")]
     public void MarkUpdated<T>(string tenantId, T entity)
     {
-        _updates.Add(new Updated<T>(tenantId, entity));
+        _updates.Add(new Updated<T>(tenantId, entity, ActionType.Store));
+    }
+    
+    public void MarkSliceAction<TDoc, TId>(string tenantId, EventSlice<TDoc, TId> slice)
+    {
+        if (slice.Snapshot != null)
+        {
+            _updates.Add(new Updated<TDoc>(tenantId, slice.Snapshot, slice.ResultingAction));
+        }
+        else if (slice.ResultingAction == ActionType.Delete || slice.ResultingAction == ActionType.HardDelete)
+        {
+            _updates.Add(new ProjectionDeleted<TDoc, TId>(slice.Id, tenantId));
+        }
+        else
+        {
+            Debug.WriteLine("What?");
+        }
+        
+        
     }
 
     internal List<ISubscriptionExecution> Upstream { get; set; } = [];
