@@ -1,10 +1,12 @@
 #nullable enable
 using System.Diagnostics.CodeAnalysis;
 using JasperFx.Descriptors;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.Events.Projections;
 
-public abstract class ProjectionBase : EventFilterable
+public abstract class ProjectionBase : EventFilterable, IHasLogger
 {
     private readonly List<Type> _publishedTypes = new();
 
@@ -12,8 +14,19 @@ public abstract class ProjectionBase : EventFilterable
     {
         Name = GetType().Name;
     }
-    
-    
+
+    public ILogger? Logger { get; set; } = NullLogger.Instance;
+
+    /// <summary>
+    /// Override this to customize how this projection will attach to
+    /// logging
+    /// </summary>
+    /// <param name="loggerFactory"></param>
+    public virtual void AttachLogger(ILoggerFactory loggerFactory)
+    {
+        Logger = loggerFactory.CreateLogger(GetType());
+    }
+
     protected void replaceOptions(AsyncOptions sourceOptions)
     {
         Options = sourceOptions;
