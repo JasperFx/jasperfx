@@ -41,6 +41,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionItems", "SolutionIt
 		.github\workflows\docs.yml = .github\workflows\docs.yml
 		.github\workflows\on-manual-do-nuget-publish.yml = .github\workflows\on-manual-do-nuget-publish.yml
 		Directory.Build.props = Directory.Build.props
+		CLAUDE.md = CLAUDE.md
+		.claude\docs\architectural_patterns.md = .claude\docs\architectural_patterns.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Build", "build\Build.csproj", "{EDAEBCBE-A1CC-4E13-8478-916373713051}"
