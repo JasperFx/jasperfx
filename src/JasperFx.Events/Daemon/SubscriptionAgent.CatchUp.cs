@@ -16,7 +16,7 @@ public partial class SubscriptionAgent
         if (state.Sequence == highWaterMark) return;
 
         var progression = state.Sequence;
-        while (progression < highWaterMark)
+        while (!cancellation.IsCancellationRequested && progression < highWaterMark)
         {
             var request = new EventRequest
             {
@@ -34,5 +34,17 @@ public partial class SubscriptionAgent
 
             progression = events.Ceiling;
         }
+
+        if (cancellation.IsCancellationRequested && progression < highWaterMark)
+        {
+            throw new CatchUpException(progression, highWaterMark);
+        }
+    }
+}
+
+public class CatchUpException : Exception
+{
+    public CatchUpException(long progression, long highWaterMark) : base($"CatchUp timed out. Progression is {progression}, High Water Mark was {highWaterMark}")
+    {
     }
 }

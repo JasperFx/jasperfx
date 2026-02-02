@@ -697,19 +697,49 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         var progress = await Database.AllProjectionProgress(cancellation);
 
+        var recorder = new Recorder();
+        using var subscription = Database.Tracker.Subscribe(recorder);
+
         foreach (var asyncShard in _store.AllShards())
         {
             var state = progress.FirstOrDefault(x => x.ShardName == asyncShard.Name.Identity)
                         ?? new ShardState(asyncShard.Name, 0);
             var agent = buildAgentForShard(asyncShard);
-            _shardStateTracker = [];
+            
             await agent.CatchUpAsync(HighWaterMark(), state, cancellation);
-            var exceptions = _shardStateTracker.Select(x => x.Exception).Where(x => x != null).ToArray();
+            var exceptions = recorder.States.Select(x => x.Exception).Where(x => x != null).ToArray();
             if (exceptions.Length != 0)
             {
                 throw new AggregateException(exceptions!);
             }
         }
+    }
+
+    public async Task CatchUpAsync(TimeSpan timeout, CancellationToken cancellation)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        cts.CancelAfter(timeout);
+        await CatchUpAsync(cts.Token);
+    }
+}
+
+internal class Recorder : IObserver<ShardState>
+{
+    public ConcurrentBag<ShardState> States { get; } = new();
+    
+    public void OnCompleted()
+    {
+        
+    }
+
+    public void OnError(Exception error)
+    {
+        
+    }
+
+    public void OnNext(ShardState value)
+    {
+        States.Add(value);
     }
 }
 
