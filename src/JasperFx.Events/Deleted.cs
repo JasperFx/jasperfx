@@ -11,7 +11,7 @@ public record ProjectionDeleted<TDoc, TId>(TId Identity, string TenantId) : ICan
 {
     public IEvent ToEvent()
     {
-        return Event.For(this);
+        return Event.For(TenantId, this);
     }
 }
 

@@ -12,7 +12,10 @@ public record Updated<T>(string TenantId, T Entity, ActionType Action) : Referen
 {
     public IEvent ToEvent()
     {
-        return new Event<Updated<T>>(this);
+        return new Event<Updated<T>>(this)
+        {
+            TenantId = TenantId
+        };
     }
 
     object IUpdatedEntity.Entity => Entity;
