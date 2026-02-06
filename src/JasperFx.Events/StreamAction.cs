@@ -503,5 +503,25 @@ public class StreamAction
 
         return lambda.CompileFast();
     }
+    
+    public StreamAction Clone()
+    {
+        return (StreamAction)MemberwiseClone();
+    }
+    
+    /// <summary>
+    /// Used to clone the current StreamAction, but "fast forward" the expected
+    /// version on the service to the current version
+    /// </summary>
+    /// <returns></returns>
+    public StreamAction FastForward()
+    {
+        if (!_events.Any()) return this;
+
+        return new StreamAction(Id, Key, StreamActionType.Append)
+        {
+            TenantId = TenantId, Id = Id, ExpectedVersionOnServer = Version
+        };
+    }
 
 }
