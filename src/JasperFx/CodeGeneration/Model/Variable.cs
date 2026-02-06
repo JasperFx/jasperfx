@@ -211,6 +211,20 @@ public class Variable
         }
 
         var raw = (parts.First().ToLower() + parts.Skip(1).Join("")).Split('`').First();
+
+        // For closed generic types, append the generic type argument names to ensure
+        // unique variable names (e.g. IStorageAction<Agent> -> "storageActionOfAgent")
+        if (argType.IsGenericType && !argType.IsGenericTypeDefinition)
+        {
+            var argNames = argType.GetGenericArguments().Select(t =>
+            {
+                var name = DefaultArgName(t);
+                if (name.Length > 0 && name[0] == '@') name = name.Substring(1);
+                return char.ToUpperInvariant(name[0]) + name.Substring(1);
+            });
+            raw += "Of" + argNames.Join("And");
+        }
+
         return SanitizeVariableName(raw);
     }
 
