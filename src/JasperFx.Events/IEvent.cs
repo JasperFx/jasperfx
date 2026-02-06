@@ -40,6 +40,14 @@ public static class Event
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
     public static IEvent<T> For<T>(T data) where T : notnull => new Event<T>(data);
+    
+    /// <summary>
+    /// Convenience method to wrap an object with the JasperFx Event typed wrapper
+    /// </summary>
+    public static IEvent<T> For<T>(string tenantId, T data) where T : notnull => new Event<T>(data)
+    {
+        TenantId = tenantId
+    };
 
     /// <summary>
     /// Wrap an object with the correct JasperFx event envelope
