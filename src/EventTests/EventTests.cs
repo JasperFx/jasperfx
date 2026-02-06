@@ -12,6 +12,15 @@ public class EventTests
         var e = JasperFx.Events.Event.For(a);
         e.ShouldBeOfType<Event<AEvent>>().Data.ShouldBe(a);
     }
+    
+    [Fact]
+    public void wrap_an_object_as_an_event_with_tenant()
+    {
+        var a = new AEvent();
+        var e = JasperFx.Events.Event.For("foo", a);
+        e.ShouldBeOfType<Event<AEvent>>().Data.ShouldBe(a);
+        e.TenantId.ShouldBe("foo");
+    }
 
     [Fact]
     public void as_event()

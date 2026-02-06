@@ -28,6 +28,5 @@ public interface ICanWrapEvent
 
 public interface IUpdatedEntity : ICanWrapEvent
 {
-    IEvent ToEvent();
     object Entity { get; }
 }
