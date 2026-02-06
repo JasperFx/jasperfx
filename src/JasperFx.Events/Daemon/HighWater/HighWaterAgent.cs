@@ -75,6 +75,8 @@ public class HighWaterAgent: IDisposable
             return;
         }
 
+        if (_token.IsCancellationRequested) return;
+
         try
         {
             var next = await _detector.Detect(_token).ConfigureAwait(false);
@@ -108,7 +110,7 @@ public class HighWaterAgent: IDisposable
             }
             catch (ObjectDisposedException ex)
             {
-                if (ex.ObjectName.EqualsIgnoreCase("Npgsql.PoolingDataSource") && _token.IsCancellationRequested)
+                if (ex.ObjectName.EqualsIgnoreCase("Npgsql.PoolingDataSource"))
                 {
                     return;
                 }
