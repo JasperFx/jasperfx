@@ -353,6 +353,26 @@ public class MethodCallTester
         methodCall.Creates.ElementAt(0).Usage.ShouldBe("martenOp");
         methodCall.Creates.ElementAt(1).Usage.ShouldBe("martenOp2");
     }
+
+    [Fact]
+    public void tuple_of_generic_types_with_different_type_args()
+    {
+        var methodCall = MethodCall.For<MethodCallTarget>(x => x.TupleOfDifferentGenericArgs());
+        methodCall.Creates.Count().ShouldBe(2);
+        var names = methodCall.Creates.Select(x => x.Usage).ToArray();
+        names[0].ShouldBe("fooHandlerOfHyperdriveMotivator");
+        names[1].ShouldBe("fooHandlerOfWidget");
+    }
+
+    [Fact]
+    public void tuple_of_generic_types_with_same_type_args()
+    {
+        var methodCall = MethodCall.For<MethodCallTarget>(x => x.TupleOfSameGenericArgs());
+        methodCall.Creates.Count().ShouldBe(2);
+        var names = methodCall.Creates.Select(x => x.Usage).ToArray();
+        names[0].ShouldBe("fooHandlerOfHyperdriveMotivator");
+        names[1].ShouldBe("fooHandlerOfHyperdriveMotivator2");
+    }
 }
 
 public class Ball
@@ -441,6 +461,16 @@ public class MethodCallTarget
     }
 
     public (IMartenOp, IMartenOp) TupleOfSame()
+    {
+        return (default, default);
+    }
+
+    public (IFooHandler<HyperdriveMotivator>, IFooHandler<IWidget>) TupleOfDifferentGenericArgs()
+    {
+        return (default, default);
+    }
+
+    public (IFooHandler<HyperdriveMotivator>, IFooHandler<HyperdriveMotivator>) TupleOfSameGenericArgs()
     {
         return (default, default);
     }
