@@ -86,14 +86,31 @@ public class VariableTests
     public void default_arg_name_of_generic_class_with_single_parameter()
     {
         Variable.DefaultArgName<FooHandler<HyperdriveMotivator>>()
-            .ShouldBe("fooHandler");
+            .ShouldBe("fooHandlerOfHyperdriveMotivator");
     }
 
     [Fact]
     public void default_arg_name_of_generic_interface_with_single_parameter()
     {
         Variable.DefaultArgName<IFooHandler<HyperdriveMotivator>>()
-            .ShouldBe("fooHandler");
+            .ShouldBe("fooHandlerOfHyperdriveMotivator");
+    }
+
+    [Fact]
+    public void default_arg_name_of_generic_types_with_different_type_args_are_unique()
+    {
+        var name1 = Variable.DefaultArgName<IFooHandler<HyperdriveMotivator>>();
+        var name2 = Variable.DefaultArgName<IFooHandler<IWidget>>();
+        name1.ShouldNotBe(name2);
+        name1.ShouldBe("fooHandlerOfHyperdriveMotivator");
+        name2.ShouldBe("fooHandlerOfWidget");
+    }
+
+    [Fact]
+    public void default_arg_name_of_generic_class_with_multiple_type_parameters()
+    {
+        Variable.DefaultArgName<Result<HyperdriveMotivator, IWidget>>()
+            .ShouldBe("resultOfHyperdriveMotivatorAndWidget");
     }
     
     [Theory]
