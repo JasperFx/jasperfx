@@ -139,7 +139,9 @@ because at least one dependency is directly using IServiceProvider or has an opa
         {
             _scoped = new ScopedContainerCreation().Scoped;
         }
-        
+
+        _usesScopedContainerDirectly = false;
+        _serviceLocations = [];
         _standins.Clear();
     }
 
