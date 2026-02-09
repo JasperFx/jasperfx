@@ -49,7 +49,7 @@ public class DatabaseDescriptor : OptionsDescription
     {
         var parts = new List<string>
         {
-            ServerName,
+            ServerName.Contains(',') ? ServerName.Split(',')[0] : ServerName,
             DatabaseName,
             SchemaOrNamespace
         };
