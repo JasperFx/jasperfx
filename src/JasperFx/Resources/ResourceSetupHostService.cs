@@ -12,19 +12,35 @@ public class ResourceSetupOptions
 public class ResourceSetupHostService : IHostedService
 {
     private readonly ILogger<ResourceSetupHostService> _logger;
+    private readonly IResourceCreator[] _creators;
     private readonly ResourceSetupOptions _options;
     private readonly ISystemPart[] _parts;
 
-    public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<ISystemPart> parts, ILogger<ResourceSetupHostService> logger)
+    public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<ISystemPart> parts, ILogger<ResourceSetupHostService> logger, IEnumerable<IResourceCreator> creators)
     {
         _parts = parts.ToArray();
         _options = options;
         _logger = logger;
+        _creators = creators.ToArray();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var exceptions = new List<Exception>();
+
+        foreach (var creator in _creators)
+        {
+            try
+            {
+                await creator.EnsureCreatedAsync(cancellationToken);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Failed to ensure created from {Creator}", creator);
+                exceptions.Add(new ResourceSetupException(creator, e));
+            }
+        }
+        
         var resources = new List<IStatefulResource>();
 
         foreach (var source in _parts)

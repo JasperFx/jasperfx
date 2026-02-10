@@ -9,6 +9,12 @@ public class ResourceSetupException : Exception
 
     {
     }
+    
+    public ResourceSetupException(IResourceCreator resource, Exception ex) : base(
+        $"Failed to execute IResourceCreator {resource.Name} of type {resource.Type}", ex)
+
+    {
+    }
 
     public ResourceSetupException(ISystemPart systemPart, Exception ex) : base(
         $"Failed to build resources from system part {systemPart}", ex)
