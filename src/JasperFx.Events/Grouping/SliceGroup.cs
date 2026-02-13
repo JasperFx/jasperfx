@@ -218,6 +218,80 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityIdFromEvent<TEntityId>(
             Func<IEvent<TEvent>, TEntityId> identitySource) =>
             new(parent, session, identitySource);
+        
+        /// <summary>
+        /// Configure a custom entity loading step that allows full control over how
+        /// related entities are fetched from Marten using LINQ or any other query logic.
+        /// This is intended for more complex loading scenarios than simple identity based
+        /// lookups, for example filtering on additional fields, loading only active
+        /// entities, or applying joins and includes.
+        /// </summary>
+        /// <typeparam name="TEntityId">
+        /// The identifier type used to correlate events to loaded entities.
+        /// </typeparam>
+        /// <param name="loader">
+        /// A function that receives the current <see cref="IStorageOperations"/> instance,
+        /// the complete set of events of type <typeparamref name="TEvent"/> that occur
+        /// in the active slices, and a cancellation token.
+        /// The function is responsible for loading the relevant <typeparamref name="TEntity"/>
+        /// instances and returning them as a dictionary keyed by <typeparamref name="TEntityId"/>.
+        /// </param>
+        /// <returns>
+        /// A <see cref="QueryStep{TEntity, TEvent, TEntityId}"/> that can be used to apply
+        /// enrichment logic based on the loaded entities.
+        /// </returns>
+        public QueryStep<TEntity, TEvent, TEntityId> UsingEntityQuery<TEntityId>(
+            Func<
+                IStorageOperations,
+                IReadOnlyList<IEvent<TEvent>>,
+                CancellationToken,
+                Task<IReadOnlyDictionary<TEntityId, TEntity>>> loader)
+            where TEntityId : notnull =>
+            new(parent, session, loader);
+    }
+    
+    public class QueryStep<TEntity, TEvent, TEntityId>(
+        SliceGroup<TDoc, TId> parent,
+        IStorageOperations session,
+        Func<IStorageOperations, IReadOnlyList<IEvent<TEvent>>, CancellationToken, Task<IReadOnlyDictionary<TEntityId, TEntity>>> loader)
+        where TEntityId : notnull where TEvent : notnull
+    {
+        public async Task EnrichAsync(
+            Func<IEvent<TEvent>, TEntityId> eventToEntityId,
+            Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application,
+            CancellationToken ct = default)
+        {
+            var allEvents = parent.Slices
+                .SelectMany(x => x.Events())
+                .OfType<IEvent<TEvent>>()
+                .ToArray();
+
+            if (allEvents.Length == 0) return;
+
+            var cache = parent.findCache<TEntityId, TEntity>();
+            var dict = await loader(session, allEvents, ct);
+
+            foreach (var slice in parent.Slices)
+            {
+                var events = slice.Events().OfType<IEvent<TEvent>>().ToArray();
+                foreach (var e in events)
+                {
+                    var id = eventToEntityId(e);
+
+                    if (cache != null && cache.TryFind(id, out var cachedEntity))
+                    {
+                        application(slice, e, cachedEntity);
+                        continue;
+                    }
+
+                    if (dict.TryGetValue(id, out var entity))
+                    {
+                        cache?.Store(id, entity);
+                        application(slice, e, entity);
+                    }
+                }
+            }
+        }
     }
 
     public class IdentityStep<TEntity, TEvent, TEntityId>(
