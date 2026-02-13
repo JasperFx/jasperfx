@@ -195,7 +195,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session);
     }
 
-    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session) where TEvent : notnull
     {
         /// <summary>
         /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
@@ -206,18 +206,25 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
             Func<TEvent, TEntityId> identitySource) =>
+            new(parent, session, e => identitySource(e.Data));
+
+        /// <summary>
+        /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
+        /// of type TEntity
+        /// </summary>
+        /// <param name="identitySource"></param>
+        /// <typeparam name="TEntityId"></typeparam>
+        /// <returns></returns>
+        public IdentityStep<TEntity, TEvent, TEntityId> ForEntityIdFromEvent<TEntityId>(
+            Func<IEvent<TEvent>, TEntityId> identitySource) =>
             new(parent, session, identitySource);
     }
 
     public class IdentityStep<TEntity, TEvent, TEntityId>(
         SliceGroup<TDoc, TId> parent,
         IStorageOperations session,
-        Func<TEvent, TEntityId> identitySource)
+        Func<IEvent<TEvent>, TEntityId> identitySource) where TEvent : notnull
     {
-        /// <summary>
-        /// Apply the enrichment logic
-        /// </summary>
-        /// <param name="application"></param>
         public async Task EnrichAsync(
             Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
         {
@@ -228,7 +235,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
                 var events = eventSlice.Events().OfType<IEvent<TEvent>>().ToArray();
                 foreach (var @event in events)
                 {
-                    var id = identitySource(@event.Data);
+                    var id = identitySource(@event);
                     if (cache.TryFind(id, out var entity))
                     {
                         application(eventSlice, @event, entity);
@@ -237,10 +244,6 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             }
         }
 
-        /// <summary>
-        /// Adds a References<TEntity> to each slice with a matching TEvent
-        /// </summary>
-        /// <returns></returns>
         public Task AddReferences()
         {
             return EnrichAsync((slice, _, entity) => slice.Reference(entity));
@@ -253,12 +256,12 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
             var events = parent.Slices.SelectMany(x => x.Events());
             
-            var ids = events.OfType<IEvent<TEvent>>().Select(x => identitySource(x.Data)).ToArray();
+            var ids = events.OfType<IEvent<TEvent>>().Select(identitySource).ToArray();
             if (!ids.Any())
             {
                 return new NulloAggregateCache<TEntityId, TEntity>();
             }
-            
+
             if (cache == null)
             {
                 var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
@@ -267,7 +270,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
             var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
             if (!toLoad.Any()) return cache;
-            
+
             var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
 
             foreach (var pair in loaded)
@@ -277,7 +280,6 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
             return cache;
         }
-
     }
 
     /// <summary>
