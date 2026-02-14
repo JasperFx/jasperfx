@@ -89,6 +89,11 @@ internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggreg
     {
         return !_applyMethods.IsEmpty() || !_creators.IsEmpty || !_applications.IsEmpty;
     }
+
+    public bool HasShouldDeleteMethods()
+    {
+        return _shouldDeleteMethods.Methods.Any();
+    }
     
     public void AssertValidity()
     {

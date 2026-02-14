@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -21,6 +22,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     private readonly AggregateApplication<TDoc, TQuerySession> _application;
     
     private readonly AggregateVersioning<TDoc, TQuerySession> _versioning;
+    private Type[]? _generatedEvolverEventTypes;
     private bool _usesConventionalApplication = true;
 
     protected JasperFxAggregationProjectionBase(AggregationScope scope)
@@ -82,16 +84,73 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             _usesConventionalApplication = false;
             _evolve = evolveDefaultAsync;
         }
+        else if (tryUseAssemblyRegisteredEvolver())
+        {
+            // Source-generated evolver found for self-aggregating type
+            _usesConventionalApplication = false;
+        }
         else
         {
             _usesConventionalApplication = true;
             _evolve = evolveDefaultAsync;
         }
     }
-    
+
     private bool isOverridden(string methodName)
     {
         return GetType().GetMethod(methodName)!.DeclaringType!.Assembly != typeof(IEvent).Assembly;
+    }
+
+    [MemberNotNullWhen(true, nameof(_evolve))]
+    private bool tryUseAssemblyRegisteredEvolver()
+    {
+        // Don't use a generated IGeneratedSyncEvolver when the projection has ShouldDelete methods,
+        // because the evolver only knows about Apply/Create on the aggregate type itself.
+        // ShouldDelete needs the full DetermineAction flow via AggregateApplication.
+        if (_application.HasShouldDeleteMethods()) return false;
+
+        var docType = typeof(TDoc);
+
+        // Scan the aggregate's assembly for GeneratedEvolverAttribute registrations
+        var attrs = docType.Assembly.GetCustomAttributes<GeneratedEvolverAttribute>();
+        foreach (var attr in attrs)
+        {
+            if (attr.AggregateType != docType) continue;
+
+            var evolverType = attr.EvolverType;
+
+            // Check for IGeneratedSyncEvolver<TDoc, TId>
+            var syncEvolverInterface = typeof(IGeneratedSyncEvolver<TDoc, TId>);
+            if (syncEvolverInterface.IsAssignableFrom(evolverType))
+            {
+                var evolver = (IGeneratedSyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                _generatedEvolverEventTypes = evolver.EventTypes;
+                _evolve = (snapshot, id, _, events, _) =>
+                {
+                    foreach (var e in events)
+                    {
+                        snapshot = evolver.Evolve(snapshot, id, e);
+                    }
+
+                    return new ValueTask<TDoc?>(snapshot);
+                };
+                return true;
+            }
+
+            // Check for IGeneratedSyncDetermineAction<TDoc, TId>
+            var determineActionInterface = typeof(IGeneratedSyncDetermineAction<TDoc, TId>);
+            if (determineActionInterface.IsAssignableFrom(evolverType))
+            {
+                var evolver = (IGeneratedSyncDetermineAction<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                _generatedEvolverEventTypes = evolver.EventTypes;
+                _buildAction = (_, snapshot, id, _, events, _) =>
+                    new ValueTask<(TDoc?, ActionType)>(evolver.DetermineAction(snapshot, id, events));
+                _evolve = evolveDefaultAsync; // not used when _buildAction is set, but must be non-null
+                return true;
+            }
+        }
+
+        return false;
     }
 
 
@@ -219,9 +278,15 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     protected virtual Type[] determineEventTypes()
     {
-        var eventTypes = _application.AllEventTypes()
-            .Concat(DeleteEvents).Concat(TransformedEvents).Concat(IncludedEventTypes).Distinct().ToArray();
-        return eventTypes;
+        var types = _application.AllEventTypes()
+            .Concat(DeleteEvents).Concat(TransformedEvents).Concat(IncludedEventTypes);
+
+        if (_generatedEvolverEventTypes != null)
+        {
+            types = types.Concat(_generatedEvolverEventTypes);
+        }
+
+        return types.Distinct().ToArray();
     }
 
     public bool AppliesTo(IEnumerable<Type> eventTypes)
