@@ -195,7 +195,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session);
     }
 
-    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session) where TEvent : notnull
     {
         /// <summary>
         /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
@@ -206,18 +206,99 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
             Func<TEvent, TEntityId> identitySource) =>
+            new(parent, session, e => identitySource(e.Data));
+
+        /// <summary>
+        /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
+        /// of type TEntity
+        /// </summary>
+        /// <param name="identitySource"></param>
+        /// <typeparam name="TEntityId"></typeparam>
+        /// <returns></returns>
+        public IdentityStep<TEntity, TEvent, TEntityId> ForEntityIdFromEvent<TEntityId>(
+            Func<IEvent<TEvent>, TEntityId> identitySource) =>
             new(parent, session, identitySource);
+        
+        /// <summary>
+        /// Configure a custom entity loading step that allows full control over how
+        /// related entities are fetched from Marten using LINQ or any other query logic.
+        /// This is intended for more complex loading scenarios than simple identity based
+        /// lookups, for example filtering on additional fields, loading only active
+        /// entities, or applying joins and includes.
+        /// </summary>
+        /// <typeparam name="TEntityId">
+        /// The identifier type used to correlate events to loaded entities.
+        /// </typeparam>
+        /// <param name="loader">
+        /// A function that receives the current <see cref="IStorageOperations"/> instance,
+        /// the complete set of events of type <typeparamref name="TEvent"/> that occur
+        /// in the active slices, and a cancellation token.
+        /// The function is responsible for loading the relevant <typeparamref name="TEntity"/>
+        /// instances and returning them as a dictionary keyed by <typeparamref name="TEntityId"/>.
+        /// </param>
+        /// <returns>
+        /// A <see cref="QueryStep{TEntity, TEvent, TEntityId}"/> that can be used to apply
+        /// enrichment logic based on the loaded entities.
+        /// </returns>
+        public QueryStep<TEntity, TEvent, TEntityId> UsingEntityQuery<TEntityId>(
+            Func<
+                IStorageOperations,
+                IReadOnlyList<IEvent<TEvent>>,
+                CancellationToken,
+                Task<IReadOnlyDictionary<TEntityId, TEntity>>> loader)
+            where TEntityId : notnull =>
+            new(parent, session, loader);
+    }
+    
+    public class QueryStep<TEntity, TEvent, TEntityId>(
+        SliceGroup<TDoc, TId> parent,
+        IStorageOperations session,
+        Func<IStorageOperations, IReadOnlyList<IEvent<TEvent>>, CancellationToken, Task<IReadOnlyDictionary<TEntityId, TEntity>>> loader)
+        where TEntityId : notnull where TEvent : notnull
+    {
+        public async Task EnrichAsync(
+            Func<IEvent<TEvent>, TEntityId> eventToEntityId,
+            Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application,
+            CancellationToken ct = default)
+        {
+            var allEvents = parent.Slices
+                .SelectMany(x => x.Events())
+                .OfType<IEvent<TEvent>>()
+                .ToArray();
+
+            if (allEvents.Length == 0) return;
+
+            var cache = parent.findCache<TEntityId, TEntity>();
+            var dict = await loader(session, allEvents, ct);
+
+            foreach (var slice in parent.Slices)
+            {
+                var events = slice.Events().OfType<IEvent<TEvent>>().ToArray();
+                foreach (var e in events)
+                {
+                    var id = eventToEntityId(e);
+
+                    if (cache != null && cache.TryFind(id, out var cachedEntity))
+                    {
+                        application(slice, e, cachedEntity);
+                        continue;
+                    }
+
+                    if (dict.TryGetValue(id, out var entity))
+                    {
+                        cache?.Store(id, entity);
+                        application(slice, e, entity);
+                    }
+                }
+            }
+        }
     }
 
     public class IdentityStep<TEntity, TEvent, TEntityId>(
         SliceGroup<TDoc, TId> parent,
         IStorageOperations session,
-        Func<TEvent, TEntityId> identitySource)
+        Func<IEvent<TEvent>, TEntityId> identitySource) where TEvent : notnull
     {
-        /// <summary>
-        /// Apply the enrichment logic
-        /// </summary>
-        /// <param name="application"></param>
         public async Task EnrichAsync(
             Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
         {
@@ -228,7 +309,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
                 var events = eventSlice.Events().OfType<IEvent<TEvent>>().ToArray();
                 foreach (var @event in events)
                 {
-                    var id = identitySource(@event.Data);
+                    var id = identitySource(@event);
                     if (cache.TryFind(id, out var entity))
                     {
                         application(eventSlice, @event, entity);
@@ -237,10 +318,6 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             }
         }
 
-        /// <summary>
-        /// Adds a References<TEntity> to each slice with a matching TEvent
-        /// </summary>
-        /// <returns></returns>
         public Task AddReferences()
         {
             return EnrichAsync((slice, _, entity) => slice.Reference(entity));
@@ -253,12 +330,12 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
             var events = parent.Slices.SelectMany(x => x.Events());
             
-            var ids = events.OfType<IEvent<TEvent>>().Select(x => identitySource(x.Data)).ToArray();
+            var ids = events.OfType<IEvent<TEvent>>().Select(identitySource).ToArray();
             if (!ids.Any())
             {
                 return new NulloAggregateCache<TEntityId, TEntity>();
             }
-            
+
             if (cache == null)
             {
                 var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
@@ -267,7 +344,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
             var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
             if (!toLoad.Any()) return cache;
-            
+
             var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
 
             foreach (var pair in loaded)
@@ -277,7 +354,6 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
             return cache;
         }
-
     }
 
     /// <summary>

@@ -114,6 +114,91 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
 
         cache.ShouldBeOfType<NulloAggregateCache<string, User>>();
     }
+    
+    private static IEvent<Assigned> AssignedEventWithHeader(string headerUserName, string dataUserName = "WRONG")
+    {
+        var e = Substitute.For<IEvent<Assigned>, IEvent>();
+
+        e.Data.Returns(new Assigned(dataUserName));
+
+        var headers = new Dictionary<string, object>
+        {
+            ["userName"] = headerUserName
+        };
+
+        e.Headers.Returns(headers);
+
+        return e;
+    }
+
+    [Fact]
+    public async Task enrich_aggregate_cache_using_forentityidfromevent()
+    {
+        var id1 = AddSlice("AAABCCDDDD", "");
+        var id2 = AddSlice("AAABCCDDDD", "");
+        var id3 = AddSlice("AEEABCCDDDD", "");
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+        theUsers["Todd"] = new User("Todd", "Todd");
+
+        theGroup.Slices[id1].AddEvent(AssignedEventWithHeader("Bill"));
+        theGroup.Slices[id2].AddEvent(AssignedEventWithHeader("Tom"));
+        theGroup.Slices[id3].AddEvent(AssignedEventWithHeader("Todd"));
+
+        await theGroup.EnrichWith<User>()
+            .ForEvent<Assigned>()
+            .ForEntityIdFromEvent(e => (string)e.Headers["userName"])
+            .EnrichAsync((slice, e, user) =>
+            {
+                slice.ReplaceEvent(e, new AssignedToUser(user));
+            });
+
+        theGroup.Slices[id1].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Bill");
+        theGroup.Slices[id2].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Tom");
+        theGroup.Slices[id3].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Todd");
+    }
+
+    [Fact]
+    public async Task enrich_with_using_entity_query()
+    {
+        var id1 = AddSlice("AAABCCDDDD", "Bill");
+        var id2 = AddSlice("AAABCCDDDD", "Tom");
+        var id3 = AddSlice("AEEABCCDDDD", "Todd");
+        var id4 = AddSlice("AAABCCDDDD", "");
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+        theUsers["Todd"] = new User("Todd", "Todd");
+
+        await theGroup.EnrichWith<User>()
+            .ForEvent<Assigned>()
+            .UsingEntityQuery<string>(async (_, events, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var names = events
+                    .Select(e => e.Data.UserName)
+                    .Where(x => x.IsNotEmpty())
+                    .Distinct()
+                    .ToArray();
+
+                var dict = names
+                    .Where(theUsers.ContainsKey)
+                    .ToDictionary(x => x, x => theUsers[x]);
+
+                return await Task.FromResult<IReadOnlyDictionary<string, User>>(dict);
+            })
+            .EnrichAsync(
+                e => e.Data.UserName,
+                (slice, e, user) => slice.ReplaceEvent(e, new AssignedToUser(user))
+            );
+
+        theGroup.Slices[id1].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Bill");
+        theGroup.Slices[id2].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Tom");
+        theGroup.Slices[id3].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Todd");
+        theGroup.Slices[id4].Events().OfType<IEvent<AssignedToUser>>().Any().ShouldBeFalse();
+    }
 
     void IIdentitySetter<User, string>.SetIdentity(User document, string identity)
     {
