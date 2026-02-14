@@ -104,7 +104,7 @@ public class EventRange
 
     public async ValueTask SliceAsync(IEventSlicer slicer)
     {
-        var groups = await slicer.SliceAsync(Events);
+        var groups = await slicer.SliceAsync(this);
         _groups.Clear();
         _groups.AddRange(groups);
         Slicer = slicer;
