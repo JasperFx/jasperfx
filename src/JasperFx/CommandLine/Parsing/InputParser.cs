@@ -34,7 +34,7 @@ public static class InputParser
     {
         var memberType = member.GetMemberType();
 
-        if (!member.Name.EndsWith(FLAG_SUFFIX))
+        if (!member.Name.EndsWith(FLAG_SUFFIX) && !member.HasAttribute<FlagAliasAttribute>())
         {
             if (memberType.CanBeCastTo<IDictionary<string, string>>())
             {
