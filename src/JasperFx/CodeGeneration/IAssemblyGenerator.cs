@@ -35,5 +35,6 @@ public interface IAssemblyGenerator
     /// <exception cref="InvalidOperationException"></exception>
     Assembly Generate(string code);
 
-    string Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services = null);
+    void Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services = null);
+    void Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services, out string code);
 }

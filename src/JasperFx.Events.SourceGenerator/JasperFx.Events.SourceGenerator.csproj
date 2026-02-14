@@ -3,16 +3,16 @@
     <PropertyGroup>
         <TargetFramework>netstandard2.0</TargetFramework>
         <!-- Override Directory.Build.props multi-targeting -->
-        <TargetFrameworks></TargetFrameworks>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
         <LangVersion>13</LangVersion>
         <Nullable>enable</Nullable>
         <ImplicitUsings>false</ImplicitUsings>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <NoWarn>RS2008</NoWarn>
         <IsRoslynComponent>true</IsRoslynComponent>
-        <Description>Source generator for JasperFx.Events aggregate projection conventional methods</Description>
+        <Description>Source generator for Fast Aggregate Projections for Marten and future JasperFx Event Stores</Description>
         <PackageId>JasperFx.Events.SourceGenerator</PackageId>
-        <Version>1.19.1</Version>
+        <Version>1.0.0</Version>
     </PropertyGroup>
 
     <ItemGroup>

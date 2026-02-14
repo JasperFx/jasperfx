@@ -52,7 +52,7 @@ namespace JasperFx.RuntimeCompiler
 
 
                 var compiler = new AssemblyGenerator();
-                var code = compiler.Compile(generatedAssembly, serviceVariables);
+                compiler.Compile(generatedAssembly, serviceVariables, out var code);
                 
                 await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
 
@@ -132,7 +132,7 @@ namespace JasperFx.RuntimeCompiler
                 }
 
                 var compiler = services?.GetRequiredService<IAssemblyGenerator>() ?? new AssemblyGenerator();
-                var code = compiler.Compile(generatedAssembly, serviceVariables);
+                compiler.Compile(generatedAssembly, serviceVariables, out var code);
                 
                 if (serviceVariables != null && serviceVariables.ServiceLocations().Any())
                 {

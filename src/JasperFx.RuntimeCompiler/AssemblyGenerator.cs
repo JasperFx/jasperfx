@@ -166,10 +166,15 @@ namespace JasperFx.RuntimeCompiler
 			using var context = new CustomAssemblyLoadContext();
 			return context.LoadFromStream(stream);
 		}
-		
-		public string Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services = null)
+
+		public void Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services = null)
 		{
-			var code = generatedAssembly.GenerateCode(services);
+			Compile(generatedAssembly, services, out var _);
+		}
+		
+		public void Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services, out string code)
+		{
+			code = generatedAssembly.GenerateCode(services);
 			
 			var generator1 = new AssemblyGenerator();
 			generator1.ReferenceAssembly(GetType().Assembly);
@@ -202,8 +207,6 @@ namespace JasperFx.RuntimeCompiler
 			var assembly = generator.Generate(code);
 
 			generatedAssembly.AttachAssembly(assembly);
-
-			return code;
 		}
 		
 		

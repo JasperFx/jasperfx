@@ -116,7 +116,8 @@ partial class Build : NukeBuild
             {
                 Solution.JasperFx,
                 Solution.JasperFx_RuntimeCompiler,
-                Solution.JasperFx_Events
+                Solution.JasperFx_Events,
+                Solution.src.JasperFx_Events_SourceGenerator
             };
 
             foreach (var project in projects)
