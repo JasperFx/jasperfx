@@ -6,7 +6,6 @@ namespace JasperFx.CodeGeneration;
 public interface IAssemblyGenerator
 {
     string? AssemblyName { get; set; }
-    string? Code { get; }
 
     /// <summary>
     /// Tells Roslyn to reference the given assembly and any of its dependencies
@@ -36,5 +35,5 @@ public interface IAssemblyGenerator
     /// <exception cref="InvalidOperationException"></exception>
     Assembly Generate(string code);
 
-    void Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services = null);
+    string Compile(GeneratedAssembly generatedAssembly, IServiceVariableSource? services = null);
 }
