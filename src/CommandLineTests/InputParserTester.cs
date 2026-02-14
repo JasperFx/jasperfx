@@ -401,7 +401,44 @@ namespace CommandLineTests
         {
             handlerFor(x => x.PropsFlag).ShouldBeOfType<DictionaryFlag>();
         }
-      
+
+        [Fact]
+        public void flag_alias_attribute_makes_property_a_flag()
+        {
+            handlerFor(x => x.TenantId).ShouldBeOfType<Flag>();
+        }
+
+        [Fact]
+        public void flag_alias_attribute_makes_bool_property_a_boolean_flag()
+        {
+            handlerFor(x => x.DryRun).ShouldBeOfType<BooleanFlag>();
+        }
+
+        [Fact]
+        public void flag_alias_attribute_makes_enumerable_property_an_enumerable_flag()
+        {
+            handlerFor(x => x.Tags).ShouldBeOfType<EnumerableFlag>();
+        }
+
+        [Fact]
+        public void flag_alias_attribute_makes_dictionary_property_a_dictionary_flag()
+        {
+            handlerFor(x => x.Props).ShouldBeOfType<DictionaryFlag>();
+        }
+
+        [Fact]
+        public void flag_alias_attribute_flag_can_be_used_by_long_form()
+        {
+            handle(x => x.TenantId, "--tenant-id", "tenant1").ShouldBeTrue();
+            theInput.TenantId.ShouldBe("tenant1");
+        }
+
+        [Fact]
+        public void flag_alias_attribute_boolean_flag_can_be_used()
+        {
+            handle(x => x.DryRun, "--dry-run").ShouldBeTrue();
+            theInput.DryRun.ShouldBeTrue();
+        }
     }
 
 
@@ -438,6 +475,18 @@ namespace CommandLineTests
         public Dictionary<string, string> PropsFlag { get; set; } = new Dictionary<string, string>();
 
         public string Flag { get; set; }
+
+        [FlagAlias("tenant-id")]
+        public string TenantId { get; set; }
+
+        [FlagAlias("dry-run")]
+        public bool DryRun { get; set; }
+
+        [FlagAlias("tags")]
+        public IEnumerable<string> Tags { get; set; }
+
+        [FlagAlias("props")]
+        public Dictionary<string, string> Props { get; set; } = new Dictionary<string, string>();
     }
 
     public class InputCommand : JasperFxCommand<InputModel>

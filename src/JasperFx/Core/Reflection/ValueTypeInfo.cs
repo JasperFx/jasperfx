@@ -17,7 +17,17 @@ public class ValueTypeInfo
     {
         if (_valueTypes.TryFind(type, out var valueType)) return valueType;
         
-        var valueProperty = type.GetProperties().Where(x => x.Name != "Tag").SingleOrDefaultIfMany();
+        var allProperties = type.GetProperties();
+        var candidates = allProperties.Where(x => x.Name != "Tag").ToArray();
+
+        // F# single-case discriminated unions may have Is* boolean properties (older F# compilers).
+        // If "Tag" is present (strong F# DU signal) and multiple properties remain, filter those out.
+        if (candidates.Length > 1 && allProperties.Any(x => x.Name == "Tag"))
+        {
+            candidates = candidates.Where(x => !(x.PropertyType == typeof(bool) && x.Name.StartsWith("Is"))).ToArray();
+        }
+
+        var valueProperty = candidates.SingleOrDefaultIfMany();
         if (valueProperty == null || !valueProperty.CanRead) throw new InvalidValueTypeException(type, "Must be only a single public, 'gettable' property");
 
         var ctor = type.GetConstructors()
