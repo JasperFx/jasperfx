@@ -2,85 +2,54 @@
 
 ## Project Overview
 
-JasperFx is the foundational framework for the "Critter Stack" - a collection of .NET tools including Marten and Wolverine. It provides:
-
-- **Core utilities** - Extension methods, reflection helpers, caching primitives
-- **Command-line framework** - CLI parsing and command discovery (formerly Oakton)
-- **Runtime code generation** - Roslyn-based dynamic C# generation and compilation
-- **Event store abstractions** - Projection patterns and async daemon for event sourcing
-- **Multi-tenancy support** - Tenant isolation patterns
+JasperFx is the foundational framework for the "Critter Stack" (.NET tools including Marten and Wolverine). It provides core utilities, a CLI framework (formerly Oakton), Roslyn-based runtime code generation, event sourcing abstractions with an async daemon, and multi-tenancy support.
 
 ## Tech Stack
 
 - **Language:** C# 13, targeting .NET 8.0/9.0/10.0
 - **Build:** Nuke (C# build automation)
 - **Testing:** xUnit + Shouldly + NSubstitute
-- **Key Dependencies:**
-  - Microsoft.CodeAnalysis (Roslyn) - Runtime compilation
-  - Spectre.Console - CLI output formatting
-  - Polly.Core - Resilience/retry policies
-  - FastExpressionCompiler - Performance optimization
+- **Key Dependencies:** Microsoft.CodeAnalysis (Roslyn), Spectre.Console, Polly.Core, FastExpressionCompiler
 
 ## Directory Structure
 
 ```
 src/
-├── JasperFx/                    # Core library
-│   ├── Core/                    # Utilities, extensions, reflection
-│   │   ├── TypeScanning/        # Assembly and type discovery
-│   │   ├── Reflection/          # Reflection helpers
-│   │   ├── Filters/             # Composable type filters
-│   │   └── IoC/                 # DI abstractions
-│   ├── CodeGeneration/          # Runtime code generation
-│   │   ├── Model/               # GeneratedType, GeneratedMethod, Variable
-│   │   ├── Frames/              # Code frame abstractions
-│   │   └── Services/            # Service/DI code generation
-│   ├── CommandLine/             # CLI framework
-│   │   ├── Commands/            # Built-in commands
-│   │   └── Descriptions/        # Help generation
-│   ├── MultiTenancy/            # Tenant support
+├── JasperFx/                    # Core library (v1.17.2)
+│   ├── Core/                    # Utilities, extensions, reflection, type scanning, filters, IoC
+│   ├── CodeGeneration/          # Runtime code gen: Model/, Frames/, Services/
+│   ├── CommandLine/             # CLI framework: Commands/, Descriptions/
+│   ├── MultiTenancy/            # Tenant isolation patterns
 │   └── Descriptors/             # Configuration metadata
 │
-├── JasperFx.Events/             # Event sourcing abstractions
-│   ├── Projections/             # Projection definitions
+├── JasperFx.Events/             # Event sourcing abstractions (v1.19.1)
+│   ├── Projections/             # Projection definitions and lifecycle
 │   ├── Daemon/                  # Async projection daemon
-│   ├── Aggregation/             # Event aggregation
+│   ├── Aggregation/             # Event aggregation patterns
 │   ├── Grouping/                # Event grouping/slicing
 │   └── Subscriptions/           # Event subscriptions
 │
-├── JasperFx.RuntimeCompiler/    # Roslyn compilation wrapper
+├── JasperFx.RuntimeCompiler/    # Roslyn compilation wrapper (v4.3.2)
+├── JasperFx.Events.SourceGenerator/ # Source generator for aggregate projections (v1.19.1)
 │
-├── CoreTests/                   # Tests for Core
-├── CodegenTests/                # Tests for CodeGeneration
-├── CommandLineTests/            # Tests for CLI framework
-├── EventTests/                  # Tests for Events
-│
-└── TestHarnesses/               # Integration test projects
-    ├── CommandLineRunner/
-    ├── GeneratorTarget/
-    └── WebServiceTarget/
+├── CoreTests/                   # Tests for JasperFx/Core
+├── CodegenTests/                # Tests for JasperFx/CodeGeneration
+├── CommandLineTests/            # Tests for JasperFx/CommandLine
+├── EventTests/                  # Tests for JasperFx.Events
+└── EventStoreTests/             # Additional event store tests
 ```
 
 ## Build Commands
 
 ```bash
-# Full build and test (default)
-./build.sh
-
-# Individual test suites
-./build.sh test-core
-./build.sh test-codegen
-./build.sh test-command-line
-./build.sh test-events
-
-# All tests
-./build.sh test
-
-# Package for NuGet
-./build.sh nuget-pack
-
-# Clean
-./build.sh clean
+./build.sh                  # Full build and test
+./build.sh test-core        # Core tests only
+./build.sh test-codegen     # Code generation tests only
+./build.sh test-command-line # CLI tests only
+./build.sh test-events      # Event tests only
+./build.sh test             # All tests
+./build.sh nuget-pack       # Package for NuGet
+./build.sh clean            # Clean outputs
 ```
 
 Build configuration: `build/Build.cs`
@@ -89,26 +58,22 @@ Build configuration: `build/Build.cs`
 
 | Concern | Start Here |
 |---------|------------|
-| CLI commands | `src/JasperFx/CommandLine/IJasperFxCommand.cs:9` |
+| CLI commands | `src/JasperFx/CommandLine/IJasperFxCommand.cs:5` |
 | Code generation | `src/JasperFx/CodeGeneration/Model/GeneratedType.cs:15` |
+| Frame abstraction | `src/JasperFx/CodeGeneration/Frames/Frame.cs:11` |
 | Projections | `src/JasperFx.Events/Projections/ProjectionBase.cs:10` |
+| Async daemon | `src/JasperFx.Events/Daemon/` |
 | Type scanning | `src/JasperFx/Core/TypeScanning/TypeRepository.cs` |
-| Extensions | `src/JasperFx/Core/StringExtensions.cs` |
-
-## NuGet Packages
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| JasperFx | 1.17.0 | Core utilities, CLI, code generation |
-| JasperFx.Events | 1.17.0 | Event sourcing abstractions |
-| JasperFx.RuntimeCompiler | 4.3.2 | Roslyn compilation |
+| IoC conventions | `src/JasperFx/Core/IoC/AssemblyScanner.cs:27` |
+| Service container | `src/JasperFx/ServiceContainer.cs` |
+| Options | `src/JasperFx/JasperFxOptions.cs:17` |
 
 ## Testing Conventions
 
-- Tests use xUnit with Shouldly assertions
-- Test projects mirror source structure (e.g., `CoreTests/` tests `JasperFx/Core/`)
-- Test classes typically named `{ClassName}Tests`
-- Use `NSubstitute` for mocking interfaces
+- Test projects mirror source: `CoreTests/` tests `JasperFx/Core/`, etc.
+- Test classes named `{ClassName}Tests`
+- NSubstitute for mocking, Shouldly for assertions
+- Custom `SpecificationExtensions` in each test project for `ShouldHaveTheSameElementsAs()` etc.
 - CI runs with `DISABLE_TEST_PARALLELIZATION=true`
 
 ## Additional Documentation
