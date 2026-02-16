@@ -173,7 +173,7 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
 
         await theGroup.EnrichWith<User>()
             .ForEvent<Assigned>()
-            .UsingEntityQuery<string>(async (_, events, ct) =>
+            .EnrichUsingEntityQuery<string>((slices, events, cache, ct) =>
             {
                 ct.ThrowIfCancellationRequested();
 
@@ -187,12 +187,19 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
                     .Where(theUsers.ContainsKey)
                     .ToDictionary(x => x, x => theUsers[x]);
 
-                return await Task.FromResult<IReadOnlyDictionary<string, User>>(dict);
-            })
-            .EnrichAsync(
-                e => e.Data.UserName,
-                (slice, e, user) => slice.ReplaceEvent(e, new AssignedToUser(user))
-            );
+                foreach (var slice in slices)
+                {
+                    foreach (var e in slice.Events().OfType<IEvent<Assigned>>())
+                    {
+                        if (dict.TryGetValue(e.Data.UserName, out var user))
+                        {
+                            slice.ReplaceEvent(e, new AssignedToUser(user));
+                        }
+                    }
+                }
+
+                return Task.CompletedTask;
+            });
 
         theGroup.Slices[id1].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Bill");
         theGroup.Slices[id2].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Tom");
