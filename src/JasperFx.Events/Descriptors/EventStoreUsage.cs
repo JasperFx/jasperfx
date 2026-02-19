@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using JasperFx.Descriptors;
 
 namespace JasperFx.Events.Descriptors;
@@ -14,6 +15,7 @@ public class EventStoreUsage : OptionsDescription
         Version = subject.GetType().Assembly.GetName().Version;
     }
     
+    [JsonConverter(typeof(VersionJsonConverter))]
     public Version Version { get; set; }
     public Uri SubjectUri { get; set; }
     public DatabaseUsage Database { get; set; }

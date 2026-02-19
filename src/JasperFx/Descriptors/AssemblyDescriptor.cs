@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace JasperFx.Descriptors;
 
@@ -7,7 +8,7 @@ namespace JasperFx.Descriptors;
 /// </summary>
 /// <param name="Name"></param>
 /// <param name="Version"></param>
-public record AssemblyDescriptor(string Name, Version Version)
+public record AssemblyDescriptor(string Name, [property: JsonConverter(typeof(VersionJsonConverter))] Version Version)
 {
     public static AssemblyDescriptor For(Assembly assembly) =>
         new AssemblyDescriptor(assembly.GetName().Name!, assembly.GetName().Version!);
