@@ -59,7 +59,7 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
 
     ShardName[] ISubscriptionSource.ShardNames()
     {
-        return [new ShardName(Name, ShardName.All, 0)];
+        return [new(Name, ShardName.All, Version)];
     }
 
     Type ISubscriptionSource.ImplementationType => GetType();
