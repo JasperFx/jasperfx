@@ -44,6 +44,12 @@ public record TimeRange(DateTimeOffset? From, DateTimeOffset? To)
         return new TimeRange(from, to);
     }
 
+    public bool GreaterThan(TimeSpan duration)
+    {
+        if (!From.HasValue || !To.HasValue) return true;
+        return (To.Value - From.Value) > duration;
+    }
+
     public static TimeRange Merge(TimeRange[] ranges)
     {
         if (ranges.Length == 0) throw new ArgumentException("Cannot merge an empty array of ranges", nameof(ranges));

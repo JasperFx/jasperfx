@@ -283,4 +283,48 @@ public class TimeRangeTests
     {
         Should.Throw<ArgumentException>(() => TimeRange.Merge([]));
     }
+
+    // GreaterThan tests
+
+    [Fact]
+    public void greater_than_returns_true_when_duration_exceeds_threshold()
+    {
+        var range = new TimeRange(Jan1, Apr1);
+        range.GreaterThan(TimeSpan.FromDays(30)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void greater_than_returns_false_when_duration_is_less_than_threshold()
+    {
+        var range = new TimeRange(Jan1, Feb1);
+        range.GreaterThan(TimeSpan.FromDays(365)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void greater_than_returns_false_when_duration_equals_threshold()
+    {
+        var range = new TimeRange(Jan1, Feb1);
+        var exactDuration = Feb1 - Jan1;
+        range.GreaterThan(exactDuration).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void greater_than_returns_true_for_open_end()
+    {
+        var range = new TimeRange(Jan1, null);
+        range.GreaterThan(TimeSpan.FromDays(365)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void greater_than_returns_true_for_open_start()
+    {
+        var range = new TimeRange(null, Mar1);
+        range.GreaterThan(TimeSpan.FromDays(365)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void greater_than_returns_true_for_all_time()
+    {
+        TimeRange.AllTime().GreaterThan(TimeSpan.FromDays(365)).ShouldBeTrue();
+    }
 }
