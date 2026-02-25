@@ -40,6 +40,23 @@ public interface IEventStore
     /// Identifies the event store within an application
     /// </summary>
     EventStoreIdentity Identity { get; }
+
+    /// <summary>
+    /// Open a read-only event store session for querying
+    /// </summary>
+    IReadOnlyEventStore OpenReadOnlyEventStore();
+
+    /// <summary>
+    /// Compact a stream by aggregating events into a snapshot.
+    /// Resolves aggregate type from stream state.
+    /// </summary>
+    Task CompactStreamAsync(Guid streamId, CancellationToken token = default);
+
+    /// <summary>
+    /// Compact a stream by aggregating events into a snapshot.
+    /// Resolves aggregate type from stream state.
+    /// </summary>
+    Task CompactStreamAsync(string streamKey, CancellationToken token = default);
 }
 
 public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOperations : TQuerySession, IStorageOperations
