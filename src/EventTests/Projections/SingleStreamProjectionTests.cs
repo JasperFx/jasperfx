@@ -2,6 +2,7 @@ using JasperFx.Core.Reflection;
 using JasperFx.Events;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using Shouldly;
 
@@ -16,6 +17,7 @@ public class SingleStreamProjectionTests
     [InlineData("Overrides Evolve()", typeof(OverridesEvolve))]
     [InlineData("Overrides EvolveAsync()", typeof(OverridesEvolveAsync))]
     [InlineData("Uses inline lambdas", typeof(InlineProjection))]
+    [InlineData("Overrides EnrichEventsAsync with conventional Apply", typeof(OverridesEnrichEventsAsyncWithConventionalApply))]
     public void validation_is_good_with_only_conventional_methods(string explanation, Type type)
     {
         Activator.CreateInstance(type).As<ProjectionBase>().AssembleAndAssertValidity();
@@ -109,6 +111,17 @@ public class OverridesEvolveAsync : SingleStreamProjection<MyAggregate, Guid>
     {
         throw new NotImplementedException();
     }
+}
+
+public class OverridesEnrichEventsAsyncWithConventionalApply : SingleStreamProjection<MyAggregate, Guid>
+{
+    public override Task EnrichEventsAsync(
+        SliceGroup<MyAggregate, Guid> group, FakeSession session, CancellationToken ct)
+    {
+        return Task.CompletedTask;
+    }
+
+    public void Apply(AEvent e, MyAggregate a) => a.ACount++;
 }
 
 public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession> where TDoc : notnull where TId : notnull
