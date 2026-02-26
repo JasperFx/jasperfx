@@ -189,7 +189,7 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
 
                 foreach (var slice in slices)
                 {
-                    foreach (var e in slice.Events().OfType<IEvent<Assigned>>())
+                    foreach (var e in slice.Events().OfType<IEvent<Assigned>>().ToArray())
                     {
                         if (dict.TryGetValue(e.Data.UserName, out var user))
                         {
