@@ -104,6 +104,20 @@ public class FakeEventStore : IEventStore
     }
 
     public EventStoreIdentity Identity => new("fake", "fake");
+    public IReadOnlyEventStore OpenReadOnlyEventStore()
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task CompactStreamAsync(Guid streamId, CancellationToken token = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public Task CompactStreamAsync(string streamKey, CancellationToken token = default)
+    {
+        throw new NotImplementedException();
+    }
 
     public Meter Meter { get; } = new Meter("Fake");
     public ActivitySource ActivitySource { get; } = new ActivitySource("Fake");
