@@ -9,7 +9,7 @@ public class EventStoreUsageTests
     public void get_the_version_from_the_subject()
     {
         var usage = new EventStoreUsage(new Uri("marten://main"), new MyThing());
-        usage.Version.ShouldBe(GetType().Assembly.GetName().Version);
+        usage.Version.ShouldBe(GetType().Assembly.GetName().Version?.ToString());
     }
 }
 

@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using JasperFx.Descriptors;
 
 namespace JasperFx.Events.Descriptors;
@@ -12,11 +11,10 @@ public class EventStoreUsage : OptionsDescription
     public EventStoreUsage(Uri subjectUri, object subject) : base(subject)
     {
         SubjectUri = subjectUri;
-        Version = subject.GetType().Assembly.GetName().Version;
+        Version = subject.GetType().Assembly.GetName().Version?.ToString();
     }
-    
-    [JsonConverter(typeof(VersionJsonConverter))]
-    public Version Version { get; set; }
+
+    public string Version { get; set; }
     public Uri SubjectUri { get; set; }
     public DatabaseUsage Database { get; set; }
     public List<EventDescriptor> Events { get; set; } = new();
