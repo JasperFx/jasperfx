@@ -134,9 +134,12 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     
     public sealed override void AssembleAndAssertValidity()
     {
-        if (GetType()!.GetMethod(nameof(ApplyAsync))!.DeclaringType!.Assembly != typeof(JasperFxEventProjectionBase<,>).Assembly)
+        var applyMethod = GetType()!.GetMethod(nameof(ApplyAsync))!;
+        var isOverridden = applyMethod.DeclaringType!.Assembly != typeof(JasperFxEventProjectionBase<,>).Assembly;
+        if (isOverridden)
         {
-            if (_application.HasAnyMethods())
+            var isSourceGenerated = applyMethod.IsDefined(typeof(System.CodeDom.Compiler.GeneratedCodeAttribute), false);
+            if (!isSourceGenerated && _application.HasAnyMethods())
             {
                 throw new InvalidProjectionException(
                     "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods and inline lambda registrations per event type, but not both");
@@ -146,7 +149,6 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         {
             _application.AssertMethodValidity();
         }
-        
     }
 
     [JasperFxIgnore]

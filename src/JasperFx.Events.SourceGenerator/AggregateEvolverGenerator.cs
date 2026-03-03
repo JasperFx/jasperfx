@@ -25,9 +25,9 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     {
         if (node is not ClassDeclarationSyntax classDecl) return false;
 
-        // Must have at least one method named Apply, Create, or ShouldDelete
+        // Must have at least one method named Apply, Create, ShouldDelete, Project, or Transform
         return classDecl.Members.OfType<MethodDeclarationSyntax>()
-            .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete");
+            .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete" or "Project" or "Transform");
     }
 
     private static void Execute(SourceProductionContext context, CandidateInfo info)
@@ -42,6 +42,10 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                 EmitSelfAggregating(context, info);
                 break;
 
+            case CandidateMode.EventProjection:
+                EmitEventProjection(context, info);
+                break;
+
             case CandidateMode.None:
                 // Emit diagnostics for why we're skipping
                 if (!info.IsPartial && info.ClassSymbol != null)
@@ -49,6 +53,16 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                     // Check if it's a projection that could have been generated
                     var projBase = AggregateAnalyzer.FindAggregationProjectionBase(info.ClassSymbol);
                     if (projBase != null)
+                    {
+                        context.ReportDiagnostic(Diagnostic.Create(
+                            DiagnosticDescriptors.NotPartial,
+                            info.ClassSyntax.Identifier.GetLocation(),
+                            info.ClassSymbol.Name));
+                    }
+
+                    // Check if it's an event projection that could have been generated
+                    var eventProjBase = AggregateAnalyzer.FindEventProjectionBase(info.ClassSymbol);
+                    if (eventProjBase != null)
                     {
                         context.ReportDiagnostic(Diagnostic.Create(
                             DiagnosticDescriptors.NotPartial,
@@ -72,6 +86,14 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
         var source = EvolverCodeEmitter.EmitPartialProjection(info);
         context.AddSource(SafeHintName(info.ClassSymbol, ".Evolver"), source);
+    }
+
+    private static void EmitEventProjection(SourceProductionContext context, CandidateInfo info)
+    {
+        if (info.Methods.Count == 0) return;
+
+        var source = EvolverCodeEmitter.EmitEventProjectionPartial(info);
+        context.AddSource(SafeHintName(info.ClassSymbol, ".EventProjection"), source);
     }
 
     private static void EmitSelfAggregating(SourceProductionContext context, CandidateInfo info)
