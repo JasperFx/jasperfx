@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using FastExpressionCompiler;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Tags;
 
 namespace JasperFx.Events;
 
@@ -81,8 +82,30 @@ public static class Event
         e.SetHeader(key, value);
         return e;
     }
-    
-    // More???????
+
+    /// <summary>
+    /// Tag this event with a strong-typed identifier for DCB support.
+    /// </summary>
+    public static IEvent WithTag<TTag>(this IEvent e, TTag tag) where TTag : notnull
+    {
+        e.AddTag(tag);
+        return e;
+    }
+
+    /// <summary>
+    /// Tag this event with multiple strong-typed identifiers for DCB support.
+    /// </summary>
+    public static IEvent WithTag(this IEvent e, params object[] tags)
+    {
+        foreach (var tag in tags)
+        {
+            var tagType = tag.GetType();
+            var value = TagValueExtractor.ExtractValue(tagType, tag);
+            e.AddTag(new EventTag(tagType, value));
+        }
+
+        return e;
+    }
 }
 
 public interface IEvent
@@ -159,6 +182,13 @@ public interface IEvent
     ///     Optional user defined metadata values. This may be null.
     /// </summary>
     Dictionary<string, object>? Headers { get; set; }
+
+    /// <summary>
+    /// Optional tags for Dynamic Consistency Boundary (DCB) support.
+    /// Tags are strong-typed identifier values used for cross-stream querying and consistency.
+    /// This may be null if no tags have been set.
+    /// </summary>
+    IReadOnlyList<EventTag>? Tags { get; }
 
     /// <summary>
     ///     Has this event been archived and no longer applicable
@@ -239,4 +269,15 @@ public interface IEvent
     /// projection replays or subscription rewinding as an event that should not be used
     /// </summary>
     bool IsSkipped { get; set; }
+
+    /// <summary>
+    /// Add a tag to this event for DCB support. The tag must be a strong-typed identifier
+    /// registered with the event store.
+    /// </summary>
+    void AddTag<TTag>(TTag tag) where TTag : notnull;
+
+    /// <summary>
+    /// Add a tag to this event using a raw EventTag value.
+    /// </summary>
+    void AddTag(EventTag tag);
 }

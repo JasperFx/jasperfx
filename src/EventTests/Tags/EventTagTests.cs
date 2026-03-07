@@ -1,0 +1,112 @@
+using JasperFx.Events;
+using JasperFx.Events.Tags;
+using Shouldly;
+
+namespace EventTests.Tags;
+
+// Strong-typed identifier types for testing
+public record StudentId(string Value);
+public record CourseId(string Value);
+public record InvoiceId(Guid Value);
+
+public class EventTagTests
+{
+    [Fact]
+    public void add_single_tag_to_event()
+    {
+        var studentId = new StudentId("student-1");
+        var e = Event.For(new AEvent());
+        e.AddTag(studentId);
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(1);
+        e.Tags[0].TagType.ShouldBe(typeof(StudentId));
+        e.Tags[0].Value.ShouldBe("student-1");
+    }
+
+    [Fact]
+    public void add_multiple_tags_of_different_types()
+    {
+        var studentId = new StudentId("student-1");
+        var courseId = new CourseId("course-1");
+        var e = Event.For(new AEvent());
+        e.AddTag(studentId);
+        e.AddTag(courseId);
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(2);
+        e.Tags[0].TagType.ShouldBe(typeof(StudentId));
+        e.Tags[0].Value.ShouldBe("student-1");
+        e.Tags[1].TagType.ShouldBe(typeof(CourseId));
+        e.Tags[1].Value.ShouldBe("course-1");
+    }
+
+    [Fact]
+    public void add_multiple_tags_of_same_type()
+    {
+        var e = Event.For(new AEvent());
+        e.AddTag(new StudentId("student-1"));
+        e.AddTag(new StudentId("student-2"));
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(2);
+        e.Tags[0].Value.ShouldBe("student-1");
+        e.Tags[1].Value.ShouldBe("student-2");
+    }
+
+    [Fact]
+    public void tags_are_null_when_none_added()
+    {
+        var e = Event.For(new AEvent());
+        e.Tags.ShouldBeNull();
+    }
+
+    [Fact]
+    public void with_tag_fluent_api()
+    {
+        var studentId = new StudentId("student-1");
+        var e = Event.For(new AEvent()).WithTag(studentId);
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(1);
+        e.Tags[0].TagType.ShouldBe(typeof(StudentId));
+        e.Tags[0].Value.ShouldBe("student-1");
+    }
+
+    [Fact]
+    public void with_tag_multiple_params()
+    {
+        var studentId = new StudentId("student-1");
+        var courseId = new CourseId("course-1");
+        var e = Event.For(new AEvent()).WithTag(studentId, courseId);
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(2);
+        e.Tags[0].TagType.ShouldBe(typeof(StudentId));
+        e.Tags[1].TagType.ShouldBe(typeof(CourseId));
+    }
+
+    [Fact]
+    public void with_tag_guid_based_id()
+    {
+        var invoiceId = new InvoiceId(Guid.NewGuid());
+        var e = Event.For(new AEvent()).WithTag(invoiceId);
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(1);
+        e.Tags[0].TagType.ShouldBe(typeof(InvoiceId));
+        e.Tags[0].Value.ShouldBe(invoiceId.Value);
+    }
+
+    [Fact]
+    public void add_raw_event_tag()
+    {
+        var e = Event.For(new AEvent());
+        e.AddTag(new EventTag(typeof(StudentId), "raw-value"));
+
+        e.Tags.ShouldNotBeNull();
+        e.Tags.Count.ShouldBe(1);
+        e.Tags[0].TagType.ShouldBe(typeof(StudentId));
+        e.Tags[0].Value.ShouldBe("raw-value");
+    }
+}
