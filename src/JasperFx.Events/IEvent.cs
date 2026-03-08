@@ -99,9 +99,7 @@ public static class Event
     {
         foreach (var tag in tags)
         {
-            var tagType = tag.GetType();
-            var value = TagValueExtractor.ExtractValue(tagType, tag);
-            e.AddTag(new EventTag(tagType, value));
+            e.AddTag(new EventTag(tag.GetType(), tag));
         }
 
         return e;

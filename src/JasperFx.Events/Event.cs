@@ -1,7 +1,3 @@
-using System.Collections.Concurrent;
-using System.Linq.Expressions;
-using FastExpressionCompiler;
-using JasperFx.Core.Reflection;
 using JasperFx.Events.Tags;
 
 namespace JasperFx.Events;
@@ -150,9 +146,8 @@ public class Event<T>: IEvent<T> where T : notnull
     /// <inheritdoc />
     public void AddTag<TTag>(TTag tag) where TTag : notnull
     {
-        var value = TagValueExtractor.ExtractValue(tag);
         _tags ??= new List<EventTag>();
-        _tags.Add(new EventTag(typeof(TTag), value));
+        _tags.Add(new EventTag(typeof(TTag), tag));
     }
 
     /// <inheritdoc />
@@ -160,41 +155,5 @@ public class Event<T>: IEvent<T> where T : notnull
     {
         _tags ??= new List<EventTag>();
         _tags.Add(tag);
-    }
-}
-
-/// <summary>
-/// Provides memoized compiled lambdas for extracting the inner value from strong-typed identifiers.
-/// Avoids reflection at runtime.
-/// </summary>
-internal static class TagValueExtractor
-{
-    private static readonly ConcurrentDictionary<Type, Func<object, object>> _unwrappers = new();
-
-    public static object ExtractValue<TTag>(TTag tag) where TTag : notnull
-    {
-        return ExtractValue(typeof(TTag), tag);
-    }
-
-    public static object ExtractValue(Type tagType, object tag)
-    {
-        var unwrapper = _unwrappers.GetOrAdd(tagType, static type =>
-        {
-            // For primitive types, just box directly
-            if (type == typeof(string) || type == typeof(Guid) || type == typeof(int) || type == typeof(long))
-            {
-                return static obj => obj;
-            }
-
-            var valueTypeInfo = ValueTypeInfo.ForType(type);
-            var param = Expression.Parameter(typeof(object), "tag");
-            var cast = Expression.Convert(param, valueTypeInfo.OuterType);
-            var getValue = Expression.Property(cast, valueTypeInfo.ValueProperty);
-            var box = Expression.Convert(getValue, typeof(object));
-            var lambda = Expression.Lambda<Func<object, object>>(box, param);
-            return lambda.CompileFast();
-        });
-
-        return unwrapper(tag);
     }
 }

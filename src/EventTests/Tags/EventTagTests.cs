@@ -21,7 +21,7 @@ public class EventTagTests
         e.Tags.ShouldNotBeNull();
         e.Tags.Count.ShouldBe(1);
         e.Tags[0].TagType.ShouldBe(typeof(StudentId));
-        e.Tags[0].Value.ShouldBe("student-1");
+        e.Tags[0].Value.ShouldBe(studentId);
     }
 
     [Fact]
@@ -36,22 +36,24 @@ public class EventTagTests
         e.Tags.ShouldNotBeNull();
         e.Tags.Count.ShouldBe(2);
         e.Tags[0].TagType.ShouldBe(typeof(StudentId));
-        e.Tags[0].Value.ShouldBe("student-1");
+        e.Tags[0].Value.ShouldBe(studentId);
         e.Tags[1].TagType.ShouldBe(typeof(CourseId));
-        e.Tags[1].Value.ShouldBe("course-1");
+        e.Tags[1].Value.ShouldBe(courseId);
     }
 
     [Fact]
     public void add_multiple_tags_of_same_type()
     {
+        var student1 = new StudentId("student-1");
+        var student2 = new StudentId("student-2");
         var e = Event.For(new AEvent());
-        e.AddTag(new StudentId("student-1"));
-        e.AddTag(new StudentId("student-2"));
+        e.AddTag(student1);
+        e.AddTag(student2);
 
         e.Tags.ShouldNotBeNull();
         e.Tags.Count.ShouldBe(2);
-        e.Tags[0].Value.ShouldBe("student-1");
-        e.Tags[1].Value.ShouldBe("student-2");
+        e.Tags[0].Value.ShouldBe(student1);
+        e.Tags[1].Value.ShouldBe(student2);
     }
 
     [Fact]
@@ -70,7 +72,7 @@ public class EventTagTests
         e.Tags.ShouldNotBeNull();
         e.Tags.Count.ShouldBe(1);
         e.Tags[0].TagType.ShouldBe(typeof(StudentId));
-        e.Tags[0].Value.ShouldBe("student-1");
+        e.Tags[0].Value.ShouldBe(studentId);
     }
 
     [Fact]
@@ -95,7 +97,7 @@ public class EventTagTests
         e.Tags.ShouldNotBeNull();
         e.Tags.Count.ShouldBe(1);
         e.Tags[0].TagType.ShouldBe(typeof(InvoiceId));
-        e.Tags[0].Value.ShouldBe(invoiceId.Value);
+        e.Tags[0].Value.ShouldBe(invoiceId);
     }
 
     [Fact]

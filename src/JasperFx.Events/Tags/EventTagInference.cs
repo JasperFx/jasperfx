@@ -18,7 +18,7 @@ public static class EventTagInference
     /// property types against registered tag types. Returns the inferred tags,
     /// or an empty list if none could be inferred.
     /// </summary>
-    public static List<EventTag> InferTags(object eventData, IReadOnlyList<TagTypeRegistration> registeredTagTypes)
+    public static List<EventTag> InferTags(object eventData, IReadOnlyList<ITagTypeRegistration> registeredTagTypes)
     {
         var tags = new List<EventTag>();
         var eventType = eventData.GetType();
@@ -34,8 +34,7 @@ public static class EventTagInference
             var tagInstance = accessor(eventData);
             if (tagInstance == null) continue;
 
-            var value = registration.ExtractValue(tagInstance);
-            tags.Add(new EventTag(registration.TagType, value));
+            tags.Add(new EventTag(registration.TagType, tagInstance));
         }
 
         return tags;
