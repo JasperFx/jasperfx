@@ -34,11 +34,12 @@ public class EventTagQuery
     }
 
     /// <summary>
-    /// Set the current tag context for subsequent AndEventsOfType calls.
-    /// Use this to switch to a different tag value mid-chain.
+    /// Add a condition: any event tagged with the given tag value (no event type filter).
+    /// Also sets the current tag context for subsequent AndEventsOfType calls.
     /// </summary>
     public EventTagQuery Or<TTag>(TTag tagValue) where TTag : notnull
     {
+        _conditions.Add(new EventTagQueryCondition(null, typeof(TTag), tagValue));
         _currentTagValue = tagValue;
         _currentTagType = typeof(TTag);
         return this;
@@ -67,6 +68,7 @@ public class EventTagQuery
     public EventTagQuery AndEventsOfType<T1>()
     {
         EnsureCurrentTag();
+        RemoveTagOnlyConditionForCurrentTag();
         _conditions.Add(new EventTagQueryCondition(typeof(T1), _currentTagType!, _currentTagValue!));
         return this;
     }
@@ -78,6 +80,7 @@ public class EventTagQuery
     public EventTagQuery AndEventsOfType<T1, T2>()
     {
         EnsureCurrentTag();
+        RemoveTagOnlyConditionForCurrentTag();
         _conditions.Add(new EventTagQueryCondition(typeof(T1), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T2), _currentTagType!, _currentTagValue!));
         return this;
@@ -90,6 +93,7 @@ public class EventTagQuery
     public EventTagQuery AndEventsOfType<T1, T2, T3>()
     {
         EnsureCurrentTag();
+        RemoveTagOnlyConditionForCurrentTag();
         _conditions.Add(new EventTagQueryCondition(typeof(T1), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T2), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T3), _currentTagType!, _currentTagValue!));
@@ -103,6 +107,7 @@ public class EventTagQuery
     public EventTagQuery AndEventsOfType<T1, T2, T3, T4>()
     {
         EnsureCurrentTag();
+        RemoveTagOnlyConditionForCurrentTag();
         _conditions.Add(new EventTagQueryCondition(typeof(T1), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T2), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T3), _currentTagType!, _currentTagValue!));
@@ -117,6 +122,7 @@ public class EventTagQuery
     public EventTagQuery AndEventsOfType<T1, T2, T3, T4, T5>()
     {
         EnsureCurrentTag();
+        RemoveTagOnlyConditionForCurrentTag();
         _conditions.Add(new EventTagQueryCondition(typeof(T1), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T2), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T3), _currentTagType!, _currentTagValue!));
@@ -132,6 +138,7 @@ public class EventTagQuery
     public EventTagQuery AndEventsOfType<T1, T2, T3, T4, T5, T6>()
     {
         EnsureCurrentTag();
+        RemoveTagOnlyConditionForCurrentTag();
         _conditions.Add(new EventTagQueryCondition(typeof(T1), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T2), _currentTagType!, _currentTagValue!));
         _conditions.Add(new EventTagQueryCondition(typeof(T3), _currentTagType!, _currentTagValue!));
@@ -147,6 +154,22 @@ public class EventTagQuery
         {
             throw new InvalidOperationException(
                 "AndEventsOfType must be called after For() or Or() to establish the current tag context.");
+        }
+    }
+
+    // When Or(tag) is followed by AndEventsOfType, the tag-only condition from Or()
+    // should be replaced by the specific event type conditions. This removes that
+    // preceding tag-only condition if it exists.
+    private void RemoveTagOnlyConditionForCurrentTag()
+    {
+        for (var i = _conditions.Count - 1; i >= 0; i--)
+        {
+            var c = _conditions[i];
+            if (c.EventType == null && c.TagType == _currentTagType && c.TagValue.Equals(_currentTagValue))
+            {
+                _conditions.RemoveAt(i);
+                break;
+            }
         }
     }
 }

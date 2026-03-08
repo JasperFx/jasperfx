@@ -25,12 +25,14 @@ public class EventTagQueryTests
     }
 
     [Fact]
-    public void or_with_tag_only_sets_context_without_adding_condition()
+    public void or_with_tag_only()
     {
         var query = new EventTagQuery()
             .Or(new StudentId("student-1"));
 
-        query.Conditions.ShouldBeEmpty();
+        query.Conditions.Count.ShouldBe(1);
+        query.Conditions[0].EventType.ShouldBeNull();
+        query.Conditions[0].TagType.ShouldBe(typeof(StudentId));
     }
 
     [Fact]
@@ -180,7 +182,7 @@ public class EventTagQueryTests
         var courseId = new CourseId("course-1");
         var studentId = new StudentId("student-1");
 
-        // Or() just sets tag context, AndEventsOfType adds the conditions
+        // Or() adds a tag-only condition, AndEventsOfType replaces it with specific event types
         var query = new EventTagQuery()
             .Or(courseId)
             .AndEventsOfType<AEvent>()
@@ -192,7 +194,7 @@ public class EventTagQueryTests
         query.Conditions[0].EventType.ShouldBe(typeof(AEvent));
         query.Conditions[0].TagType.ShouldBe(typeof(CourseId));
 
-        // Or(studentId) switched context, so AndEventsOfType uses StudentId
+        // Or(studentId) tag-only condition was replaced by AndEventsOfType<BEvent>
         query.Conditions[1].EventType.ShouldBe(typeof(BEvent));
         query.Conditions[1].TagType.ShouldBe(typeof(StudentId));
     }

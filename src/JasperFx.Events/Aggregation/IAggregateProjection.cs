@@ -17,4 +17,9 @@ public interface IAggregateProjection
     Type[] AllEventTypes { get; }
 
     AsyncOptions Options { get; }
+
+    /// <summary>
+    /// The natural key definition for this aggregate, if one is configured via [NaturalKey] attribute.
+    /// </summary>
+    NaturalKeyDefinition? NaturalKeyDefinition { get; }
 }
