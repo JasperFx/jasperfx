@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Reflection;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -53,7 +54,11 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         {
             base.Version = att.Version;
         }
+
+        NaturalKeyDefinition = discoverNaturalKey();
     }
+
+    public NaturalKeyDefinition? NaturalKeyDefinition { get; }
 
     public Type ImplementationType => GetType();
     public SubscriptionType Type { get; }
@@ -148,6 +153,24 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 _evolve = evolveDefaultAsync; // not used when _buildAction is set, but must be non-null
                 return true;
             }
+
+            // Check for IGeneratedAsyncEvolver<TDoc, TId> (from Evolve/EvolveAsync on self-aggregating types)
+            var asyncEvolverInterface = typeof(IGeneratedAsyncEvolver<TDoc, TId>);
+            if (asyncEvolverInterface.IsAssignableFrom(evolverType))
+            {
+                var evolver = (IGeneratedAsyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                _generatedEvolverEventTypes = evolver.EventTypes;
+                _evolve = async (snapshot, id, session, events, ct) =>
+                {
+                    foreach (var e in events)
+                    {
+                        snapshot = await evolver.EvolveAsync(snapshot, id, e, session!, ct);
+                    }
+
+                    return snapshot;
+                };
+                return true;
+            }
         }
 
         return false;
@@ -158,6 +181,15 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     
     public override void AssembleAndAssertValidity()
     {
+        // If a source-generated evolver was found (either for Apply/Create or Evolve/EvolveAsync),
+        // skip conventional method validation — the evolver handles everything
+        if (_generatedEvolverEventTypes != null)
+        {
+            var types = determineEventTypes();
+            IncludedEventTypes.Fill(types);
+            return;
+        }
+
         var overrides = methodNames.Where(isOverridden).ToArray();
         switch (overrides.Length)
         {
@@ -368,5 +400,46 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         return (lastEvent, aggregate);
+    }
+
+    private static NaturalKeyDefinition? discoverNaturalKey()
+    {
+        var docType = typeof(TDoc);
+
+        // Find a property marked with [NaturalKey]
+        var naturalKeyProp = docType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(p => p.GetCustomAttribute<NaturalKeyAttribute>() != null);
+
+        if (naturalKeyProp == null) return null;
+
+        var definition = new NaturalKeyDefinition(docType, naturalKeyProp);
+
+        // Discover [NaturalKeySource] methods on the aggregate to build event mappings
+        var methods = docType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m.GetCustomAttribute<NaturalKeySourceAttribute>() != null);
+
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Length == 0) continue;
+
+            var eventType = parameters[0].ParameterType;
+
+            // Build a delegate that: creates aggregate, calls the method, reads the natural key property
+            var eventParam = Expression.Parameter(typeof(object), "e");
+            var docParam = Expression.Variable(docType, "doc");
+
+            var body = Expression.Block(
+                [docParam],
+                Expression.Assign(docParam, Expression.New(docType)),
+                Expression.Call(docParam, method, Expression.Convert(eventParam, eventType)),
+                Expression.Convert(Expression.Property(docParam, naturalKeyProp), typeof(object))
+            );
+
+            var extractor = Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
+            definition.EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor));
+        }
+
+        return definition;
     }
 }

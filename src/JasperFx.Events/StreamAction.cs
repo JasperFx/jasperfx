@@ -110,6 +110,13 @@ public class StreamAction
     public long Version { get; set; }
 
     /// <summary>
+    ///     If true, enforce an optimistic concurrency check on this stream even if no events
+    ///     are appended. Used with FetchForWriting to ensure the stream version has not advanced
+    ///     since it was fetched.
+    /// </summary>
+    public bool AlwaysEnforceConsistency { get; set; }
+
+    /// <summary>
     ///     The recorded timestamp for these events
     /// </summary>
     public DateTimeOffset? Timestamp { get; internal set; }

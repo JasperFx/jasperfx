@@ -93,4 +93,5 @@ public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySes
     public Type IdentityType => typeof(TId);
     public Type AggregateType => typeof(TDoc);
     public Type[] AllEventTypes => IncludedEventTypes.ToArray();
+    public NaturalKeyDefinition? NaturalKeyDefinition => null;
 }

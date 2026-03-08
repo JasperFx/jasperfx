@@ -17,20 +17,24 @@ public record ExecutionStage(ISubscriptionExecution[] Executions)
 
                 // Need to record the individual progress even though it's locked together
                 await cloned.ActiveBatch!.RecordProgress(cloned);
-                
-                await execution.ProcessRangeAsync(cloned);
-                
-                // This allows us to propagate the aggregate cache data to
-                // downstream aggregations
-                range.Upstream.Add(execution);
 
-                return cloned.AllRecordedActions();
+                await execution.ProcessRangeAsync(cloned);
+
+                return (execution, actions: cloned.AllRecordedActions());
             });
         }).ToArray();
 
-        var updates = await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(tasks);
+
+        // Propagate aggregate cache data to downstream aggregations.
+        // This must happen sequentially after Task.WhenAll to avoid
+        // a race condition on the shared Upstream list (GH-4151).
+        foreach (var (execution, _) in results)
+        {
+            range.Upstream.Add(execution);
+        }
 
         // This propagates changes from upstream to downstream stages
-        range.Events.InsertRange(0, updates.SelectMany(x => x.Select(o => o.ToEvent())));
+        range.Events.InsertRange(0, results.SelectMany(x => x.actions.Select(o => o.ToEvent())));
     }
 }

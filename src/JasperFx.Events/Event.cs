@@ -1,3 +1,5 @@
+using JasperFx.Events.Tags;
+
 namespace JasperFx.Events;
 
 #region sample_IEvent
@@ -133,4 +135,25 @@ public class Event<T>: IEvent<T> where T : notnull
     public Dictionary<string, object>? Headers { get; set; }
 
     #endregion
+
+    private List<EventTag>? _tags;
+
+    /// <summary>
+    /// Optional tags for DCB support. Lazy-created.
+    /// </summary>
+    public IReadOnlyList<EventTag>? Tags => _tags;
+
+    /// <inheritdoc />
+    public void AddTag<TTag>(TTag tag) where TTag : notnull
+    {
+        _tags ??= new List<EventTag>();
+        _tags.Add(new EventTag(typeof(TTag), tag));
+    }
+
+    /// <inheritdoc />
+    public void AddTag(EventTag tag)
+    {
+        _tags ??= new List<EventTag>();
+        _tags.Add(tag);
+    }
 }

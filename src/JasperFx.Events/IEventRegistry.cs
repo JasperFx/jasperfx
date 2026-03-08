@@ -1,6 +1,7 @@
 using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Descriptors;
 using JasperFx.Events.Aggregation;
 
 namespace JasperFx.Events;
@@ -48,12 +49,30 @@ public interface IAggregationSourceFactory<TQuerySession>
     IAggregatorSource<TQuerySession>? Build<TDoc>();
 }
 
-// TODO -- make the Marten EventGraph inherit from this puppy
 public class EventRegistry : IEventRegistry
 {
     private ImHashMap<Type, IEventType> _eventTypes = ImHashMap<Type, IEventType>.Empty;
-    
-    public IEvent BuildEvent(object eventData)
+
+    private StreamIdentity _streamIdentity = StreamIdentity.AsGuid;
+
+    public virtual StreamIdentity StreamIdentity
+    {
+        get => _streamIdentity;
+        set => _streamIdentity = value;
+    }
+
+    private EventAppendMode _appendMode = EventAppendMode.Rich;
+
+    public virtual EventAppendMode AppendMode
+    {
+        get => _appendMode;
+        set => _appendMode = value;
+    }
+
+    [IgnoreDescription]
+    public virtual TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    public virtual IEvent BuildEvent(object eventData)
     {
         if (eventData == null)
         {
@@ -64,9 +83,7 @@ public class EventRegistry : IEventRegistry
         return info.Wrap(eventData);
     }
 
-    public StreamIdentity StreamIdentity { get; set; } = StreamIdentity.AsGuid;
-
-    public IEventType EventMappingFor(Type eventType)
+    public virtual IEventType EventMappingFor(Type eventType)
     {
         if (_eventTypes.TryFind(eventType, out var info))
         {
@@ -79,21 +96,19 @@ public class EventRegistry : IEventRegistry
         return info;
     }
 
-    public void AddEventType(Type eventType)
+    public virtual void AddEventType(Type eventType)
     {
-        throw new NotImplementedException();
+        EventMappingFor(eventType);
     }
 
-    public EventAppendMode AppendMode { get; set; } = EventAppendMode.Rich;
-    public TimeProvider TimeProvider { get; set; } = TimeProvider.System;
-    public Type AggregateTypeFor(string aggregateTypeName)
+    public virtual Type AggregateTypeFor(string aggregateTypeName)
     {
-        throw new NotImplementedException();
+        throw new NotSupportedException("Override in a derived class to support aggregate type resolution.");
     }
 
-    public string AggregateAliasFor(Type aggregateType)
+    public virtual string AggregateAliasFor(Type aggregateType)
     {
-        throw new NotImplementedException();
+        throw new NotSupportedException("Override in a derived class to support aggregate alias resolution.");
     }
 }
 
@@ -107,10 +122,10 @@ public abstract class EventTypeData
     }
 
     public Type EventType { get; }
-    
+
     public string DotNetTypeName { get; set; }
     public string EventTypeName { get; set; }
-    
+
     public string Alias => EventTypeName;
 }
 
@@ -119,10 +134,9 @@ public class EventTypeData<T> : EventTypeData, IEventType where T : notnull
     public EventTypeData() : base(typeof(T))
     {
     }
-    
+
     public IEvent Wrap(object data)
     {
         return new Event<T>((T)data) { EventTypeName = EventTypeName, DotNetTypeName = DotNetTypeName };
     }
 }
-

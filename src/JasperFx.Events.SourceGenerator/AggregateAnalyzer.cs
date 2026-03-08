@@ -13,7 +13,9 @@ internal enum CandidateMode
 {
     None,
     PartialProjection,
-    SelfAggregating
+    SelfAggregating,
+    SelfAggregatingEvolve,
+    EventProjection
 }
 
 internal sealed class ConventionalMethodInfo
@@ -32,13 +34,35 @@ internal sealed class ConventionalMethodInfo
     public bool IsVoid { get; set; }
     // Parameter order tracking
     public bool IsAggregateFirst { get; set; } // Apply(aggregate, event) vs Apply(event, aggregate)
+    // EventProjection-specific
+    public bool HasOperations { get; set; }
+    public ITypeSymbol? EntityReturnType { get; set; } // For Create/Transform: the unwrapped return type
+}
+
+/// <summary>
+/// Describes a user-defined Evolve or EvolveAsync method on a self-aggregating type.
+/// </summary>
+internal sealed class EvolveMethodInfo
+{
+    public IMethodSymbol Symbol { get; set; } = null!;
+    public bool IsAsync { get; set; }
+    /// <summary>True if the method takes IEvent, false if it takes object (e.Data)</summary>
+    public bool TakesIEvent { get; set; }
+    /// <summary>True if void/Task return (mutable), false if returns TDoc/ValueTask&lt;TDoc&gt; (immutable)</summary>
+    public bool IsMutable { get; set; }
+    /// <summary>True if the method has an IQuerySession parameter</summary>
+    public bool HasSession { get; set; }
+    /// <summary>True if the method has a CancellationToken parameter</summary>
+    public bool HasCancellationToken { get; set; }
+    /// <summary>Concrete event types extracted from method body (switch/case, is patterns)</summary>
+    public List<ITypeSymbol> ExtractedEventTypes { get; set; } = new();
 }
 
 internal sealed class CandidateInfo
 {
     public CandidateMode Mode { get; set; }
     public INamedTypeSymbol ClassSymbol { get; set; } = null!;
-    public ClassDeclarationSyntax ClassSyntax { get; set; } = null!;
+    public TypeDeclarationSyntax ClassSyntax { get; set; } = null!;
     public bool IsPartial { get; set; }
     public INamedTypeSymbol? AggregateType { get; set; } // TDoc
     public INamedTypeSymbol? IdentityType { get; set; } // TId
@@ -49,6 +73,10 @@ internal sealed class CandidateInfo
     public bool HasCreate => Methods.Any(m => m.MethodName == "Create");
     public bool HasDefaultConstructor { get; set; }
     public bool HasExistingParameterlessConstructor { get; set; } // On the projection class itself
+    // EventProjection-specific
+    public INamedTypeSymbol? OperationsType { get; set; } // TOperations from JasperFxEventProjectionBase<TOperations, TQuerySession>
+    // SelfAggregatingEvolve-specific
+    public EvolveMethodInfo? EvolveMethod { get; set; }
 }
 
 internal static class AggregateAnalyzer
@@ -56,15 +84,22 @@ internal static class AggregateAnalyzer
     private const string AggregationProjectionBaseFullName =
         "JasperFx.Events.Aggregation.JasperFxAggregationProjectionBase";
 
+    private const string EventProjectionBaseFullName =
+        "JasperFx.Events.Projections.JasperFxEventProjectionBase";
+
     private const string ProjectionBaseFullName = "JasperFx.Events.Projections.ProjectionBase";
 
     private static readonly string[] LambdaMethodNames =
         { "ProjectEvent", "CreateEvent", "DeleteEvent" };
 
+    private static readonly string[] EventProjectionLambdaMethodNames =
+        { "Project<", "ProjectAsync<" };
+
     public static CandidateInfo? Analyze(GeneratorSyntaxContext context, CancellationToken ct)
     {
-        var classDecl = (ClassDeclarationSyntax)context.Node;
-        var classSymbol = context.SemanticModel.GetDeclaredSymbol(classDecl, ct);
+        var classDecl = context.Node as TypeDeclarationSyntax;
+        if (classDecl == null) return null;
+        var classSymbol = context.SemanticModel.GetDeclaredSymbol(classDecl, ct) as INamedTypeSymbol;
         if (classSymbol == null) return null;
 
         // Determine if this is a projection subclass or self-aggregating
@@ -73,6 +108,13 @@ internal static class AggregateAnalyzer
         if (projBaseInfo != null)
         {
             return AnalyzeProjectionSubclass(classDecl, classSymbol, projBaseInfo.Value, ct);
+        }
+
+        // Check if this is an EventProjection subclass
+        var eventProjBaseInfo = FindEventProjectionBase(classSymbol);
+        if (eventProjBaseInfo != null)
+        {
+            return AnalyzeEventProjectionSubclass(classDecl, classSymbol, eventProjBaseInfo.Value, ct);
         }
 
         // Not a projection subclass - check if self-aggregating
@@ -85,7 +127,7 @@ internal static class AggregateAnalyzer
     }
 
     private static CandidateInfo? AnalyzeProjectionSubclass(
-        ClassDeclarationSyntax classDecl,
+        TypeDeclarationSyntax classDecl,
         INamedTypeSymbol classSymbol,
         (INamedTypeSymbol docType, INamedTypeSymbol idType, INamedTypeSymbol querySessionType) baseInfo,
         CancellationToken ct)
@@ -127,10 +169,14 @@ internal static class AggregateAnalyzer
     }
 
     private static CandidateInfo? AnalyzeSelfAggregating(
-        ClassDeclarationSyntax classDecl,
+        TypeDeclarationSyntax classDecl,
         INamedTypeSymbol classSymbol,
         CancellationToken ct)
     {
+        // Check for Evolve/EvolveAsync methods first — these take priority
+        var evolveResult = AnalyzeSelfAggregatingEvolve(classDecl, classSymbol, ct);
+        if (evolveResult != null) return evolveResult;
+
         var methods = DiscoverConventionalMethods(classSymbol, classSymbol, null);
         if (methods.Count == 0) return null;
 
@@ -153,6 +199,260 @@ internal static class AggregateAnalyzer
             Methods = methods,
             HasDefaultConstructor = HasParameterlessConstructor(classSymbol)
         };
+    }
+
+    private static CandidateInfo? AnalyzeSelfAggregatingEvolve(
+        TypeDeclarationSyntax classDecl,
+        INamedTypeSymbol classSymbol,
+        CancellationToken ct)
+    {
+        var evolveMethod = FindEvolveMethod(classSymbol);
+        if (evolveMethod == null) return null;
+
+        var idType = InferIdentityType(classSymbol);
+        if (idType == null) return null;
+
+        // Extract event types from the method body
+        var methodSyntax = evolveMethod.Symbol.DeclaringSyntaxReferences
+            .FirstOrDefault()?.GetSyntax(ct) as MethodDeclarationSyntax;
+
+        if (methodSyntax != null)
+        {
+            ExtractEventTypesFromBody(methodSyntax, classSymbol, evolveMethod);
+        }
+
+        return new CandidateInfo
+        {
+            Mode = CandidateMode.SelfAggregatingEvolve,
+            ClassSymbol = classSymbol,
+            ClassSyntax = classDecl,
+            IsPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword),
+            AggregateType = classSymbol,
+            IdentityType = idType,
+            HasDefaultConstructor = HasParameterlessConstructor(classSymbol),
+            EvolveMethod = evolveMethod
+        };
+    }
+
+    private static EvolveMethodInfo? FindEvolveMethod(INamedTypeSymbol classSymbol)
+    {
+        foreach (var member in classSymbol.GetMembers())
+        {
+            if (member is not IMethodSymbol method) continue;
+            if (method.MethodKind != MethodKind.Ordinary) continue;
+            if (method.Name is not ("Evolve" or "EvolveAsync")) continue;
+            if (method.DeclaredAccessibility != Accessibility.Public) continue;
+            if (HasJasperFxIgnoreAttribute(method)) continue;
+
+            var info = new EvolveMethodInfo { Symbol = method };
+            var returnType = method.ReturnType;
+            info.IsAsync = IsAsyncReturnType(returnType);
+
+            if (info.IsAsync)
+            {
+                var unwrapped = UnwrapTaskType(returnType);
+                // Task (mutable) or ValueTask<TDoc> (immutable)
+                info.IsMutable = unwrapped == null ||
+                                 unwrapped.SpecialType == SpecialType.System_Void;
+            }
+            else
+            {
+                // void (mutable) or TDoc (immutable)
+                info.IsMutable = returnType.SpecialType == SpecialType.System_Void;
+            }
+
+            // Analyze parameters
+            foreach (var param in method.Parameters)
+            {
+                var paramType = param.Type;
+
+                if (IsRawIEvent(paramType))
+                {
+                    info.TakesIEvent = true;
+                }
+                else if (paramType.ToDisplayString() == "object")
+                {
+                    info.TakesIEvent = false;
+                }
+                else if (IsQuerySession(paramType))
+                {
+                    info.HasSession = true;
+                }
+                else if (IsCancellationToken(paramType))
+                {
+                    info.HasCancellationToken = true;
+                }
+            }
+
+            return info;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts concrete event types from the body of an Evolve/EvolveAsync method
+    /// by scanning for switch/case patterns and is-type checks.
+    /// </summary>
+    private static void ExtractEventTypesFromBody(
+        MethodDeclarationSyntax methodSyntax,
+        INamedTypeSymbol classSymbol,
+        EvolveMethodInfo evolveMethod)
+    {
+        if (methodSyntax.Body == null && methodSyntax.ExpressionBody == null) return;
+
+        // We need to find type references in patterns. Since we're in a source generator
+        // without a semantic model for the method body, we look for syntax patterns:
+        // - case IEvent<T> varName:  (switch case with declaration pattern)
+        // - case T varName:  (switch case with declaration pattern on e.Data)
+        // - is IEvent<T> varName  (is-type expression)
+        // - is T varName  (is-type expression on e.Data)
+        //
+        // We collect the type syntax nodes and resolve them later via the evolver's
+        // EventTypes property generation.
+
+        var typeNames = new HashSet<string>();
+
+        var descendants = methodSyntax.DescendantNodes();
+        foreach (var node in descendants)
+        {
+            switch (node)
+            {
+                // case SomeType varName: or case SomeType:
+                case CasePatternSwitchLabelSyntax casePattern:
+                    CollectTypesFromPattern(casePattern.Pattern, typeNames);
+                    break;
+
+                // C# 8+ switch expression arms: SomeType x =>
+                case SwitchExpressionArmSyntax arm:
+                    CollectTypesFromPattern(arm.Pattern, typeNames);
+                    break;
+
+                // is SomeType varName
+                case IsPatternExpressionSyntax isPattern:
+                    CollectTypesFromPattern(isPattern.Pattern, typeNames);
+                    break;
+
+                // is SomeType (without pattern, older C# style)
+                case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.IsExpression):
+                    if (binary.Right is TypeSyntax typeSyntax)
+                    {
+                        var typeName = ExtractTypeNameFromTypeSyntax(typeSyntax);
+                        if (typeName != null) typeNames.Add(typeName);
+                    }
+                    break;
+            }
+        }
+
+        // Now resolve the type names against the compilation
+        var compilation = classSymbol.ContainingAssembly;
+        foreach (var tn in typeNames)
+        {
+            // Try to find the type symbol from all referenced types
+            // For IEvent<T>, extract T
+            var resolvedType = TryResolveEventType(tn, classSymbol);
+            if (resolvedType != null)
+            {
+                evolveMethod.ExtractedEventTypes.Add(resolvedType);
+            }
+        }
+    }
+
+    private static void CollectTypesFromPattern(PatternSyntax pattern, HashSet<string> typeNames)
+    {
+        switch (pattern)
+        {
+            case DeclarationPatternSyntax decl:
+            {
+                var typeName = ExtractTypeNameFromTypeSyntax(decl.Type);
+                if (typeName != null) typeNames.Add(typeName);
+                break;
+            }
+            case RecursivePatternSyntax recursive when recursive.Type != null:
+            {
+                var typeName = ExtractTypeNameFromTypeSyntax(recursive.Type);
+                if (typeName != null) typeNames.Add(typeName);
+                break;
+            }
+            case ConstantPatternSyntax:
+                // Skip constant patterns
+                break;
+        }
+    }
+
+    private static string? ExtractTypeNameFromTypeSyntax(TypeSyntax typeSyntax)
+    {
+        return typeSyntax switch
+        {
+            GenericNameSyntax generic => generic.ToString(),
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            QualifiedNameSyntax qualified => qualified.ToString(),
+            _ => null
+        };
+    }
+
+    private static ITypeSymbol? TryResolveEventType(string typeName, INamedTypeSymbol contextType)
+    {
+        // For IEvent<T> patterns, we want to extract T as the event type
+        if (typeName.StartsWith("IEvent<") && typeName.EndsWith(">"))
+        {
+            var innerTypeName = typeName.Substring("IEvent<".Length, typeName.Length - "IEvent<".Length - 1);
+            return FindTypeByName(innerTypeName, contextType);
+        }
+
+        // For direct type patterns (on e.Data), use as-is
+        var resolved = FindTypeByName(typeName, contextType);
+        // Skip well-known non-event types
+        if (resolved != null && !IsFrameworkType(resolved))
+            return resolved;
+
+        return null;
+    }
+
+    private static ITypeSymbol? FindTypeByName(string name, INamedTypeSymbol contextType)
+    {
+        // Search in the same namespace first
+        var ns = contextType.ContainingNamespace;
+        if (ns != null)
+        {
+            var found = FindTypeInNamespace(name, ns);
+            if (found != null) return found;
+        }
+
+        // Search in the containing assembly's global namespace
+        var globalNs = contextType.ContainingAssembly?.GlobalNamespace;
+        if (globalNs != null)
+        {
+            var found = FindTypeRecursive(name, globalNs);
+            if (found != null) return found;
+        }
+
+        return null;
+    }
+
+    private static ITypeSymbol? FindTypeInNamespace(string name, INamespaceSymbol ns)
+    {
+        foreach (var type in ns.GetTypeMembers())
+        {
+            if (type.Name == name) return type;
+        }
+        return null;
+    }
+
+    private static ITypeSymbol? FindTypeRecursive(string name, INamespaceSymbol ns)
+    {
+        foreach (var type in ns.GetTypeMembers())
+        {
+            if (type.Name == name) return type;
+        }
+
+        foreach (var childNs in ns.GetNamespaceMembers())
+        {
+            var found = FindTypeRecursive(name, childNs);
+            if (found != null) return found;
+        }
+
+        return null;
     }
 
     private static List<ConventionalMethodInfo> DiscoverConventionalMethods(
@@ -400,6 +700,225 @@ internal static class AggregateAnalyzer
         return false;
     }
 
+    /// <summary>
+    /// Walks the base type chain to find JasperFxEventProjectionBase&lt;TOperations, TQuerySession&gt;
+    /// </summary>
+    public static (INamedTypeSymbol operationsType, INamedTypeSymbol querySessionType)?
+        FindEventProjectionBase(INamedTypeSymbol type)
+    {
+        var current = type.BaseType;
+        while (current != null)
+        {
+            var fullName = current.ConstructedFrom.ToDisplayString();
+            if (fullName.StartsWith(EventProjectionBaseFullName + "<"))
+            {
+                if (current.TypeArguments.Length >= 2)
+                {
+                    return (
+                        (INamedTypeSymbol)current.TypeArguments[0],
+                        (INamedTypeSymbol)current.TypeArguments[1]
+                    );
+                }
+            }
+
+            current = current.BaseType;
+        }
+
+        return null;
+    }
+
+    private static CandidateInfo? AnalyzeEventProjectionSubclass(
+        TypeDeclarationSyntax classDecl,
+        INamedTypeSymbol classSymbol,
+        (INamedTypeSymbol operationsType, INamedTypeSymbol querySessionType) baseInfo,
+        CancellationToken ct)
+    {
+        var isPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword);
+
+        // Check if it already overrides ApplyAsync
+        if (HasApplyAsyncOverride(classSymbol))
+            return null;
+
+        // Check if constructor has lambda registrations (Project<T> / ProjectAsync<T>)
+        if (HasEventProjectionLambdaRegistrations(classDecl))
+            return null;
+
+        var methods = DiscoverEventProjectionMethods(classSymbol, baseInfo.operationsType);
+
+        if (methods.Count == 0) return null;
+
+        return new CandidateInfo
+        {
+            Mode = isPartial ? CandidateMode.EventProjection : CandidateMode.None,
+            ClassSymbol = classSymbol,
+            ClassSyntax = classDecl,
+            IsPartial = isPartial,
+            OperationsType = baseInfo.operationsType,
+            QuerySessionType = baseInfo.querySessionType,
+            Methods = methods,
+            HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
+        };
+    }
+
+    private static List<ConventionalMethodInfo> DiscoverEventProjectionMethods(
+        INamedTypeSymbol classSymbol,
+        INamedTypeSymbol operationsType)
+    {
+        var methods = new List<ConventionalMethodInfo>();
+        var members = classSymbol.GetMembers();
+
+        foreach (var member in members)
+        {
+            if (member is not IMethodSymbol method) continue;
+            if (method.MethodKind != MethodKind.Ordinary) continue;
+            if (method.Name is not ("Project" or "Create" or "Transform")) continue;
+            if (HasJasperFxIgnoreAttribute(method)) continue;
+            if (method.DeclaredAccessibility != Accessibility.Public) continue;
+
+            var info = AnalyzeEventProjectionMethod(method, operationsType);
+            if (info != null)
+            {
+                methods.Add(info);
+            }
+        }
+
+        return methods;
+    }
+
+    private static ConventionalMethodInfo? AnalyzeEventProjectionMethod(
+        IMethodSymbol method,
+        INamedTypeSymbol operationsType)
+    {
+        var parameters = method.Parameters;
+        if (parameters.Length == 0) return null;
+
+        var info = new ConventionalMethodInfo
+        {
+            MethodName = method.Name,
+            Symbol = method,
+            IsStatic = method.IsStatic,
+            IsOnAggregate = false
+        };
+
+        // Determine return type
+        var returnType = method.ReturnType;
+        info.IsAsync = IsAsyncReturnType(returnType);
+
+        if (method.Name == "Project")
+        {
+            // Project must return void/Task/ValueTask
+            if (info.IsAsync)
+            {
+                var unwrapped = UnwrapTaskType(returnType);
+                if (unwrapped != null) return null; // Project must not return a value from Task<T>
+                info.IsVoid = true; // Task/ValueTask with no result
+            }
+            else
+            {
+                if (returnType.SpecialType != SpecialType.System_Void) return null;
+                info.IsVoid = true;
+            }
+        }
+        else // Create or Transform
+        {
+            // Must return a non-void entity type (or Task<T>/ValueTask<T>)
+            if (info.IsAsync)
+            {
+                var unwrapped = UnwrapTaskType(returnType);
+                if (unwrapped == null) return null; // Must return Task<T> or ValueTask<T>
+                info.EntityReturnType = unwrapped;
+            }
+            else
+            {
+                if (returnType.SpecialType == SpecialType.System_Void) return null;
+                info.EntityReturnType = returnType;
+            }
+        }
+
+        // Find event type and detect parameter types
+        ITypeSymbol? eventType = null;
+
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            var param = parameters[i];
+            var paramType = param.Type;
+
+            if (IsIEventGenericWrapper(paramType, out var wrappedEventType))
+            {
+                info.UsesIEventWrapper = true;
+                eventType = wrappedEventType;
+                continue;
+            }
+
+            if (IsRawIEvent(paramType))
+            {
+                info.UsesRawIEvent = true;
+                continue;
+            }
+
+            if (IsOperationsType(paramType, operationsType))
+            {
+                info.HasOperations = true;
+                continue;
+            }
+
+            if (IsCancellationToken(paramType))
+            {
+                info.HasCancellationToken = true;
+                continue;
+            }
+
+            // This must be the event type
+            if (eventType == null)
+            {
+                eventType = paramType;
+            }
+        }
+
+        if (eventType == null) return null;
+
+        info.EventType = eventType;
+
+        // Validate: Project methods must have TOperations parameter
+        if (method.Name == "Project" && !info.HasOperations) return null;
+
+        return info;
+    }
+
+    private static bool IsOperationsType(ITypeSymbol paramType, INamedTypeSymbol operationsType)
+    {
+        // Check direct match or if paramType is assignable to operationsType
+        if (SymbolEqualityComparer.Default.Equals(paramType, operationsType)) return true;
+
+        // Check if paramType is an interface that operationsType implements or extends
+        // For Marten: IDocumentOperations is TOperations, but methods might use IDocumentOperations directly
+        return paramType.ToDisplayString() == operationsType.ToDisplayString();
+    }
+
+    private static bool HasApplyAsyncOverride(INamedTypeSymbol classSymbol)
+    {
+        return classSymbol.GetMembers()
+            .OfType<IMethodSymbol>()
+            .Any(m => m.IsOverride && m.Name == "ApplyAsync");
+    }
+
+    private static bool HasEventProjectionLambdaRegistrations(TypeDeclarationSyntax classDecl)
+    {
+        var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
+        foreach (var ctor in constructors)
+        {
+            if (ctor.Body == null) continue;
+            var text = ctor.Body.ToFullString();
+            foreach (var name in EventProjectionLambdaMethodNames)
+            {
+                if (text.Contains(name))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool HasExplicitOverride(INamedTypeSymbol classSymbol)
     {
         return classSymbol.GetMembers()
@@ -407,7 +926,7 @@ internal static class AggregateAnalyzer
             .Any(m => m.IsOverride && m.Name is "Evolve" or "EvolveAsync" or "DetermineAction" or "DetermineActionAsync");
     }
 
-    private static bool HasLambdaRegistrations(ClassDeclarationSyntax classDecl)
+    private static bool HasLambdaRegistrations(TypeDeclarationSyntax classDecl)
     {
         var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
         foreach (var ctor in constructors)
@@ -486,5 +1005,80 @@ internal static class AggregateAnalyzer
     {
         var name = type.ToDisplayString();
         return name.StartsWith("System.") || name.StartsWith("Microsoft.");
+    }
+
+    /// <summary>
+    /// Analyze an aggregate type discovered via IRefersToAggregate attribute on a method parameter.
+    /// Returns a CandidateInfo if the type is a valid self-aggregating type.
+    /// </summary>
+    public static CandidateInfo? AnalyzeRefersToAggregate(
+        INamedTypeSymbol aggregateType,
+        CancellationToken ct)
+    {
+        if (IsProjectionBase(aggregateType)) return null;
+
+        // Need a syntax reference to build CandidateInfo
+        var syntaxRef = aggregateType.DeclaringSyntaxReferences.FirstOrDefault();
+        if (syntaxRef?.GetSyntax(ct) is not TypeDeclarationSyntax classDecl) return null;
+
+        // Check for Evolve/EvolveAsync methods first
+        var evolveMethod = FindEvolveMethod(aggregateType);
+        if (evolveMethod != null)
+        {
+            var idType = InferIdentityType(aggregateType);
+            if (idType == null) return null;
+
+            var methodSyntax = evolveMethod.Symbol.DeclaringSyntaxReferences
+                .FirstOrDefault()?.GetSyntax(ct) as MethodDeclarationSyntax;
+            if (methodSyntax != null)
+            {
+                ExtractEventTypesFromBody(methodSyntax, aggregateType, evolveMethod);
+            }
+
+            return new CandidateInfo
+            {
+                Mode = CandidateMode.SelfAggregatingEvolve,
+                ClassSymbol = aggregateType,
+                ClassSyntax = classDecl,
+                AggregateType = aggregateType,
+                IdentityType = idType,
+                HasDefaultConstructor = HasParameterlessConstructor(aggregateType),
+                EvolveMethod = evolveMethod
+            };
+        }
+
+        // Try conventional methods
+        var methods = DiscoverConventionalMethods(aggregateType, aggregateType, null);
+        if (methods.Count == 0) return null;
+        if (HasEventParameterConstructor(aggregateType)) return null;
+
+        var inferredId = InferIdentityType(aggregateType);
+        if (inferredId == null) return null;
+
+        return new CandidateInfo
+        {
+            Mode = CandidateMode.SelfAggregating,
+            ClassSymbol = aggregateType,
+            ClassSyntax = classDecl,
+            AggregateType = aggregateType,
+            IdentityType = inferredId,
+            Methods = methods,
+            HasDefaultConstructor = HasParameterlessConstructor(aggregateType)
+        };
+    }
+
+    /// <summary>
+    /// Checks if a type symbol implements the IRefersToAggregate marker interface.
+    /// </summary>
+    public static bool ImplementsIRefersToAggregate(ITypeSymbol type)
+    {
+        const string markerInterface = "JasperFx.Events.Aggregation.IRefersToAggregate";
+
+        foreach (var iface in type.AllInterfaces)
+        {
+            if (iface.ToDisplayString() == markerInterface) return true;
+        }
+
+        return false;
     }
 }

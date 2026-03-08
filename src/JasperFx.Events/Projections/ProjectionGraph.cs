@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -17,6 +18,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 {
     private readonly IEventRegistry _events;
     private readonly Dictionary<Type, object> _liveAggregateSources = new();
+    private readonly HashSet<Type> _discoveredAggregateTypes = new();
     private ImHashMap<Type, object> _liveAggregators = ImHashMap<Type, object>.Empty;
     private readonly List<ISubscriptionSource<TOperations, TQuerySession>> _subscriptions = new();
     private Lazy<Dictionary<string, AsyncShard<TOperations, TQuerySession>>> _asyncShards = null!;
@@ -62,9 +64,27 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
 
     public IEnumerable<Type> AllAggregateTypes()
     {
-        foreach (var kv in _liveAggregators.Enumerate()) yield return kv.Key;
+        var seen = new HashSet<Type>();
 
-        foreach (var projection in All.OfType<IAggregateProjection>()) yield return projection.AggregateType;
+        foreach (var kv in _liveAggregators.Enumerate())
+        {
+            if (seen.Add(kv.Key)) yield return kv.Key;
+        }
+
+        foreach (var projection in All.OfType<IAggregateProjection>())
+        {
+            if (seen.Add(projection.AggregateType)) yield return projection.AggregateType;
+        }
+
+        foreach (var type in _liveAggregateSources.Keys)
+        {
+            if (seen.Add(type)) yield return type;
+        }
+
+        foreach (var type in _discoveredAggregateTypes)
+        {
+            if (seen.Add(type)) yield return type;
+        }
     }
     
     public bool TryFindAggregate(Type documentType, [NotNullWhen(true)]out IAggregateProjection? projection)
@@ -330,6 +350,33 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         }
     }
 
+
+    /// <summary>
+    /// Scan assemblies for GeneratedEvolverAttribute registrations and record
+    /// discovered aggregate types. This ensures that self-aggregating types with
+    /// source-generated evolvers are reported by AllAggregateTypes() and will
+    /// use the efficient generated evolver when aggregated at runtime.
+    /// </summary>
+    public void DiscoverGeneratedEvolvers(params Assembly[] assemblies)
+    {
+        foreach (var assembly in assemblies)
+        {
+            IEnumerable<GeneratedEvolverAttribute> attrs;
+            try
+            {
+                attrs = assembly.GetCustomAttributes<GeneratedEvolverAttribute>();
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var attr in attrs)
+            {
+                _discoveredAggregateTypes.Add(attr.AggregateType);
+            }
+        }
+    }
 
     public void AssertValidity<T>(T options)
     {
