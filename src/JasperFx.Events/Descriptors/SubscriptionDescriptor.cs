@@ -81,4 +81,10 @@ public class SubscriptionDescriptor : OptionsDescription
     public uint Version { get; set; }
 
     public List<EventDescriptor> Events { get; set; } = new();
+
+    /// <summary>
+    /// Agent URIs that would be assigned for each shard of this subscription
+    /// as per EventSubscriptionAgentFamily conventions
+    /// </summary>
+    public string[] AgentUris { get; set; } = [];
 }
