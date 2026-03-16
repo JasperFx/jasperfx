@@ -62,6 +62,31 @@ public class ShardState
     /// </summary>
     public long PreviousGoodMark { get; set; }
 
+    /// <summary>
+    /// Last time the shard successfully advanced its position
+    /// </summary>
+    public DateTimeOffset? LastAdvanced { get; set; }
+
+    /// <summary>
+    /// Last heartbeat received from the shard's subscription agent
+    /// </summary>
+    public DateTimeOffset? LastHeartbeat { get; set; }
+
+    /// <summary>
+    /// Current status of the subscription agent (e.g. "Running", "Paused", "Stopped")
+    /// </summary>
+    public string? AgentStatus { get; set; }
+
+    /// <summary>
+    /// If paused, the reason for the pause (typically an exception message)
+    /// </summary>
+    public string? PauseReason { get; set; }
+
+    /// <summary>
+    /// The node number that is currently running this shard
+    /// </summary>
+    public int? RunningOnNode { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";

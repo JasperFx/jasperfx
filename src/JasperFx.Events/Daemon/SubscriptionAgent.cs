@@ -17,6 +17,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
     private TaskCompletionSource? _rebuild;
     private IDaemonRuntime _runtime = new NulloDaemonRuntime();
+    private Timer? _heartbeatTimer;
 
     public SubscriptionAgent(ShardName name, AsyncOptions options, TimeProvider timeProvider, IEventLoader loader,
         ISubscriptionExecution execution, ShardStateTracker tracker, ISubscriptionMetrics metrics, ILogger logger)
@@ -50,6 +51,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_heartbeatTimer != null)
+        {
+            await _heartbeatTimer.DisposeAsync().ConfigureAwait(false);
+            _heartbeatTimer = null;
+        }
+
         await _cancellation.CancelAsync().ConfigureAwait(false);
         _commandBlock.Complete();
         await _execution.DisposeAsync().ConfigureAwait(false);
@@ -79,14 +86,26 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 PausedTime = null;
                 Status = AgentStatus.Stopped;
                 await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
-                    { Action = ShardAction.Stopped, Exception = ex });
+                {
+                    Action = ShardAction.Stopped,
+                    Exception = ex,
+                    AgentStatus = "Stopped",
+                    PauseReason = ex.ToString(),
+                    LastHeartbeat = _timeProvider.GetUtcNow()
+                });
             }
             else
             {
                 PausedTime = _timeProvider.GetUtcNow();
                 Status = AgentStatus.Paused;
                 await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
-                    { Action = ShardAction.Paused, Exception = ex });
+                {
+                    Action = ShardAction.Paused,
+                    Exception = ex,
+                    AgentStatus = "Paused",
+                    PauseReason = ex.ToString(),
+                    LastHeartbeat = _timeProvider.GetUtcNow()
+                });
             }
 
             if (Mode == ShardExecutionMode.Rebuild)
@@ -133,6 +152,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         {
             _logger.LogInformation("Stopped projection agent {Name}", ProjectionShardIdentity);
             Status = AgentStatus.Stopped;
+            await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+            {
+                Action = ShardAction.Stopped,
+                AgentStatus = "Stopped",
+                LastHeartbeat = _timeProvider.GetUtcNow()
+            });
         }
     }
 
@@ -140,7 +165,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     {
         await _execution.HardStopAsync().ConfigureAwait(false);
         await DisposeAsync().ConfigureAwait(false);
-        await _tracker.PublishAsync(new ShardState(Name, LastCommitted) { Action = ShardAction.Stopped });
+        await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+        {
+            Action = ShardAction.Stopped,
+            AgentStatus = "Stopped",
+            LastHeartbeat = _timeProvider.GetUtcNow()
+        });
     }
 
     public async Task StartAsync(SubscriptionExecutionRequest request)
@@ -151,7 +181,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _runtime = request.Runtime;
 
         await _commandBlock.PostAsync(Command.Started(_tracker.HighWaterMark, request.Floor));
-        await _tracker.PublishAsync(new ShardState(Name, request.Floor) { Action = ShardAction.Started });
+        await _tracker.PublishAsync(new ShardState(Name, request.Floor)
+        {
+            Action = ShardAction.Started,
+            AgentStatus = "Running",
+            LastHeartbeat = _timeProvider.GetUtcNow()
+        });
+
+        startHeartbeatTimer();
 
         _logger.LogInformation("Started projection agent {Name}", ProjectionShardIdentity);
     }
@@ -215,8 +252,15 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
     public async ValueTask MarkSuccessAsync(long processedCeiling)
     {
+        var now = _timeProvider.GetUtcNow();
         await _commandBlock.PostAsync(Command.Completed(processedCeiling));
-        await _tracker.PublishAsync(new ShardState(Name, processedCeiling) { Action = ShardAction.Updated });
+        await _tracker.PublishAsync(new ShardState(Name, processedCeiling)
+        {
+            Action = ShardAction.Updated,
+            LastAdvanced = now,
+            LastHeartbeat = now,
+            AgentStatus = "Running"
+        });
     }
 
     public void MarkHighWater(long sequence)
@@ -335,6 +379,30 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 await loadNextAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    private void startHeartbeatTimer()
+    {
+        _heartbeatTimer = new Timer(_ =>
+        {
+            if (_cancellation.IsCancellationRequested) return;
+
+            try
+            {
+                var state = new ShardState(Name, LastCommitted)
+                {
+                    Action = ShardAction.Updated,
+                    LastHeartbeat = _timeProvider.GetUtcNow(),
+                    AgentStatus = Status.ToString()
+                };
+
+                _tracker.PublishAsync(state).GetAwaiter().GetResult();
+            }
+            catch (Exception e)
+            {
+                _logger.LogDebug(e, "Error publishing heartbeat for {Name}", ProjectionShardIdentity);
+            }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
     private async Task loadNextAsync()
