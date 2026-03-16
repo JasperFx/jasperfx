@@ -6,7 +6,7 @@ namespace JasperFx.CodeGeneration.Services;
 
 internal class ScopedContainerCreation : SyncFrame
 {
-    public ScopedContainerCreation() 
+    public ScopedContainerCreation()
     {
         Factory = new InjectedField(typeof(IServiceScopeFactory), "serviceScopeFactory");
         Scope = new Variable(typeof(IServiceScope), "serviceScope", this);
@@ -24,8 +24,17 @@ internal class ScopedContainerCreation : SyncFrame
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        writer.Write(
-            $"using var {Scope.Usage} = {Factory.Usage}.{nameof(IServiceScopeFactory.CreateScope)}();");
+        if (method.AsyncMode != AsyncMode.None)
+        {
+            writer.Write(
+                $"await using var {Scope.Usage} = {Factory.Usage}.{nameof(ServiceProviderServiceExtensions.CreateAsyncScope)}();");
+        }
+        else
+        {
+            writer.Write(
+                $"using var {Scope.Usage} = {Factory.Usage}.{nameof(IServiceScopeFactory.CreateScope)}();");
+        }
+
         Next?.GenerateCode(method, writer);
     }
 }
