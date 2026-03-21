@@ -16,6 +16,7 @@ public class HighWaterAgent: IDisposable
     private readonly DaemonSettings _settings;
     private readonly Timer _timer;
     private readonly ShardStateTracker _tracker;
+    private readonly IDaemonWakeup _daemonWakeup;
 
     private HighWaterStatistics? _current;
     private Task<Task> _loop = null!;
@@ -33,6 +34,7 @@ public class HighWaterAgent: IDisposable
         _logger = logger;
         _settings = settings;
         _token = token;
+        _daemonWakeup = settings.Wakeup ?? new TaskDelayDaemonWakeup();
 
         _timer = new Timer(_settings.HealthCheckPollingTime.TotalMilliseconds) { AutoReset = true };
         _timer.Elapsed += TimerOnElapsed;
@@ -91,7 +93,7 @@ public class HighWaterAgent: IDisposable
             _logger.LogError(e, "Failed while making the initial determination of the high water mark for database {Name}", _detector.DatabaseUri);
         }
 
-        await Task.Delay(_settings.FastPollingTime, _token).ConfigureAwait(false);
+        await _daemonWakeup.WaitAsync(_settings.FastPollingTime, _token).ConfigureAwait(false);
 
         while (!_token.IsCancellationRequested)
         {
@@ -116,7 +118,7 @@ public class HighWaterAgent: IDisposable
                 }
 
                 _logger.LogError(ex, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseUri);
-                await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+                await _daemonWakeup.WaitAsync(_settings.SlowPollingTime, _token).ConfigureAwait(false);
 
                 activity?.AddException(ex);
 
@@ -127,7 +129,7 @@ public class HighWaterAgent: IDisposable
             {
                 _logger.LogError(e, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseUri);
                 activity?.AddException(e);
-                await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+                await _daemonWakeup.WaitAsync(_settings.SlowPollingTime, _token).ConfigureAwait(false);
                 continue;
             }
 
@@ -151,7 +153,7 @@ public class HighWaterAgent: IDisposable
                     var safeHarborTime = _current!.Timestamp.Add(_settings.StaleSequenceThreshold);
                     if (safeHarborTime > statistics.Timestamp)
                     {
-                        await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+                        await _daemonWakeup.WaitAsync(_settings.SlowPollingTime, _token).ConfigureAwait(false);
                         continue;
                     }
 
@@ -213,7 +215,7 @@ public class HighWaterAgent: IDisposable
                 _current = statistics;
             }
 
-            await Task.Delay(delayTime, _token).ConfigureAwait(false);
+            await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
             return;
         }
 
@@ -226,7 +228,7 @@ public class HighWaterAgent: IDisposable
 
         await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
 
-        await Task.Delay(delayTime, _token).ConfigureAwait(false);
+        await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
     }
 
     private void TimerOnElapsed(object? sender, ElapsedEventArgs e)
