@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using JasperFx.Core;
+using JasperFx.Events.Daemon.HighWater;
 
 namespace JasperFx.Events.Daemon;
 
@@ -94,7 +95,16 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     public TimeSpan AgentPauseTime { get; set; } = 1.Seconds();
 
     /// <summary>
-    ///     Projection Daemon mode. The default is Disabled. 
+    ///     Projection Daemon mode. The default is Disabled.
     /// </summary>
     public DaemonMode AsyncMode { get; set; } = DaemonMode.Disabled;
+
+    /// <summary>
+    /// Optional mechanism to wake the high water detection agent when new events
+    /// are appended, instead of relying solely on polling. For example, a PostgreSQL
+    /// LISTEN/NOTIFY implementation can signal immediately when events are written.
+    /// When null, the agent falls back to polling with <see cref="FastPollingTime"/>
+    /// and <see cref="SlowPollingTime"/>.
+    /// </summary>
+    public IDaemonWakeup? Wakeup { get; set; }
 }
