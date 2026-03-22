@@ -80,7 +80,7 @@ public class BatchingChannel<T> : BlockBase<T>
             await _downstream.PostAsync(_current.ToArray());
         }
 
-        // Don't wait for downstream because we'll do that through 
+        await _downstream.WaitForCompletionAsync();
     }
 
     public override void Complete()
