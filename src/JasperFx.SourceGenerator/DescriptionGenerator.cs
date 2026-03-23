@@ -322,7 +322,7 @@ public sealed class DescriptionGenerator : IIncrementalGenerator
                 }
                 else
                 {
-                    sb.AppendLine($"        description.Properties.Add(new OptionsValue(\"{escapedSubject}\", \"{escapedName}\", {prop.Name}) {{ Type = PropertyType.Text, Value = {prop.Name}?.ToString()! }});");
+                    sb.AppendLine($"        description.Properties.Add(new OptionsValue(\"{escapedSubject}\", \"{escapedName}\", {prop.Name}) {{ Type = PropertyType.Text, Value = {prop.Name}.ToString()! }});");
                 }
                 break;
         }

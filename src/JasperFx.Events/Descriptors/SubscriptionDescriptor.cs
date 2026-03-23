@@ -19,8 +19,10 @@ public class SubscriptionDescriptor : OptionsDescription
         SubscriptionType = subscriptionType;
     }
 
-    public SubscriptionDescriptor(ISubscriptionSource subject, IEventStore store) : base(subject)
+    public SubscriptionDescriptor(ISubscriptionSource subject, IEventStore store)
     {
+        // Explicitly build — no reflection via base(subject)
+        Subject = subject.GetType().FullName ?? subject.GetType().Name;
         SubscriptionType = subject.Type;
         Name = subject.Name;
         Version = subject.Version;

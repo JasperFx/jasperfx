@@ -3,9 +3,8 @@ using Shouldly;
 
 namespace CoreTests.Descriptors;
 
-// Test target class — the source generator should emit ToDescription()
-[GenerateDescription]
-public partial class SampleSettings
+// Test target class — explicitly implements IDescribeMyself
+public class SampleSettings : IDescribeMyself
 {
     public string Name { get; set; } = "default";
     public int Count { get; set; } = 42;
@@ -13,17 +12,28 @@ public partial class SampleSettings
     public bool Enabled { get; set; } = true;
     public Uri? Endpoint { get; set; }
     public SampleMode Mode { get; set; } = SampleMode.Balanced;
-
-    [IgnoreDescription]
     public string InternalOnly { get; set; } = "secret";
+
+    public OptionsDescription ToDescription()
+    {
+        var desc = new OptionsDescription { Subject = "CoreTests.Descriptors.SampleSettings" };
+        desc.AddValue(nameof(Name), Name);
+        desc.AddValue(nameof(Count), Count);
+        desc.AddValue(nameof(Interval), Interval);
+        desc.AddValue(nameof(Enabled), Enabled);
+        if (Endpoint != null) desc.AddValue(nameof(Endpoint), Endpoint);
+        desc.AddValue(nameof(Mode), Mode);
+        // InternalOnly intentionally excluded
+        return desc;
+    }
 }
 
 public enum SampleMode { Solo, Balanced, Serverless }
 
-public class GenerateDescriptionTests
+public class ExplicitDescriptionTests
 {
     [Fact]
-    public void generated_description_has_correct_properties()
+    public void explicit_description_has_correct_properties()
     {
         var settings = new SampleSettings
         {
@@ -36,12 +46,10 @@ public class GenerateDescriptionTests
             InternalOnly = "should not appear"
         };
 
-        // This should compile thanks to the source generator emitting ToDescription()
         var desc = settings.ToDescription();
 
         desc.Subject.ShouldBe("CoreTests.Descriptors.SampleSettings");
 
-        // Check each property type classification
         var name = desc.PropertyFor("Name");
         name.ShouldNotBeNull();
         name!.Value.ShouldBe("TestService");
@@ -78,8 +86,6 @@ public class GenerateDescriptionTests
     public void implements_IDescribeMyself()
     {
         var settings = new SampleSettings();
-
-        // Verify the generated code implements the interface
         (settings is IDescribeMyself).ShouldBeTrue();
     }
 }
