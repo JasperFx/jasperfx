@@ -72,6 +72,23 @@ public class UsageGraph
             var handler = _handlers.FirstOrDefault(h => h.Handle(model, tokens));
             if (handler == null)
             {
+                if (JasperFxEnvironment.AutoStartHost && InputParser.IsFlag(tokens.Peek()))
+                {
+                    // Skip unrecognized flags when AutoStartHost is true, as
+                    // WebApplicationFactory may pass additional flags that JasperFx
+                    // does not recognize
+                    var skipped = tokens.Dequeue();
+
+                    // If the flag doesn't contain '=' and the next token is not a flag,
+                    // skip the value token as well
+                    if (!skipped.Contains('=') && tokens.Any() && !tokens.NextIsFlag())
+                    {
+                        tokens.Dequeue();
+                    }
+
+                    continue;
+                }
+
                 throw new InvalidUsageException("Unknown argument or flag for value " + tokens.Peek());
             }
 
