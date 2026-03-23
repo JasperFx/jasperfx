@@ -33,4 +33,9 @@
         <PackageReference Include="Spectre.Console" Version="0.53.0" />
         <PackageReference Include="Polly.Core" Version="8.6.5" />
     </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx.SourceGenerator\JasperFx.SourceGenerator.csproj"
+                          OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    </ItemGroup>
 </Project>
