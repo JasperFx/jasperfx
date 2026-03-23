@@ -15,7 +15,13 @@ internal enum CandidateMode
     PartialProjection,
     SelfAggregating,
     SelfAggregatingEvolve,
-    EventProjection
+    EventProjection,
+    /// <summary>
+    /// EventProjection that already has an explicit ApplyAsync override.
+    /// Only needs published type registration, not method generation.
+    /// See https://github.com/JasperFx/marten/issues/4166
+    /// </summary>
+    EventProjectionTypeRegistrationOnly
 }
 
 internal sealed class ConventionalMethodInfo
@@ -75,6 +81,12 @@ internal sealed class CandidateInfo
     public bool HasExistingParameterlessConstructor { get; set; } // On the projection class itself
     // EventProjection-specific
     public INamedTypeSymbol? OperationsType { get; set; } // TOperations from JasperFxEventProjectionBase<TOperations, TQuerySession>
+    /// <summary>
+    /// Document types discovered from Store/Insert/Delete calls in method bodies.
+    /// Used for EventProjectionTypeRegistrationOnly mode.
+    /// See https://github.com/JasperFx/marten/issues/4166
+    /// </summary>
+    public List<ITypeSymbol> DiscoveredPublishedTypes { get; set; } = new();
     // SelfAggregatingEvolve-specific
     public EvolveMethodInfo? EvolveMethod { get; set; }
 }
@@ -737,7 +749,27 @@ internal static class AggregateAnalyzer
 
         // Check if it already overrides ApplyAsync
         if (HasApplyAsyncOverride(classSymbol))
-            return null;
+        {
+            // Even with an explicit override, we should still discover document types
+            // used in Store/Insert/Delete calls so they can be registered as published types.
+            // See https://github.com/JasperFx/marten/issues/4166
+            if (!isPartial) return null;
+
+            var discoveredTypes = DiscoverDocumentTypesFromMethodBodies(classDecl, classSymbol);
+            if (discoveredTypes.Count == 0) return null;
+
+            return new CandidateInfo
+            {
+                Mode = CandidateMode.EventProjectionTypeRegistrationOnly,
+                ClassSymbol = classSymbol,
+                ClassSyntax = classDecl,
+                IsPartial = isPartial,
+                OperationsType = baseInfo.operationsType,
+                QuerySessionType = baseInfo.querySessionType,
+                DiscoveredPublishedTypes = discoveredTypes,
+                HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
+            };
+        }
 
         // Check if constructor has lambda registrations (Project<T> / ProjectAsync<T>)
         if (HasEventProjectionLambdaRegistrations(classDecl))
@@ -758,6 +790,68 @@ internal static class AggregateAnalyzer
             Methods = methods,
             HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
         };
+    }
+
+    /// <summary>
+    /// Scans method bodies in an EventProjection class for calls to Store&lt;T&gt;, Insert&lt;T&gt;,
+    /// Delete&lt;T&gt;, Update&lt;T&gt; on document operations to discover published document types.
+    /// This handles the case where users override ApplyAsync directly and call operations
+    /// methods with document types that are not otherwise registered.
+    /// See https://github.com/JasperFx/marten/issues/4166
+    /// </summary>
+    private static List<ITypeSymbol> DiscoverDocumentTypesFromMethodBodies(
+        TypeDeclarationSyntax classDecl,
+        INamedTypeSymbol classSymbol)
+    {
+        var documentTypes = new List<ITypeSymbol>();
+        var typeNames = new HashSet<string>();
+
+        // Operation methods that accept a document type as a generic argument
+        var operationMethodNames = new HashSet<string>
+            { "Store", "Insert", "Delete", "Update", "HardDelete" };
+
+        // Scan all method bodies in the class for generic invocations
+        foreach (var node in classDecl.DescendantNodes())
+        {
+            if (node is InvocationExpressionSyntax invocation)
+            {
+                // Look for patterns like: operations.Store<T>(...) or ops.Insert<T>(...)
+                var methodName = invocation.Expression switch
+                {
+                    MemberAccessExpressionSyntax memberAccess => memberAccess.Name,
+                    _ => null
+                };
+
+                if (methodName is GenericNameSyntax genericName &&
+                    operationMethodNames.Contains(genericName.Identifier.ValueText) &&
+                    genericName.TypeArgumentList.Arguments.Count == 1)
+                {
+                    var typeArg = genericName.TypeArgumentList.Arguments[0];
+                    var typeName = ExtractTypeNameFromTypeSyntax(typeArg);
+                    if (typeName != null)
+                    {
+                        typeNames.Add(typeName);
+                    }
+                }
+            }
+
+            // Also detect: new SomeType(...) passed to operations.Insert(new SomeType(...))
+            // This is handled by looking for non-generic overloads like Insert(entity) where
+            // the entity is a new expression. But this is harder to detect without semantic analysis.
+            // For now, focus on the generic overload pattern which is the most common.
+        }
+
+        // Resolve type names to symbols
+        foreach (var tn in typeNames)
+        {
+            var resolved = FindTypeByName(tn, classSymbol);
+            if (resolved != null && !IsFrameworkType(resolved))
+            {
+                documentTypes.Add(resolved);
+            }
+        }
+
+        return documentTypes;
     }
 
     private static List<ConventionalMethodInfo> DiscoverEventProjectionMethods(

@@ -36,9 +36,10 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     {
         if (node is ClassDeclarationSyntax classDecl)
         {
-            // Classes: check for Apply, Create, ShouldDelete, Project, Transform, Evolve, or EvolveAsync
+            // Classes: check for Apply, Create, ShouldDelete, Project, Transform, Evolve, EvolveAsync,
+            // or ApplyAsync (for EventProjection with explicit override that needs type registration)
             return classDecl.Members.OfType<MethodDeclarationSyntax>()
-                .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete" or "Project" or "Transform" or "Evolve" or "EvolveAsync");
+                .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete" or "Project" or "Transform" or "Evolve" or "EvolveAsync" or "ApplyAsync");
         }
 
         if (node is RecordDeclarationSyntax recordDecl)
@@ -168,6 +169,10 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                 EmitEventProjection(context, info);
                 break;
 
+            case CandidateMode.EventProjectionTypeRegistrationOnly:
+                EmitEventProjectionTypeRegistration(context, info);
+                break;
+
             case CandidateMode.None:
                 // Emit diagnostics for why we're skipping
                 if (!info.IsPartial && info.ClassSymbol != null)
@@ -216,6 +221,14 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
         var source = EvolverCodeEmitter.EmitEventProjectionPartial(info);
         context.AddSource(SafeHintName(info.ClassSymbol, ".EventProjection"), source);
+    }
+
+    private static void EmitEventProjectionTypeRegistration(SourceProductionContext context, CandidateInfo info)
+    {
+        if (info.DiscoveredPublishedTypes.Count == 0) return;
+
+        var source = EvolverCodeEmitter.EmitEventProjectionTypeRegistrationPartial(info);
+        context.AddSource(SafeHintName(info.ClassSymbol, ".TypeRegistration"), source);
     }
 
     private static void EmitSelfAggregatingEvolve(SourceProductionContext context, CandidateInfo info)
