@@ -174,6 +174,72 @@ namespace CommandLineTests
         }
     }
 
+    public class auto_start_host_skips_unknown_flags : IDisposable
+    {
+        private readonly bool _originalAutoStartHost;
+
+        public auto_start_host_skips_unknown_flags()
+        {
+            _originalAutoStartHost = JasperFxEnvironment.AutoStartHost;
+            JasperFxEnvironment.AutoStartHost = true;
+        }
+
+        public void Dispose()
+        {
+            JasperFxEnvironment.AutoStartHost = _originalAutoStartHost;
+        }
+
+        private RunInput buildRunInput(params string[] rawArgs)
+        {
+            var args = ArgPreprocessor.Process(rawArgs);
+            var graph = new UsageGraph(typeof(RunCommand));
+            return (RunInput)graph.BuildInput(new Queue<string>(args), new ActivatorCommandCreator());
+        }
+
+        [Fact]
+        public void should_skip_unknown_flags_with_equals_syntax()
+        {
+            var input = buildRunInput("--Logging__EventLog__LogLevel__Default=None", "--environment=Development");
+            input.EnvironmentFlag.ShouldBe("Development");
+        }
+
+        [Fact]
+        public void should_skip_unknown_flags_with_separate_value()
+        {
+            var input = buildRunInput("--unknown-flag", "some-value", "--environment", "Production");
+            input.EnvironmentFlag.ShouldBe("Production");
+        }
+
+        [Fact]
+        public void should_skip_multiple_unknown_flags()
+        {
+            var input = buildRunInput(
+                "--Logging__LogLevel__Microsoft.Identity.Web=None",
+                "--Logging__EventLog__LogLevel__Default=None",
+                "--environment=Development",
+                "--contentRoot=/some/path",
+                "--applicationName=TestApp");
+            input.EnvironmentFlag.ShouldBe("Development");
+            input.ContentRootFlag.ShouldBe("/some/path");
+            input.ApplicationNameFlag.ShouldBe("TestApp");
+        }
+
+        [Fact]
+        public void should_skip_unknown_boolean_flags()
+        {
+            var input = buildRunInput("--some-unknown-boolean-flag", "--environment=Staging");
+            input.EnvironmentFlag.ShouldBe("Staging");
+        }
+
+        [Fact]
+        public void should_throw_for_unknown_flags_when_auto_start_host_is_false()
+        {
+            JasperFxEnvironment.AutoStartHost = false;
+            Should.Throw<InvalidUsageException>(() =>
+                buildRunInput("--Logging__EventLog__LogLevel__Default=None"));
+        }
+    }
+
     public class FakeLinkInput
     {
         [Description("The root directory of the web folder")]
