@@ -64,18 +64,25 @@ public class EventSliceTests
 
     }
 
+    private static Event<T> AddEventByData<T>(EventSlice<Trip, Guid> slice, T data) where T : notnull
+    {
+        var e = new Event<T>(data);
+        slice.AddEvent(e);
+        return e;
+    }
+
     [Fact]
     public void fan_out()
     {
         var slice = new EventSlice<Trip, Guid>(Guid.NewGuid(), StorageConstants.DefaultTenantId);
-        var e1 = slice.AddEventByData(new TripStarted());
-        var e2 = slice.AddEventByData(Travel.Random(1));
-        var e3 = slice.AddEventByData(new Arrival());
-        var e4 = slice.AddEventByData(Travel.Random(2));
-        var e5 = slice.AddEventByData(new Arrival());
-        
+        var e1 = AddEventByData(slice, new TripStarted());
+        var e2 = AddEventByData(slice, Travel.Random(1));
+        var e3 = AddEventByData(slice, new Arrival());
+        var e4 = AddEventByData(slice, Travel.Random(2));
+        var e5 = AddEventByData(slice, new Arrival());
+
         slice.FanOut<Travel, Movement>(x => x.Movements);
-        
+
         slice.Events().ElementAt(0).ShouldBe(e1);
         slice.Events().ElementAt(1).ShouldBe(e2);
 
