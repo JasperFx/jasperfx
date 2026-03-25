@@ -44,16 +44,22 @@ public class DatabaseDescriptor : OptionsDescription
     /// </summary>
     public string SchemaOrNamespace { get; set; } = string.Empty;
 
-    // TODO -- get a unit test on this
     public Uri DatabaseUri()
     {
+        var serverName = ServerName.Contains(',') ? ServerName.Split(',')[0] : ServerName;
+
+        // Sanitize the server name for use as a URI hostname. Unix socket paths
+        // (e.g. /cloudsql/platform-dev:europe-west4:shared-db) contain characters
+        // that are invalid in URI hostnames.
+        serverName = serverName.Replace('/', '_').Replace(':', '_');
+
         var parts = new List<string>
         {
-            ServerName.Contains(',') ? ServerName.Split(',')[0] : ServerName,
+            serverName,
             DatabaseName,
             SchemaOrNamespace
         };
-        
+
         return new Uri($"{Engine.ToLowerInvariant()}://{parts.Where(x => x.IsNotEmpty()).Select(Uri.EscapeDataString).Join("/")}");
     }
 
