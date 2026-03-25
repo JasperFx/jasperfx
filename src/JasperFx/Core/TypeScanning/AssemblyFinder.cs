@@ -78,6 +78,12 @@ public static class AssemblyFinder
 
         foreach (var file in files)
         {
+            if (file.Contains("/runtimes") || file.Contains("/native"))
+            {
+                // Skip any path that is in a runtime or native directory.
+                continue;
+            }
+            
             var name = Path.GetFileNameWithoutExtension(file);
             Assembly? assembly = null;
 
