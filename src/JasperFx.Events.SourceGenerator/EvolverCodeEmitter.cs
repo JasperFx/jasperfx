@@ -406,6 +406,10 @@ internal static class EvolverCodeEmitter
 
         // Assembly attributes must precede namespace declarations
         sb.AppendLine($"[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof({aggregateFullName}), typeof({GetFullyQualifiedEvolverName(info, evolverName)}))]");
+        if (info.HasNaturalKey)
+        {
+            sb.AppendLine($"[assembly: global::JasperFx.Events.Aggregation.NaturalKeyAggregate(typeof({aggregateFullName}))]");
+        }
         sb.AppendLine();
 
         var ns = info.ClassSymbol.ContainingNamespace;
@@ -455,6 +459,10 @@ internal static class EvolverCodeEmitter
 
         // Assembly attribute for discovery
         sb.AppendLine($"[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof({aggregateFullName}), typeof({GetFullyQualifiedEvolverName(info, evolverName)}))]");
+        if (info.HasNaturalKey)
+        {
+            sb.AppendLine($"[assembly: global::JasperFx.Events.Aggregation.NaturalKeyAggregate(typeof({aggregateFullName}))]");
+        }
         sb.AppendLine();
 
         var ns = info.ClassSymbol.ContainingNamespace;
