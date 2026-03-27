@@ -89,6 +89,8 @@ internal sealed class CandidateInfo
     public List<ITypeSymbol> DiscoveredPublishedTypes { get; set; } = new();
     // SelfAggregatingEvolve-specific
     public EvolveMethodInfo? EvolveMethod { get; set; }
+    // Natural key discovery
+    public bool HasNaturalKey { get; set; }
 }
 
 internal static class AggregateAnalyzer
@@ -209,7 +211,8 @@ internal static class AggregateAnalyzer
             AggregateType = classSymbol,
             IdentityType = idType,
             Methods = methods,
-            HasDefaultConstructor = HasParameterlessConstructor(classSymbol)
+            HasDefaultConstructor = HasParameterlessConstructor(classSymbol),
+            HasNaturalKey = HasNaturalKeyProperty(classSymbol)
         };
     }
 
@@ -242,7 +245,8 @@ internal static class AggregateAnalyzer
             AggregateType = classSymbol,
             IdentityType = idType,
             HasDefaultConstructor = HasParameterlessConstructor(classSymbol),
-            EvolveMethod = evolveMethod
+            EvolveMethod = evolveMethod,
+            HasNaturalKey = HasNaturalKeyProperty(classSymbol)
         };
     }
 
@@ -1067,6 +1071,17 @@ internal static class AggregateAnalyzer
         if (constructors.Length == 0) return true;
 
         return constructors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+    }
+
+    /// <summary>
+    /// Checks if the type has a property marked with [NaturalKey] attribute
+    /// </summary>
+    private static bool HasNaturalKeyProperty(INamedTypeSymbol type)
+    {
+        return type.GetMembers()
+            .OfType<IPropertySymbol>()
+            .Any(p => p.GetAttributes()
+                .Any(a => a.AttributeClass?.Name is "NaturalKeyAttribute" or "NaturalKey"));
     }
 
     /// <summary>
