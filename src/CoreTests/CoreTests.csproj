@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <IsPackable>false</IsPackable>
@@ -6,29 +6,29 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="6.0.0"/>
+        <PackageReference Include="coverlet.collector" Version="6.0.0" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
         <PackageReference Include="NSubstitute" Version="5.3.0" />
         <PackageReference Include="Shouldly" Version="4.3.0" />
         <PackageReference Include="xunit" Version="2.9.3" />
-        <PackageReference Include="xunit.runner.visualstudio" Version="2.9.2">
+        <PackageReference Include="xunit.runner.visualstudio" Version="3.0.0">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="Xunit"/>
+        <Using Include="Xunit" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
-        <ProjectReference Include="..\Widgets1\Widgets1.csproj"/>
-        <ProjectReference Include="..\Widgets2\Widgets2.csproj"/>
-        <ProjectReference Include="..\Widgets3\Widgets3.csproj"/>
-        <ProjectReference Include="..\Widgets4\Widgets4.csproj"/>
-        <ProjectReference Include="..\FSharpTypes\FSharpTypes.fsproj"/>
-        <ProjectReference Include="..\Widgets5\Widgets5.csproj"/>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\Widgets1\Widgets1.csproj" />
+        <ProjectReference Include="..\Widgets2\Widgets2.csproj" />
+        <ProjectReference Include="..\Widgets3\Widgets3.csproj" />
+        <ProjectReference Include="..\Widgets4\Widgets4.csproj" />
+        <ProjectReference Include="..\FSharpTypes\FSharpTypes.fsproj" />
+        <ProjectReference Include="..\Widgets5\Widgets5.csproj" />
     </ItemGroup>
 
 </Project>
