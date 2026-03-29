@@ -21,8 +21,17 @@ public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
     public override bool Execute(GenerateCodeInput input)
     {
         DynamicCodeBuilder.WithinCodegenCommand = true;
-        
+
         using var host = input.BuildHost();
+
+        // When using the old ASP.NET Core Startup.Configure() pattern,
+        // code generation participants (like Wolverine.Http endpoints) are
+        // registered during host startup, not during Build(). Starting the
+        // host ensures Configure() runs and all participants are discovered.
+        if (input.StartFlag)
+        {
+            host.StartAsync().GetAwaiter().GetResult();
+        }
 
         var collections = host.Services.GetServices<ICodeFileCollection>().ToArray();
         if (!collections.Any())
