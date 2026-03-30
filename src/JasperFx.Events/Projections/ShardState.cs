@@ -87,6 +87,18 @@ public class ShardState
     /// </summary>
     public int? RunningOnNode { get; set; }
 
+    /// <summary>
+    /// Configured threshold for warning-level health check when shard is behind by this many events.
+    /// Null means use default.
+    /// </summary>
+    public long? WarningBehindThreshold { get; set; }
+
+    /// <summary>
+    /// Configured threshold for critical-level health check when shard is behind by this many events.
+    /// Null means use default.
+    /// </summary>
+    public long? CriticalBehindThreshold { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";
