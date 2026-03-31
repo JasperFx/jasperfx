@@ -374,6 +374,12 @@ public class CommandFactory : ICommandFactory
     /// </summary>
     public void RegisterCommandsFromExtensionAssemblies()
     {
+        // Check for source-generated command manifest first to avoid assembly scanning
+        if (TryRegisterFromGeneratedManifest())
+        {
+            return;
+        }
+
         var assemblies = AssemblyFinder
             .FindAssemblies(a => a.HasAttribute<JasperFxAssemblyAttribute>() && !a.IsDynamic)
             .Concat(AppDomain.CurrentDomain.GetAssemblies())
@@ -392,5 +398,58 @@ public class CommandFactory : ICommandFactory
         }
 
         AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    ///     Attempt to use a source-generated command manifest to register commands
+    ///     without runtime assembly scanning. Returns true if a manifest was found and used.
+    /// </summary>
+    internal bool TryRegisterFromGeneratedManifest()
+    {
+        // Look for the generated DiscoveredCommands class in all loaded assemblies
+        // and in the entry assembly. The source generator emits this class in the
+        // JasperFx.Generated namespace of the consuming project.
+        var candidateAssemblies = AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.IsDynamic);
+
+        foreach (var assembly in candidateAssemblies)
+        {
+            var manifestType = assembly.GetType("JasperFx.Generated.DiscoveredCommands");
+            if (manifestType == null) continue;
+
+            var prop = manifestType.GetProperty("CommandTypes",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            if (prop == null) continue;
+
+            if (prop.GetValue(null) is IEnumerable<Type> commandTypes)
+            {
+                foreach (var type in commandTypes)
+                {
+                    if (IsJasperFxCommandType(type))
+                    {
+                        _commandTypes[CommandNameFor(type)] = type;
+                    }
+                }
+
+                // Also register extension types from the assembly
+                if (assembly.TryGetAttribute<JasperFxAssemblyAttribute>(out var attribute))
+                {
+                    if (attribute.ExtensionType != null)
+                    {
+                        _extensionTypes.Add(attribute.ExtensionType);
+                    }
+                }
+
+                if (!_hasAppliedExtensions)
+                {
+                    AnsiConsole.MarkupLine(
+                        "[gray]Using source-generated command manifest, skipping assembly scanning[/]");
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 }
