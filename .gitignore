@@ -399,3 +399,7 @@ FodyWeavers.xsd
 .idea/
 .DS_Store
 src/CommandLineRunner/description.txt
+
+# VitePress documentation
+docs/.vitepress/cache
+docs/.vitepress/dist

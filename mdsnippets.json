@@ -1,0 +1,8 @@
+{
+    "Convention": "InPlaceOverwrite",
+    "LinkFormat": "GitHub",
+    "UrlPrefix": "https://github.com/JasperFx/jasperfx/blob/master",
+    "ExcludeMarkdownDirectories": [],
+    "ExcludeSnippetDirectories": [],
+    "TreatMissingAsWarning": false
+}
