@@ -13,13 +13,14 @@ namespace JasperFx.Events.Projections;
 /// </summary>
 /// <typeparam name="TOperations"></typeparam>
 /// <typeparam name="TQuerySession"></typeparam>
-public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> : 
-    ProjectionBase, 
-    IProjectionSource<TOperations, TQuerySession>, 
+public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
+    ProjectionBase,
+    IProjectionSource<TOperations, TQuerySession>,
     ISubscriptionFactory<TOperations, TQuerySession>,
     IInlineProjection<TOperations>,
     IEntityStorage<TOperations>,
-    IJasperFxProjection<TOperations> where TOperations : TQuerySession, IStorageOperations
+    IJasperFxProjection<TOperations>,
+    IEventEnrichment<TQuerySession> where TOperations : TQuerySession, IStorageOperations
 {
     private readonly EventProjectionApplication<TOperations> _application;
     public Type ProjectionType => GetType();
@@ -66,10 +67,25 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return this;
     }
 
-    Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToList();
-        return applyAsync(operations, events, cancellation);
+        await EnrichEventsAsync(operations, events, cancellation);
+        await applyAsync(operations, events, cancellation);
+    }
+
+    /// <summary>
+    /// Override this to enrich events with additional data before they are applied.
+    /// This is called once per tenant batch before individual event processing begins.
+    /// Use this to batch-load reference data and avoid N+1 query problems.
+    /// </summary>
+    /// <param name="querySession">A query session for the current tenant</param>
+    /// <param name="events">All events in the current batch</param>
+    /// <param name="cancellation"></param>
+    public virtual Task EnrichEventsAsync(TQuerySession querySession, IReadOnlyList<IEvent> events,
+        CancellationToken cancellation)
+    {
+        return Task.CompletedTask;
     }
 
     /// <summary>
