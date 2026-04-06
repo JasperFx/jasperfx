@@ -217,8 +217,16 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
             var groups = range.Events.GroupBy(x => x.TenantId).ToArray();
             foreach (var group in groups)
             {
+                var eventList = group.ToList();
                 await using var session = batch.SessionForTenant(group.Key);
-                await _projection.ApplyAsync(session, group.ToList(), cancellationToken);
+
+                // Call enrichment hook if the projection supports it
+                if (_projection is IEventEnrichment<TQuerySession> enrichable)
+                {
+                    await enrichable.EnrichEventsAsync(session, eventList, cancellationToken);
+                }
+
+                await _projection.ApplyAsync(session, eventList, cancellationToken);
             }
         }
         catch (Exception e)
