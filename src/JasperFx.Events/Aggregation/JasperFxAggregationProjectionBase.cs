@@ -55,7 +55,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             base.Version = att.Version;
         }
 
-        NaturalKeyDefinition = discoverNaturalKey();
+        NaturalKeyDefinition = discoverNaturalKey(GetType());
     }
 
     public NaturalKeyDefinition? NaturalKeyDefinition { get; }
@@ -402,7 +402,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return (lastEvent, aggregate);
     }
 
-    private static NaturalKeyDefinition? discoverNaturalKey()
+    private static NaturalKeyDefinition? discoverNaturalKey(Type projectionType)
     {
         var docType = typeof(TDoc);
 
@@ -414,8 +414,29 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         var definition = new NaturalKeyDefinition(docType, naturalKeyProp);
 
-        // Discover [NaturalKeySource] methods on the aggregate to build event mappings
-        var methods = docType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+        // Discover [NaturalKeySource] methods on the aggregate type (instance methods)
+        discoverNaturalKeySourceMethods(definition, naturalKeyProp, docType,
+            BindingFlags.Public | BindingFlags.Instance);
+
+        // Also discover [NaturalKeySource] methods on the projection type itself
+        // (static methods on the projection class, e.g., Create/Apply methods)
+        if (projectionType != docType)
+        {
+            discoverNaturalKeySourceMethods(definition, naturalKeyProp, projectionType,
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+        }
+
+        return definition;
+    }
+
+    private static void discoverNaturalKeySourceMethods(
+        NaturalKeyDefinition definition,
+        PropertyInfo naturalKeyProp,
+        Type searchType,
+        BindingFlags bindingFlags)
+    {
+        var docType = typeof(TDoc);
+        var methods = searchType.GetMethods(bindingFlags)
             .Where(m => m.GetCustomAttribute<NaturalKeySourceAttribute>() != null);
 
         foreach (var method in methods)
@@ -423,10 +444,57 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             var parameters = method.GetParameters();
             if (parameters.Length == 0) continue;
 
-            var eventType = parameters[0].ParameterType;
+            // Determine the event type from the first parameter.
+            // It can be the raw event type or IEvent<T>.
+            var firstParamType = parameters[0].ParameterType;
+            Type eventType;
+            if (firstParamType.IsGenericType &&
+                firstParamType.GetGenericTypeDefinition() == typeof(IEvent<>))
+            {
+                eventType = firstParamType.GetGenericArguments()[0];
+            }
+            else if (typeof(IEvent).IsAssignableFrom(firstParamType))
+            {
+                eventType = firstParamType;
+            }
+            else
+            {
+                eventType = firstParamType;
+            }
 
-            // Build a delegate that: creates aggregate, calls the method, reads the natural key property
-            var eventParam = Expression.Parameter(typeof(object), "e");
+            // Skip if we already have a mapping for this event type
+            if (definition.EventMappings.Any(m => m.EventType == eventType))
+                continue;
+
+            try
+            {
+                var extractor = buildExtractor(method, naturalKeyProp, docType, parameters);
+                if (extractor != null)
+                {
+                    definition.EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor));
+                }
+            }
+            catch
+            {
+                // Silently skip methods we can't build extractors for
+            }
+        }
+    }
+
+    private static Func<object, object?>? buildExtractor(
+        MethodInfo method,
+        PropertyInfo naturalKeyProp,
+        Type docType,
+        ParameterInfo[] parameters)
+    {
+        var eventParam = Expression.Parameter(typeof(object), "e");
+        var firstParamType = parameters[0].ParameterType;
+
+        // For instance methods on the aggregate (the original working pattern):
+        // Create a new TDoc, call the method, read the natural key property
+        if (!method.IsStatic && method.DeclaringType == docType)
+        {
+            var eventType = firstParamType;
             var docParam = Expression.Variable(docType, "doc");
 
             var body = Expression.Block(
@@ -436,10 +504,42 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 Expression.Convert(Expression.Property(docParam, naturalKeyProp), typeof(object))
             );
 
-            var extractor = Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
-            definition.EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor));
+            return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
         }
 
-        return definition;
+        // For static methods on the projection class, we can't safely call them
+        // (they may need IEvent with StreamKey, etc.). Instead, find a matching
+        // property on the event data type and read it directly.
+        Type eventDataType;
+        if (firstParamType.IsGenericType && firstParamType.GetGenericTypeDefinition() == typeof(IEvent<>))
+        {
+            eventDataType = firstParamType.GetGenericArguments()[0];
+        }
+        else if (firstParamType == docType && parameters.Length >= 2)
+        {
+            var secondType = parameters[1].ParameterType;
+            eventDataType = secondType.IsGenericType && secondType.GetGenericTypeDefinition() == typeof(IEvent<>)
+                ? secondType.GetGenericArguments()[0]
+                : secondType;
+        }
+        else
+        {
+            eventDataType = firstParamType;
+        }
+
+        // Search for a property on the event data that matches the natural key by type
+        var eventKeyProp = eventDataType
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(p => p.PropertyType == naturalKeyProp.PropertyType);
+
+        if (eventKeyProp == null) return null;
+
+        var body2 = Expression.Convert(
+            Expression.Property(
+                Expression.Convert(eventParam, eventDataType),
+                eventKeyProp),
+            typeof(object));
+
+        return Expression.Lambda<Func<object, object?>>(body2, eventParam).Compile();
     }
 }
