@@ -17,7 +17,7 @@ public class ValueTypeInfo
     {
         if (_valueTypes.TryFind(type, out var valueType)) return valueType;
         
-        var allProperties = type.GetProperties();
+        var allProperties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
         var candidates = allProperties.Where(x => x.Name != "Tag").ToArray();
 
         // F# single-case discriminated unions may have Is* boolean properties (older F# compilers).
