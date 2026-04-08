@@ -77,6 +77,21 @@ public class ValueTypeInfoTests
         var wrapper = valueTypeInfo.CreateWrapper<FSharpIntId, int>()(inner);
         valueTypeInfo.UnWrapper<FSharpIntId, int>()(wrapper).ShouldBe(inner);
     }
+    
+    [Fact]
+    public void create_for_type_with_static_properties()
+    {
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(ValueWithStatic));
+        
+        valueTypeInfo.OuterType.ShouldBe(typeof(ValueWithStatic));
+        valueTypeInfo.SimpleType.ShouldBe(typeof(int));
+        valueTypeInfo.ValueProperty.Name.ShouldBe(nameof(ValueWithStatic.Value));
+
+        var inner = 123;
+        valueTypeInfo.CreateWrapper<ValueWithStatic, int>()(inner).Value.ShouldBe(inner);
+        
+        valueTypeInfo.UnWrapper<ValueWithStatic, int>()(new ValueWithStatic(inner)).ShouldBe(inner);
+    }
 }
 
 public record InvoiceId(Guid Value);
@@ -91,4 +106,9 @@ public class OrderId
     public static OrderId From(string inner) => new OrderId(inner);
 
     public string Inner { get; }
+}
+
+public record ValueWithStatic(int Value)
+{
+    public static string Name => "Should be ignored";
 }
