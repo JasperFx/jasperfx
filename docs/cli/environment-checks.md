@@ -168,11 +168,72 @@ services.AddJasperFx(opts =>
 });
 ```
 
+## IHealthCheck Integration
+
+JasperFx automatically discovers and runs any registered `IHealthCheck` implementations as part of the `check-env` command. This bridges the standard .NET health check ecosystem with JasperFx's environment check pipeline.
+
+### Registering Health Checks
+
+Use the `CheckEnvironmentHealthCheck<T>()` extension method:
+
+```csharp
+services.CheckEnvironmentHealthCheck<DatabaseHealthCheck>();
+services.CheckEnvironmentHealthCheck<RedisHealthCheck>();
+```
+
+Or register an instance directly:
+
+```csharp
+services.CheckEnvironmentHealthCheck(new MyCustomHealthCheck());
+```
+
+Any `IHealthCheck` implementation already registered in your DI container (for example, via `AddHealthChecks().AddCheck<T>()`) will also be picked up automatically by `check-env`.
+
+### Health Check Result Mapping
+
+| IHealthCheck Status | Environment Check Result |
+|---------------------|--------------------------|
+| `Healthy`           | Success                  |
+| `Degraded`          | Success (with warning)   |
+| `Unhealthy`         | Failure                  |
+
+### Example
+
+```csharp
+public class DatabaseHealthCheck : IHealthCheck
+{
+    private readonly IDbConnection _connection;
+
+    public DatabaseHealthCheck(IDbConnection connection)
+    {
+        _connection = connection;
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(
+        HealthCheckContext context, CancellationToken ct = default)
+    {
+        try
+        {
+            await _connection.OpenAsync(ct);
+            return HealthCheckResult.Healthy("Database connection is active");
+        }
+        catch (Exception ex)
+        {
+            return HealthCheckResult.Unhealthy("Cannot connect to database", ex);
+        }
+    }
+}
+
+// Registration
+services.CheckEnvironmentHealthCheck<DatabaseHealthCheck>();
+```
+
 ## Best Practices
 
 - Keep checks fast. They run at startup and slow checks delay your application.
 - Throw descriptive exceptions so failures are easy to diagnose.
 - Use environment checks for external dependencies (databases, files, services) rather than internal validation.
+- Prefer `IHealthCheck` for checks that should also be available via ASP.NET Core's `/health` endpoint.
 
 ## Next Steps
 

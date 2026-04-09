@@ -1,6 +1,7 @@
 using JasperFx.CommandLine.Descriptions;
 using JasperFx.Resources;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Spectre.Console;
 
 namespace JasperFx.Environment;
@@ -50,6 +51,50 @@ public static class EnvironmentChecker
             }
         }
 
+        // Execute any registered IHealthCheck instances
+        await ExecuteHealthChecks(services, results, token);
+
         return results;
+    }
+
+    private static async Task ExecuteHealthChecks(IServiceProvider services, EnvironmentCheckResults results,
+        CancellationToken token)
+    {
+        var healthChecks = services.GetServices<IHealthCheck>().ToArray();
+        if (healthChecks.Length == 0) return;
+
+        foreach (var check in healthChecks)
+        {
+            var name = check.GetType().Name;
+            try
+            {
+                var context = new HealthCheckContext
+                {
+                    Registration = new HealthCheckRegistration(name, check, null, null)
+                };
+                var result = await check.CheckHealthAsync(context, token);
+
+                switch (result.Status)
+                {
+                    case HealthStatus.Healthy:
+                        results.RegisterSuccess($"HealthCheck: {name}");
+                        break;
+
+                    case HealthStatus.Degraded:
+                        results.RegisterSuccess($"HealthCheck: {name} (degraded: {result.Description})");
+                        break;
+
+                    case HealthStatus.Unhealthy:
+                        var exception = result.Exception
+                                        ?? new Exception(result.Description ?? $"Health check '{name}' reported unhealthy");
+                        results.RegisterFailure($"HealthCheck: {name}", exception);
+                        break;
+                }
+            }
+            catch (Exception e)
+            {
+                results.RegisterFailure($"HealthCheck: {name}", e);
+            }
+        }
     }
 }
