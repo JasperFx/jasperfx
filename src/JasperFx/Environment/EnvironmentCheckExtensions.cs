@@ -1,9 +1,31 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace JasperFx.Environment;
 
 public static class EnvironmentCheckExtensions
 {
+    /// <summary>
+    ///     Register an IHealthCheck implementation to be executed as part of the
+    ///     JasperFx environment checks when running <c>dotnet run -- check-env</c>.
+    /// </summary>
+    /// <typeparam name="T">The IHealthCheck implementation type</typeparam>
+    public static IServiceCollection CheckEnvironmentHealthCheck<T>(this IServiceCollection services) where T : class, IHealthCheck
+    {
+        services.AddSingleton<IHealthCheck, T>();
+        return services;
+    }
+
+    /// <summary>
+    ///     Register an IHealthCheck instance to be executed as part of the
+    ///     JasperFx environment checks when running <c>dotnet run -- check-env</c>.
+    /// </summary>
+    public static IServiceCollection CheckEnvironmentHealthCheck(this IServiceCollection services, IHealthCheck healthCheck)
+    {
+        services.AddSingleton(healthCheck);
+        return services;
+    }
+
     /// <summary>
     ///     Issue a check against the running environment asynchronously. Throw an
     ///     exception to denote environment failures
