@@ -12,7 +12,7 @@
         <IsRoslynComponent>true</IsRoslynComponent>
         <Description>Source generator for JasperFx command discovery — eliminates runtime assembly scanning for CLI commands</Description>
         <PackageId>JasperFx.SourceGeneration</PackageId>
-        <Version>1.0.0</Version>
+        <Version>1.1.0</Version>
         <IncludeBuildOutput>false</IncludeBuildOutput>
         <DevelopmentDependency>true</DevelopmentDependency>
     </PropertyGroup>

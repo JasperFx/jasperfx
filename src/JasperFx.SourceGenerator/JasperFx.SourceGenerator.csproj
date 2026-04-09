@@ -12,7 +12,7 @@
         <IsRoslynComponent>true</IsRoslynComponent>
         <Description>Source generator for JasperFx OptionsDescription — generates IDescribeMyself.ToDescription() without Reflection</Description>
         <PackageId>JasperFx.SourceGenerator</PackageId>
-        <Version>1.0.0</Version>
+        <Version>1.1.0</Version>
         <IncludeBuildOutput>false</IncludeBuildOutput>
         <DevelopmentDependency>true</DevelopmentDependency>
     </PropertyGroup>

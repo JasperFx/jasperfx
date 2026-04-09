@@ -12,7 +12,7 @@
         <IsRoslynComponent>true</IsRoslynComponent>
         <Description>Source generator for Fast Aggregate Projections for Marten and future JasperFx Event Stores</Description>
         <PackageId>JasperFx.Events.SourceGenerator</PackageId>
-        <Version>1.4.0</Version>
+        <Version>1.5.0</Version>
         <IncludeBuildOutput>false</IncludeBuildOutput>
         <DevelopmentDependency>true</DevelopmentDependency>
     </PropertyGroup>
