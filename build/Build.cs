@@ -104,7 +104,7 @@ partial class Build : NukeBuild
             DotNet("run --framework net9.0 -- describe --file description.txt", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- describe --environment Testing --applicationName Different --contentRoot /bin", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- describe --environment=Testing --applicationName=Different --contentRoot=/bin", Solution.TestHarnesses.CommandLineRunner.Directory);
-            DotNet("run --framework net9.0 -- codegen preview --start", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet("run --framework net9.0 -- codegen preview --start", Solution.TestHarnesses.GeneratorTarget.Directory);
         });
 
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";

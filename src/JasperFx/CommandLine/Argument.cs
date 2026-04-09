@@ -8,16 +8,24 @@ namespace JasperFx.CommandLine;
 
 public class Argument : TokenHandlerBase
 {
-    private readonly MemberInfo _member;
+    private readonly MemberInfo? _member;
     protected Func<string, object> _converter;
     private bool _isLatched;
-    private readonly Type _memberType;
+    private readonly Type? _memberType;
 
     public Argument(MemberInfo member, Conversions conversions) : base(member)
     {
         _member = member;
         _memberType = member.GetMemberType()!;
         _converter = conversions.FindConverter(_memberType)!;
+    }
+
+    /// <summary>
+    /// Constructor for source-generated argument handlers that don't need MemberInfo.
+    /// </summary>
+    protected Argument(string memberName, string description) : base(memberName, description)
+    {
+        _converter = null!; // Subclass provides its own conversion
     }
 
     public override bool Handle(object input, Queue<string> tokens)
@@ -29,9 +37,9 @@ public class Argument : TokenHandlerBase
 
         if (tokens.NextIsFlag())
         {
-            if (_memberType.IsNumeric())
+            if (_memberType!.IsNumeric())
             {
-                if (!decimal.TryParse(tokens.Peek(), out var number))
+                if (!decimal.TryParse(tokens.Peek(), out _))
                 {
                     return false;
                 }
@@ -52,7 +60,7 @@ public class Argument : TokenHandlerBase
 
     public override string ToUsageDescription()
     {
-        var memberType = _member.GetMemberType()!;
+        var memberType = _member!.GetMemberType()!;
         if (memberType.GetTypeInfo().IsEnum)
         {
             return Enum.GetNames(memberType).Join("|");

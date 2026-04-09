@@ -1,0 +1,3 @@
+<Project>
+    <!-- Override the parent Directory.Build.props to prevent BenchmarkDotNet auto-generated projects from multi-targeting -->
+</Project>
