@@ -27,7 +27,8 @@ public class UsageGraph
             Description = commandType.Name;
         }
 
-        _handlers = InputParser.GetHandlers(_inputType);
+        _handlers = GeneratedParserRegistry.TryGetHandlers(_inputType)
+                    ?? InputParser.GetHandlers(_inputType);
 
         _validUsages = new Lazy<IEnumerable<CommandUsage>>(() =>
         {

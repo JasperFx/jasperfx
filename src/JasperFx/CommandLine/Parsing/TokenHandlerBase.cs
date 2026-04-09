@@ -10,20 +10,32 @@ public abstract class TokenHandlerBase : ITokenHandler
         Member = member;
     }
 
-    public MemberInfo Member { get; }
+    /// <summary>
+    /// Constructor for source-generated handlers that don't need MemberInfo.
+    /// </summary>
+    protected TokenHandlerBase(string memberName, string description)
+    {
+        _memberName = memberName;
+        _description = description;
+    }
+
+    private readonly string? _memberName;
+    private readonly string? _description;
+
+    public MemberInfo? Member { get; }
 
     public string Description
     {
         get
         {
-            var name = Member.Name;
+            if (_description != null) return _description;
+            var name = Member!.Name;
             Member.ForAttribute<DescriptionAttribute>(att => name = att.Description);
-
             return name;
         }
     }
 
-    public string MemberName => Member.Name;
+    public string MemberName => _memberName ?? Member!.Name;
 
     public abstract bool Handle(object input, Queue<string> tokens);
     public abstract string ToUsageDescription();

@@ -14,7 +14,7 @@ public class DictionaryFlag : TokenHandlerBase
             throw new ArgumentOutOfRangeException("Dictionary flag types have to be IDictionary<string, string>");
         }
 
-        var flagAliases = InputParser.ToFlagAliases(Member);
+        var flagAliases = InputParser.ToFlagAliases(Member!);
 
         _prefix = flagAliases.LongForm + ":";
     }
