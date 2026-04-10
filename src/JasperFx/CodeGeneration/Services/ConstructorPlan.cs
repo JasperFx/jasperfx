@@ -133,7 +133,7 @@ internal class ConstructorPlan : ServicePlan
                     dependencies.Add(graph.FindDefault(p.ParameterType, trail));
                 }
 
-                if (dependencies.OfType<InvalidPlan>().Any())
+                if (dependencies.OfType<InvalidPlan>().Any() || dependencies.Any(x => x == null))
                 {
                     plan = new InvalidPlan(descriptor);
                     return true;
