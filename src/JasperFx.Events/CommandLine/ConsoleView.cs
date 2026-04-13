@@ -42,7 +42,7 @@ internal class ConsoleView: IConsoleView
             }
         }
 
-        AnsiConsole.Render(tree);
+        AnsiConsole.Write(tree);
         AnsiConsole.WriteLine();
     }
 

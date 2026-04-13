@@ -33,7 +33,7 @@
     <ItemGroup>
         <PackageReference Include="FastExpressionCompiler" Version="5.3.0" />
         <PackageReference Include="ImTools" Version="4.0.0"/>
-        <PackageReference Include="Spectre.Console" Version="0.53.0" />
+        <PackageReference Include="Spectre.Console" Version="0.55.0" />
         <PackageReference Include="Polly.Core" Version="8.6.5" />
     </ItemGroup>
 
