@@ -7,3 +7,4 @@ Foundational elements of the "Critter Stack", including:
 * The runtime code generation (was JasperFx.CodeGeneration)
 * The shared event store abstractions and projection support for Marten and future Event Sourcing Critters
 
+You can access the docs [here](https://shared-libs.jasperfx.net).
