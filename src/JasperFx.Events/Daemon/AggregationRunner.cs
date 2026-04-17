@@ -186,7 +186,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
             }
 
-            maybeArchiveStream(storage, slice);
+            // Only archive from the perspective of a projection that actually owns the stream.
+            // The delete-type branch only fires when a pre-existing snapshot is present
+            // (otherwise buildActionAsync returns Nothing), so slice.Snapshot signals ownership.
+            // See issue JasperFx/marten#4093.
+            maybeArchiveStream(storage, slice, ownsStream: slice.Snapshot != null);
             storage.Delete(slice.Id);
             return;
         }
@@ -195,7 +199,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             slice.Events(), cancellation);
 
         slice.RecordAction(action);
-        
+
         if (action == ActionType.Nothing)
         {
             return;
@@ -203,7 +207,10 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         (var lastEvent, snapshot) = Projection.TryApplyMetadata(slice.Events(), snapshot, slice.Id, storage);
 
-        maybeArchiveStream(storage, slice);
+        // Ownership: either there was a pre-loaded snapshot or the slice's events
+        // materialized one. Siblings that did neither skip the archive.
+        // See issue JasperFx/marten#4093.
+        maybeArchiveStream(storage, slice, ownsStream: slice.Snapshot != null || snapshot != null);
 
         if (mode == ShardExecutionMode.Continuous)
         {
@@ -263,9 +270,18 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         }
     }
 
-    private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice)
+    private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice, bool ownsStream)
     {
-        if (Projection.Scope == AggregationScope.SingleStream && slice.Events().OfType<IEvent<Archived>>().Any())
+        if (Projection.Scope != AggregationScope.SingleStream) return;
+
+        // Only the single-stream projection that actually owns the stream — as signalled
+        // by a snapshot being present either before or after the slice is applied —
+        // should archive the stream. In a composite projection with multiple single
+        // stream children, sibling projections otherwise fire redundant (or phantom)
+        // stream-archival operations. See issue JasperFx/marten#4093.
+        if (!ownsStream) return;
+
+        if (slice.Events().OfType<IEvent<Archived>>().Any())
         {
             storage.ArchiveStream(slice.Id, slice.TenantId);
         }
