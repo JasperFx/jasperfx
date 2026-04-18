@@ -97,10 +97,15 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
                 (_, transformed) = tryApplyMetadata(stream.Events, transformed, id, storage);
                 
                 if (transformed == null && action != ActionType.Delete && action != ActionType.HardDelete) continue;
-                
+
                 storage.ApplyInline(transformed, action, id, stream.TenantId);
-                
-                maybeArchiveStream(storage, stream, id);
+
+                // Gate archival on whether this projection owns the stream. Ownership
+                // is signalled by a pre-loaded snapshot OR a materialized one from the
+                // slice. In a composite projection with multiple single-stream children,
+                // sibling projections that do not own this stream skip the archive.
+                // See issue JasperFx/marten#4093.
+                maybeArchiveStream(storage, stream, id, ownsStream: snapshot != null || transformed != null);
 
                 if (session.EnableSideEffectsOnInlineProjections)
                 {
@@ -134,9 +139,18 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         }
     }
 
-    private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, StreamAction action, TId id)
+    private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, StreamAction action, TId id, bool ownsStream)
     {
-        if (Scope == AggregationScope.SingleStream && action.Events.OfType<IEvent<Archived>>().Any())
+        if (Scope != AggregationScope.SingleStream) return;
+
+        // Only the single-stream projection that actually owns the stream — as signalled
+        // by a snapshot being present either before or after the slice is applied —
+        // should archive the stream. In a composite projection with multiple single
+        // stream children, sibling projections otherwise fire redundant (or phantom)
+        // stream-archival operations. See issue JasperFx/marten#4093.
+        if (!ownsStream) return;
+
+        if (action.Events.OfType<IEvent<Archived>>().Any())
         {
             storage.ArchiveStream(id, action.TenantId);
         }
