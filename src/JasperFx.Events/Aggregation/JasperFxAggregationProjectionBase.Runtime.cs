@@ -141,19 +141,6 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e,
         CancellationToken cancellation)
     {
-        // Archived is a terminal stream marker, not an aggregate-creating event. In a
-        // composite with multiple single-stream children, a sibling projection may see
-        // an Archived event for a stream it does not own — if that projection defines
-        // Create(Archived), the default flow would otherwise materialize a phantom
-        // aggregate under the other projection's stream id. Guard: when no snapshot
-        // exists, skip Archived. Once a snapshot exists (either pre-loaded or created
-        // by a preceding event in the same slice), Apply(Archived) hooks still run.
-        // See issue JasperFx/marten#4093.
-        if (snapshot == null && e is IEvent<Archived>)
-        {
-            return new ValueTask<TDoc?>(default(TDoc));
-        }
-
         return (snapshot == null
             ? _application.Create(e, session, cancellation)
             : _application.ApplyAsync(snapshot, e, session, cancellation)!)!;
