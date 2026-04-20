@@ -303,6 +303,16 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             foreach (var message in slice.PublishedMessages)
                 await batch.PublishMessageAsync(message, slice.TenantId).ConfigureAwait(false);
         }
+
+        // Independent path for messages enqueued with per-message metadata via
+        // slice.PublishMessage(message, metadata). Metadata carries through to the
+        // IMessageSink implementation (e.g. Wolverine), which maps it onto its
+        // native delivery options.
+        if (slice.PublishedMessagesWithMetadata != null)
+        {
+            foreach (var (message, metadata) in slice.PublishedMessagesWithMetadata)
+                await batch.PublishMessageAsync(message, metadata).ConfigureAwait(false);
+        }
     }
 
     private record EventSliceExecution(

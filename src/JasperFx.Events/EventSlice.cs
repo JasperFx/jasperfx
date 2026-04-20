@@ -22,10 +22,21 @@ public interface IEventSlice<T>: IEventSlice
     void PublishMessage(object message);
 
     /// <summary>
+    ///     Publish a side-effect message with per-message metadata. Metadata flows
+    ///     through to the configured <see cref="IMessageSink"/> so downstream
+    ///     integrations (e.g. Wolverine) can stamp the outgoing envelope with the
+    ///     supplied correlation id, causation id, headers, and user name. The
+    ///     default implementation drops the metadata and forwards to
+    ///     <see cref="PublishMessage(object)"/> so implementations that don't
+    ///     track metadata stay binary-compatible.
+    /// </summary>
+    void PublishMessage(object message, MessageMetadata metadata) => PublishMessage(message);
+
+    /// <summary>
     /// The current snapshot of this projected aggregate
     /// </summary>
     T? Snapshot { get; }
-    
+
     /// <summary>
     /// The current snapshot of this projected aggregate
     /// </summary>
@@ -34,6 +45,14 @@ public interface IEventSlice<T>: IEventSlice
 
     IEnumerable<IEvent> RaisedEvents();
     IEnumerable<object> PublishedMessages();
+
+    /// <summary>
+    ///     Messages enqueued via <see cref="PublishMessage(object, MessageMetadata)"/>,
+    ///     paired with their metadata. Defaults to an empty sequence for
+    ///     implementations that only support the metadata-less overload.
+    /// </summary>
+    IEnumerable<(object Message, MessageMetadata Metadata)> PublishedMessagesWithMetadata()
+        => [];
 }
 
 /// <summary>
@@ -132,6 +151,15 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     public List<IEvent>? RaisedEvents { get; private set; }
     public List<object>? PublishedMessages { get; private set; }
 
+    /// <summary>
+    ///     Messages published with metadata via
+    ///     <see cref="IEventSlice{T}.PublishMessage(object, MessageMetadata)"/>.
+    ///     Kept on a separate list from <see cref="PublishedMessages"/> so the
+    ///     existing metadata-less path is undisturbed. Null until the first
+    ///     metadata-carrying call.
+    /// </summary>
+    public List<(object Message, MessageMetadata Metadata)>? PublishedMessagesWithMetadata { get; private set; }
+
     void IEventSlice<TDoc>.AppendEvent<TEvent>(Guid streamId, TEvent @event)
     {
         RaisedEvents ??= new();
@@ -164,6 +192,15 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
         PublishedMessages ??= new();
         PublishedMessages.Add(message);
     }
+
+    void IEventSlice<TDoc>.PublishMessage(object message, MessageMetadata metadata)
+    {
+        PublishedMessagesWithMetadata ??= new();
+        PublishedMessagesWithMetadata.Add((message, metadata));
+    }
+
+    IEnumerable<(object Message, MessageMetadata Metadata)> IEventSlice<TDoc>.PublishedMessagesWithMetadata()
+        => PublishedMessagesWithMetadata ?? [];
 
     /// <summary>
     ///     The related aggregate document

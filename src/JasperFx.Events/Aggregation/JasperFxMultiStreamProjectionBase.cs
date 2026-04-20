@@ -137,6 +137,16 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                             await sink.PublishAsync(message, slice.TenantId).ConfigureAwait(false);
                         }
                     }
+
+                    // Independent path: messages enqueued with per-message metadata.
+                    if (slice.PublishedMessagesWithMetadata != null)
+                    {
+                        var sink = await operations.GetOrStartMessageSink().ConfigureAwait(false);
+                        foreach (var (message, metadata) in slice.PublishedMessagesWithMetadata)
+                        {
+                            await sink.PublishAsync(message, metadata).ConfigureAwait(false);
+                        }
+                    }
                 }
             }
         }

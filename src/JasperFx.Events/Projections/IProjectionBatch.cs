@@ -14,6 +14,17 @@ public interface IProjectionBatch : IAsyncDisposable
     Task PublishMessageAsync(object message, string tenantId);
 
     /// <summary>
+    ///     Publish a side-effect message with per-message metadata. Downstream
+    ///     <see cref="IMessageSink"/> consumers use the metadata to stamp delivery
+    ///     options (correlation id, causation id, headers, user name) on outgoing
+    ///     envelopes. The default implementation drops the metadata and forwards
+    ///     to the tenant-only overload so implementations that don't care about
+    ///     metadata stay binary-compatible.
+    /// </summary>
+    Task PublishMessageAsync(object message, MessageMetadata metadata)
+        => PublishMessageAsync(message, metadata.TenantId);
+
+    /// <summary>
     /// Only necessary within composite projection execution
     /// </summary>
     /// <param name="range"></param>

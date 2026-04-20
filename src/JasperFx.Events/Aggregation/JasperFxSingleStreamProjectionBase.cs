@@ -137,6 +137,16 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
                 await sink.PublishAsync(message, stream.TenantId).ConfigureAwait(false);
             }
         }
+
+        // Independent path: messages enqueued with per-message metadata.
+        if (slice.PublishedMessagesWithMetadata != null)
+        {
+            var sink = await session.GetOrStartMessageSink().ConfigureAwait(false);
+            foreach (var (message, metadata) in slice.PublishedMessagesWithMetadata)
+            {
+                await sink.PublishAsync(message, metadata).ConfigureAwait(false);
+            }
+        }
     }
 
     private void maybeArchiveStream(IProjectionStorage<TDoc, TId> storage, StreamAction action, TId id, bool ownsStream)
