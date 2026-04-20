@@ -126,6 +126,21 @@ public class OptionsDescription
                 continue;
             }
 
+            if (property.HasAttribute<DescribeAsConfigurationStateAttribute>())
+            {
+                var state = property.GetValue(subject) != null ? "Configured" : "Default";
+                Properties.Add(new OptionsValue
+                {
+                    Subject = $"{type.FullNameInCode()}.{property.Name}",
+                    Name = property.Name,
+                    Type = PropertyType.Text,
+                    RawValue = state,
+                    Value = state
+                });
+
+                continue;
+            }
+
             if (property.PropertyType != typeof(string) && property.PropertyType.IsEnumerable()) continue;
             Properties.Add(OptionsValue.Read(property, subject));
         }
