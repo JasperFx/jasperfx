@@ -79,6 +79,13 @@ export default withMermaid(
             { text: 'Enumerable Extensions', link: '/extensions/enumerable-extensions' },
             { text: 'Reflection Extensions', link: '/extensions/reflection-extensions' }
           ]
+        },
+        {
+          text: 'Release Notes',
+          collapsed: true,
+          items: [
+            { text: '1.25', link: '/release_notes/1.25' }
+          ]
         }
       ],
 

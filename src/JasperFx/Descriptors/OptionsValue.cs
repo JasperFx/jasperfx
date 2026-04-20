@@ -112,7 +112,15 @@ public class OptionsValue
             RawValue = AssemblyDescriptor.For(assembly);
             Value = RawValue.ToString()!;
         }
-        
+        else if (value is IOptionsValueAsStringArray asStringArray)
+        {
+            var items = asStringArray.ToOptionsValueStrings();
+            var array = items as string[] ?? items.ToArray();
+            Type = PropertyType.StringArray;
+            RawValue = array;
+            Value = array.Join(", ");
+        }
+
     }
 
     public override string ToString()

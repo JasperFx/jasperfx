@@ -1,3 +1,4 @@
+using System.Collections;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
@@ -102,10 +103,29 @@ public class OptionsDescription
 
                 var childDescription = child is IDescribeMyself describes ? describes.ToDescription() : new OptionsDescription(child);
                 Children[property.Name] = childDescription;
-                
+
                 continue;
             }
-            
+
+            if (property.HasAttribute<DescribeAsStringArrayAttribute>())
+            {
+                var value = property.GetValue(subject);
+                var items = value is IEnumerable enumerable
+                    ? enumerable.Cast<object?>().Select(x => x?.ToString() ?? string.Empty).ToArray()
+                    : Array.Empty<string>();
+
+                Properties.Add(new OptionsValue
+                {
+                    Subject = $"{type.FullNameInCode()}.{property.Name}",
+                    Name = property.Name,
+                    Type = PropertyType.StringArray,
+                    RawValue = items,
+                    Value = items.Join(", ")
+                });
+
+                continue;
+            }
+
             if (property.PropertyType != typeof(string) && property.PropertyType.IsEnumerable()) continue;
             Properties.Add(OptionsValue.Read(property, subject));
         }
