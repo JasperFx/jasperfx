@@ -5,6 +5,9 @@ hero:
   name: JasperFx
   text: Shared Infrastructure for the Critter Stack
   tagline: Command line tooling, configuration, environment checks, and utility extensions for .NET applications
+  image:
+    src: /jasperfx-logo.png
+    alt: JasperFx
   actions:
     - theme: brand
       text: Get Started
