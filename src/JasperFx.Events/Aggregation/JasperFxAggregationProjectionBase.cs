@@ -414,12 +414,16 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         var definition = new NaturalKeyDefinition(docType, naturalKeyProp);
 
-        // Discover [NaturalKeySource] methods on the aggregate type (instance methods)
+        // Discover [NaturalKeySource] methods on the aggregate type. Include BOTH instance
+        // methods (the classic Apply(TEvent) pattern on the aggregate) AND static methods
+        // (self-aggregating records/classes that expose a static factory such as
+        //   public static TDoc Create(TEvent e) => new TDoc(...);
+        // as in https://github.com/JasperFx/marten/issues/4277).
         discoverNaturalKeySourceMethods(definition, naturalKeyProp, docType,
-            BindingFlags.Public | BindingFlags.Instance);
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
 
-        // Also discover [NaturalKeySource] methods on the projection type itself
-        // (static methods on the projection class, e.g., Create/Apply methods)
+        // Also discover [NaturalKeySource] methods on a separate projection class when
+        // the projection is not the aggregate itself.
         if (projectionType != docType)
         {
             discoverNaturalKeySourceMethods(definition, naturalKeyProp, projectionType,
@@ -503,6 +507,24 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 Expression.Call(docParam, method, Expression.Convert(eventParam, eventType)),
                 Expression.Convert(Expression.Property(docParam, naturalKeyProp), typeof(object))
             );
+
+            return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
+        }
+
+        // For static factory methods on the aggregate itself that return a new TDoc
+        // (the self-aggregating pattern — see JasperFx/marten#4277):
+        //   public static TDoc Create(TEvent e) => new TDoc(...);
+        // We can safely call the method with the raw event data and read the natural
+        // key property off the returned aggregate.
+        if (method.IsStatic && method.DeclaringType == docType && method.ReturnType == docType)
+        {
+            var eventType = firstParamType;
+
+            var body = Expression.Convert(
+                Expression.Property(
+                    Expression.Call(method, Expression.Convert(eventParam, eventType)),
+                    naturalKeyProp),
+                typeof(object));
 
             return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
         }
