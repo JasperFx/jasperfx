@@ -6,9 +6,12 @@
     "docs-build": "concurrently --group mdsnippets \"vitepress build docs\""
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "vitepress": "^1.6.3",
+    "concurrently": "^9.2.1",
+    "markdown-it-block-embed": "^0.0.3",
+    "vitepress": "1.6.4",
+    "vitepress-plugin-llms": "^1.5.1",
     "vitepress-plugin-mermaid": "^2.0.17",
-    "mermaid": "^11.4.1"
+    "mermaid": "^11.4.1",
+    "wrangler": "^4.0.0"
   }
 }
