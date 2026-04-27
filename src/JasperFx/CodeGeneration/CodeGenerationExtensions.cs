@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 
@@ -13,6 +15,13 @@ public class MissingTypeException : Exception
 
 public static class CodeGenerationExtensions
 {
+    // Per-assembly cache of pre-generated types indexed by full name. Used by
+    // FindPreGeneratedType so static-mode code-file attachment does not pay an
+    // O(ExportedTypes) scan per lookup. ConditionalWeakTable means we don't
+    // root assemblies that the host might unload (plugin scenarios).
+    private static readonly ConditionalWeakTable<Assembly, IReadOnlyDictionary<string, Type>> _exportedTypeIndex
+        = new();
+
     /// <summary>
     ///     Try to locate a pre-generated type by namespace and type name in the
     ///     supplied assembly
@@ -24,7 +33,26 @@ public static class CodeGenerationExtensions
     public static Type? FindPreGeneratedType(this Assembly assembly, string @namespace, string typeName)
     {
         var fullName = $"{@namespace}.{typeName}";
-        return assembly.ExportedTypes.FirstOrDefault(x => x.FullName == fullName);
+        var index = _exportedTypeIndex.GetValue(assembly, BuildExportedTypeIndex);
+        return index.TryGetValue(fullName, out var type) ? type : null;
+    }
+
+    private static IReadOnlyDictionary<string, Type> BuildExportedTypeIndex(Assembly assembly)
+    {
+        // ExportedTypes can contain duplicates only in pathological cases (forwarded
+        // types crossing module boundaries with name conflicts). Use the first
+        // occurrence to mirror the historical FirstOrDefault behavior.
+        var dict = new Dictionary<string, Type>(StringComparer.Ordinal);
+        foreach (var type in assembly.ExportedTypes)
+        {
+            var fullName = type.FullName;
+            if (fullName != null && !dict.ContainsKey(fullName))
+            {
+                dict[fullName] = type;
+            }
+        }
+
+        return dict;
     }
 
     public static GeneratedAssembly StartAssembly(this ICodeFileCollection generator, GenerationRules rules)
