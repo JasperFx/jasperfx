@@ -351,6 +351,18 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     }
 
 
+    // Cross-store cache of evolver-attribute discovery. Multi-store apps create one
+    // ProjectionGraph per IDocumentStore but iterate the same set of loaded
+    // assemblies; without this cache each new store re-pays the assembly walk plus
+    // the GetCustomAttributes call per assembly.
+    //
+    // Keyed by Assembly identity so we never re-scan an assembly we've seen,
+    // regardless of which store made the call. Empty results are cached too --
+    // the framework assemblies that dominate the loaded list never have user
+    // attributes and we want to avoid re-asking them.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Assembly, IReadOnlyList<Type>>
+        _evolverDiscoveryCache = new();
+
     /// <summary>
     /// Scan assemblies for GeneratedEvolverAttribute registrations and record
     /// discovered aggregate types. This ensures that self-aggregating types with
@@ -361,21 +373,78 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     {
         foreach (var assembly in assemblies)
         {
-            IEnumerable<GeneratedEvolverAttribute> attrs;
-            try
-            {
-                attrs = assembly.GetCustomAttributes<GeneratedEvolverAttribute>();
-            }
-            catch
+            // Framework / library assemblies are by far the biggest slice of the
+            // loaded-assembly list in a typical app and structurally cannot carry
+            // a user-defined [GeneratedEvolverAttribute]. Skip them before paying
+            // for the GetCustomAttributes reflection call.
+            if (IsAssemblyKnownToHaveNoEvolvers(assembly))
             {
                 continue;
             }
 
-            foreach (var attr in attrs)
+            var types = _evolverDiscoveryCache.GetOrAdd(assembly, ReadEvolverAggregateTypes);
+            for (var i = 0; i < types.Count; i++)
             {
-                _discoveredAggregateTypes.Add(attr.AggregateType);
+                _discoveredAggregateTypes.Add(types[i]);
             }
         }
+    }
+
+    private static IReadOnlyList<Type> ReadEvolverAggregateTypes(Assembly assembly)
+    {
+        try
+        {
+            var attrs = assembly.GetCustomAttributes<GeneratedEvolverAttribute>();
+            // Materialize so the cached value is independent of the assembly's
+            // attribute caching. Most assemblies hit Array.Empty<> here.
+            List<Type>? aggregateTypes = null;
+            foreach (var attr in attrs)
+            {
+                aggregateTypes ??= new List<Type>();
+                aggregateTypes.Add(attr.AggregateType);
+            }
+
+            return aggregateTypes ?? (IReadOnlyList<Type>)Array.Empty<Type>();
+        }
+        catch
+        {
+            // Match historical behavior: an assembly that throws on attribute
+            // load is treated as having no evolvers and is cached so we don't
+            // ask again.
+            return Array.Empty<Type>();
+        }
+    }
+
+    /// <summary>
+    /// Cheap pre-filter for assemblies that cannot carry user-defined
+    /// <see cref="GeneratedEvolverAttribute"/> registrations -- the framework BCL,
+    /// well-known infrastructure libraries, and our own assemblies. Skipping these
+    /// before the <see cref="System.Reflection.CustomAttributeExtensions.GetCustomAttributes{T}(Assembly)"/>
+    /// call cuts the per-cold-start work proportional to "framework assemblies in
+    /// the AppDomain", which on a typical .NET host is the bulk of the list.
+    /// </summary>
+    private static bool IsAssemblyKnownToHaveNoEvolvers(Assembly assembly)
+    {
+        var name = assembly.GetName().Name;
+        if (name == null) return false;
+
+        return name.StartsWith("System", StringComparison.Ordinal)
+            || name.StartsWith("Microsoft", StringComparison.Ordinal)
+            || name.StartsWith("netstandard", StringComparison.Ordinal)
+            || name.Equals("mscorlib", StringComparison.Ordinal)
+            || name.Equals("WindowsBase", StringComparison.Ordinal)
+            || name.StartsWith("JasperFx", StringComparison.Ordinal)
+            || name.StartsWith("Marten", StringComparison.Ordinal)
+            || name.StartsWith("Wolverine", StringComparison.Ordinal)
+            || name.StartsWith("Weasel", StringComparison.Ordinal)
+            || name.StartsWith("Npgsql", StringComparison.Ordinal)
+            || name.StartsWith("Newtonsoft.Json", StringComparison.Ordinal)
+            || name.StartsWith("Polly", StringComparison.Ordinal)
+            || name.StartsWith("Spectre.Console", StringComparison.Ordinal)
+            || name.StartsWith("xunit", StringComparison.Ordinal)
+            || name.StartsWith("FluentAssertions", StringComparison.Ordinal)
+            || name.StartsWith("ImTools", StringComparison.Ordinal)
+            || name.StartsWith("FastExpressionCompiler", StringComparison.Ordinal);
     }
 
     public void AssertValidity<T>(T options)
