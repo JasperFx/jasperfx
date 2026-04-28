@@ -1,3 +1,4 @@
+using System.Globalization;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -25,7 +26,7 @@ public static class CodeFormatter
 
         if (value.GetType().IsEnum)
         {
-            return value.GetType().FullNameInCode() + "." + value;
+            return WriteEnum((Enum)value);
         }
 
         if (value.GetType() == typeof(string[]))
@@ -70,5 +71,57 @@ public static class CodeFormatter
         }
 
         return value.ToString()!;
+    }
+
+    /// <summary>
+    /// Render an enum value as valid C# source. Handles three cases safely:
+    /// (1) a single defined named member ⇒ <c>Namespace.Type.Name</c>;
+    /// (2) a <see cref="FlagsAttribute"/> combination whose bits all map to defined members ⇒ <c>Type.A | Type.B</c>;
+    /// (3) any other value (including bit-or'd values on non-Flags enums like <c>NpgsqlDbType</c>) ⇒ a checked cast
+    /// of the underlying integer literal: <c>((Type)(rawValue))</c>. The cast form is necessary because
+    /// <see cref="Enum.ToString()"/> returns the integer literal as a string for undefined values, which is not a
+    /// valid C# identifier and used to produce uncompilable code such as <c>NpgsqlDbType.-2147483629</c>.
+    /// </summary>
+    private static string WriteEnum(Enum value)
+    {
+        var enumType = value.GetType();
+        var typeName = enumType.FullNameInCode();
+
+        // Case 1: defined single member.
+        if (Enum.IsDefined(enumType, value))
+        {
+            return typeName + "." + value;
+        }
+
+        // Case 2: [Flags] enum where ToString() yields comma-separated names.
+        if (enumType.IsDefined(typeof(FlagsAttribute), inherit: false))
+        {
+            var asString = value.ToString();
+            if (asString.Length > 0 && !IsNumericLiteral(asString))
+            {
+                var parts = asString.Split(", ");
+                return string.Join(" | ", parts.Select(p => typeName + "." + p));
+            }
+        }
+
+        // Case 3: undefined value — emit a cast of the underlying integer literal.
+        var underlying = Enum.GetUnderlyingType(enumType);
+        var raw = Convert.ChangeType(value, underlying, CultureInfo.InvariantCulture);
+        return $"(({typeName})({raw}))";
+    }
+
+    private static bool IsNumericLiteral(string text)
+    {
+        var i = 0;
+        if (text[0] == '-' || text[0] == '+')
+        {
+            if (text.Length == 1) return false;
+            i = 1;
+        }
+        for (; i < text.Length; i++)
+        {
+            if (!char.IsDigit(text[i])) return false;
+        }
+        return true;
     }
 }
