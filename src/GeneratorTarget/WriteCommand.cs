@@ -1,7 +1,6 @@
 using System.Threading.Tasks;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine;
-using JasperFx.RuntimeCompiler;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace GeneratorTarget;
