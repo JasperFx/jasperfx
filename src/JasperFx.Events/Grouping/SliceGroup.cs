@@ -1,6 +1,7 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.Events.Grouping;
 
@@ -206,6 +207,27 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// </summary>
         public EntityStep<TEntity> WithAlternateSession(IStorageOperations alternateSession)
             => new(parent, alternateSession, disposeAfterUse: true);
+
+        /// <summary>
+        /// Switch enrichment to load entities from an ancillary store resolved from the DI container.
+        /// The store must have been registered via <c>AddMartenStore&lt;TStore&gt;()</c> (or equivalent),
+        /// which also registers a <c>Func&lt;TStore, IStorageOperations&gt;</c> session factory.
+        /// A lightweight session is opened per enrichment call and disposed automatically.
+        /// </summary>
+        /// <typeparam name="TStore">The ancillary store interface registered in DI.</typeparam>
+        public EntityStep<TEntity> UsingStore<TStore>() where TStore : class
+        {
+            var sp = Services
+                ?? throw new InvalidOperationException(
+                    $"UsingStore<{typeof(TStore).Name}>() requires a session with a ServiceProvider. " +
+                    "Ensure the store is configured via AddMarten() or AddMartenStore().");
+            var factory = sp.GetService<Func<TStore, IStorageOperations>>()
+                ?? throw new InvalidOperationException(
+                    $"No Func<{typeof(TStore).Name}, IStorageOperations> is registered in DI. " +
+                    $"Did you call AddMartenStore<{typeof(TStore).Name}>()?");
+            var store = sp.GetRequiredService<TStore>();
+            return WithAlternateSession(factory(store));
+        }
     }
 
     public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session, bool disposeAfterUse = false) where TEvent : notnull where TEntity : notnull
