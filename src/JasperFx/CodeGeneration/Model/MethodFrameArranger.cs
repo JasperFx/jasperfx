@@ -171,7 +171,17 @@ internal class MethodFrameArranger : IMethodVariables
 
     internal void findInjectedFields(DependencyGatherer dependencies)
     {
-        foreach (var field in dependencies.Variables.Keys().OfType<InjectedField>())
+        // Sort by a stable, process-independent key so the order of fields
+        // and constructor parameters in the generated source is deterministic
+        // and supports byte-identical file comparisons. The underlying cache
+        // (ImHashMap) iterates in hash order, which varies across processes
+        // because of randomized string and type hash codes.
+        var fields = dependencies.Variables.Keys()
+            .OfType<InjectedField>()
+            .OrderBy(x => x.ArgType.FullName, StringComparer.Ordinal)
+            .ThenBy(x => x.Usage, StringComparer.Ordinal);
+
+        foreach (var field in fields)
         {
             _type.AllInjectedFields.Fill(field);
         }
@@ -179,17 +189,15 @@ internal class MethodFrameArranger : IMethodVariables
 
     internal void findSetters(DependencyGatherer dependencies)
     {
-        foreach (var VARIABLE in dependencies.Variables)
-        {
-        }
+        var setters = dependencies.Variables.Keys()
+            .OfType<Setter>()
+            .OrderBy(x => x.VariableType.FullName, StringComparer.Ordinal)
+            .ThenBy(x => x.PropName, StringComparer.Ordinal);
 
-        dependencies.Variables.Keys().Each((key, _) =>
+        foreach (var setter in setters)
         {
-            if (key is Setter setter)
-            {
-                _type.Setters.Fill(setter);
-            }
-        });
+            _type.Setters.Fill(setter);
+        }
     }
 
     private IEnumerable<IVariableSource> allVariableSources(VariableSource variableSource)
