@@ -10,4 +10,11 @@ public interface IStorageOperations : IAsyncDisposable
     bool EnableSideEffectsOnInlineProjections { get; }
 
     ValueTask<IMessageSink> GetOrStartMessageSink();
+
+    /// <summary>
+    /// Service provider for the current session. Used to resolve ancillary stores
+    /// for cross-store enrichment. Implementations should return the DI container
+    /// scoped to this session; the default is null.
+    /// </summary>
+    IServiceProvider? Services => null;
 }
