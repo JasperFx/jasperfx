@@ -10,9 +10,26 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.RuntimeCompiler
 {
+    /// <summary>
+    /// Legacy extension methods for <see cref="ICodeFile"/>. These have been
+    /// superseded by <see cref="JasperFx.CodeGeneration.CodeFileExtensions"/>,
+    /// which moves orchestration into the trimming-friendly
+    /// <c>JasperFx.CodeGeneration</c> namespace and removes the hidden
+    /// <c>?? new AssemblyGenerator()</c> fallback that previously bound every
+    /// consumer to Roslyn at runtime.
+    ///
+    /// Migration: change <c>using JasperFx.RuntimeCompiler;</c> to
+    /// <c>using JasperFx.CodeGeneration;</c> and ensure an
+    /// <see cref="IAssemblyGenerator"/> is registered in DI when runtime
+    /// compilation is required (e.g.,
+    /// <c>services.AddSingleton&lt;IAssemblyGenerator, AssemblyGenerator&gt;()</c>).
+    /// Consumers that pre-generate code in Static mode no longer need any
+    /// reference to <c>JasperFx.RuntimeCompiler</c>.
+    /// </summary>
     public static class CodeFileExtensions
     {
 
+        [Obsolete("Use JasperFx.CodeGeneration.CodeFileExtensions.Initialize instead and register IAssemblyGenerator explicitly in DI when runtime compilation is needed. The legacy fallback to 'new AssemblyGenerator()' hides the Roslyn dependency in non-AOT scenarios.")]
         public static async Task Initialize(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
         {
             var @namespace = parent.ToNamespace(rules);
@@ -76,6 +93,7 @@ namespace JasperFx.RuntimeCompiler
         /// <param name="parent"></param>
         /// <param name="services"></param>
         /// <exception cref="ExpectedTypeMissingException"></exception>
+        [Obsolete("Use JasperFx.CodeGeneration.CodeFileExtensions.InitializeSynchronously instead and register IAssemblyGenerator explicitly in DI when runtime compilation is needed. The legacy fallback to 'new AssemblyGenerator()' hides the Roslyn dependency in non-AOT scenarios.")]
         public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules, ICodeFileCollection parent, IServiceProvider? services)
         {
             var logger = services?.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
@@ -153,6 +171,7 @@ namespace JasperFx.RuntimeCompiler
             }
         }
 
+        [Obsolete("Use JasperFx.CodeGeneration.CodeFileExtensions.WriteCodeFile instead.")]
         public static void WriteCodeFile(this ICodeFile file, ICodeFileCollection parent, GenerationRules rules, string code)
         {
             try
