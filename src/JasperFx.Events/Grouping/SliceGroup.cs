@@ -1,6 +1,7 @@
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.Events.Grouping;
 
@@ -184,18 +185,52 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         return null;
     }
 
-    public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session)
+    public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session, bool disposeAfterUse = false)
     {
+        /// <summary>
+        /// Service provider from the current session. Used by store-specific extensions
+        /// (e.g. Marten's UsingStore&lt;T&gt;()) to resolve ancillary stores from DI.
+        /// </summary>
+        public IServiceProvider? Services => session.Services;
+
         /// <summary>
         /// On which event type can you find an identity of type TId for the entity TDoc?
         /// This can be a marker interface. Think of this as equivalent to the LINQ OfType<T>() operator
         /// </summary>
         /// <typeparam name="TEvent"></typeparam>
         /// <returns></returns>
-        public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session);
+        public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session, disposeAfterUse);
+
+        /// <summary>
+        /// Switch enrichment to load entities from an alternate session (e.g. an ancillary store).
+        /// The alternate session will be disposed after enrichment completes.
+        /// </summary>
+        public EntityStep<TEntity> WithAlternateSession(IStorageOperations alternateSession)
+            => new(parent, alternateSession, disposeAfterUse: true);
+
+        /// <summary>
+        /// Switch enrichment to load entities from an ancillary store resolved from the DI container.
+        /// The store must have been registered via <c>AddMartenStore&lt;TStore&gt;()</c> (or equivalent),
+        /// which also registers a <c>Func&lt;TStore, IStorageOperations&gt;</c> session factory.
+        /// A lightweight session is opened per enrichment call and disposed automatically.
+        /// </summary>
+        /// <typeparam name="TStore">The ancillary store interface registered in DI.</typeparam>
+        public EntityStep<TEntity> UsingStore<TStore>() where TStore : class
+        {
+            var sp = Services
+                ?? throw new InvalidOperationException(
+                    $"UsingStore<{typeof(TStore).Name}>() requires a session with a ServiceProvider. " +
+                    "Ensure the store is configured via AddMarten() or AddMartenStore().");
+            var factory = sp.GetService<Func<TStore, IStorageOperations>>()
+                ?? throw new InvalidOperationException(
+                    $"No Func<{typeof(TStore).Name}, IStorageOperations> is registered in DI. " +
+                    $"Did you call AddMartenStore<{typeof(TStore).Name}>()?");
+            var store = sp.GetRequiredService<TStore>();
+            return WithAlternateSession(factory(store));
+        }
     }
 
-    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session) where TEvent : notnull where TEntity : notnull
+    public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session, bool disposeAfterUse = false) where TEvent : notnull where TEntity : notnull
     {
         /// <summary>
         /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
@@ -206,7 +241,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
             Func<TEvent, TEntityId> identitySource) =>
-            new(parent, session, e => identitySource(e.Data));
+            new(parent, session, e => identitySource(e.Data), disposeAfterUse);
 
         /// <summary>
         /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
@@ -217,7 +252,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityIdFromEvent<TEntityId>(
             Func<IEvent<TEvent>, TEntityId> identitySource) =>
-            new(parent, session, identitySource);
+            new(parent, session, identitySource, disposeAfterUse);
 
         /// <summary>
         /// Execute a batched enrichment operation for events of type <typeparamref name="TEvent"/>,
@@ -292,7 +327,8 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     public class IdentityStep<TEntity, TEvent, TEntityId>(
         SliceGroup<TDoc, TId> parent,
         IStorageOperations session,
-        Func<IEvent<TEvent>, TEntityId> identitySource) where TEvent : notnull
+        Func<IEvent<TEvent>, TEntityId> identitySource,
+        bool disposeAfterUse = false) where TEvent : notnull
     {
         public async Task EnrichAsync(
             Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
@@ -320,34 +356,41 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 
         internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
         {
-            var cache = parent.findCache<TEntityId, TEntity>();
-            
-            var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
-            var events = parent.Slices.SelectMany(x => x.Events());
-            
-            var ids = events.OfType<IEvent<TEvent>>().Select(identitySource).ToArray();
-            if (!ids.Any())
+            try
             {
-                return new NulloAggregateCache<TEntityId, TEntity>();
-            }
+                var cache = parent.findCache<TEntityId, TEntity>();
 
-            if (cache == null)
+                var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
+                var events = parent.Slices.SelectMany(x => x.Events());
+
+                var ids = events.OfType<IEvent<TEvent>>().Select(identitySource).ToArray();
+                if (!ids.Any())
+                {
+                    return new NulloAggregateCache<TEntityId, TEntity>();
+                }
+
+                if (cache == null)
+                {
+                    var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+                    return new DictionaryAggregateCache<TEntityId, TEntity>(dict);
+                }
+
+                var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+                if (!toLoad.Any()) return cache;
+
+                var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+                foreach (var pair in loaded)
+                {
+                    cache.Store(pair.Key, pair.Value);
+                }
+
+                return cache;
+            }
+            finally
             {
-                var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
-                return new DictionaryAggregateCache<TEntityId, TEntity>(dict);
+                if (disposeAfterUse) await session.DisposeAsync();
             }
-
-            var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
-            if (!toLoad.Any()) return cache;
-
-            var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
-
-            foreach (var pair in loaded)
-            {
-                cache.Store(pair.Key, pair.Value);
-            }
-
-            return cache;
         }
     }
 
