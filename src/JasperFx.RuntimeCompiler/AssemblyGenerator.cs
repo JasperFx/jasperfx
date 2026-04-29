@@ -15,8 +15,16 @@ using System.Runtime.Loader;
 namespace JasperFx.RuntimeCompiler
 {
 	/// <summary>
-	/// Use to compile C# code to in memory assemblies using the Roslyn compiler
+	/// Use to compile C# code to in memory assemblies using the Roslyn compiler.
+	///
+	/// This is the Roslyn-based <see cref="IAssemblyGenerator"/> implementation
+	/// — referencing it pulls Microsoft.CodeAnalysis into a deployment. Apps
+	/// that publish with <c>PublishAot=true</c> or <c>IsTrimmable=true</c>
+	/// should pre-generate code (Static mode) and avoid registering this
+	/// service so the trimmer can drop the entire Roslyn graph.
 	/// </summary>
+	[RequiresDynamicCode("AssemblyGenerator compiles C# at runtime via Roslyn.")]
+	[RequiresUnreferencedCode("AssemblyGenerator emits and loads runtime-generated types that the trimmer cannot statically see.")]
 	public class AssemblyGenerator : IAssemblyGenerator
 	{
 
