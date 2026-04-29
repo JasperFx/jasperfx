@@ -36,6 +36,7 @@ public class GenerationRules
     public readonly IList<IVariableSource> Sources = new List<IVariableSource>();
     private bool _sourceCodeWritingEnabled = true;
     private TypeLoadMode _typeLoadMode = TypeLoadMode.Dynamic;
+    private ITypeLoader? _loader;
 
     public GenerationRules(string applicationNamespace) : this()
     {
@@ -103,10 +104,55 @@ public class GenerationRules
             // Doesn't matter the value
             TypeLoadModeHasChanged = true;
             _typeLoadMode = value;
+
+            // Resync the loader so changes to TypeLoadMode are reflected on the
+            // next access. A consumer that explicitly assigned Loader takes
+            // precedence over this and is preserved.
+            if (!_loaderExplicitlySet)
+            {
+                _loader = null;
+            }
         }
     }
-    
+
     public bool TypeLoadModeHasChanged { get; private set; }
+
+    private bool _loaderExplicitlySet;
+
+    /// <summary>
+    /// The strategy used to resolve runtime types backing each
+    /// <see cref="ICodeFile"/>. Defaults to a value derived from
+    /// <see cref="TypeLoadMode"/> — <see cref="StaticTypeLoader"/> for
+    /// <see cref="TypeLoadMode.Static"/>, <see cref="DynamicTypeLoader"/> for
+    /// <see cref="TypeLoadMode.Dynamic"/>, <see cref="AutoTypeLoader"/> for
+    /// <see cref="TypeLoadMode.Auto"/>.
+    ///
+    /// Consumers can replace this to plug in custom loading (e.g. an
+    /// AOT-friendly source-generated loader) without having to introduce a new
+    /// <see cref="TypeLoadMode"/>.
+    /// </summary>
+    public ITypeLoader Loader
+    {
+        get => _loader ??= DefaultLoaderFor(_typeLoadMode);
+        set
+        {
+            _loader = value ?? throw new ArgumentNullException(nameof(value));
+            _loaderExplicitlySet = true;
+        }
+    }
+
+    private static ITypeLoader DefaultLoaderFor(TypeLoadMode mode)
+    {
+        return mode switch
+        {
+            TypeLoadMode.Static => new StaticTypeLoader(),
+#pragma warning disable IL2026, IL3050
+            TypeLoadMode.Dynamic => new DynamicTypeLoader(),
+            TypeLoadMode.Auto => new AutoTypeLoader(),
+#pragma warning restore IL2026, IL3050
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+        };
+    }
 
     public string GeneratedCodeOutputPath { get; set; } = "Internal/Generated";
 

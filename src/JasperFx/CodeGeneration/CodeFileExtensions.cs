@@ -1,11 +1,4 @@
-using System.Diagnostics;
-using JasperFx.CodeGeneration.Commands;
-using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.CodeGeneration;
 
@@ -53,83 +46,7 @@ public static class CodeFileExtensions
     public static void InitializeSynchronously(this ICodeFile file, GenerationRules rules,
         ICodeFileCollection parent, IServiceProvider? services)
     {
-        var logger = services?.GetService(typeof(ILogger<IAssemblyGenerator>)) as ILogger ?? NullLogger.Instance;
-        var @namespace = parent.ToNamespace(rules);
-
-        if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
-        {
-            if (logger.IsEnabled(LogLevel.Debug))
-            {
-                logger.LogDebug("Generated code for {Namespace}.{FileName}", parent.ChildNamespace, file.FileName);
-            }
-
-            var generatedAssembly = parent.StartAssembly(rules);
-            file.AssembleTypes(generatedAssembly);
-            var serviceVariables = parent is ICodeFileCollectionWithServices
-                ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource
-                : null;
-            if (serviceVariables != null && file.TryReplaceServiceProvider(out var serviceProvider))
-            {
-                serviceVariables.ReplaceServiceProvider(serviceProvider);
-            }
-
-            var compiler = ResolveAssemblyGenerator(services);
-            compiler.Compile(generatedAssembly, serviceVariables);
-
-            if (serviceVariables != null && serviceVariables.ServiceLocations().Any())
-            {
-                file.AssertServiceLocationsAreAllowed(serviceVariables.ServiceLocations(), services);
-            }
-
-            file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
-
-            return;
-        }
-
-        var found = file.AttachTypesSynchronously(rules, rules.ApplicationAssembly, services, @namespace);
-        if (found && logger.IsEnabled(LogLevel.Debug))
-        {
-            logger.LogDebug("Types from code file {Namespace}.{FileName} were loaded from assembly {Assembly}",
-                parent.ChildNamespace, file.FileName, rules.ApplicationAssembly.GetName());
-        }
-
-        if (!found)
-        {
-            if (rules.TypeLoadMode == TypeLoadMode.Static && !DynamicCodeBuilder.WithinCodegenCommand)
-            {
-                throw new ExpectedTypeMissingException(
-                    $"Could not load expected pre-built types for code file {file.FileName} ({file}) from assembly {rules.ApplicationAssembly.FullName}. You may want to verify that this is the correct assembly for pre-generated types.");
-            }
-
-            var generatedAssembly = parent.StartAssembly(rules);
-            file.AssembleTypes(generatedAssembly);
-            var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
-            if (serviceVariables != null && file.TryReplaceServiceProvider(out var serviceProvider))
-            {
-                serviceVariables.ReplaceServiceProvider(serviceProvider);
-            }
-
-            var compiler = ResolveAssemblyGenerator(services);
-            compiler.Compile(generatedAssembly, serviceVariables, out var code);
-
-            if (serviceVariables != null && serviceVariables.ServiceLocations().Any())
-            {
-                file.AssertServiceLocationsAreAllowed(serviceVariables.ServiceLocations(), services);
-            }
-
-            file.AttachTypesSynchronously(rules, generatedAssembly.Assembly!, services, @namespace);
-
-            if (rules.SourceCodeWritingEnabled)
-            {
-                file.WriteCodeFile(parent, rules, code!);
-            }
-
-            if (logger.IsEnabled(LogLevel.Debug))
-            {
-                logger.LogDebug("Generated and compiled code in memory for {Namespace}.{FileName} ({File})",
-                    parent.ChildNamespace, file.FileName, file);
-            }
-        }
+        rules.Loader.Initialize(file, rules, parent, services);
     }
 
     /// <summary>
@@ -138,58 +55,10 @@ public static class CodeFileExtensions
     /// </summary>
     /// <exception cref="ExpectedTypeMissingException"/>
     /// <exception cref="InvalidOperationException"/>
-    public static async Task Initialize(this ICodeFile file, GenerationRules rules,
+    public static Task Initialize(this ICodeFile file, GenerationRules rules,
         ICodeFileCollection parent, IServiceProvider? services)
     {
-        var @namespace = parent.ToNamespace(rules);
-
-        if (rules.TypeLoadMode == TypeLoadMode.Dynamic)
-        {
-            Console.WriteLine($"Generated code for {parent.ChildNamespace}.{file.FileName}");
-
-            var generatedAssembly = parent.StartAssembly(rules);
-            file.AssembleTypes(generatedAssembly);
-            var serviceVariables = parent is ICodeFileCollectionWithServices
-                ? services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource
-                : null;
-
-            var compiler = ResolveAssemblyGenerator(services);
-            compiler.Compile(generatedAssembly, serviceVariables);
-            await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
-
-            return;
-        }
-
-        var found = await file.AttachTypes(rules, rules.ApplicationAssembly, services, @namespace);
-        if (found)
-        {
-            Console.WriteLine($"Types from code file {parent.ChildNamespace}.{file.FileName} were loaded from assembly {rules.ApplicationAssembly.GetName()}");
-        }
-
-        if (!found)
-        {
-            if (rules.TypeLoadMode == TypeLoadMode.Static && !DynamicCodeBuilder.WithinCodegenCommand)
-            {
-                throw new ExpectedTypeMissingException(
-                    $"Could not load expected pre-built types for code file {file.FileName} ({file})");
-            }
-
-            var generatedAssembly = parent.StartAssembly(rules);
-            file.AssembleTypes(generatedAssembly);
-            var serviceVariables = services?.GetService(typeof(IServiceVariableSource)) as IServiceVariableSource;
-
-            var compiler = ResolveAssemblyGenerator(services);
-            compiler.Compile(generatedAssembly, serviceVariables, out var code);
-
-            await file.AttachTypes(rules, generatedAssembly.Assembly!, services, @namespace);
-
-            if (rules.SourceCodeWritingEnabled)
-            {
-                file.WriteCodeFile(parent, rules, code);
-            }
-
-            Console.WriteLine($"Generated and compiled code in memory for {parent.ChildNamespace}.{file.FileName}");
-        }
+        return rules.Loader.InitializeAsync(file, rules, parent, services);
     }
 
     /// <summary>
@@ -211,30 +80,4 @@ public static class CodeFileExtensions
         }
     }
 
-    /// <summary>
-    /// Resolve the <see cref="IAssemblyGenerator"/> from the supplied service
-    /// provider, throwing a clear, actionable error if none is registered.
-    /// </summary>
-    /// <remarks>
-    /// The legacy <c>JasperFx.RuntimeCompiler.CodeFileExtensions</c> silently
-    /// fell back to <c>new AssemblyGenerator()</c>, which masked the missing
-    /// registration and dragged Roslyn into every consumer's deployment. Callers
-    /// that need runtime compilation must now register an
-    /// <see cref="IAssemblyGenerator"/> in DI (typically via
-    /// <c>services.AddSingleton&lt;IAssemblyGenerator, AssemblyGenerator&gt;()</c>
-    /// from the <c>JasperFx.RuntimeCompiler</c> package). Callers that pre-generate
-    /// all code in Static mode never reach this method and so do not need the
-    /// dependency at all.
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">No <see cref="IAssemblyGenerator"/> registered.</exception>
-    private static IAssemblyGenerator ResolveAssemblyGenerator(IServiceProvider? services)
-    {
-        var generator = services?.GetService(typeof(IAssemblyGenerator)) as IAssemblyGenerator;
-        if (generator != null) return generator;
-
-        throw new InvalidOperationException(
-            "No IAssemblyGenerator is registered in the application's service provider, but runtime code generation was requested. " +
-            "Either: (a) install the JasperFx.RuntimeCompiler package and call services.AddSingleton<IAssemblyGenerator, AssemblyGenerator>() to enable runtime Roslyn compilation, " +
-            "or (b) pre-generate all code (typically with 'dotnet run -- codegen write') and set GenerationRules.TypeLoadMode = TypeLoadMode.Static so runtime compilation is never invoked.");
-    }
 }
