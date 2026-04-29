@@ -38,16 +38,11 @@ jobs:
       - run: cspell --config ./docs/cSpell.json "docs/**/*.md"
         name: run cSpell
 
-      - name: Install .NET 8.0.x
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
       - name: Install .NET 9.0.x
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-          
+
       - name: Install .NET 10.0.x
         uses: actions/setup-dotnet@v4
         with:

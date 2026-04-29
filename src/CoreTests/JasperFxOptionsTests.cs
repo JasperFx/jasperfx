@@ -119,7 +119,7 @@ public class JasperFxOptionsTests
     public void resolve_project_root_finds_csproj_directory()
     {
         // Use the actual project structure for testing
-        // We know we're running from somewhere like src/CoreTests/bin/Debug/net8.0
+        // We know we're running from somewhere like src/CoreTests/bin/Debug/net9.0
         var currentDir = AppContext.BaseDirectory;
         
         // Only run this test if we're in a bin folder
@@ -181,7 +181,7 @@ public class JasperFxOptionsTests
         {
             DynamicCodeBuilder.WithinCodegenCommand = true;
             
-            var testPath = "/some/bin/Debug/net8.0";
+            var testPath = "/some/bin/Debug/net9.0";
             var environment = new StubHostEnvironment { ContentRootPath = testPath };
             
             options.ReadHostEnvironment(environment);
@@ -206,7 +206,7 @@ public class JasperFxOptionsTests
         {
             DynamicCodeBuilder.WithinCodegenCommand = false;
             
-            var testPath = "/some/bin/Debug/net8.0";
+            var testPath = "/some/bin/Debug/net9.0";
             var environment = new StubHostEnvironment { ContentRootPath = testPath };
             
             options.ReadHostEnvironment(environment);

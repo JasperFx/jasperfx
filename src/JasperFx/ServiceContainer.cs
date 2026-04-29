@@ -66,11 +66,7 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
 
     public ServiceDescriptor? DefaultFor(Type serviceType)
     {
-#if NET8_0_OR_GREATER
         return RegistrationsFor(serviceType).LastOrDefault(x => !x.IsKeyedService);
-        #else
-        return RegistrationsFor(serviceType).LastOrDefault();
-#endif
     }
 
     public ServiceDescriptor? DefaultFor<T>()

@@ -14,7 +14,7 @@ JasperFx gives you:
 
 ## Target Frameworks
 
-JasperFx targets .NET 8.0, 9.0, and 10.0.
+JasperFx targets .NET 9.0 and 10.0.
 
 ## Source Code
 

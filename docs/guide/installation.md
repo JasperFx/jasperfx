@@ -20,7 +20,7 @@ dotnet add package JasperFx.Core
 
 ## Prerequisites
 
-- .NET 8.0 SDK or later
+- .NET 9.0 SDK or later
 - A `Microsoft.Extensions.Hosting` compatible application (for CLI and environment check features)
 
 ## Verifying Installation
