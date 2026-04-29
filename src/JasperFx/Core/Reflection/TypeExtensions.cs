@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace JasperFx.Core.Reflection;
@@ -390,31 +391,47 @@ public static class TypeExtensions
     }
 
 
+    [RequiresDynamicCode(CloseAndBuildAsRequiresDynamicCodeMessage)]
+    [RequiresUnreferencedCode(CloseAndBuildAsRequiresUnreferencedCodeMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType)!;
     }
 
+    [RequiresDynamicCode(CloseAndBuildAsRequiresDynamicCodeMessage)]
+    [RequiresUnreferencedCode(CloseAndBuildAsRequiresUnreferencedCodeMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument, params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType, ctorArgument)!;
     }
 
+    [RequiresDynamicCode(CloseAndBuildAsRequiresDynamicCodeMessage)]
+    [RequiresUnreferencedCode(CloseAndBuildAsRequiresUnreferencedCodeMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument1, object ctorArgument2,
         params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType, ctorArgument1, ctorArgument2)!;
     }
-    
+
+    [RequiresDynamicCode(CloseAndBuildAsRequiresDynamicCodeMessage)]
+    [RequiresUnreferencedCode(CloseAndBuildAsRequiresUnreferencedCodeMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument1, object ctorArgument2, object ctorArgument3,
         params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType, ctorArgument1, ctorArgument2, ctorArgument3)!;
     }
+
+    private const string CloseAndBuildAsRequiresDynamicCodeMessage =
+        "CloseAndBuildAs uses MakeGenericType + Activator.CreateInstance, which require runtime code generation. " +
+        "Use GenericFactoryCache with a delegate factory for AOT-friendly hot paths.";
+
+    private const string CloseAndBuildAsRequiresUnreferencedCodeMessage =
+        "CloseAndBuildAs reflects over a constructed generic type and may instantiate types that the trimmer cannot statically see. " +
+        "Use GenericFactoryCache with a delegate factory for trim-friendly hot paths.";
 
     /// <summary>
     ///     Does the two properties match?
