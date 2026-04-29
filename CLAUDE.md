@@ -6,7 +6,7 @@ JasperFx is the foundational framework for the "Critter Stack" (.NET tools inclu
 
 ## Tech Stack
 
-- **Language:** C# 13, targeting .NET 8.0/9.0/10.0
+- **Language:** C# 13, targeting .NET 9.0/10.0
 - **Build:** Nuke (C# build automation)
 - **Testing:** xUnit + Shouldly + NSubstitute
 - **Key Dependencies:** Microsoft.CodeAnalysis (Roslyn), Spectre.Console, Polly.Core, FastExpressionCompiler

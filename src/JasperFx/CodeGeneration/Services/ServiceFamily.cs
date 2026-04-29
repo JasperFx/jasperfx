@@ -14,11 +14,7 @@ internal class ServiceFamily
         Services = services.ToArray();
     }
 
-#if NET8_0_OR_GREATER
     public ServiceDescriptor? Default => Services.LastOrDefault(x => !x.IsKeyedService);
-    #else
-    public ServiceDescriptor? Default => Services.LastOrDefault();
-#endif
 
     public ServiceFamily Close(Type[] parameterTypes)
     {

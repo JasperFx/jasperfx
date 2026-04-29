@@ -22,7 +22,7 @@ env:
   pg_db: marten_testing
   pg_user: postgres
   CONFIGURATION: Release
-  FRAMEWORK: net8.0
+  FRAMEWORK: net9.0
   DISABLE_TEST_PARALLELIZATION: true
   NUKE_TELEMETRY_OPTOUT: true
 
@@ -34,16 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install .NET 8.0.x
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-          
       - name: Install .NET 9.0.x
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
-          
+
       - name: Install .NET 10.0.x
         uses: actions/setup-dotnet@v4
         with:
