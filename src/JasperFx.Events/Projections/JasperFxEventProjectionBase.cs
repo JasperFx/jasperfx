@@ -67,7 +67,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         return this;
     }
 
-    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IEnumerable<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToList();
         await EnrichEventsAsync(operations, events, cancellation);

@@ -176,6 +176,66 @@ public class GenerationRules
     {
         foreach (var assembly in WalkReferencedAssemblies.ForTypes(types).Distinct()) Assemblies.Fill(assembly);
     }
+
+    /// <summary>
+    ///     Returns a shallow clone of this <see cref="GenerationRules"/> with
+    ///     copied collections so mutating helpers like
+    ///     <see cref="ReferenceTypes"/>, <see cref="ReferenceAssembly"/>, or
+    ///     <see cref="AlwaysUseServiceLocationFor{T}"/> on the clone don't
+    ///     affect the source. Intended for callers that want to cache an
+    ///     expensive-to-build base configuration once and add per-call-site
+    ///     refinements without locking. <see cref="TypeLoadMode"/>,
+    ///     <see cref="SourceCodeWritingEnabled"/>, and a consumer-supplied
+    ///     <see cref="Loader"/> are only re-applied on the clone when their
+    ///     change-tracking flags are set, so the clone starts out with the
+    ///     same has-changed view as the source.
+    /// </summary>
+    public GenerationRules Clone()
+    {
+        var clone = new GenerationRules
+        {
+            GeneratedNamespace = GeneratedNamespace,
+            GeneratedCodeOutputPath = GeneratedCodeOutputPath,
+            ApplicationAssembly = ApplicationAssembly,
+        };
+
+        if (TypeLoadModeHasChanged)
+        {
+            clone.TypeLoadMode = TypeLoadMode;
+        }
+
+        if (SourceCodeWritingEnabledHasChanged)
+        {
+            clone.SourceCodeWritingEnabled = SourceCodeWritingEnabled;
+        }
+
+        if (_loaderExplicitlySet)
+        {
+            clone.Loader = _loader!;
+        }
+
+        foreach (var assembly in Assemblies)
+        {
+            clone.Assemblies.Add(assembly);
+        }
+
+        foreach (var pair in Properties)
+        {
+            clone.Properties[pair.Key] = pair.Value;
+        }
+
+        foreach (var source in Sources)
+        {
+            clone.Sources.Add(source);
+        }
+
+        foreach (var policy in MethodPreCompilation)
+        {
+            clone.MethodPreCompilation.Add(policy);
+        }
+
+        return clone;
+    }
 }
 
 /// <summary>
