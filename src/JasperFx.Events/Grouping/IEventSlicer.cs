@@ -43,7 +43,7 @@ public interface IEventSlicer<TDoc, TId> where TId : notnull
     /// <summary>
     ///     This is called by the asynchronous projection runner
     /// </summary>
-    /// <param name="events">Enumerable of new events within the current event range (page) that is currently being processed by the projection</param>
+    /// <param name="events">List of new events within the current event range (page) that is currently being processed by the projection</param>
     /// <param name="grouping"></param>
     /// <returns></returns>
     ValueTask SliceAsync(IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping);
@@ -54,7 +54,7 @@ public interface IEventSlicer<TDoc, TId, TQuerySession> where TId : notnull
     /// <summary>
     ///     This is called by the asynchronous projection runner
     /// </summary>
-    /// <param name="events">Enumerable of new events within the current event range (page) that is currently being processed by the projection</param>
+    /// <param name="events">List of new events within the current event range (page) that is currently being processed by the projection</param>
     /// <param name="grouping"></param>
     /// <returns></returns>
     ValueTask SliceAsync(TQuerySession session, IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping);
@@ -75,19 +75,19 @@ public interface IJasperFxAggregateGrouper<out TId, in TQuerySession>
     /// <param name="events"></param>
     /// <param name="grouping"></param>
     /// <returns></returns>
-    Task Group(TQuerySession session, IEnumerable<IEvent> events, IEventGrouping<TId> grouping);
+    Task Group(TQuerySession session, IReadOnlyList<IEvent> events, IEventGrouping<TId> grouping);
 }
 
 internal class LambdaAggregateGrouper<TId, TQuerySession> : IJasperFxAggregateGrouper<TId, TQuerySession>
 {
-    private readonly Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> _func;
+    private readonly Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> _func;
 
-    public LambdaAggregateGrouper(Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> func)
+    public LambdaAggregateGrouper(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         _func = func;
     }
 
-    public Task Group(TQuerySession session, IEnumerable<IEvent> events, IEventGrouping<TId> grouping)
+    public Task Group(TQuerySession session, IReadOnlyList<IEvent> events, IEventGrouping<TId> grouping)
     {
         return _func(session, events, grouping);
     }
@@ -98,7 +98,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
 {
     private readonly List<IFanOutRule> _afterGroupingFanoutRules = new();
     private readonly List<IFanOutRule> _beforeGroupingFanoutRules = new();
-    private readonly List<Action<IEnumerable<IEvent>, IEventGrouping<TId>>> _groupers = new();
+    private readonly List<Action<IReadOnlyList<IEvent>, IEventGrouping<TId>>> _groupers = new();
     private readonly List<IJasperFxAggregateGrouper<TId, TQuerySession>> _lookupGroupers = new();
 
     public async ValueTask SliceAsync(TQuerySession session, IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping)
@@ -163,7 +163,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     ///     Apply a custom event grouping strategy for events. This is additive to Identity() or Identities()
     /// </summary>
     /// <param name="grouper"></param>
-    public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> func)
+    public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         _lookupGroupers.Add(new LambdaAggregateGrouper<TId, TQuerySession>(func));
 

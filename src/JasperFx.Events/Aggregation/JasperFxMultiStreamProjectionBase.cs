@@ -213,7 +213,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     /// </summary>
     /// <param name="func"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public void CustomGrouping(Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> func)
+    public void CustomGrouping(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         if (_customSlicer != null)
         {

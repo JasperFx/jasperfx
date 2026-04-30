@@ -194,18 +194,23 @@ public class EventSlicerWithSessionTests
     public async Task slice_with_custom_grouping()
     {
         var slicer = new EventSlicer<SimpleAggregate, string, object>();
-        slicer.CustomGrouping((session, events, grouping) =>
+
+        var events = new TestEventSet();
+        var e1 = events.Added(1, "blue");
+        var e2 = events.Added(2, "green");
+        
+        slicer.CustomGrouping((session, page, grouping) =>
         {
-            foreach (var e in events)
+            page.Count.ShouldBe(2);
+            page[0].ShouldBe(e1);
+            page[1].ShouldBe(e2);
+
+            foreach (var e in page)
             {
                 grouping.AddEvent("all", e);
             }
             return Task.CompletedTask;
         });
-
-        var events = new TestEventSet();
-        var e1 = events.Added(1, "blue");
-        var e2 = events.Added(2, "green");
 
         var group = new SliceGroup<SimpleAggregate, string>();
         await slicer.SliceAsync(new object(), events.All, group);
