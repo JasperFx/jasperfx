@@ -13,6 +13,7 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
 {
     private readonly SliceGroup<LetterCounts, Guid> theGroup;
     private readonly Dictionary<string, User> theUsers = new();
+    private string[] _loadedUserIds = [];
     private string _tenantId;
     private bool _enableSideEffectsOnInlineProjections;
     private string _tenantId1;
@@ -34,6 +35,19 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
         var slice = BuildSlice(text, userName);
         theGroup.Slices[slice.Id] = slice;
         return slice.Id;
+    }
+
+    private SliceGroup<LetterCounts, string> BuildStringGroup()
+    {
+        var group = new SliceGroup<LetterCounts, string>();
+        group.Operations = this;
+
+        return group;
+    }
+
+    private static void AddStringSlice(SliceGroup<LetterCounts, string> group, string id, params IEvent[] events)
+    {
+        group.Slices[id] = new EventSlice<LetterCounts, string>(id, StorageConstants.DefaultTenantId, events);
     }
 
     public SliceGroupTests()
@@ -160,6 +174,84 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
     }
 
     [Fact]
+    public async Task enrich_aggregate_cache_using_forentityidfromstreamid()
+    {
+        var group = BuildStringGroup();
+        AddStringSlice(group, "Bill", Event.For(new Assigned("WRONG")));
+
+        theUsers["Bill"] = new User("Bill", "William");
+
+        await group.EnrichWith<User>()
+            .ForEvent<Assigned>()
+            .ForEntityIdFromStreamId()
+            .AddReferences();
+
+        group.Slices["Bill"].Events().OfType<IEvent<References<User>>>().Single().Data.Entity.UserName.ShouldBe("Bill");
+        _loadedUserIds.ShouldBe(["Bill"]);
+    }
+
+    [Fact]
+    public async Task enrich_aggregate_cache_for_multiple_event_types_using_stream_id()
+    {
+        var group = BuildStringGroup();
+        AddStringSlice(group, "Bill", Event.For(new AEvent()));
+        AddStringSlice(group, "Tom", Event.For(new BEvent()));
+        AddStringSlice(group, "Todd", Event.For(new CEvent()));
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+        theUsers["Todd"] = new User("Todd", "Todd");
+
+        await group.EnrichWith<User>()
+            .ForEvents<
+                AEvent,
+                BEvent,
+                CEvent,
+                DEvent,
+                EEvent,
+                CreateEvent,
+                StartLetters,
+                FullStop,
+                Assigned,
+                AssignedToUser,
+                LetterCounts,
+                MyAggregate,
+                Session,
+                StringId,
+                GuidId>()
+            .ForEntityIdFromStreamId()
+            .AddReferences();
+
+        group.Slices["Bill"].Events().OfType<IEvent<References<User>>>().Single().Data.Entity.UserName.ShouldBe("Bill");
+        group.Slices["Tom"].Events().OfType<IEvent<References<User>>>().Single().Data.Entity.UserName.ShouldBe("Tom");
+        group.Slices["Todd"].Events().OfType<IEvent<References<User>>>().Single().Data.Entity.UserName.ShouldBe("Todd");
+        _loadedUserIds.Order().ToArray().ShouldBe(["Bill", "Todd", "Tom"]);
+    }
+
+    [Fact]
+    public async Task enrich_aggregate_cache_for_multiple_event_type_objects_using_stream_id()
+    {
+        var group = BuildStringGroup();
+        AddStringSlice(group, "Bill", Event.For(new AEvent()));
+        AddStringSlice(group, "Tom", Event.For(new BEvent()));
+        AddStringSlice(group, "Todd", Event.For(new CEvent()));
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+        theUsers["Todd"] = new User("Todd", "Todd");
+
+        await group.EnrichWith<User>()
+            .ForEvents(typeof(AEvent), typeof(BEvent))
+            .ForEntityIdFromStreamId()
+            .AddReferences();
+
+        group.Slices["Bill"].Events().OfType<IEvent<References<User>>>().Single().Data.Entity.UserName.ShouldBe("Bill");
+        group.Slices["Tom"].Events().OfType<IEvent<References<User>>>().Single().Data.Entity.UserName.ShouldBe("Tom");
+        group.Slices["Todd"].Events().OfType<IEvent<References<User>>>().Any().ShouldBeFalse();
+        _loadedUserIds.Order().ToArray().ShouldBe(["Bill", "Tom"]);
+    }
+
+    [Fact]
     public async Task enrich_with_using_entity_query()
     {
         var id1 = AddSlice("AAABCCDDDD", "Bill");
@@ -261,7 +353,14 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
 
     Task<IReadOnlyDictionary<string, User>> IProjectionStorage<User, string>.LoadManyAsync(string[] identities, CancellationToken cancellationToken)
     {
-        return Task.FromResult<IReadOnlyDictionary<string, User>>(theUsers);
+        _loadedUserIds = identities;
+
+        var users = identities
+            .Distinct()
+            .Where(theUsers.ContainsKey)
+            .ToDictionary(x => x, x => theUsers[x]);
+
+        return Task.FromResult<IReadOnlyDictionary<string, User>>(users);
     }
 
     void IProjectionStorage<User, string>.StoreProjection(User aggregate, IEvent? lastEvent, AggregationScope scope)

@@ -202,6 +202,85 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         public EventStep<TEntity, TEvent> ForEvent<TEvent>() => new(parent, session, disposeAfterUse);
 
         /// <summary>
+        /// On which event types can you find an identity for the entity TDoc?
+        /// This can use marker interfaces. Think of this as equivalent to the LINQ OfType&lt;T&gt;() operator.
+        /// </summary>
+        /// <param name="eventTypes"></param>
+        /// <returns></returns>
+        public EventsStep<TEntity> ForEvents(params Type[] eventTypes) => new(parent, session, disposeAfterUse, eventTypes);
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10, TEvent11>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10),
+                typeof(TEvent11));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10, TEvent11, TEvent12>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10),
+                typeof(TEvent11), typeof(TEvent12));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10, TEvent11, TEvent12, TEvent13>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10),
+                typeof(TEvent11), typeof(TEvent12), typeof(TEvent13));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10, TEvent11, TEvent12, TEvent13, TEvent14>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10),
+                typeof(TEvent11), typeof(TEvent12), typeof(TEvent13), typeof(TEvent14));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10, TEvent11, TEvent12, TEvent13, TEvent14, TEvent15>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10),
+                typeof(TEvent11), typeof(TEvent12), typeof(TEvent13), typeof(TEvent14), typeof(TEvent15));
+
+        public EventsStep<TEntity> ForEvents<TEvent1, TEvent2, TEvent3, TEvent4, TEvent5, TEvent6, TEvent7, TEvent8,
+            TEvent9, TEvent10, TEvent11, TEvent12, TEvent13, TEvent14, TEvent15, TEvent16>() =>
+            ForEvents(typeof(TEvent1), typeof(TEvent2), typeof(TEvent3), typeof(TEvent4), typeof(TEvent5),
+                typeof(TEvent6), typeof(TEvent7), typeof(TEvent8), typeof(TEvent9), typeof(TEvent10),
+                typeof(TEvent11), typeof(TEvent12), typeof(TEvent13), typeof(TEvent14), typeof(TEvent15),
+                typeof(TEvent16));
+
+        /// <summary>
         /// Switch enrichment to load entities from an alternate session (e.g. an ancillary store).
         /// The alternate session will be disposed after enrichment completes.
         /// </summary>
@@ -230,6 +309,72 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         }
     }
 
+    public class EventsStep<TEntity>
+    {
+        private readonly Type[] _eventTypes;
+        private readonly SliceGroup<TDoc, TId> _parent;
+        private readonly IStorageOperations _session;
+        private readonly bool _disposeAfterUse;
+
+        public EventsStep(
+            SliceGroup<TDoc, TId> parent,
+            IStorageOperations session,
+            bool disposeAfterUse,
+            Type[] eventTypes)
+        {
+            ArgumentNullException.ThrowIfNull(eventTypes);
+
+            if (eventTypes.Length == 0)
+            {
+                throw new ArgumentException("At least one event type is required", nameof(eventTypes));
+            }
+
+            if (eventTypes.Any(x => x == null))
+            {
+                throw new ArgumentException("Event types cannot contain null values", nameof(eventTypes));
+            }
+
+            _parent = parent;
+            _session = session;
+            _disposeAfterUse = disposeAfterUse;
+            _eventTypes = eventTypes.Distinct().ToArray();
+        }
+
+        /// <summary>
+        /// Specify *how* the enrichment can find the identity from each matching event for entities
+        /// of type TEntity.
+        /// </summary>
+        /// <param name="identitySource"></param>
+        /// <typeparam name="TEntityId"></typeparam>
+        /// <returns></returns>
+        public MultiEventIdentityStep<TEntity, TEntityId> ForEntityId<TEntityId>(
+            Func<IEvent, TEntityId> identitySource)
+        {
+            ArgumentNullException.ThrowIfNull(identitySource);
+
+            return new MultiEventIdentityStep<TEntity, TEntityId>(_parent, _session, _eventTypes,
+                (_, @event) => identitySource(@event), _disposeAfterUse);
+        }
+
+        /// <summary>
+        /// Specify *how* the enrichment can find the identity from each matching event for entities
+        /// of type TEntity.
+        /// </summary>
+        /// <param name="identitySource"></param>
+        /// <typeparam name="TEntityId"></typeparam>
+        /// <returns></returns>
+        public MultiEventIdentityStep<TEntity, TEntityId> ForEntityIdFromEvent<TEntityId>(
+            Func<IEvent, TEntityId> identitySource) =>
+            ForEntityId(identitySource);
+
+        /// <summary>
+        /// Use the containing stream id as the entity identity for every matching event.
+        /// </summary>
+        /// <returns></returns>
+        public MultiEventIdentityStep<TEntity, TId> ForEntityIdFromStreamId() =>
+            new(_parent, _session, _eventTypes, (slice, _) => slice.Id, _disposeAfterUse);
+    }
+
     public class EventStep<TEntity, TEvent>(SliceGroup<TDoc, TId> parent, IStorageOperations session, bool disposeAfterUse = false) where TEvent : notnull where TEntity : notnull
     {
         /// <summary>
@@ -241,7 +386,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityId<TEntityId>(
             Func<TEvent, TEntityId> identitySource) =>
-            new(parent, session, e => identitySource(e.Data), disposeAfterUse);
+            new(parent, session, (_, e) => identitySource(e.Data), disposeAfterUse);
 
         /// <summary>
         /// Specify *how* the enrichment can find the identity TId from the events of type TEvent for entities
@@ -252,7 +397,14 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         /// <returns></returns>
         public IdentityStep<TEntity, TEvent, TEntityId> ForEntityIdFromEvent<TEntityId>(
             Func<IEvent<TEvent>, TEntityId> identitySource) =>
-            new(parent, session, identitySource, disposeAfterUse);
+            new(parent, session, (_, e) => identitySource(e), disposeAfterUse);
+
+        /// <summary>
+        /// Use the containing stream id as the entity identity for every event of type <typeparamref name="TEvent"/>.
+        /// </summary>
+        /// <returns></returns>
+        public IdentityStep<TEntity, TEvent, TId> ForEntityIdFromStreamId() =>
+            new(parent, session, (slice, _) => slice.Id, disposeAfterUse);
 
         /// <summary>
         /// Execute a batched enrichment operation for events of type <typeparamref name="TEvent"/>,
@@ -327,7 +479,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
     public class IdentityStep<TEntity, TEvent, TEntityId>(
         SliceGroup<TDoc, TId> parent,
         IStorageOperations session,
-        Func<IEvent<TEvent>, TEntityId> identitySource,
+        Func<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntityId> identitySource,
         bool disposeAfterUse = false) where TEvent : notnull
     {
         public async Task EnrichAsync(
@@ -340,7 +492,7 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
                 var events = eventSlice.Events().OfType<IEvent<TEvent>>().ToArray();
                 foreach (var @event in events)
                 {
-                    var id = identitySource(@event);
+                    var id = identitySource(eventSlice, @event);
                     if (cache.TryFind(id, out var entity))
                     {
                         application(eventSlice, @event, entity);
@@ -361,9 +513,10 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
                 var cache = parent.findCache<TEntityId, TEntity>();
 
                 var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
-                var events = parent.Slices.SelectMany(x => x.Events());
-
-                var ids = events.OfType<IEvent<TEvent>>().Select(identitySource).ToArray();
+                var ids = parent.Slices
+                    .SelectMany(slice => slice.Events().OfType<IEvent<TEvent>>()
+                        .Select(@event => identitySource(slice, @event)))
+                    .ToArray();
                 if (!ids.Any())
                 {
                     return new NulloAggregateCache<TEntityId, TEntity>();
@@ -392,6 +545,80 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
                 if (disposeAfterUse) await session.DisposeAsync();
             }
         }
+    }
+
+    public class MultiEventIdentityStep<TEntity, TEntityId>(
+        SliceGroup<TDoc, TId> parent,
+        IStorageOperations session,
+        Type[] eventTypes,
+        Func<EventSlice<TDoc, TId>, IEvent, TEntityId> identitySource,
+        bool disposeAfterUse = false)
+    {
+        public async Task EnrichAsync(
+            Action<EventSlice<TDoc, TId>, IEvent, TEntity> application)
+        {
+            var cache = await FetchEntitiesAsync();
+
+            foreach (EventSlice<TDoc, TId> eventSlice in parent.Slices)
+            {
+                var events = eventSlice.Events().Where(matches).ToArray();
+                foreach (var @event in events)
+                {
+                    var id = identitySource(eventSlice, @event);
+                    if (cache.TryFind(id, out var entity))
+                    {
+                        application(eventSlice, @event, entity);
+                    }
+                }
+            }
+        }
+
+        public Task AddReferences()
+        {
+            return EnrichAsync((slice, _, entity) => slice.Reference(entity));
+        }
+
+        internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
+        {
+            try
+            {
+                var cache = parent.findCache<TEntityId, TEntity>();
+
+                var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
+                var ids = parent.Slices
+                    .SelectMany(slice => slice.Events().Where(matches)
+                        .Select(@event => identitySource(slice, @event)))
+                    .ToArray();
+                if (!ids.Any())
+                {
+                    return new NulloAggregateCache<TEntityId, TEntity>();
+                }
+
+                if (cache == null)
+                {
+                    var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+                    return new DictionaryAggregateCache<TEntityId, TEntity>(dict);
+                }
+
+                var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+                if (!toLoad.Any()) return cache;
+
+                var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+                foreach (var pair in loaded)
+                {
+                    cache.Store(pair.Key, pair.Value);
+                }
+
+                return cache;
+            }
+            finally
+            {
+                if (disposeAfterUse) await session.DisposeAsync();
+            }
+        }
+
+        private bool matches(IEvent @event) => eventTypes.Any(type => type.IsAssignableFrom(@event.EventType));
     }
 
     /// <summary>
