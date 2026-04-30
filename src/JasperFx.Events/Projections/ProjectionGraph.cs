@@ -425,7 +425,31 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     /// </summary>
     private static bool IsAssemblyKnownToHaveNoEvolvers(Assembly assembly)
     {
-        var name = assembly.GetName().Name;
+        // assembly.GetName() walks AssemblyName.GetLocale() under the hood, which
+        // calls CultureInfo.GetCultureInfo(name). Under globalization-invariant
+        // mode (e.g. `<InvariantGlobalization>true</InvariantGlobalization>`,
+        // which is implied by NativeAOT publishing) any culture-tagged satellite
+        // assembly with a non-invariant name like "pt-br" causes that lookup to
+        // throw CultureNotFoundException. Use Assembly.FullName instead — it's
+        // pre-cached, doesn't go through CultureInfo, and the simple name is
+        // always the first comma-separated token. Wrap in try/catch as a
+        // belt-and-braces guard for any other exotic loader behaviour: failing
+        // to recognise the assembly as "known empty" just falls through to the
+        // GetCustomAttributes path, which already has its own try/catch.
+        // See https://aka.ms/GlobalizationInvariantMode.
+        string? name;
+        try
+        {
+            var fullName = assembly.FullName;
+            if (string.IsNullOrEmpty(fullName)) return false;
+            var commaIndex = fullName.IndexOf(',');
+            name = commaIndex < 0 ? fullName : fullName.Substring(0, commaIndex);
+        }
+        catch
+        {
+            return false;
+        }
+
         if (name == null) return false;
 
         return name.StartsWith("System", StringComparison.Ordinal)
