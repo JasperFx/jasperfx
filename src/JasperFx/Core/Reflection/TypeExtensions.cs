@@ -390,25 +390,37 @@ public static class TypeExtensions
     }
 
 
+    private const string CloseAndBuildAsAotMessage =
+        "CloseAndBuildAs uses Type.MakeGenericType + Activator.CreateInstance, neither of which is AOT-safe. " +
+        "Use the GenericFactoryCache delegate-factory escape hatch on hot paths, or pre-generate the closed types.";
+
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(CloseAndBuildAsAotMessage)]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(CloseAndBuildAsAotMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType)!;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(CloseAndBuildAsAotMessage)]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(CloseAndBuildAsAotMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument, params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType, ctorArgument)!;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(CloseAndBuildAsAotMessage)]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(CloseAndBuildAsAotMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument1, object ctorArgument2,
         params Type[] parameterTypes)
     {
         var closedType = openType.MakeGenericType(parameterTypes);
         return (T)Activator.CreateInstance(closedType, ctorArgument1, ctorArgument2)!;
     }
-    
+
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(CloseAndBuildAsAotMessage)]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(CloseAndBuildAsAotMessage)]
     public static T CloseAndBuildAs<T>(this Type openType, object ctorArgument1, object ctorArgument2, object ctorArgument3,
         params Type[] parameterTypes)
     {
