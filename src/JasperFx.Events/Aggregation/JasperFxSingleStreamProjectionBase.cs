@@ -70,14 +70,16 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return this;
     }
 
-    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations session, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations session, IEnumerable<StreamAction> streams, CancellationToken cancellation)
     {
-        // Screen out any stream that doesn't have any matching events
-        streams = streams.Where(x => AppliesTo(x.Events.Select(x => x.EventType).ToArray())).ToArray();
-        
-        if (streams.Count == 0) return;
-        
-        var groups = streams.GroupBy(x => x.TenantId).ToArray();
+        // Screen out any stream that doesn't have any matching events.
+        // 9.0 (#4306): the parameter is now IEnumerable<StreamAction>, so we
+        // materialize once locally and work with the concrete array.
+        var matching = streams.Where(x => AppliesTo(x.Events.Select(e => e.EventType).ToArray())).ToArray();
+
+        if (matching.Length == 0) return;
+
+        var groups = matching.GroupBy(x => x.TenantId).ToArray();
         foreach (var group in groups)
         {
             var storage = await session.FetchProjectionStorageAsync<TDoc, TId>(group.Key, cancellation);

@@ -97,7 +97,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         _defaultSlicer.FanOut(fanOutFunc, mode);
     }
 
-    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+    async Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IEnumerable<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToArray();
         var slicer = BuildSlicer(operations);

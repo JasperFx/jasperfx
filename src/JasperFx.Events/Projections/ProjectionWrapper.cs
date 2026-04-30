@@ -65,7 +65,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
 
     public Type ProjectionType => _projection.GetType();
 
-    Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams,
+    Task IInlineProjection<TOperations>.ApplyAsync(TOperations operations, IEnumerable<StreamAction> streams,
         CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToList();
