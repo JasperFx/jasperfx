@@ -84,7 +84,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     public abstract ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
         ShardName shardName);
 
-    public async Task ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+    public async Task ApplyAsync(TOperations operations, IEnumerable<StreamAction> streams, CancellationToken cancellation)
     {
         using var scope = _serviceProvider.CreateScope();
         var sp = scope.ServiceProvider;

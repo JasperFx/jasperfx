@@ -77,7 +77,7 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
     public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
     public Type ImplementationType => typeof(TProjection);
 
-    public Task ApplyAsync(TOperations operations, IReadOnlyList<StreamAction> streams, CancellationToken cancellation)
+    public Task ApplyAsync(TOperations operations, IEnumerable<StreamAction> streams, CancellationToken cancellation)
     {
         var events = streams.SelectMany(x => x.Events).ToList();
         return ApplyAsync(operations, events, cancellation);
