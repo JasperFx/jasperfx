@@ -22,6 +22,22 @@ public class EventStoreUsage : OptionsDescription
     public List<SubscriptionDescriptor> Subscriptions { get; set; } = new();
 
     /// <summary>
+    /// DCB tag-type registrations on this event store — diagnostic mirror of
+    /// <c>EventGraph.TagTypes</c>. First-class typed list so monitoring tools
+    /// (e.g. CritterWatch) can render the configuration shape without traversing
+    /// the magical <see cref="OptionsDescription.Children"/> / <see cref="OptionsDescription.Sets"/>
+    /// dictionaries.
+    /// </summary>
+    public List<TagTypeDescriptor> TagTypes { get; set; } = new();
+
+    /// <summary>
+    /// Aggregates that live outside the multi-tenant boundary in tenanted
+    /// configurations — diagnostic mirror of <c>EventGraph.GlobalAggregates</c>,
+    /// expressed as a list of CLR type identities.
+    /// </summary>
+    public List<TypeDescriptor> GlobalAggregates { get; set; } = new();
+
+    /// <summary>
     /// Populates AgentUris on each async SubscriptionDescriptor based on the
     /// agent URI pattern: {agentScheme}://{identity.Type}/{identity.Name}/{databaseId}/{shardName.RelativeUrl}
     /// </summary>
