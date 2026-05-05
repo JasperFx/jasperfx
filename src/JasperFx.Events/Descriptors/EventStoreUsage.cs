@@ -1,3 +1,4 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Events.Projections;
 
@@ -9,8 +10,35 @@ public class EventStoreUsage : OptionsDescription
     {
     }
 
-    public EventStoreUsage(Uri subjectUri, object subject) : base(subject)
+    /// <summary>
+    /// Build a usage descriptor for <paramref name="subject"/> identified by
+    /// <paramref name="subjectUri"/>.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately does NOT chain into <see cref="OptionsDescription(object)"/>:
+    /// that ctor invokes the reflective property auto-reader, which on a
+    /// concrete <c>DocumentStore</c> subject walks <c>Storage</c> /
+    /// <c>Advanced</c> / <c>Diagnostics</c> / <c>Options</c> handles and dumps
+    /// them into <see cref="OptionsDescription.Children"/> /
+    /// <see cref="OptionsDescription.Properties"/>. Those are runtime handles,
+    /// not configuration shape; surfacing them in CritterWatch's Configuration
+    /// section is noise that operators have to scroll past on every visit.
+    ///
+    /// Callers (Marten's <c>IEventStore.TryCreateUsage</c>) populate the
+    /// first-class fields — <see cref="Database"/>, <see cref="Events"/>,
+    /// <see cref="Subscriptions"/>, <see cref="TagTypes"/>,
+    /// <see cref="GlobalAggregates"/> — and any extra
+    /// <see cref="OptionsDescription.AddValue"/> / <see cref="OptionsDescription.AddChildSet"/>
+    /// entries explicitly. Nothing here implicitly walks the subject.
+    /// </remarks>
+    public EventStoreUsage(Uri subjectUri, object subject)
     {
+        if (subject == null)
+        {
+            throw new ArgumentNullException(nameof(subject));
+        }
+
+        Subject = subject.GetType().FullNameInCode();
         SubjectUri = subjectUri;
         Version = subject.GetType().Assembly.GetName().Version?.ToString();
     }

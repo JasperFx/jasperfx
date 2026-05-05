@@ -1,3 +1,4 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Events;
 using JasperFx.Events.Descriptors;
@@ -15,6 +16,53 @@ public class EventStoreUsageTests
     {
         var usage = new EventStoreUsage(new Uri("marten://main"), new MyThing());
         usage.Version.ShouldBe(GetType().Assembly.GetName().Version?.ToString());
+    }
+
+    [Fact]
+    public void ctor_does_not_reflect_subject_into_properties_or_children()
+    {
+        // Pin the Critter Stack #104 fix: constructing EventStoreUsage from a
+        // live EventStore subject must NOT auto-walk the subject into
+        // OptionsDescription.Children / .Properties. Callers populate the
+        // first-class fields explicitly; the auto-walk dumps Storage /
+        // Advanced / Diagnostics / Options handles into the descriptor and
+        // those bleed into CritterWatch's Configuration sections as noise.
+        var usage = new EventStoreUsage(new Uri("marten://main"), new SubjectWithLeakyHandles());
+
+        // FullNameInCode renders nested types with `.` (vs Type.FullName's `+`),
+        // so pin against that.
+        usage.Subject.ShouldBe(typeof(SubjectWithLeakyHandles).FullNameInCode());
+        usage.SubjectUri.ShouldBe(new Uri("marten://main"));
+        usage.Version.ShouldBe(typeof(SubjectWithLeakyHandles).Assembly.GetName().Version?.ToString());
+
+        usage.Properties.ShouldBeEmpty();
+        usage.Children.ShouldBeEmpty();
+        usage.Sets.ShouldBeEmpty();
+
+        usage.Events.ShouldBeEmpty();
+        usage.Subscriptions.ShouldBeEmpty();
+        usage.TagTypes.ShouldBeEmpty();
+        usage.GlobalAggregates.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void ctor_throws_for_null_subject()
+    {
+        Should.Throw<ArgumentNullException>(
+            () => new EventStoreUsage(new Uri("marten://main"), null!));
+    }
+
+    /// <summary>
+    /// Stand-in for Marten's EventStore — exposes the kind of runtime
+    /// handles (Storage / Advanced / Diagnostics / Options) that used to
+    /// leak into the descriptor's Children dictionary before #104.
+    /// </summary>
+    private class SubjectWithLeakyHandles
+    {
+        public string Storage { get; } = "irrelevant";
+        public string Advanced { get; } = "irrelevant";
+        public string Diagnostics { get; } = "irrelevant";
+        public string Options { get; } = "irrelevant";
     }
 
     [Fact]
