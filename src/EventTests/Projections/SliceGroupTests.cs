@@ -252,6 +252,63 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
     }
 
     [Fact]
+    public void try_find_upstream_cache_returns_false_when_no_upstream()
+    {
+        theGroup.TryFindUpstreamCache<string, User>(out var cache).ShouldBeFalse();
+        cache.ShouldBeNull();
+    }
+
+    [Fact]
+    public void try_find_upstream_cache_returns_per_tenant_cache_from_matching_upstream()
+    {
+        var execution = Substitute.For<ISubscriptionExecution>();
+        var caching = Substitute.For<IAggregateCaching<string, User>>();
+        var perTenantCache = Substitute.For<IAggregateCache<string, User>>();
+        caching.CacheFor(StorageConstants.DefaultTenantId).Returns(perTenantCache);
+
+        execution
+            .TryGetAggregateCache<string, User>(out Arg.Any<IAggregateCaching<string, User>?>())
+            .Returns(call =>
+            {
+                call[0] = caching;
+                return true;
+            });
+
+        theGroup.Upstream.Add(execution);
+
+        theGroup.TryFindUpstreamCache<string, User>(out var cache).ShouldBeTrue();
+        cache.ShouldBeSameAs(perTenantCache);
+    }
+
+    [Fact]
+    public void try_find_upstream_cache_walks_past_non_matching_upstream_executions()
+    {
+        var noMatch = Substitute.For<ISubscriptionExecution>();
+        var match = Substitute.For<ISubscriptionExecution>();
+
+        noMatch
+            .TryGetAggregateCache<string, User>(out Arg.Any<IAggregateCaching<string, User>?>())
+            .Returns(false);
+
+        var caching = Substitute.For<IAggregateCaching<string, User>>();
+        var perTenantCache = Substitute.For<IAggregateCache<string, User>>();
+        caching.CacheFor(StorageConstants.DefaultTenantId).Returns(perTenantCache);
+        match
+            .TryGetAggregateCache<string, User>(out Arg.Any<IAggregateCaching<string, User>?>())
+            .Returns(call =>
+            {
+                call[0] = caching;
+                return true;
+            });
+
+        theGroup.Upstream.Add(noMatch);
+        theGroup.Upstream.Add(match);
+
+        theGroup.TryFindUpstreamCache<string, User>(out var cache).ShouldBeTrue();
+        cache.ShouldBeSameAs(perTenantCache);
+    }
+
+    [Fact]
     public async Task enrich_with_using_entity_query()
     {
         var id1 = AddSlice("AAABCCDDDD", "Bill");
