@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -183,6 +184,29 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Try to find the in-memory aggregate cache for an upstream stage of a composite projection
+    /// that produces entities of type <typeparamref name="TEntity"/> keyed by
+    /// <typeparamref name="TEntityId"/>. Useful inside <see cref="EnrichWith{TEntity}"/> /
+    /// <c>EnrichUsingEntityQuery</c> callbacks when the calling stage needs to read the in-flight
+    /// (uncommitted) output of an upstream stage by id without going to the database — a SQL query
+    /// in the same composite batch will not see those writes until the batch flushes.
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>false</c> when no upstream stage of this composite is registered as producing
+    /// entities of type <typeparamref name="TEntity"/>. Returns <c>true</c> with a per-tenant cache
+    /// otherwise; callers should still treat the cache as a hint and fall back to other resolution
+    /// strategies when <see cref="IAggregateCache{TKey,TItem}.TryFind"/> misses.
+    /// </remarks>
+    public bool TryFindUpstreamCache<TEntityId, TEntity>(
+        [NotNullWhen(true)] out IAggregateCache<TEntityId, TEntity>? cache)
+        where TEntityId : notnull
+        where TEntity : notnull
+    {
+        cache = findCache<TEntityId, TEntity>();
+        return cache != null;
     }
 
     public class EntityStep<TEntity>(SliceGroup<TDoc, TId> parent, IStorageOperations session, bool disposeAfterUse = false)
