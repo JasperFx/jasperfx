@@ -424,6 +424,31 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
             new(parent, session, (_, e) => identitySource(e), disposeAfterUse);
 
         /// <summary>
+        /// Specify *how* to extract a collection of identities of type <typeparamref name="TEntityId"/>
+        /// for entities of type <typeparamref name="TEntity"/> from each event of type
+        /// <typeparamref name="TEvent"/>. Use this for fan-out enrichment where a single event references
+        /// multiple entities of the same type — for example an event carrying a list of foreign-key ids.
+        /// </summary>
+        /// <param name="identitiesSource">
+        /// Returns the entity ids referenced by a single event. May be empty, may contain duplicates
+        /// (duplicates within an event are passed through to the application callback as-is so callers
+        /// retain control; ids are de-duplicated when fetching from storage to avoid redundant loads).
+        /// </param>
+        /// <typeparam name="TEntityId"></typeparam>
+        public MultiIdentityStep<TEntity, TEvent, TEntityId> ForEntityIds<TEntityId>(
+            Func<TEvent, IEnumerable<TEntityId>> identitiesSource) =>
+            new(parent, session, (_, e) => identitiesSource(e.Data), disposeAfterUse);
+
+        /// <summary>
+        /// Like <see cref="ForEntityIds{TEntityId}(Func{TEvent, IEnumerable{TEntityId}})"/> but the
+        /// callback receives the wrapper <see cref="IEvent{T}"/> rather than the unwrapped event payload,
+        /// so it can also reach event headers, sequence, timestamps, etc.
+        /// </summary>
+        public MultiIdentityStep<TEntity, TEvent, TEntityId> ForEntityIdsFromEvent<TEntityId>(
+            Func<IEvent<TEvent>, IEnumerable<TEntityId>> identitiesSource) =>
+            new(parent, session, (_, e) => identitiesSource(e), disposeAfterUse);
+
+        /// <summary>
         /// Use the containing stream id as the entity identity for every event of type <typeparamref name="TEvent"/>.
         /// </summary>
         /// <returns></returns>
@@ -541,6 +566,87 @@ public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
                     .SelectMany(slice => slice.Events().OfType<IEvent<TEvent>>()
                         .Select(@event => identitySource(slice, @event)))
                     .ToArray();
+                if (!ids.Any())
+                {
+                    return new NulloAggregateCache<TEntityId, TEntity>();
+                }
+
+                if (cache == null)
+                {
+                    var dict = await storage.LoadManyAsync(ids, CancellationToken.None);
+                    return new DictionaryAggregateCache<TEntityId, TEntity>(dict);
+                }
+
+                var toLoad = ids.Where(id => !cache.Contains(id)).ToArray();
+                if (!toLoad.Any()) return cache;
+
+                var loaded = await storage.LoadManyAsync(toLoad, CancellationToken.None);
+
+                foreach (var pair in loaded)
+                {
+                    cache.Store(pair.Key, pair.Value);
+                }
+
+                return cache;
+            }
+            finally
+            {
+                if (disposeAfterUse) await session.DisposeAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fan-out variant of <see cref="IdentityStep{TEntity, TEvent, TEntityId}"/>: each event of type
+    /// <typeparamref name="TEvent"/> maps to zero or more entity identities of type
+    /// <typeparamref name="TEntityId"/>. The application callback is invoked once per (slice, event,
+    /// resolved-entity) triple for entities found in the upstream cache or loaded from storage.
+    /// </summary>
+    public class MultiIdentityStep<TEntity, TEvent, TEntityId>(
+        SliceGroup<TDoc, TId> parent,
+        IStorageOperations session,
+        Func<EventSlice<TDoc, TId>, IEvent<TEvent>, IEnumerable<TEntityId>> identitiesSource,
+        bool disposeAfterUse = false) where TEvent : notnull
+    {
+        public async Task EnrichAsync(
+            Action<EventSlice<TDoc, TId>, IEvent<TEvent>, TEntity> application)
+        {
+            var cache = await FetchEntitiesAsync();
+
+            foreach (EventSlice<TDoc, TId> eventSlice in parent.Slices)
+            {
+                var events = eventSlice.Events().OfType<IEvent<TEvent>>().ToArray();
+                foreach (var @event in events)
+                {
+                    foreach (var id in identitiesSource(eventSlice, @event))
+                    {
+                        if (cache.TryFind(id, out var entity))
+                        {
+                            application(eventSlice, @event, entity);
+                        }
+                    }
+                }
+            }
+        }
+
+        public Task AddReferences()
+        {
+            return EnrichAsync((slice, _, entity) => slice.Reference(entity));
+        }
+
+        internal async Task<IAggregateCache<TEntityId, TEntity>> FetchEntitiesAsync()
+        {
+            try
+            {
+                var cache = parent.findCache<TEntityId, TEntity>();
+
+                var storage = await session.FetchProjectionStorageAsync<TEntity, TEntityId>(parent.TenantId, CancellationToken.None);
+                var ids = parent.Slices
+                    .SelectMany(slice => slice.Events().OfType<IEvent<TEvent>>()
+                        .SelectMany(@event => identitiesSource(slice, @event)))
+                    .Distinct()
+                    .ToArray();
+
                 if (!ids.Any())
                 {
                     return new NulloAggregateCache<TEntityId, TEntity>();

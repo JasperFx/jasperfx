@@ -309,6 +309,115 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
     }
 
     [Fact]
+    public async Task for_entity_ids_fans_out_one_event_to_many_references()
+    {
+        // One event references multiple users by name. AddReferences should add a
+        // References<User> for each id present in the cache, in order.
+        var sliceId = Guid.NewGuid();
+        theGroup.Slices[sliceId] = new EventSlice<LetterCounts, Guid>(sliceId, StorageConstants.DefaultTenantId,
+            new[] { Event.For(new MultipleAssigned(["Bill", "Tom", "Todd"])) });
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+        theUsers["Todd"] = new User("Todd", "Todd");
+
+        await theGroup.EnrichWith<User>()
+            .ForEvent<MultipleAssigned>()
+            .ForEntityIds(e => e.UserNames)
+            .AddReferences();
+
+        var refs = theGroup.Slices[sliceId].Events().OfType<IEvent<References<User>>>()
+            .Select(x => x.Data.Entity.UserName)
+            .ToArray();
+        refs.ShouldBe(["Bill", "Tom", "Todd"]);
+    }
+
+    [Fact]
+    public async Task for_entity_ids_skips_missing_ids()
+    {
+        // Only "Bill" exists; "Ghost" is not in the storage. AddReferences emits
+        // only the matched entity, not a placeholder for the miss.
+        var sliceId = Guid.NewGuid();
+        theGroup.Slices[sliceId] = new EventSlice<LetterCounts, Guid>(sliceId, StorageConstants.DefaultTenantId,
+            new[] { Event.For(new MultipleAssigned(["Bill", "Ghost"])) });
+
+        theUsers["Bill"] = new User("Bill", "William");
+
+        await theGroup.EnrichWith<User>()
+            .ForEvent<MultipleAssigned>()
+            .ForEntityIds(e => e.UserNames)
+            .AddReferences();
+
+        var refs = theGroup.Slices[sliceId].Events().OfType<IEvent<References<User>>>()
+            .Select(x => x.Data.Entity.UserName)
+            .ToArray();
+        refs.ShouldBe(["Bill"]);
+    }
+
+    [Fact]
+    public async Task for_entity_ids_dedupes_loads_for_same_id_across_events()
+    {
+        // Two events in the same slice both reference "Bill". The storage layer should
+        // see only one load for "Bill" — we dedupe ids before calling LoadManyAsync.
+        var sliceId = Guid.NewGuid();
+        theGroup.Slices[sliceId] = new EventSlice<LetterCounts, Guid>(sliceId, StorageConstants.DefaultTenantId,
+            new[]
+            {
+                Event.For(new MultipleAssigned(["Bill", "Tom"])),
+                Event.For(new MultipleAssigned(["Bill", "Todd"]))
+            });
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+        theUsers["Todd"] = new User("Todd", "Todd");
+
+        await theGroup.EnrichWith<User>()
+            .ForEvent<MultipleAssigned>()
+            .ForEntityIds(e => e.UserNames)
+            .AddReferences();
+
+        _loadedUserIds.OrderBy(x => x).ShouldBe(["Bill", "Todd", "Tom"]);
+    }
+
+    [Fact]
+    public async Task for_entity_ids_returns_nullo_cache_when_no_ids_extracted()
+    {
+        // No events of the target type → FetchEntitiesAsync returns NulloAggregateCache
+        // and never touches storage.
+        var sliceId = Guid.NewGuid();
+        theGroup.Slices[sliceId] = new EventSlice<LetterCounts, Guid>(sliceId, StorageConstants.DefaultTenantId,
+            new[] { Event.For(new MultipleAssigned([])) });
+
+        var cache = await theGroup.EnrichWith<User>()
+            .ForEvent<MultipleAssigned>()
+            .ForEntityIds(e => e.UserNames)
+            .FetchEntitiesAsync();
+
+        cache.ShouldBeOfType<NulloAggregateCache<string, User>>();
+    }
+
+    [Fact]
+    public async Task for_entity_ids_enrich_async_invokes_callback_per_resolved_entity()
+    {
+        // EnrichAsync fires once per (slice, event, resolved entity) — for [Bill, Ghost, Tom],
+        // the callback is invoked twice (Ghost is missing).
+        var sliceId = Guid.NewGuid();
+        theGroup.Slices[sliceId] = new EventSlice<LetterCounts, Guid>(sliceId, StorageConstants.DefaultTenantId,
+            new[] { Event.For(new MultipleAssigned(["Bill", "Ghost", "Tom"])) });
+
+        theUsers["Bill"] = new User("Bill", "William");
+        theUsers["Tom"] = new User("Tom", "Thomas");
+
+        var seen = new List<string>();
+        await theGroup.EnrichWith<User>()
+            .ForEvent<MultipleAssigned>()
+            .ForEntityIds(e => e.UserNames)
+            .EnrichAsync((_, _, user) => seen.Add(user.UserName));
+
+        seen.ShouldBe(["Bill", "Tom"]);
+    }
+
+    [Fact]
     public async Task enrich_with_using_entity_query()
     {
         var id1 = AddSlice("AAABCCDDDD", "Bill");
@@ -452,4 +561,6 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
         throw new NotImplementedException();
     }
 }
+
+public record MultipleAssigned(string[] UserNames);
 
