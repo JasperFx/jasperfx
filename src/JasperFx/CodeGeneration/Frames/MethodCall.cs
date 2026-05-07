@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Reflection;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
@@ -120,6 +121,25 @@ public class MethodCall : Frame
     ///     How should the ReturnVariable handled within the generated code? Initialize is the default.
     /// </summary>
     public ReturnAction ReturnAction { get; set; } = ReturnAction.Initialize;
+
+    /// <summary>
+    /// Optional name of an <see cref="ActivityEvent"/> to append to the
+    /// current <see cref="Activity"/> immediately BEFORE this method is invoked.
+    /// When set, <see cref="GenerateCode"/> emits the equivalent of
+    /// <c>Activity.Current?.AddEvent(new ActivityEvent("..."))</c> using fully
+    /// qualified type names. No-op when the value is null or empty.
+    /// </summary>
+    public string? ActivityEventBeforeCall { get; set; }
+
+    /// <summary>
+    /// Optional name of an <see cref="ActivityEvent"/> to append to the
+    /// current <see cref="Activity"/> immediately AFTER this method is invoked
+    /// (success path; events are not emitted from a catch). When set,
+    /// <see cref="GenerateCode"/> emits the equivalent of
+    /// <c>Activity.Current?.AddEvent(new ActivityEvent("..."))</c> using fully
+    /// qualified type names. No-op when the value is null or empty.
+    /// </summary>
+    public string? ActivityEventAfterCall { get; set; }
     
     private IEnumerable<Variable> buildTupleCreateVariables()
     {
@@ -328,6 +348,11 @@ public class MethodCall : Frame
             writer.WriteComment(CommentText);
         }
 
+        if (ActivityEventBeforeCall.IsNotEmpty())
+        {
+            writeActivityEvent(writer, ActivityEventBeforeCall);
+        }
+
         var invokeMethod = InvocationCode(method);
 
         if (shouldWriteInUsingBlock(method))
@@ -343,6 +368,11 @@ public class MethodCall : Frame
             writer.Write($"{returnActionCode(method)}{invokeMethod};");
         }
 
+        if (ActivityEventAfterCall.IsNotEmpty())
+        {
+            writeActivityEvent(writer, ActivityEventAfterCall);
+        }
+
         // This is just to make the generated code a little
         // easier to read
         if (CommentText.IsNotEmpty())
@@ -351,6 +381,12 @@ public class MethodCall : Frame
         }
 
         Next?.GenerateCode(method, writer);
+    }
+
+    private static void writeActivityEvent(ISourceWriter writer, string eventName)
+    {
+        writer.Write(
+            $"{typeof(Activity).FullNameInCode()}.{nameof(Activity.Current)}?.AddEvent(new {typeof(ActivityEvent).FullNameInCode()}(\"{eventName}\"));");
     }
 
     private string invocationCode()

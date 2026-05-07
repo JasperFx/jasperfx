@@ -356,6 +356,75 @@ public class MethodCall_generate_code
             "var (var red, var blue, var green) = await target.AsyncReturnTuple().ConfigureAwait(false);");
     }
 #endif
+
+    private const string ExpectedActivityEventLineFormat =
+        "System.Diagnostics.Activity.Current?.AddEvent(new System.Diagnostics.ActivityEvent(\"{0}\"));";
+
+    [Fact]
+    public void emits_activity_event_before_call_when_set()
+    {
+        var lines = WriteMethod(x => x.Go(), call => call.ActivityEventBeforeCall = "wolverine.handler.started");
+
+        lines.Length.ShouldBe(2);
+        lines[0].ShouldBe(string.Format(ExpectedActivityEventLineFormat, "wolverine.handler.started"));
+        lines[1].ShouldBe("target.Go();");
+    }
+
+    [Fact]
+    public void emits_activity_event_after_call_when_set()
+    {
+        var lines = WriteMethod(x => x.Go(), call => call.ActivityEventAfterCall = "wolverine.handler.finished");
+
+        lines.Length.ShouldBe(2);
+        lines[0].ShouldBe("target.Go();");
+        lines[1].ShouldBe(string.Format(ExpectedActivityEventLineFormat, "wolverine.handler.finished"));
+    }
+
+    [Fact]
+    public void emits_activity_events_around_call_when_both_set()
+    {
+        var lines = WriteMethod(x => x.Go(), call =>
+        {
+            call.ActivityEventBeforeCall = "before";
+            call.ActivityEventAfterCall = "after";
+        });
+
+        lines.Length.ShouldBe(3);
+        lines[0].ShouldBe(string.Format(ExpectedActivityEventLineFormat, "before"));
+        lines[1].ShouldBe("target.Go();");
+        lines[2].ShouldBe(string.Format(ExpectedActivityEventLineFormat, "after"));
+    }
+
+    [Fact]
+    public void no_activity_events_when_unset()
+    {
+        // Sanity check: the new properties default to null and must not emit
+        // any AddEvent calls when left untouched. Guards against an
+        // unconditional emission regression.
+        WriteMethod(x => x.Go()).Single().ShouldBe("target.Go();");
+    }
+
+    [Fact]
+    public void emits_activity_event_around_async_call_with_return_value()
+    {
+        // Verifies the before/after lines bracket the actual await line
+        // (not the variable assignment), matching the way callers expect
+        // ActivityEvents to flank a single observable invocation.
+        theMethod.AsyncMode = AsyncMode.AsyncTask;
+
+        var lines = WriteMethod(x => x.OtherAsync(null, null), call =>
+        {
+            call.Arguments[0] = Variable.For<Arg2>();
+            call.Arguments[1] = Variable.For<Arg3>();
+            call.ActivityEventBeforeCall = "before";
+            call.ActivityEventAfterCall = "after";
+        });
+
+        lines.Length.ShouldBe(3);
+        lines[0].ShouldBe(string.Format(ExpectedActivityEventLineFormat, "before"));
+        lines[1].ShouldBe("var arg1 = await target.OtherAsync(arg2, arg3).ConfigureAwait(false);");
+        lines[2].ShouldBe(string.Format(ExpectedActivityEventLineFormat, "after"));
+    }
 }
 
 public class Blue
