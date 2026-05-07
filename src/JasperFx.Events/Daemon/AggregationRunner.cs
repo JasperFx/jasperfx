@@ -95,18 +95,42 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             throw new AggregateException(exceptions);
         }
 
+        // Composite projections defer compaction until every stage has run so a downstream
+        // stage can read the upstream stage's in-flight entities without them being evicted
+        // out from under it. CompositeExecution calls CompactCachesAsync after all stages
+        // complete. See JasperFx/marten#4329.
+        if (range.BatchBehavior != BatchBehavior.Composite)
+        {
+            try
+            {
+                foreach (var cache in caches) cache.CompactIfNecessary();
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Error trying to compact aggregate caches for {ProjectionName}", Projection.Name);
+            }
+        }
+
+        await Projection.EndBatchAsync();
+
+        return batch;
+    }
+
+    public Task CompactCachesAsync()
+    {
         try
         {
-            foreach (var cache in caches) cache.CompactIfNecessary();
+            foreach (var pair in _caches.Enumerate())
+            {
+                pair.Value.CompactIfNecessary();
+            }
         }
         catch (Exception e)
         {
             _logger.LogError(e, "Error trying to compact aggregate caches for {ProjectionName}", Projection.Name);
         }
 
-        await Projection.EndBatchAsync();
-
-        return batch;
+        return Task.CompletedTask;
     }
 
     private async Task processBatchAsync(CancellationToken cancellation, IProjectionBatch<TOperations, TQuerySession> batch, SliceGroup<TDoc, TId> group,

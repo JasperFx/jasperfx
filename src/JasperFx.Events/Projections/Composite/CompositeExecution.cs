@@ -18,12 +18,24 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
         try
         {
             batch = await _store.StartProjectionBatchAsync(range, _database, Mode, _options, cancellationToken);
-            
+
             range.ActiveBatch = batch;
 
             foreach (var stage in _inners)
             {
                 await stage.ExecuteDownstreamAsync(range);
+            }
+
+            // Compact each child execution's aggregate caches now that every stage has run.
+            // BuildBatchAsync skipped per-stage compaction because downstream stages need to
+            // read the upstream's in-flight entities; we do it once here at the composite
+            // boundary instead. See JasperFx/marten#4329.
+            foreach (var stage in _inners)
+            {
+                foreach (var execution in stage.Executions)
+                {
+                    await execution.CompactCachesAsync();
+                }
             }
 
             return batch;
