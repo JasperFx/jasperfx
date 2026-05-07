@@ -101,6 +101,8 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         return caching != null;
     }
 
+    public Task CompactCachesAsync() => _runner.CompactCachesAsync();
+
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
         if (_cancellation.IsCancellationRequested)

@@ -28,6 +28,15 @@ public interface ISubscriptionExecution: IAsyncDisposable
     /// <typeparam name="TDoc"></typeparam>
     /// <returns></returns>
     bool TryGetAggregateCache<TId, TDoc>([NotNullWhen(true)] out IAggregateCaching<TId, TDoc>? caching);
+
+    /// <summary>
+    /// Compact (apply <see cref="AsyncOptions.CacheLimitPerTenant"/>) any in-memory aggregate
+    /// caches owned by this execution. Called by <see cref="Composite.CompositeExecution{TOperations,TQuerySession}"/>
+    /// once all stages of a composite projection batch have completed, so that each stage's cache
+    /// remains at full size for the duration of the composite batch and can be safely consulted by
+    /// downstream stages without dropping in-flight (uncommitted) entities.
+    /// </summary>
+    Task CompactCachesAsync() => Task.CompletedTask;
 }
 
 /// <summary>
