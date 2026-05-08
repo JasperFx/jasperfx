@@ -66,6 +66,24 @@ public class EventStoreUsage : OptionsDescription
     public List<TypeDescriptor> GlobalAggregates { get; set; } = new();
 
     /// <summary>
+    /// DCB tag-type registrations expressed as the richer
+    /// <see cref="DcbTagDescriptor"/> shape used by the event store
+    /// explorer. Distinct from <see cref="TagTypes"/> in that the entries
+    /// carry a strong <see cref="TypeDescriptor"/> and an
+    /// operator-facing description; intended for the Event Modeling and
+    /// CritterWatch tag-list views.
+    /// </summary>
+    public List<DcbTagDescriptor> DcbTagTypes { get; set; } = new();
+
+    /// <summary>
+    /// Configured event-type registrations as known to the event store.
+    /// Mirror of the store's event registry used by monitoring tools to
+    /// list which event aliases are wired up and what their CLR types
+    /// are.
+    /// </summary>
+    public List<EventTypeDescriptor> RegisteredEventTypes { get; set; } = new();
+
+    /// <summary>
     /// Populates AgentUris on each async SubscriptionDescriptor based on the
     /// agent URI pattern: {agentScheme}://{identity.Type}/{identity.Name}/{databaseId}/{shardName.RelativeUrl}
     /// </summary>
