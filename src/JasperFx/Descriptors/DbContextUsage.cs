@@ -123,4 +123,79 @@ public class DbContextUsage : OptionsDescription
     /// <c>"PendingMigrations"</c> when the bridge wants to surface them.
     /// </remarks>
     public int? PendingMigrationsCount { get; set; }
+
+    /// <summary>
+    /// <see langword="true"/> when this DbContext has been wired into
+    /// Wolverine's transactional outbox by way of
+    /// <c>MapWolverineEnvelopeStorage</c> on the model. When true, calls to
+    /// <c>SaveChangesAsync</c> publish queued outgoing messages atomically
+    /// with the domain write; when false the context is "just an
+    /// EF Core context" and any messaging happens on a separate connection.
+    /// Operators read this badge first when triaging missing-publish issues.
+    /// </summary>
+    public bool WolverineEnabled { get; set; }
+
+    /// <summary>
+    /// Wolverine transaction-middleware mode for this context — typically
+    /// <c>"Eager"</c> (an explicit transaction is opened up front) or
+    /// <c>"Lightweight"</c> (rely on <c>SaveChangesAsync</c> for atomicity).
+    /// <see langword="null"/> when the context isn't wired through
+    /// <c>UseEntityFrameworkCoreTransactions</c>; in that case Wolverine isn't
+    /// driving the transaction lifetime at all.
+    /// </summary>
+    public string? TransactionMode { get; set; }
+
+    /// <summary>
+    /// Tenancy strategy in operator vocabulary — one of <c>"Single"</c>
+    /// (single-database / single-tenant), <c>"ConnectionString"</c> (per-tenant
+    /// connection string sourced from Wolverine's tenant store), or
+    /// <c>"DbDataSource"</c> (per-tenant <c>DbDataSource</c>, used when
+    /// EF Core has to share a Marten-managed multi-tenant data source).
+    /// Drives which <see cref="DatabaseUsage.Cardinality"/> the bridge
+    /// reports.
+    /// </summary>
+    public string TenancyStyle { get; set; } = "Single";
+
+    /// <summary>
+    /// Whether and how this context publishes domain events to Wolverine —
+    /// <c>"None"</c> (no scraper registered),
+    /// <c>"OutgoingDomainEvents"</c> (the per-handler
+    /// <c>OutgoingDomainEvents</c> collection is the source), or
+    /// <c>"PerEntityType"</c> (one or more
+    /// <c>DomainEventScraper&lt;TEntity, TDomainEvent&gt;</c> are registered
+    /// for entity-level domain-event types). Operators investigating missed
+    /// publish events read this badge to confirm the integration shape.
+    /// </summary>
+    public string DomainEventsMode { get; set; } = "None";
+
+    /// <summary>
+    /// <see langword="true"/> when this context is wired through
+    /// <c>UseEntityFrameworkCoreWolverineManagedMigrations</c> — Wolverine's
+    /// resource-startup pipeline will create / migrate the database on its
+    /// own. <see langword="false"/> means schema management is the
+    /// application's responsibility (manual <c>dotnet ef database update</c>
+    /// or equivalent).
+    /// </summary>
+    public bool WolverineMigrations { get; set; }
+
+    /// <summary>
+    /// How Wolverine's outbox sits relative to this context's database
+    /// connection: <c>"Mapped"</c> (envelope storage shares the same
+    /// connection / transaction as the DbContext — the green-path setup),
+    /// <c>"ExternalConnection"</c> (Wolverine's outbox factory is registered
+    /// but the envelope tables live on a different connection), or
+    /// <c>"None"</c> (no outbox integration on this context). Operators
+    /// triaging outbox-related lag look here before expanding the per-entity
+    /// table.
+    /// </summary>
+    public string OutboxIntegration { get; set; } = "None";
+
+    /// <summary>
+    /// CLR identities of saga state types managed by this DbContext — any
+    /// <c>IEntityType</c> on the model whose CLR type derives from
+    /// Wolverine's <c>Saga</c> base class. Surfaced first-class so the
+    /// Storage tab can cross-link straight into the Sagas tab without
+    /// re-walking the entity collection.
+    /// </summary>
+    public List<TypeDescriptor> SagaTypes { get; set; } = new();
 }
