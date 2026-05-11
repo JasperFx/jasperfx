@@ -3,7 +3,7 @@
     <PropertyGroup>
         <Description>Foundational Event Store Abstractions and Projections for the Critter Stack</Description>
         <PackageId>JasperFx.Events</PackageId>
-        <Version>2.0.0-alpha.1</Version>
+        <Version>2.0.0-alpha.2</Version>
     </PropertyGroup>
 
     <ItemGroup>
