@@ -88,6 +88,46 @@ public class RecentlyUsedCacheTests
         theCache.TryFind(items[7].Id, out var _).ShouldBeFalse();
 
     }
+
+    [Fact]
+    public void concurrent_store_does_not_lose_entries()
+    {
+        // Regression coverage for #226 — RecentlyUsedCache.Store() was not
+        // thread-safe; concurrent Stores raced on the field-level
+        // `_items = _items.AddOrUpdate(...)` write and dropped entries.
+        // The async daemon's slice processor runs Store with up to 10-way
+        // parallelism; with Polecat's CritterWatch upstream-cache scenario
+        // (composite projection, tiny cache, multi-stream batch) the lost-
+        // update race surfaced as a flaky test (polecat#53).
+
+        var cache = new RecentlyUsedCache<Guid, Item> { Limit = 10000 };
+        const int writerCount = 16;
+        const int perWriter = 500;
+
+        var items = Enumerable.Range(0, writerCount)
+            .Select(_ => Enumerable.Range(0, perWriter)
+                .Select(_ => new Item(Guid.NewGuid())).ToArray())
+            .ToArray();
+
+        Parallel.For(0, writerCount, writer =>
+        {
+            foreach (var item in items[writer])
+            {
+                cache.Store(item.Id, item);
+            }
+        });
+
+        cache.Count.ShouldBe(writerCount * perWriter);
+        foreach (var batch in items)
+        {
+            foreach (var item in batch)
+            {
+                cache.TryFind(item.Id, out var found).ShouldBeTrue();
+                found.ShouldBeSameAs(item);
+            }
+        }
+    }
+
 }
 
 public record Item(Guid Id);
