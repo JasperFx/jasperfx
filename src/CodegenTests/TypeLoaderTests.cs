@@ -64,6 +64,54 @@ public class TypeLoaderTests
     }
 
     [Fact]
+    public void static_loader_throws_when_type_missing_and_not_in_codegen_command()
+    {
+        // Production runtime path: `WithinCodegenCommand=false`, pre-built
+        // type missing → throw with a clear "missing pre-generated type"
+        // message so AOT-mode hosts fail fast instead of silently going
+        // through Roslyn. Regression coverage for the AOT contract.
+        var loader = new StaticTypeLoader();
+        var rules = new GenerationRules { TypeLoadMode = TypeLoadMode.Static };
+        var collection = new StubCodeFileCollection(rules);
+        var file = new StubCodeFile();
+
+        DynamicCodeBuilder.WithinCodegenCommand.ShouldBeFalse();
+        Should.Throw<ExpectedTypeMissingException>(() =>
+            loader.Initialize(file, rules, collection, services: null));
+    }
+
+    [Fact]
+    public void static_loader_falls_back_to_runtime_compile_when_in_codegen_command()
+    {
+        // Codegen-tool-time path (marten#4354): when invoked from inside
+        // `codegen write`/`preview` AND no pre-built type is available,
+        // route through DynamicTypeLoader.CompileAndAttach so callers
+        // (like ProviderGraph.CreateDocumentProvider<T> building a
+        // compiled-query plan) get an attached type, not a null. Caller
+        // signal — without an IAssemblyGenerator registered, the
+        // DynamicTypeLoader fallback throws InvalidOperationException
+        // pointing at the missing registration. That throw is what
+        // proves we *entered* the fallback (vs the pre-fix behavior of
+        // silently returning).
+        var loader = new StaticTypeLoader();
+        var rules = new GenerationRules { TypeLoadMode = TypeLoadMode.Static };
+        var collection = new StubCodeFileCollection(rules);
+        var file = new StubCodeFile();
+
+        DynamicCodeBuilder.WithinCodegenCommand = true;
+        try
+        {
+            var ex = Should.Throw<InvalidOperationException>(() =>
+                loader.Initialize(file, rules, collection, services: null));
+            ex.Message.ShouldContain("IAssemblyGenerator");
+        }
+        finally
+        {
+            DynamicCodeBuilder.WithinCodegenCommand = false;
+        }
+    }
+
+    [Fact]
     public void custom_loader_is_invoked_through_the_extension_method()
     {
         var rules = new GenerationRules();
