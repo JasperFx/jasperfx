@@ -50,7 +50,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCommandLine, TestEvents);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCommandLine, TestEvents, SmokeTestAot);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -105,6 +105,27 @@ partial class Build : NukeBuild
             DotNet("run --framework net9.0 -- describe --environment Testing --applicationName Different --contentRoot /bin", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- describe --environment=Testing --applicationName=Different --contentRoot=/bin", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- codegen preview --start", Solution.TestHarnesses.GeneratorTarget.Directory);
+        });
+
+    /// <summary>
+    ///     AOT-clean consumer smoke test (jasperfx#213). The JasperFx.AotSmoke
+    ///     project sets IsAotCompatible=true + promotes IL2026 / IL3050 / IL2046
+    ///     / IL2070 / IL2075 (the full AOT analyzer set) to errors and exercises
+    ///     a representative slice of the AOT-clean JasperFx + JasperFx.Events
+    ///     surface. The build fails if a previously-AOT-clean API gains an
+    ///     annotation, or if Program.cs is changed to call into a reflective
+    ///     surface. Also runs the program to confirm runtime behavior is intact.
+    /// </summary>
+    Target SmokeTestAot => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetBuild(s => s
+                .SetProjectFile(Solution.TestHarnesses.JasperFx_AotSmoke)
+                .SetConfiguration(Configuration)
+                .EnableNoRestore());
+
+            DotNet("run --framework net10.0 --no-build", Solution.TestHarnesses.JasperFx_AotSmoke.Directory);
         });
 
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";

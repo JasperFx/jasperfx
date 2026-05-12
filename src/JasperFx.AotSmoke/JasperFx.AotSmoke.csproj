@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+
+        <!--
+        AOT smoke test (jasperfx#213). Builds in CI and verifies that an app
+        consuming JasperFx + JasperFx.Events through the AOT-clean surfaces
+        (no reflective CommandFactory, no Activator.CreateInstance, no
+        MakeGenericType without a delegate-factory escape) compiles with no
+        IL2026 / IL2046 / IL2055 / IL2065 / IL2067 / IL2070 / IL2072 / IL2075
+        / IL2090 / IL2091 / IL2111 / IL3050 / IL3051 warnings.
+
+        If a previously-AOT-clean API in JasperFx or JasperFx.Events later
+        gains a [RequiresUnreferencedCode] / [RequiresDynamicCode] annotation,
+        the build of this project will fail and the regression is caught in
+        our CI rather than downstream consumers'. New IL warnings introduced
+        by edits to this project (e.g. someone calls into a reflective surface
+        from Program.cs) are equally caught.
+        -->
+        <IsAotCompatible>true</IsAotCompatible>
+        <TrimMode>full</TrimMode>
+        <WarningsAsErrors>IL2026;IL2046;IL2055;IL2065;IL2067;IL2070;IL2072;IL2075;IL2090;IL2091;IL2111;IL3050;IL3051</WarningsAsErrors>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
+    </ItemGroup>
+
+</Project>
