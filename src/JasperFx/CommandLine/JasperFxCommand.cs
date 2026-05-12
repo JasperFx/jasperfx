@@ -1,4 +1,5 @@
-﻿using JasperFx.CommandLine.Help;
+﻿using System.Diagnostics.CodeAnalysis;
+using JasperFx.CommandLine.Help;
 
 namespace JasperFx.CommandLine;
 
@@ -8,6 +9,10 @@ namespace JasperFx.CommandLine;
 /// <typeparam name="T"></typeparam>
 public abstract class JasperFxCommand<T> : IJasperFxCommand<T>
 {
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "JasperFxCommand<T> instances are constructed by ICommandCreator (annotated) from a Type that survives the trim graph because the command was reachable through CommandFactory.RegisterCommand[s]. The UsageGraph reads members of T (the user input type) — if T is reachable as the command's input, its members are preserved by the entry-point annotations.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Same as IL2026 — the UsageGraph closes List<elementType> for enumerable arguments via InputParser.BuildHandler, reached only through annotated CommandFactory entry points.")]
     protected JasperFxCommand()
     {
         Usages = new UsageGraph(GetType());
