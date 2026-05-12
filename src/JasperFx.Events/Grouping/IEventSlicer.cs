@@ -69,25 +69,35 @@ public interface IEventSlicer<TDoc, TId, TQuerySession> where TId : notnull
 public interface IJasperFxAggregateGrouper<out TId, in TQuerySession>
 {
     /// <summary>
-    ///     Apply custom grouping rules to apply events to one or many aggregates
+    ///     Apply custom grouping rules to apply events to one or many aggregates.
+    ///     <para>
+    ///     #201: the parameter is <see cref="IReadOnlyList{T}"/> rather than
+    ///     <see cref="IEnumerable{T}"/> — implementations frequently need two or
+    ///     more passes over the same events (e.g. partition by type, then resolve
+    ///     related document IDs from the database), and <see cref="IEnumerable{T}"/>
+    ///     gave no guarantee re-iteration was safe or cheap, forcing every
+    ///     implementor to either eat the multi-enum warning or do a defensive
+    ///     <c>.ToList()</c>. The materialised <see cref="IReadOnlyList{T}"/>
+    ///     contract makes Count + indexed access first-class.
+    ///     </para>
     /// </summary>
     /// <param name="session"></param>
     /// <param name="events"></param>
     /// <param name="grouping"></param>
     /// <returns></returns>
-    Task Group(TQuerySession session, IEnumerable<IEvent> events, IEventGrouping<TId> grouping);
+    Task Group(TQuerySession session, IReadOnlyList<IEvent> events, IEventGrouping<TId> grouping);
 }
 
 internal class LambdaAggregateGrouper<TId, TQuerySession> : IJasperFxAggregateGrouper<TId, TQuerySession>
 {
-    private readonly Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> _func;
+    private readonly Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> _func;
 
-    public LambdaAggregateGrouper(Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> func)
+    public LambdaAggregateGrouper(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         _func = func;
     }
 
-    public Task Group(TQuerySession session, IEnumerable<IEvent> events, IEventGrouping<TId> grouping)
+    public Task Group(TQuerySession session, IReadOnlyList<IEvent> events, IEventGrouping<TId> grouping)
     {
         return _func(session, events, grouping);
     }
@@ -162,8 +172,8 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     /// <summary>
     ///     Apply a custom event grouping strategy for events. This is additive to Identity() or Identities()
     /// </summary>
-    /// <param name="grouper"></param>
-    public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(Func<TQuerySession, IEnumerable<IEvent>, IEventGrouping<TId>, Task> func)
+    /// <param name="func"></param>
+    public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         _lookupGroupers.Add(new LambdaAggregateGrouper<TId, TQuerySession>(func));
 
