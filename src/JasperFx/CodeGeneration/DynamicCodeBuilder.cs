@@ -114,13 +114,25 @@ public class DynamicCodeBuilder
 
                 var exportDirectory = collection.ToExportDirectory(directory);
 
+                var withServices = collection is ICodeFileCollectionWithServices;
+                var services = withServices ? ServiceVariableSource : null;
 
                 foreach (var file in collection.BuildFiles())
                 {
                     var generatedAssembly = collection.StartAssembly(collection.Rules);
                     file.AssembleTypes(generatedAssembly);
 
-                    var code = collection is ICodeFileCollectionWithServices ? generatedAssembly.GenerateCode(ServiceVariableSource) : generatedAssembly.GenerateCode(null);
+                    var code = generatedAssembly.GenerateCode(services);
+
+                    // #227: enforce ServiceLocationPolicy per-file, matching the
+                    // runtime compile path in DynamicTypeLoader.Initialize. The
+                    // CLI codegen paths (preview / write / test) historically
+                    // bypassed this hook, so a host setting
+                    // ServiceLocationPolicy.NotAllowed got the expected
+                    // InvalidServiceLocationException at runtime but a clean
+                    // "all generated" result from the CLI.
+                    assertServiceLocationsAllowed(file, services);
+
                     var fileName = Path.Combine(exportDirectory, file.FileName.Replace(" ", "_") + ".cs");
                     File.WriteAllText(fileName, code);
                     onFileWritten(fileName);
@@ -141,12 +153,20 @@ public class DynamicCodeBuilder
                 $"Missing {nameof(ICodeFileCollection.ChildNamespace)} for {collection}");
         }
 
-        var @namespace = collection.ToNamespace(collection.Rules);
+        // #227: per-file generation + per-file ServiceLocationPolicy enforcement,
+        // matching the runtime compile path's per-ICodeFile granularity.
+        // ServiceCollectionServerVariableSource resets _serviceLocations on every
+        // StartNewMethod / StartNewType call, so the only point where we can
+        // observe a file's reports is right after its own GenerateCode finishes —
+        // which means we have to iterate files independently rather than batching
+        // them all into a single GeneratedAssembly the way this method used to.
+        var withServices = collection is ICodeFileCollectionWithServices;
+        var services = withServices ? ServiceVariableSource : null;
 
-        var generatedAssembly = new GeneratedAssembly(collection.Rules, @namespace);
-        var files = collection.BuildFiles();
-        foreach (var file in files)
+        var writer = new StringWriter();
+        foreach (var file in collection.BuildFiles())
         {
+            var generatedAssembly = collection.StartAssembly(collection.Rules);
             try
             {
                 file.AssembleTypes(generatedAssembly);
@@ -155,12 +175,14 @@ public class DynamicCodeBuilder
             {
                 throw new CodeGenerationException(file, e);
             }
+
+            var code = generatedAssembly.GenerateCode(services);
+            assertServiceLocationsAllowed(file, services);
+
+            writer.WriteLine(code);
         }
 
-        // This was important. Each source code collection should explicitly opt into using IoC services rather
-        // than making that automatic
-        var services = collection is ICodeFileCollectionWithServices ? ServiceVariableSource : null;
-        return generatedAssembly.GenerateCode(services);
+        return writer.ToString();
     }
 
     /// <summary>
@@ -172,17 +194,42 @@ public class DynamicCodeBuilder
     {
         foreach (var collection in Collections)
         {
-            var generatedAssembly = collection.AssembleTypes(collection.Rules);
+            // #227: iterate per ICodeFile so we can enforce ServiceLocationPolicy
+            // at file granularity (matching DynamicTypeLoader.Initialize). The
+            // previous batched-per-collection compile silently bypassed the
+            // policy hook because ServiceLocations() resets on every
+            // StartNewMethod, leaving only the last-method-of-last-file's
+            // reports visible at the end of a batched compile.
+            var withServices = collection is ICodeFileCollectionWithServices;
+            var services = withServices ? ServiceVariableSource : null;
 
-            try
+            foreach (var file in collection.BuildFiles())
             {
-                withAssembly(generatedAssembly, ServiceVariableSource);
-            }
-            catch (Exception e)
-            {
-                throw new GeneratorCompilationFailureException(collection, e);
+                var generatedAssembly = collection.StartAssembly(collection.Rules);
+                file.AssembleTypes(generatedAssembly);
+
+                try
+                {
+                    withAssembly(generatedAssembly, services);
+                }
+                catch (Exception e)
+                {
+                    throw new GeneratorCompilationFailureException(collection, e);
+                }
+
+                assertServiceLocationsAllowed(file, services);
             }
         }
+    }
+
+    private void assertServiceLocationsAllowed(ICodeFile file, IServiceVariableSource? services)
+    {
+        if (services == null) return;
+
+        var reports = services.ServiceLocations();
+        if (reports.Length == 0) return;
+
+        file.AssertServiceLocationsAreAllowed(reports, Services);
     }
 
     /// <summary>
