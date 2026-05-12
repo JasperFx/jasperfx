@@ -54,12 +54,19 @@ public class OptionsDescription
     public string Subject { get; set; } = null!;
     public List<OptionsValue> Properties { get; set; } = new();
 
-    public Dictionary<string, OptionsDescription> Children = new();
+    // #203: these were previously public *fields*, not properties. System.Text.Json
+    // (and the downstream TS generators) only walk properties by default — the result
+    // was that every [ChildDescription] and every AddChildSet(...) call was being
+    // silently dropped at the JSON boundary, e.g. Marten's EventGraph.MetadataConfig
+    // was invisible in CritterWatch even though the rendering pipeline was wired for
+    // it. Auto-property initializers carry over the prior field-init semantics, so
+    // call sites that mutate Children / Sets in place keep working unchanged.
+    public Dictionary<string, OptionsDescription> Children { get; set; } = new();
 
     /// <summary>
     /// Children "sets" of option descriptions
     /// </summary>
-    public Dictionary<string, OptionSet> Sets = new();
+    public Dictionary<string, OptionSet> Sets { get; set; } = new();
     
     // For serialization
 #pragma warning disable CS8618 
