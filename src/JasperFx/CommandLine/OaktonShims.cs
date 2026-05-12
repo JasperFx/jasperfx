@@ -1,6 +1,7 @@
 
 
 
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx;
 using JasperFx.CommandLine.Commands;
@@ -47,6 +48,7 @@ public static class CommandLineHostingExtensions
     /// <param name="builder"></param>
     /// <returns></returns>
     [Obsolete("Prefer ApplyJasperFxExtensions")]
+    [RequiresUnreferencedCode("Scans extension assemblies for JasperFx commands. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
     public static IHostBuilder ApplyOaktonExtensions(this IHostBuilder builder)
     {
         return builder.ApplyJasperFxExtensions();
@@ -62,6 +64,8 @@ public static class CommandLineHostingExtensions
     /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
     /// <returns></returns>
     [Obsolete("Prefer RunJasperFxCommands")]
+    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
+    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
     public static Task<int> RunOaktonCommands(this IHostBuilder builder, string[] args, string? optionsFile = null)
     {
         return builder.RunJasperFxCommands(args, optionsFile);
@@ -77,6 +81,8 @@ public static class CommandLineHostingExtensions
     /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
     /// <returns></returns>
     [Obsolete("Prefer RunJasperFxCommands")]
+    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
+    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
     public static Task<int> RunOaktonCommands(this IHost host, string[] args, string? optionsFile = null)
     {
         return host.RunJasperFxCommands(args, optionsFile);

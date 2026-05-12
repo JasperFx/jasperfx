@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Reflection;
 using JasperFx.CommandLine.Parsing;
 using JasperFx.Core;
@@ -14,6 +15,8 @@ public class UsageGraph
     private readonly IList<CommandUsage> _usages = new List<CommandUsage>();
     private readonly Lazy<IEnumerable<CommandUsage>> _validUsages;
 
+    [RequiresUnreferencedCode("Walks commandType to derive its input type and reads input-type properties / fields via InputParser.GetHandlers. The source-generated handler registry (GeneratedParserRegistry) is used when present.")]
+    [RequiresDynamicCode("InputParser.BuildHandler closes generic List<T> for enumerable arguments / flags when falling back from the generated registry.")]
     public UsageGraph(Type commandType)
     {
         _inputType = commandType.FindInterfaceThatCloses(typeof(IJasperFxCommand<>))!.GetTypeInfo()
@@ -63,6 +66,7 @@ public class UsageGraph
 
     public string Description { get; private set; }
 
+    [RequiresUnreferencedCode("Delegates to ICommandCreator.CreateModel which instantiates _inputType via reflection.")]
     public object BuildInput(Queue<string> tokens, ICommandCreator creator)
     {
         var model = creator.CreateModel(_inputType);
