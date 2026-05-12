@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using JasperFx.CommandLine.Help;
 using JasperFx.CommandLine.Parsing;
@@ -64,12 +65,16 @@ public class CommandFactory : ICommandFactory
         }
     }
 
+    [RequiresUnreferencedCode("CommandFactory dispatches to commands and inputs via reflection; their public constructors and properties must survive trimming. AOT-publishing apps should consume commands through the source-generated manifest.")]
+    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
     public CommandRun BuildRun(string commandLine)
     {
         var args = StringTokenizer.Tokenize(commandLine);
         return BuildRun(args);
     }
 
+    [RequiresUnreferencedCode("CommandFactory dispatches to commands and inputs via reflection; their public constructors and properties must survive trimming. AOT-publishing apps should consume commands through the source-generated manifest.")]
+    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
     public CommandRun BuildRun(IEnumerable<string> args)
     {
         if (!args.Any())
@@ -116,6 +121,7 @@ public class CommandFactory : ICommandFactory
     ///     Add all the IJasperFxCommand classes in the given assembly to the command runner
     /// </summary>
     /// <param name="assembly"></param>
+    [RequiresUnreferencedCode("Scans assembly.GetExportedTypes() for IJasperFxCommand. AOT-publishing apps should rely on the source-generated command manifest emitted by JasperFx.SourceGenerator.")]
     public void RegisterCommands(Assembly assembly)
     {
         foreach (var type in assembly
@@ -129,15 +135,17 @@ public class CommandFactory : ICommandFactory
             {
                 _extensionTypes.Add(attribute.ExtensionType);
             }
-            
+
         }
     }
 
+    [RequiresUnreferencedCode("BuildAllCommands dispatches each registered command type through ICommandCreator.CreateCommand, which instantiates the type reflectively.")]
     public IEnumerable<IJasperFxCommand> BuildAllCommands()
     {
         return _commandTypes.Select(x => _commandCreator.CreateCommand(x));
     }
 
+    [RequiresUnreferencedCode("Activator.CreateInstance(extensionType) requires public parameterless constructor of each extension to survive trimming.")]
     public void ApplyExtensions(IHostBuilder builder)
     {
         if (builder is PreBuiltHostBuilder)
@@ -151,6 +159,7 @@ public class CommandFactory : ICommandFactory
         }
     }
 
+    [RequiresUnreferencedCode("Activator.CreateInstance(extensionType) requires public parameterless constructor of each extension to survive trimming.")]
     public void ApplyExtensions(IServiceCollection services)
     {
         try
@@ -196,6 +205,8 @@ public class CommandFactory : ICommandFactory
         };
     }
 
+    [RequiresUnreferencedCode("Resolves the command type reflectively via ICommandCreator and walks its UsageGraph (which reads MemberInfo via reflection).")]
+    [RequiresDynamicCode("Enumerable argument / flag parsing closes generic List<T> via MakeGenericType.")]
     private CommandRun buildRun(Queue<string> queue, string commandName)
     {
         try
@@ -242,6 +253,8 @@ public class CommandFactory : ICommandFactory
         return HelpRun(commandName);
     }
 
+    [RequiresUnreferencedCode("Builds a temporary command instance to pre-populate input. Inherits trim requirements from ActivatorCommandCreator.CreateCommand.")]
+    [RequiresDynamicCode("UsageGraph input building closes generic List<T> for enumerable arguments.")]
     private object? tryBeforeBuild(Queue<string> queue, string commandName)
     {
         var commandType = _commandTypes[commandName];
@@ -266,6 +279,7 @@ public class CommandFactory : ICommandFactory
     ///     Add a single command type to the command runner
     /// </summary>
     /// <typeparam name="T"></typeparam>
+    [RequiresUnreferencedCode("Registers T for later reflective instantiation via ICommandCreator; T's public constructors and input-type properties must survive trimming.")]
     public void RegisterCommand<T>()
     {
         RegisterCommand(typeof(T));
@@ -274,6 +288,7 @@ public class CommandFactory : ICommandFactory
     /// <summary>
     ///     Add a single command type to the command runner
     /// </summary>
+    [RequiresUnreferencedCode("Registers a command type for later reflective instantiation via ICommandCreator; its public constructors and input-type properties must survive trimming.")]
     public void RegisterCommand(Type type)
     {
         if (!IsJasperFxCommandType(type))
@@ -296,17 +311,22 @@ public class CommandFactory : ICommandFactory
     }
 
 
+    [RequiresUnreferencedCode("Resolves the command type reflectively via ICommandCreator. The type's public constructor must survive trimming.")]
     public IJasperFxCommand Build(string commandName)
     {
         return _commandCreator.CreateCommand(_commandTypes[commandName.ToLower()]);
     }
 
 
+    [RequiresUnreferencedCode("Resolves the command and its UsageGraph reflectively via ICommandCreator. The command type's public constructor and input properties must survive trimming.")]
+    [RequiresDynamicCode("UsageGraph input building closes generic List<T> for enumerable arguments.")]
     public CommandRun HelpRun(string commandName)
     {
         return HelpRun(new Queue<string>(new[] { commandName }));
     }
 
+    [RequiresUnreferencedCode("Resolves the command and its UsageGraph reflectively via ICommandCreator. The command type's public constructor and input properties must survive trimming.")]
+    [RequiresDynamicCode("UsageGraph input building closes generic List<T> for enumerable arguments.")]
     public virtual CommandRun HelpRun(Queue<string> queue)
     {
         var input = (HelpInput)new HelpCommand().Usages.BuildInput(queue, _commandCreator);
@@ -372,6 +392,13 @@ public class CommandFactory : ICommandFactory
     ///     Automatically discover any JasperFx commands in assemblies marked as
     ///     [assembly: JasperFxCommandAssembly]. Also
     /// </summary>
+    /// <remarks>
+    ///     Tries the source-generated <c>DiscoveredCommands</c> manifest first
+    ///     (AOT/trim-clean path); falls back to <see cref="AssemblyFinder"/> +
+    ///     <see cref="RegisterCommands"/> if no manifest is found. The trim/AOT
+    ///     warnings are attached because the fallback path scans assemblies.
+    /// </remarks>
+    [RequiresUnreferencedCode("Falls back to AssemblyFinder + assembly.GetExportedTypes() scanning if no source-generated command manifest is present. AOT-publishing apps should emit the manifest via JasperFx.SourceGenerator.")]
     public void RegisterCommandsFromExtensionAssemblies()
     {
         // Check for source-generated command manifest first to avoid assembly scanning
@@ -404,6 +431,22 @@ public class CommandFactory : ICommandFactory
     ///     Attempt to use a source-generated command manifest to register commands
     ///     without runtime assembly scanning. Returns true if a manifest was found and used.
     /// </summary>
+    /// <remarks>
+    ///     The lookup uses well-known string identifiers
+    ///     (<c>JasperFx.Generated.DiscoveredCommands</c> + <c>CommandTypes</c>) that
+    ///     the trimmer cannot statically prove are reachable. The
+    ///     <see cref="UnconditionalSuppressMessage"/> attributes document that
+    ///     consuming apps emit the manifest via the JasperFx.SourceGenerator
+    ///     analyzer — when that source generator runs, the type and property are
+    ///     produced as ordinary code in the consuming assembly and survive
+    ///     trimming naturally. Apps that do not include the generator simply
+    ///     fall through to <see cref="RegisterCommands"/>, which carries its own
+    ///     <c>[RequiresUnreferencedCode]</c>.
+    /// </remarks>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "JasperFx.Generated.DiscoveredCommands is emitted by JasperFx.SourceGenerator into the consuming app as ordinary code; the lookup degrades safely to the reflective fallback if the generator is not enabled.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+        Justification = "Same as IL2026 — DiscoveredCommands.CommandTypes is generated source code in the consuming assembly.")]
     internal bool TryRegisterFromGeneratedManifest()
     {
         // Look for the generated DiscoveredCommands class in all loaded assemblies

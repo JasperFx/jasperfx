@@ -1,4 +1,5 @@
-﻿using JasperFx.CommandLine.Help;
+﻿using System.Diagnostics.CodeAnalysis;
+using JasperFx.CommandLine.Help;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,16 +14,18 @@ internal class DependencyInjectionCommandCreator : ICommandCreator
         _serviceProvider = serviceProvider;
     }
 
+    [RequiresUnreferencedCode("Inspects commandType.GetProperties() for [InjectService] and uses ActivatorUtilities.CreateInstance; public constructors and properties of commandType must survive trimming.")]
     public IJasperFxCommand CreateCommand(Type commandType)
     {
         if (commandType.GetProperties().Any(x => x.HasAttribute<InjectServiceAttribute>()))
         {
             return new WrappedJasperFxCommand(_serviceProvider, commandType);
         }
-        
+
         return (ActivatorUtilities.CreateInstance(_serviceProvider, commandType) as IJasperFxCommand)!;
     }
 
+    [RequiresUnreferencedCode("Activator.CreateInstance(Type) requires the public parameterless constructor of modelType to survive trimming.")]
     public object CreateModel(Type modelType)
     {
         return Activator.CreateInstance(modelType)!;

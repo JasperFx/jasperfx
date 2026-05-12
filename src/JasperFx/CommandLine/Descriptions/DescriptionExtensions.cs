@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
 
@@ -20,7 +21,7 @@ public static class DescriptionExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <typeparam name="T"></typeparam>
-    public static void AddSystemPart<T>(this IServiceCollection services) where T : class, ISystemPart
+    public static void AddSystemPart<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this IServiceCollection services) where T : class, ISystemPart
     {
         services.AddSingleton<ISystemPart, T>();
     }

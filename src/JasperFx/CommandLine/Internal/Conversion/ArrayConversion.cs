@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
 
 namespace JasperFx.CommandLine.Internal.Conversion;
@@ -11,6 +12,8 @@ public class ArrayConversion : IConversionProvider
         _conversions = conversions;
     }
 
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Array.CreateInstance is only invoked through Conversions, which is itself reached only from annotated CommandLine entry points (CommandFactory.BuildRun, InputParser.GetHandlers / BuildHandler). AOT consumers see the annotation at those entry points.")]
     public Func<string, object>? ConverterFor(Type type)
     {
         if (!type.IsArray)
