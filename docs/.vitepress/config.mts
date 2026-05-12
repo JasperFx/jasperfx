@@ -87,6 +87,10 @@ export default withMermaid(
             { text: '1.26', link: '/release_notes/1.26' },
             { text: '1.25', link: '/release_notes/1.25' }
           ]
+        },
+        {
+          text: 'Migration Guide',
+          link: '/migration-guide'
         }
       ],
 
