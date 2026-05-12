@@ -74,7 +74,35 @@ namespace JasperFx.RuntimeCompiler
 
 				foreach (var assemblyName in assembly.GetReferencedAssemblies())
 				{
-					var referencedAssembly = Assembly.Load(assemblyName);
+					// #188: GetReferencedAssemblies() reports every assembly listed
+					// in the manifest, including platform-conditional satellites that
+					// the consuming app may not have installed. Oracle.ManagedDataAccess
+					// is the motivating example — it references .Azure / .Aws / .Gcp /
+					// .Oci / .Kerberos / .ConfigFile, of which a given deployment
+					// typically pulls in zero or one. Letting that throw aborts the
+					// outer foreach and leaves the parent assembly's other (real)
+					// dependencies unreferenced, which then surfaces as cascading
+					// runtime-compile failures further downstream. Skip the missing
+					// satellite and continue — Roslyn will surface a real compile
+					// error if the codegen output actually depends on the missing type.
+					Assembly? referencedAssembly;
+					try
+					{
+						referencedAssembly = Assembly.Load(assemblyName);
+					}
+					catch (FileNotFoundException)
+					{
+						continue;
+					}
+					catch (FileLoadException)
+					{
+						continue;
+					}
+					catch (BadImageFormatException)
+					{
+						continue;
+					}
+
 					ReferenceAssembly(referencedAssembly);
 				}
 			}
