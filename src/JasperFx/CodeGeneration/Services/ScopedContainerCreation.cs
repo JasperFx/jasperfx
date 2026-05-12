@@ -24,7 +24,15 @@ internal class ScopedContainerCreation : SyncFrame
 
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
-        if (method.AsyncMode != AsyncMode.None)
+        // #228: gate the `await using` emission on AsyncMode == AsyncTask
+        // (not `!= None`). `ReturnFromLastNode` and `ReturnCompletedTask`
+        // both have non-async method *declarations* (no `async` keyword)
+        // that just return a Task — emitting `await using` in those bodies
+        // is a CS4032/CS1996 compile error. AsyncTask is the only mode that
+        // also produces the `async ReturnType` declaration (see
+        // GeneratedMethod.determineReturnExpression), so it's the only mode
+        // where `await using` is valid.
+        if (method.AsyncMode == AsyncMode.AsyncTask)
         {
             writer.Write(
                 $"await using var {Scope.Usage} = {Factory.Usage}.{nameof(ServiceProviderServiceExtensions.CreateAsyncScope)}();");
