@@ -62,3 +62,8 @@ jobs:
         if: ${{ success() || failure() }}
         run: ./build.sh test-command-line
         shell: bash
+
+      - name: smoke-test-aot
+        if: ${{ success() || failure() }}
+        run: ./build.sh smoke-test-aot
+        shell: bash
