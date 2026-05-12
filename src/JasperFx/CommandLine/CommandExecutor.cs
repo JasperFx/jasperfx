@@ -1,4 +1,5 @@
-﻿using JasperFx.CommandLine.Parsing;
+﻿using System.Diagnostics.CodeAnalysis;
+using JasperFx.CommandLine.Parsing;
 using JasperFx.Core;
 using Spectre.Console;
 
@@ -26,6 +27,8 @@ public class CommandExecutor
 
     public ICommandFactory Factory { get; }
 
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Spectre.Console.AnsiConsole.WriteException is only invoked on the error-display path; the outer try/catch falls back to Console.Write on Exception, so AOT consumers degrade gracefully.")]
     private static async Task<int> execute(CommandRun run)
     {
         bool success;
@@ -70,6 +73,8 @@ public class CommandExecutor
     ///     line arguments
     /// </param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Registers T via reflection and dispatches through CommandFactory.BuildRun, which depends on the command type's public constructor + input-type properties surviving trimming.")]
+    [RequiresDynamicCode("Enumerable command-argument parsing closes generic List<T> via MakeGenericType.")]
     public static int ExecuteCommand<T>(string[] args, string? optsFile = null) where T : IJasperFxCommand
     {
         var factory = new CommandFactory();
@@ -94,6 +99,8 @@ public class CommandExecutor
     ///     line arguments
     /// </param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Registers T via reflection and dispatches through CommandFactory.BuildRun, which depends on the command type's public constructor + input-type properties surviving trimming.")]
+    [RequiresDynamicCode("Enumerable command-argument parsing closes generic List<T> via MakeGenericType.")]
     public static Task<int> ExecuteCommandAsync<T>(string[] args, string? optsFile = null) where T : IJasperFxCommand
     {
         var factory = new CommandFactory();
@@ -172,6 +179,8 @@ public class CommandExecutor
     /// </summary>
     /// <param name="commandLine"></param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Dispatches through ICommandFactory.BuildRun and reflective command instantiation.")]
+    [RequiresDynamicCode("Enumerable command-argument parsing closes generic List<T> via MakeGenericType.")]
     public int Execute(string commandLine)
     {
         return ExecuteAsync(commandLine).GetAwaiter().GetResult();
@@ -182,6 +191,8 @@ public class CommandExecutor
     /// </summary>
     /// <param name="args"></param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Dispatches through ICommandFactory.BuildRun and reflective command instantiation.")]
+    [RequiresDynamicCode("Enumerable command-argument parsing closes generic List<T> via MakeGenericType.")]
     public int Execute(string[] args)
     {
         return ExecuteAsync(args).GetAwaiter().GetResult();
@@ -192,6 +203,8 @@ public class CommandExecutor
     /// </summary>
     /// <param name="commandLine"></param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Dispatches through ICommandFactory.BuildRun and reflective command instantiation.")]
+    [RequiresDynamicCode("Enumerable command-argument parsing closes generic List<T> via MakeGenericType.")]
     public Task<int> ExecuteAsync(string commandLine)
     {
         commandLine = applyOptions(commandLine);
@@ -205,6 +218,8 @@ public class CommandExecutor
     /// </summary>
     /// <param name="args"></param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Dispatches through ICommandFactory.BuildRun and reflective command instantiation.")]
+    [RequiresDynamicCode("Enumerable command-argument parsing closes generic List<T> via MakeGenericType.")]
     public Task<int> ExecuteAsync(string[] args)
     {
         var run = Factory.BuildRun(ReadOptions(OptionsFile).Concat(args));

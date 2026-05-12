@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using Spectre.Console;
 
@@ -11,6 +12,7 @@ public class ActivatorCommandCreator : ICommandCreator
         Debug.WriteLine("What?");
     }
 
+    [RequiresUnreferencedCode("Activator.CreateInstance(Type) requires the public parameterless constructor of commandType to survive trimming.")]
     public IJasperFxCommand CreateCommand(Type commandType)
     {
         try
@@ -25,6 +27,7 @@ public class ActivatorCommandCreator : ICommandCreator
         }
     }
 
+    [RequiresUnreferencedCode("Activator.CreateInstance(Type) requires the public parameterless constructor of modelType to survive trimming.")]
     public object CreateModel(Type modelType)
     {
         return Activator.CreateInstance(modelType)!;

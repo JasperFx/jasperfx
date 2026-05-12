@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.CommandLine.TextualDisplays;
 using JasperFx.Core;
@@ -148,7 +149,9 @@ public class ReferencedAssemblies : SystemPartBase
     public ReferencedAssemblies() : base("Referenced Assemblies", new Uri("system://assemblies"))
     {
     }
-    
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Diagnostic-only describe command. Trimmed assemblies simply drop from the listed output; nothing branches on the value.")]
     public override Task WriteToConsole()
     {
         var description = new TextualDisplay("Referenced Assemblies");

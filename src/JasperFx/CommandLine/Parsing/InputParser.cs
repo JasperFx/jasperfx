@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using JasperFx.CommandLine.Internal.Conversion;
@@ -18,6 +19,8 @@ public static class InputParser
     private static readonly Conversions _converter = new();
 
 
+    [RequiresUnreferencedCode("Reads inputType.GetProperties() + GetFields(); public properties (writable) and instance fields of inputType must survive trimming.")]
+    [RequiresDynamicCode("BuildHandler closes generic List<T> for enumerable arguments / flags.")]
     public static List<ITokenHandler> GetHandlers(Type inputType)
     {
         var properties = inputType.GetProperties().Where(prop => prop.CanWrite);
@@ -30,6 +33,8 @@ public static class InputParser
             .Select(BuildHandler).ToList();
     }
 
+    [RequiresUnreferencedCode("Reflects over member's declaring type to build a token handler; trimmer may remove members the handler depends on.")]
+    [RequiresDynamicCode("Closes generic List<T> via MakeGenericType for enumerable arguments and flags.")]
     public static ITokenHandler BuildHandler(MemberInfo member)
     {
         var memberType = member.GetMemberType();
