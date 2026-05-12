@@ -84,7 +84,16 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
     // race is closed.
     private readonly object _lock = new();
     private ImHashMap<TKey, TItem> _items = ImHashMap<TKey, TItem>.Empty;
-    private ImHashMap<TKey, DateTimeOffset> _times = ImHashMap<TKey, DateTimeOffset>.Empty;
+
+    // #231: per-entry LRU tick. Previously a DateTimeOffset.UtcNow
+    // timestamp — non-deterministic for items stored in a tight loop
+    // (sub-µs clock resolution → ties → ImHashMap-enumeration-order
+    // bleed into the eviction set). Replaced with a strictly-increasing
+    // counter so insertion order maps 1:1 to LRU position regardless
+    // of wall-clock resolution. Counter is `long` — 2^63 entries before
+    // wraparound, which never happens in any realistic cache lifetime.
+    private ImHashMap<TKey, long> _times = ImHashMap<TKey, long>.Empty;
+    private long _tick;
 
     public int Limit = 100;
 
@@ -106,7 +115,7 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
         {
             if (_items.TryFind(key, out item))
             {
-                _times = _times.AddOrUpdate(key, DateTimeOffset.UtcNow);
+                _times = _times.AddOrUpdate(key, ++_tick);
                 return true;
             }
         }
@@ -120,7 +129,7 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
         lock (_lock)
         {
             _items = _items.AddOrUpdate(key, item);
-            _times = _times.AddOrUpdate(key, DateTimeOffset.UtcNow);
+            _times = _times.AddOrUpdate(key, ++_tick);
         }
     }
 

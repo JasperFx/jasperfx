@@ -36,11 +36,7 @@ public class RecentlyUsedCacheTests
         theCache.Contains(id).ShouldBeTrue();
     }
 
-    [Fact(Skip = "Tracks jasperfx#231 — flaky on net9.0 CI (~10%) because the cache's "
-              + "eviction order depends on DateTimeOffset.UtcNow resolution; 110 stores in a "
-              + "tight loop produce many same-tick timestamps and the LRU order becomes "
-              + "ImHashMap-enumeration-dependent. Re-enable once #231 swaps the timestamp "
-              + "for an Interlocked.Increment counter (deterministic LRU).")]
+    [Fact]
     public void compact_moves_off_the_first_ones()
     {
         var items = new List<Item>();
@@ -62,8 +58,7 @@ public class RecentlyUsedCacheTests
         theCache.Count.ShouldBe(theCache.Limit);
     }
 
-    [Fact(Skip = "Tracks jasperfx#231 — same DateTimeOffset.UtcNow resolution issue as "
-              + "compact_moves_off_the_first_ones above. Re-enable once #231 lands.")]
+    [Fact]
     public void request_item_resets()
     {
         var items = new List<Item>();
