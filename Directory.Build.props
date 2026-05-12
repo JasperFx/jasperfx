@@ -4,9 +4,10 @@
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
-        <PackageIconUrl>https://raw.githubusercontent.com/JasperFx/jasperfx/refs/heads/main/logo.jpg</PackageIconUrl>
+        <PackageIcon>logo.jpg</PackageIcon>
         <PackageProjectUrl>http://github.com/jasperfx/jasperfx</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
         <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <ImplicitUsings>true</ImplicitUsings>
@@ -17,6 +18,20 @@
 
     <ItemGroup>
         <PackageReference Include="DotNet.ReproducibleBuilds" Version="1.2.39" PrivateAssets="All"/>
+    </ItemGroup>
+
+    <!-- Pack the shared repo-root logo into every IsPackable=true package
+         (NU5048 fix — replaces the deprecated PackageIconUrl from issue #221). -->
+    <ItemGroup Condition="'$(IsPackable)' != 'false'">
+        <None Include="$(MSBuildThisFileDirectory)logo.jpg" Pack="true" PackagePath="\" Visible="false" />
+    </ItemGroup>
+
+    <!-- Pack the per-project README.md when one exists. PackageReadmeFile is
+         set globally above (issue #222 fix); each packed project authors its
+         own README in its csproj directory. Non-packed projects (tests, demo
+         apps) don't need one. -->
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)/README.md')">
+        <None Include="README.md" Pack="true" PackagePath="\" Visible="false" />
     </ItemGroup>
 
 </Project>
