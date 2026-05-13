@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -10,7 +11,7 @@ public static class EnvironmentCheckExtensions
     ///     JasperFx environment checks when running <c>dotnet run -- check-env</c>.
     /// </summary>
     /// <typeparam name="T">The IHealthCheck implementation type</typeparam>
-    public static IServiceCollection CheckEnvironmentHealthCheck<T>(this IServiceCollection services) where T : class, IHealthCheck
+    public static IServiceCollection CheckEnvironmentHealthCheck<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this IServiceCollection services) where T : class, IHealthCheck
     {
         services.AddSingleton<IHealthCheck, T>();
         return services;
@@ -33,6 +34,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="services"></param>
     /// <param name="description"></param>
     /// <param name="test"></param>
+    [RequiresUnreferencedCode("AddJasperFx scans entry/extension assemblies for IJasperFxCommand types.")]
     public static void CheckEnvironment(this IServiceCollection services,
         string description,
         Func<IServiceProvider, CancellationToken, Task> test)
@@ -47,6 +49,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="services"></param>
     /// <param name="description"></param>
     /// <param name="action"></param>
+    [RequiresUnreferencedCode("Routes through AddJasperFx which scans assemblies for IJasperFxCommand types.")]
     public static void CheckEnvironment(this IServiceCollection services, string description,
         Action<IServiceProvider> action)
     {
@@ -65,6 +68,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="description"></param>
     /// <param name="action"></param>
     /// <typeparam name="T"></typeparam>
+    [RequiresUnreferencedCode("Routes through AddJasperFx which scans assemblies for IJasperFxCommand types.")]
     public static void CheckEnvironment<T>(this IServiceCollection services, string description, Action<T?> action) where T: notnull
     {
         services.CheckEnvironment(description, (s, c) =>
@@ -83,6 +87,7 @@ public static class EnvironmentCheckExtensions
     /// <param name="description"></param>
     /// <param name="action"></param>
     /// <typeparam name="T"></typeparam>
+    [RequiresUnreferencedCode("Routes through AddJasperFx which scans assemblies for IJasperFxCommand types.")]
     public static void CheckEnvironment<T>(this IServiceCollection services, string description,
         Func<T?, CancellationToken, Task> action) where T: notnull
     {
@@ -96,6 +101,7 @@ public static class EnvironmentCheckExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <param name="path"></param>
+    [RequiresUnreferencedCode("AddJasperFx scans entry/extension assemblies for IJasperFxCommand types.")]
     public static void CheckThatFileExists(this IServiceCollection services, string path)
     {
         services.AddJasperFx(opts => opts.RequireFile(path));
@@ -111,6 +117,7 @@ public static class EnvironmentCheckExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <typeparam name="T"></typeparam>
+    [RequiresUnreferencedCode("Routes through CheckEnvironment which calls AddJasperFx.")]
     public static void CheckServiceIsRegistered<T>(this IServiceCollection services) where T: notnull
     {
         services.CheckEnvironment($"Service {typeof(T).FullName} should be registered", s => s.GetRequiredService<T>());
@@ -122,6 +129,7 @@ public static class EnvironmentCheckExtensions
     /// </summary>
     /// <param name="services"></param>
     /// <param name="serviceType"></param>
+    [RequiresUnreferencedCode("Routes through CheckEnvironment which calls AddJasperFx.")]
     public static void CheckServiceIsRegistered(this IServiceCollection services, Type serviceType)
     {
         services.CheckEnvironment($"Service {serviceType.FullName} should be registered",

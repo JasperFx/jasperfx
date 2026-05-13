@@ -209,11 +209,13 @@ public class AssemblyScanner : IAssemblyScanner
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies.")]
     public void AssembliesFromApplicationBaseDirectory()
     {
         AssembliesFromApplicationBaseDirectory(a => true);
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies.")]
     public void AssembliesFromApplicationBaseDirectory(Func<Assembly, bool> assemblyFilter)
     {
         var assemblies = AssemblyFinder.FindAssemblies(assemblyFilter);
@@ -227,6 +229,7 @@ public class AssemblyScanner : IAssemblyScanner
     /// <param name="scanner"></param>
     /// <param name="assemblyFilter"></param>
     /// <param name="includeExeFiles"></param>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies, including *.exe files.")]
     public void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool>? assemblyFilter = null)
     {
         var assemblies = AssemblyFinder.FindAssemblies(assemblyFilter, true);
@@ -235,6 +238,7 @@ public class AssemblyScanner : IAssemblyScanner
     }
 
     [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies, including *.exe files.")]
     public void AssembliesAndExecutablesFromPath(string path)
     {
         var assemblies = AssemblyFinder.FindAssemblies(a => true, path,
@@ -244,6 +248,7 @@ public class AssemblyScanner : IAssemblyScanner
     }
 
     [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies.")]
     public void AssembliesFromPath(string path)
     {
         var assemblies = AssemblyFinder.FindAssemblies(a => true, path,
@@ -252,6 +257,7 @@ public class AssemblyScanner : IAssemblyScanner
         foreach (var assembly in assemblies) Assembly(assembly);
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies, including *.exe files.")]
     public void AssembliesAndExecutablesFromPath(string path,
         Func<Assembly, bool> assemblyFilter)
     {
@@ -262,6 +268,7 @@ public class AssemblyScanner : IAssemblyScanner
         foreach (var assembly in assemblies) Assembly(assembly);
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies.")]
     public void AssembliesFromPath(string path,
         Func<Assembly, bool> assemblyFilter)
     {
@@ -286,6 +293,7 @@ public class AssemblyScanner : IAssemblyScanner
         Conventions.Each(x => writer.WriteLine("* " + x));
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Builds a TypeSet via TypeRepository.FindTypes which enumerates Assembly.ExportedTypes.")]
     public void Start()
     {
         if (_hasScanned)

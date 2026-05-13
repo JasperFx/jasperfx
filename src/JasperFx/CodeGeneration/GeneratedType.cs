@@ -63,6 +63,7 @@ public class GeneratedType : IVariableSource, IGeneratedType
 
     public string? SourceCode { get; set; }
 
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors)]
     public Type? CompiledType { get; private set; }
 
     public string FullName => $"{Namespace}.{TypeName}";
@@ -105,12 +106,19 @@ public class GeneratedType : IVariableSource, IGeneratedType
         Header = new MultiLineComment(text);
     }
 
-    public GeneratedType InheritsFrom<T>()
+    public GeneratedType InheritsFrom<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors |
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods |
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] T>()
     {
         return InheritsFrom(typeof(T));
     }
 
-    public GeneratedType InheritsFrom(Type baseType)
+    public GeneratedType InheritsFrom(
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] Type baseType)
     {
         var ctors = baseType.GetConstructors();
         if (ctors.Length > 1)
@@ -140,7 +148,9 @@ public class GeneratedType : IVariableSource, IGeneratedType
     }
 
 
-    public GeneratedType Implements(Type type)
+    public GeneratedType Implements(
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods)] Type type)
     {
         if (!type.GetTypeInfo().IsInterface)
         {
@@ -155,7 +165,8 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return this;
     }
 
-    public GeneratedType Implements<T>()
+    public GeneratedType Implements<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods)] T>()
     {
         return Implements(typeof(T));
     }
@@ -272,6 +283,8 @@ public class GeneratedType : IVariableSource, IGeneratedType
         foreach (var @interface in Interfaces) yield return @interface;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+        Justification = "Assigns CompiledType (which has [DAM(PublicConstructors)]) from a runtime types lookup. The candidate types come from GeneratedAssembly.AttachAssembly's GetExportedTypes call which is itself annotated [RequiresUnreferencedCode] — the constructor preservation is owned at that boundary.")]
     public Type? FindType(IEnumerable<Type> types)
     {
         CompiledType = types.SingleOrDefault(x => x.FullName == FullName);
@@ -320,6 +333,7 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return (T)Activator.CreateInstance(CompiledType, arguments)!;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Calls Setter.SetInitialValue which uses GetType().GetProperty reflectively on the supplied object.")]
     public void ApplySetterValues(object builtObject)
     {
         if (builtObject.GetType() != CompiledType)

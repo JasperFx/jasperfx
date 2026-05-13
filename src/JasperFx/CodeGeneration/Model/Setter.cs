@@ -87,6 +87,7 @@ public class Setter : Variable
         throw new NotSupportedException();
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Reflectively sets a property by name on the supplied @object; @object's runtime type's properties must survive trimming.")]
     public void SetInitialValue(object @object)
     {
         if (InitialValue == null || Type != SetterType.ReadWrite)

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,8 @@ because at least one dependency is directly using IServiceProvider or has an opa
         _services = (ServiceContainer?)services;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "IServiceVariableSource.Matches(Type) doesn't carry DAM on its Type parameter, so this impl can't propagate the [DAM(PublicConstructors)] constraint that ServiceContainer.CouldResolve needs. The codegen-Variable resolution path is reached only from compiled-handler discovery where the candidate types come from typeof(T) expressions or already-registered ServiceDescriptors — both carry constructor preservation via their own surface.")]
     public bool Matches(Type type)
     {
         return _services.CouldResolve(type);

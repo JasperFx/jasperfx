@@ -49,6 +49,7 @@ public class LambdaDefinition
         return expression;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public TFunc Compile<TFunc>() where TFunc : class
     {
         if (!Body.Any())

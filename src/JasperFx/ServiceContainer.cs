@@ -165,9 +165,9 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return plan;
     }
 
-    public bool CouldResolve(Type type) => CouldResolve(type, new());
+    public bool CouldResolve([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type type) => CouldResolve(type, new());
 
-    public bool CouldResolve(Type type, List<ServiceDescriptor> trail)
+    public bool CouldResolve([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type type, List<ServiceDescriptor> trail)
     {
         if (_defaults.TryFind(type, out var plan))
         {
@@ -209,6 +209,8 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return false;
     }
     
+    [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "The IsPublic + IsConcrete branch auto-registers a self-binding ServiceDescriptor for public concrete types that weren't explicitly registered. Public concrete types reached via the family lookup either come from typeof(T) (compiler-preserved) or from user-supplied registrations whose constructors the user must keep alive. A missing public ctor at activation time surfaces from ConstructorPlan.TryBuildPlan as an InvalidPlan, not a silent failure. (Re-applied here after merge resolution between PRs #256 and #257 dropped this attribute.)")]
     [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
         Justification = "Calls into ServiceFamily.Close for open-generic registration close-over. Open-generic registrations are themselves a dynamic-code feature; AOT-publishing apps should use closed-generic registrations or source-generated equivalents and won't reach this branch.")]
     [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",

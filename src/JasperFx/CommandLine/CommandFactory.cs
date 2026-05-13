@@ -300,7 +300,8 @@ public class CommandFactory : ICommandFactory
         _commandTypes[CommandNameFor(type)] = type;
     }
 
-    public static bool IsJasperFxCommandType(Type type)
+    public static bool IsJasperFxCommandType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type type)
     {
         if (!type.IsConcrete())
         {
@@ -447,6 +448,8 @@ public class CommandFactory : ICommandFactory
         Justification = "JasperFx.Generated.DiscoveredCommands is emitted by JasperFx.SourceGenerator into the consuming app as ordinary code; the lookup degrades safely to the reflective fallback if the generator is not enabled.")]
     [UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
         Justification = "Same as IL2026 — DiscoveredCommands.CommandTypes is generated source code in the consuming assembly.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+        Justification = "Types come from JasperFx.Generated.DiscoveredCommands.CommandTypes which is emitted by the source generator with full interface metadata preserved.")]
     internal bool TryRegisterFromGeneratedManifest()
     {
         // Look for the generated DiscoveredCommands class in all loaded assemblies

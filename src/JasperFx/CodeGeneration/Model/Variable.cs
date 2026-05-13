@@ -161,7 +161,7 @@ public class Variable
     /// </summary>
     public IList<Variable> Dependencies { get; } = new List<Variable>();
 
-    public static Variable[] VariablesForProperties<T>(string rootArgName)
+    public static Variable[] VariablesForProperties<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(string rootArgName)
     {
         return typeof(T).GetTypeInfo().GetProperties().Where(x => x.CanRead)
             .Select(x => new Variable(x.PropertyType, $"{rootArgName}.{x.Name}"))
@@ -183,6 +183,8 @@ public class Variable
         return variableName.Replace('<', '_').Replace('>', '_').Replace(".", "_").TrimEnd('_');
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "argType.IsEnumerable() needs [DAM(Interfaces)] from TypeExtensions; the call site is internal naming convention only — failure mode is a cosmetic variable-name fallback, not a runtime correctness issue.")]
     public static string DefaultArgName(Type argType)
     {
         if (argType.IsArray)

@@ -51,6 +51,7 @@ public static class TypeRepository
     /// </summary>
     /// <param name="assembly"></param>
     /// <returns></returns>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Builds an AssemblyTypes via AssemblyTypes(Assembly) which enumerates Assembly.ExportedTypes.")]
     public static AssemblyTypes ForAssembly(Assembly assembly)
     {
         if (_assemblies.TryFind(assembly, out var types))
@@ -70,6 +71,7 @@ public static class TypeRepository
     /// <param name="assemblies"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Routes through ForAssembly which enumerates Assembly.ExportedTypes.")]
     public static TypeSet FindTypes(IEnumerable<Assembly> assemblies, Func<Type, bool>? filter = null)
     {
         return new TypeSet(assemblies.Select(ForAssembly), filter);
@@ -83,6 +85,7 @@ public static class TypeRepository
     /// <param name="classification"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Routes through ForAssembly which enumerates Assembly.ExportedTypes.")]
     public static IEnumerable<Type> FindTypes(IEnumerable<Assembly> assemblies,
         TypeClassification classification, Func<Type, bool>? filter = null)
     {
@@ -96,6 +99,7 @@ public static class TypeRepository
     }
 
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Routes through ForAssembly which enumerates Assembly.ExportedTypes.")]
     public static IEnumerable<Type> FindTypes(Assembly? assembly, TypeClassification classification,
         Func<Type, bool>? filter = null)
     {

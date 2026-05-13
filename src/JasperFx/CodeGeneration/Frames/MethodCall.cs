@@ -36,7 +36,10 @@ public enum ReturnAction
 
 public class MethodCall : Frame
 {
-    public MethodCall(Type handlerType, string methodName) : this(handlerType, handlerType.GetMethod(methodName)!)
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("MethodCall reflects over handlerType.GetMethod(methodName); the requested method must survive trimming.")]
+    public MethodCall(
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] Type handlerType,
+        string methodName) : this(handlerType, handlerType.GetMethod(methodName)!)
     {
     }
 
@@ -188,6 +191,8 @@ public class MethodCall : Frame
         return new MethodCall(typeof(T), method!);
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "Checks the return type against well-known framework Task / ValueTask shapes. type.Closes walks well-known interface hierarchies; user-defined task-like types satisfying this are themselves trim-preserved by their consuming context.")]
     private Type? correctedReturnType(Type type)
     {
         if (type == typeof(Task) || type == typeof(ValueTask) || type == typeof(void))
@@ -406,6 +411,8 @@ public class MethodCall : Frame
         return invokeMethod;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+        Justification = "Checks Method.ReturnType against the well-known framework ValueTask / ValueTask<T> shapes. Trim-impact is bounded by framework types preserved by the runtime.")]
     private bool returnsValueTask()
     {
         return Method.ReturnType == typeof(ValueTask) || Method.ReturnType.Closes(typeof(ValueTask<>));

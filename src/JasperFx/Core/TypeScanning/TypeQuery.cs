@@ -23,6 +23,7 @@ public class TypeQuery
         return assembly.FindTypes(_classification).Where(type => Includes.Matches(type) && !Excludes.Matches(type));
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Routes through TypeRepository.ForAssembly which enumerates Assembly.ExportedTypes.")]
     public IEnumerable<Type> Find(IEnumerable<Assembly> assemblies)
     {
         return assemblies.Select(TypeRepository.ForAssembly)
