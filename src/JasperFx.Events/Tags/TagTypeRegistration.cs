@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using FastExpressionCompiler;
 using JasperFx.Core;
@@ -10,6 +11,12 @@ namespace JasperFx.Events.Tags;
 /// Builds the ValueTypeInfo first, validates the type, then creates the
 /// properly closed generic TagTypeRegistration&lt;TTag, TInner&gt;.
 /// </summary>
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: ValueTypeInfo.ForType + Type.MakeGenericType(TagTypeRegistration<,>) for strong-typed-id discovery. Tag types preserved at registration on the caller side.")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument TTag flows into ValueTypeInfo.ForType / MakeGenericType. Preserved by registration.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: Type.MakeGenericType(TagTypeRegistration<,>) — runtime code generation. AOT consumers should register concrete tag types per the AOT publishing guide.")]
 public static class TagTypeRegistration
 {
     /// <summary>
@@ -28,6 +35,8 @@ public static class TagTypeRegistration
 /// TTag is the outer strong-typed identifier (e.g., StudentId),
 /// TInner is the wrapped primitive (e.g., string).
 /// </summary>
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: holds ValueTypeInfo wrapper/unwrapper delegates compiled via FastExpressionCompiler. Tag types preserved at registration on the caller side.")]
 public class TagTypeRegistration<TTag, TInner> : ITagTypeRegistration where TTag : notnull
 {
     private readonly Func<TTag, TInner> _unwrapper;

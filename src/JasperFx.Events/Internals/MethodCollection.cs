@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.CommandLine;
 using JasperFx.Core;
@@ -7,6 +8,8 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Internals;
 
+[UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+    Justification = "Class-level: reflects PublicMethods on the projection / aggregate Type to discover Apply/Create/ShouldDelete/Project handlers. Both types are preserved at the registration boundary on the caller side.")]
 internal abstract class MethodCollection
 {
     private static readonly Dictionary<int, Type> _funcBaseTypes = new()

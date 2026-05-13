@@ -61,6 +61,10 @@ public interface IEventSlice<T>: IEventSlice
 /// </summary>
 /// <typeparam name="TDoc"></typeparam>
 /// <typeparam name="TId"></typeparam>
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: static ctor uses ValueTypeInfo.ForType / UnWrapper to discover strong-typed-id shape on TId. The strong-typed-id type is preserved at the registration boundary (Schema.For<T>() / projection registration on the caller side).")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument TId flows into ValueTypeInfo.ForType(typeof(TId)). TId preserved by registration.")]
 public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 {
     private List<IEvent> _events = new();
