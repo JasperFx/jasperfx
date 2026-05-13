@@ -48,7 +48,8 @@ export default withMermaid(
             { text: 'MethodCall', link: '/codegen/method-call' },
             { text: 'Generated Types & Methods', link: '/codegen/generated-types' },
             { text: 'Built-in Frames', link: '/codegen/built-in-frames' },
-            { text: 'CLI: codegen Command', link: '/codegen/cli' }
+            { text: 'CLI: codegen Command', link: '/codegen/cli' },
+            { text: 'Publishing AOT', link: '/codegen/aot' }
           ]
         },
         {
