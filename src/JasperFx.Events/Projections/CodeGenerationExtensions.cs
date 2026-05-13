@@ -1,9 +1,14 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.CommandLine;
 using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events.Projections;
 
+[UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+    Justification = "Class-level: parameter receiving DAM-annotated Type from reflective lookup of method/event types. Both source and target preserved at the registration boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level: assigns reflective Type results to DAM-annotated targets (TypeExtensions.Closes / GetGenericArguments). Source preserved at registration.")]
 public static class CodeGenerationExtensions
 {
     public static Type? UnwrapEventType(this Type type)

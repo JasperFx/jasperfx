@@ -13,6 +13,8 @@ namespace JasperFx.Events.Projections;
 /// </summary>
 /// <typeparam name="TOperations"></typeparam>
 /// <typeparam name="TQuerySession"></typeparam>
+[UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+    Justification = "Class-level: GetType().GetMethod(...) for self-introspection of overridden methods. The concrete projection subclass is preserved by its registration on the caller side.")]
 public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     ProjectionBase,
     IProjectionSource<TOperations, TQuerySession>,
