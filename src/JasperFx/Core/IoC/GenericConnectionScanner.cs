@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Core.TypeScanning;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +24,8 @@ internal class GenericConnectionScanner : IRegistrationConvention
         }
     }
 
+    [RequiresUnreferencedCode("Convention scans types reflectively, closes open generics via MakeGenericType, and constructs ServiceDescriptors. Open-generic implementations and their public constructors must survive trimming.")]
+    [RequiresDynamicCode("addConcretionsThatCouldBeClosed calls Type.MakeGenericType.")]
     public void ScanTypes(TypeSet types, IServiceCollection services)
     {
         foreach (var type in types.AllTypes())
@@ -63,6 +66,12 @@ internal class GenericConnectionScanner : IRegistrationConvention
         return "Connect all implementations of open generic type " + _openType.FullNameInCode();
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "ServiceDescriptor ctor with the closed concreteType; reachable only from ScanTypes which is annotated [RequiresUnreferencedCode]. The open-generic concretion's public constructors must survive trimming for convention-based registration to work.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "Closes an open generic via MakeGenericType. The caller is annotated [RequiresDynamicCode] at ScanTypes.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Closes an open generic via MakeGenericType. The caller is annotated [RequiresDynamicCode] at ScanTypes.")]
     private void addConcretionsThatCouldBeClosed(Type @interface, IServiceCollection services)
     {
         _concretions.Where(x => x.IsOpenGeneric())

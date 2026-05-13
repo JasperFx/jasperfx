@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.Core.TypeScanning;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,8 @@ internal class DefaultConventionScanner : IRegistrationConvention
 
     public OverwriteBehavior Overwrites { get; set; } = OverwriteBehavior.NewType;
 
+    [RequiresUnreferencedCode("Convention scans types reflectively and constructs ServiceDescriptors; discovered types and their constructors must survive trimming.")]
+    [RequiresDynamicCode("Inherits the contract of IRegistrationConvention.ScanTypes.")]
     public void ScanTypes(TypeSet types, IServiceCollection services)
     {
         foreach (var type in types.FindTypes(TypeClassification.Concretes)
@@ -51,6 +54,8 @@ internal class DefaultConventionScanner : IRegistrationConvention
         return !hasMatch;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+        Justification = "Reads concreteType's interface list to find the matching I{Name} interface. Reachable only from ScanTypes which is annotated [RequiresUnreferencedCode]; trim-conscious callers either avoid convention scanning entirely or accept that registered types' interfaces survive trimming.")]
     public virtual Type? FindServiceType(Type concreteType)
     {
         var interfaceName = "I" + concreteType.Name;

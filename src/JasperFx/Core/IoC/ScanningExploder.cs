@@ -1,9 +1,12 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.Core.IoC;
 
 internal static class ScanningExploder
 {
+    [RequiresUnreferencedCode("Drives AssemblyScanner.ApplyRegistrations, which dispatches IRegistrationConvention.ScanTypes for each registered convention.")]
+    [RequiresDynamicCode("Open-generic conventions close types via MakeGenericType.")]
     internal static (IServiceCollection, AssemblyScanner[]) ExplodeSynchronously(IServiceCollection services)
     {
         var scanners = new AssemblyScanner[0];
@@ -42,6 +45,8 @@ internal static class ScanningExploder
         return (registry, scanners);
     }
 
+    [RequiresUnreferencedCode("Drives AssemblyScanner.ApplyRegistrations, which dispatches IRegistrationConvention.ScanTypes for each registered convention.")]
+    [RequiresDynamicCode("Open-generic conventions close types via MakeGenericType.")]
     internal static Task<(IServiceCollection, AssemblyScanner[])> Explode(IServiceCollection services)
     {
         var scanners = Array.Empty<AssemblyScanner>();

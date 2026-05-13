@@ -304,6 +304,8 @@ public class AssemblyScanner : IAssemblyScanner
         TypeFinder = TypeRepository.FindTypes(_assemblies, type => _filter.Matches(type));
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Dispatches each IRegistrationConvention.ScanTypes call, which scans discovered types reflectively and constructs ServiceDescriptors.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Open-generic conventions close types via MakeGenericType.")]
     public void ApplyRegistrations(IServiceCollection services)
     {
         foreach (var convention in Conventions) convention.ScanTypes(TypeFinder, services);

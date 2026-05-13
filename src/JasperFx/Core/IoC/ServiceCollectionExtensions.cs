@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.Core.IoC;
 
@@ -18,6 +19,8 @@ public static class ServiceCollectionExtensions
     ///     Create an isolated type scanning registration policy
     /// </summary>
     /// <param name="scan"></param>
+    [RequiresUnreferencedCode("Scans assemblies for types matching the registered IRegistrationConventions and constructs ServiceDescriptors reflectively. AOT-publishing apps should use explicit registrations or a source-generated registration manifest instead of convention scanning.")]
+    [RequiresDynamicCode("Open-generic conventions close types via MakeGenericType.")]
     public static IServiceCollection Scan(this IServiceCollection services, Action<IAssemblyScanner> scan)
     {
         var finder = new AssemblyScanner(services);
@@ -73,7 +76,7 @@ public static class ServiceCollectionExtensions
     }
 
     public static ServiceDescriptor? AddType(this IServiceCollection services, Type serviceType,
-        Type implementationType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type implementationType,
         ServiceLifetime lifetime = ServiceLifetime.Transient)
     {
         var hasAlready = services.Any(x => x.Matches(serviceType, implementationType));

@@ -1,4 +1,5 @@
-﻿using JasperFx.Core.Reflection;
+﻿using System.Diagnostics.CodeAnalysis;
+using JasperFx.Core.Reflection;
 using JasperFx.Core.TypeScanning;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,6 +14,8 @@ internal class ImplementationMap : IRegistrationConvention
         _lifetime = lifetime;
     }
 
+    [RequiresUnreferencedCode("Convention scans types reflectively and constructs ServiceDescriptors for any single-implementation interface; discovered types and their constructors must survive trimming.")]
+    [RequiresDynamicCode("Inherits the contract of IRegistrationConvention.ScanTypes.")]
     public void ScanTypes(TypeSet types, IServiceCollection services)
     {
         var interfaces = types.FindTypes(TypeClassification.Interfaces | TypeClassification.Closed)
