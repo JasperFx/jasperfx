@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using ImTools;
@@ -10,6 +11,8 @@ using Spectre.Console;
 
 namespace JasperFx.Events.CommandLine;
 
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: CLI projection host uses Type.MakeGenericType for IEventStore<TOperations, TQuerySession> shape discovery — runtime code generation. CLI tooling is a development-time surface, not part of AOT-published runtime.")]
 internal class ProjectionHost: IProjectionHost
 {
     private readonly TaskCompletionSource<bool> _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);

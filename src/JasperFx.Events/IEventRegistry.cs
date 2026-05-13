@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -6,6 +7,10 @@ using JasperFx.Events.Aggregation;
 
 namespace JasperFx.Events;
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Interface-level: default-interface-implementation members (BuildEvent, AddEventType, AggregateTypeFor) reflect on event Type / aggregate-id Type for envelope construction. Both flow in from caller registration and are preserved.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Interface-level: BuildEvent / AddEventType use Type.MakeGenericType to construct Event<T> envelopes — runtime code generation. AOT consumers register concrete event types per the AOT publishing guide.")]
 public interface IEventRegistry
 {
     IEvent BuildEvent(object eventData);
@@ -49,6 +54,10 @@ public interface IAggregationSourceFactory<TQuerySession>
     IAggregatorSource<TQuerySession>? Build<TDoc>();
 }
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: EventMappingFor uses CloseAndBuildAs to construct EventTypeData<T> envelopes via reflection. Event types are preserved by registration on the caller side per the AOT publishing guide.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: CloseAndBuildAs uses MakeGenericType + Activator.CreateInstance — runtime code generation. AOT consumers should preregister event types via AddEventType for ahead-of-time delegate caching.")]
 public class EventRegistry : IEventRegistry
 {
     private ImHashMap<Type, IEventType> _eventTypes = ImHashMap<Type, IEventType>.Empty;

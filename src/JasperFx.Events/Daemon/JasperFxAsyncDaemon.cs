@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
@@ -11,6 +12,8 @@ using Microsoft.Extensions.Logging;
 namespace JasperFx.Events.Daemon;
 
 
+[UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): parameter receiving DAM-annotated Type from reflective lookups during shard / agent construction. The projection types are preserved at the registered projection boundary on the caller side.")]
 public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection> : IObserver<ShardState>, IDaemonRuntime
     where TOperations : TQuerySession, IStorageOperations
     where TProjection : IJasperFxProjection<TOperations>

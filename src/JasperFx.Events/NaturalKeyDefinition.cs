@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.Core.Reflection;
 
@@ -24,6 +25,10 @@ public class NaturalKeyEventMapping
 /// Metadata describing a natural key on an aggregate type. A natural key provides an
 /// alternative lookup for event streams using a domain-meaningful strong-typed identifier.
 /// </summary>
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: scans event types via reflection (PublicProperties + ValueTypeInfo) to extract natural-key values. Event and key types preserved by the registered projection boundary on the caller side.")]
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level: reflective Type results assigned to DAM-annotated targets during natural-key discovery. Source types preserved at registration.")]
 public class NaturalKeyDefinition
 {
     public NaturalKeyDefinition(Type aggregateType, MemberInfo member)

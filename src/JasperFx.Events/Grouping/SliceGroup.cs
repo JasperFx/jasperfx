@@ -12,6 +12,8 @@ namespace JasperFx.Events.Grouping;
 /// </summary>
 /// <typeparam name="TDoc"></typeparam>
 /// <typeparam name="TId"></typeparam>
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument TId flows into EventSlice<TDoc, TId>'s ValueTypeInfo path. Preserved by the registration boundary on the caller side.")]
 public class SliceGroup<TDoc, TId> : IEventGrouping<TId> where TId : notnull
 {
     public LightweightCache<TId, EventSlice<TDoc, TId>> Slices { get; }

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using ImTools;
 using JasperFx.CodeGeneration.Model;
@@ -7,6 +8,10 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Internals;
 
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level: assigns reflective MethodInfo / Type results to DAM-annotated targets during handler-slot construction. Source types preserved at the registration boundary on the caller side.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: Type.MakeGenericType / FastExpressionCompiler.CompileFast on the slot's invocation path — runtime code generation. AOT consumers rely on source-generated handlers.")]
 public class MethodSlot
 {
     public static readonly string NoEventType =
