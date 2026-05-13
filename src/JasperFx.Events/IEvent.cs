@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using FastExpressionCompiler;
 using JasperFx.Core.Reflection;
@@ -106,6 +107,10 @@ public static class Event
     }
 }
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Interface-level: CreateAggregateIdentitySource<TId> uses ValueTypeInfo.ForType to discover strong-typed-id shape on TId. TId is preserved at the registered projection boundary on the caller side.")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Interface-level: generic type-argument TId flows into ValueTypeInfo.ForType(typeof(TId)). TId preserved by registration.")]
 public interface IEvent
 {
     /// <summary>

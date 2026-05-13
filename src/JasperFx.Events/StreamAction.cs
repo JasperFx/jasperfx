@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using FastExpressionCompiler;
 using JasperFx.Core;
@@ -24,6 +25,10 @@ public enum StreamActionType
 ///     Models a series of events to be appended to either a new or
 ///     existing stream
 /// </summary>
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: ValueTypeInfo.ForType + UnWrapper used to discover strong-typed-id shape on aggregate identifiers. Aggregate id types are preserved at the registration boundary on the caller side.")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument T flows into ValueTypeInfo.ForType. Preserved by registration.")]
 public class StreamAction
 {
     private readonly List<IEvent> _events = new();
