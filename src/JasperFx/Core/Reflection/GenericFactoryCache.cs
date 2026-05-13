@@ -51,6 +51,8 @@ public static class GenericFactoryCache
     /// expression. Called at most once per cache key.
     /// </param>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument,
@@ -70,6 +72,8 @@ public static class GenericFactoryCache
     /// invoking a single-argument constructor with <paramref name="ctorArgument"/>.
     /// </summary>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument,
@@ -88,6 +92,8 @@ public static class GenericFactoryCache
     /// Build an instance of <typeparamref name="T"/> with two constructor arguments.
     /// </summary>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument1,
@@ -108,6 +114,8 @@ public static class GenericFactoryCache
     /// Build an instance of <typeparamref name="T"/> with three constructor arguments.
     /// </summary>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument1,
@@ -138,6 +146,8 @@ public static class GenericFactoryCache
     /// where the original 4 overloads didn't fit.
     /// </remarks>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument,
@@ -165,6 +175,8 @@ public static class GenericFactoryCache
     /// the original 4 overloads didn't fit.
     /// </remarks>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument,
@@ -193,6 +205,8 @@ public static class GenericFactoryCache
     /// overload set didn't fit.
     /// </remarks>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument1,
@@ -225,6 +239,8 @@ public static class GenericFactoryCache
     /// when they fit.
     /// </remarks>
     [RequiresDynamicCode("The default factoryFactory implementation may use MakeGenericType / Activator.CreateInstance; supply an AOT-safe delegate factory to avoid this.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2055:DynamicallyAccessedMembers",
+        Justification = "MakeGenericType is invoked inside the cache-miss factoryFactory lambda. The method-level [RequiresDynamicCode] already documents the contract: callers supplying the default reflective factoryFactory accept that the closed generic's members must survive trimming. Source-generated callers supply an AOT/trim-safe delegate factory and never reach the MakeGenericType path.")]
     public static T BuildAs<T>(
         Type openType,
         Type typeArgument,

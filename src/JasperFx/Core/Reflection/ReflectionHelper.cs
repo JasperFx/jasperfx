@@ -7,7 +7,9 @@ namespace JasperFx.Core.Reflection;
 
 public static class ReflectionHelper
 {
-    public static bool MeetsSpecialGenericConstraints(Type genericArgType, Type proposedSpecificType)
+    public static bool MeetsSpecialGenericConstraints(
+        Type genericArgType,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type proposedSpecificType)
     {
         var genericArgTypeInfo = genericArgType.GetTypeInfo();
         var proposedSpecificTypeInfo = proposedSpecificType.GetTypeInfo();
@@ -548,6 +550,8 @@ public abstract class ExpressionVisitorBase
         return lambda;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Visits an existing NewExpression and reconstructs it with mutated args. The ConstructorInfo + MemberInfo[] come from the input tree; they're not newly resolved here, so the trim invariant is owned by whoever built the input expression.")]
     protected virtual NewExpression VisitNew(NewExpression nex)
     {
         IEnumerable<Expression> args = VisitList(nex.Arguments);
@@ -590,6 +594,8 @@ public abstract class ExpressionVisitorBase
         return init;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Visits an existing NewArrayExpression; the element type comes from the input tree and an array of that element type was already constructible at the time the input tree was built.")]
     protected virtual Expression VisitNewArray(NewArrayExpression na)
     {
         IEnumerable<Expression> exprs = VisitList(na.Expressions);

@@ -132,6 +132,8 @@ public static class TypeExtensions
         return typeInfo.IsGenericTypeDefinition || typeInfo.ContainsGenericParameters;
     }
 
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Closes the well-known framework type IEnumerable<T> with a single generic argument. The closed shape is always IEnumerable<T> for concrete T from the input type's generic args; native code for IEnumerable<T> is preserved by the framework for any T reachable through the input type.")]
     public static bool IsGenericEnumerable(this Type? type)
     {
         if (type == null)
@@ -153,7 +155,9 @@ public static class TypeExtensions
         return pluggedType.IsConcrete() && typeof(T).IsAssignableFrom(pluggedType);
     }
 
-    public static bool ImplementsInterfaceTemplate(this Type pluggedType, Type templateType)
+    public static bool ImplementsInterfaceTemplate(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type pluggedType,
+        Type templateType)
     {
         if (!pluggedType.IsConcrete())
         {
@@ -172,12 +176,15 @@ public static class TypeExtensions
         return false;
     }
 
-    public static bool IsConcreteWithDefaultCtor(this Type type)
+    public static bool IsConcreteWithDefaultCtor(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] this Type type)
     {
         return type.IsConcrete() && type.GetConstructor(Type.EmptyTypes) != null;
     }
 
-    public static Type? FindInterfaceThatCloses(this Type type, Type openType)
+    public static Type? FindInterfaceThatCloses(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type type,
+        Type openType)
     {
         if (type == typeof(object))
         {
@@ -212,7 +219,9 @@ public static class TypeExtensions
             : typeInfo.BaseType?.FindInterfaceThatCloses(openType);
     }
 
-    public static Type? FindParameterTypeTo(this Type type, Type openType)
+    public static Type? FindParameterTypeTo(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type type,
+        Type openType)
     {
         var interfaceType = type.FindInterfaceThatCloses(openType);
         return interfaceType?.GetGenericArguments().FirstOrDefault();
@@ -224,7 +233,11 @@ public static class TypeExtensions
         return typeInfo.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
     }
 
-    public static bool Closes(this Type? type, Type openType)
+    [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+        Justification = "Walks the interface chain via @interface.Closes(openType). Interfaces returned from GetInterfaces() don't statically carry DAM; the recursive walk is bounded by the interface hierarchy of `type`, which itself has [DAM(Interfaces)].")]
+    public static bool Closes(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type? type,
+        Type openType)
     {
         if (type == null)
         {
@@ -450,7 +463,8 @@ public static class TypeExtensions
     /// <param name="type"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public static T Create<T>(this Type type)
+    public static T Create<T>(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] this Type type)
     {
         return (T)type.Create();
     }
@@ -460,13 +474,15 @@ public static class TypeExtensions
     /// </summary>
     /// <param name="type"></param>
     /// <returns></returns>
-    public static object Create(this Type type)
+    public static object Create(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] this Type type)
     {
         return Activator.CreateInstance(type)!;
     }
 
 
-    public static Type IsAnEnumerationOf(this Type type)
+    public static Type IsAnEnumerationOf(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type type)
     {
         if (!type.Closes(typeof(IEnumerable<>)))
         {

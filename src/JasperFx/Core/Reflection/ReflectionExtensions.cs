@@ -174,7 +174,8 @@ public static class ReflectionExtensions
     /// </summary>
     /// <param name="t"></param>
     /// <returns></returns>
-    public static bool HasDefaultConstructor(this Type t)
+    public static bool HasDefaultConstructor(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] this Type t)
     {
         return t.IsValueType || t.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             null, Type.EmptyTypes, null) != null;
@@ -185,7 +186,8 @@ public static class ReflectionExtensions
     /// </summary>
     /// <param name="t"></param>
     /// <returns></returns>
-    public static bool HasConstructorsWithArguments(this Type t)
+    public static bool HasConstructorsWithArguments(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] this Type t)
     {
         return t.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .Any(x => x.GetParameters().Any());
@@ -236,6 +238,8 @@ public static class ReflectionExtensions
     /// </summary>
     /// <param name="method"></param>
     /// <returns></returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+        Justification = "method.ReturnType is checked against the well-known framework types Task / Task<> / ValueTask / ValueTask<>. Closes(...) walks Interfaces which are intrinsic to the framework type system; no user-supplied interfaces need to survive trimming for this check to behave correctly.")]
     public static bool IsAsync(this MethodInfo method)
     {
         if (method.ReturnType == null)
@@ -273,7 +277,10 @@ public static class ReflectionExtensions
     /// <param name="ctor"></param>
     /// <param name="arguments"></param>
     /// <returns></returns>
-    public static bool TryFindConstructor(this Type type, [NotNullWhen(true)]out ConstructorInfo? ctor, params Type[] arguments)
+    public static bool TryFindConstructor(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] this Type type,
+        [NotNullWhen(true)]out ConstructorInfo? ctor,
+        params Type[] arguments)
     {
         ctor = type.GetConstructor(arguments);
         return ctor != null;
@@ -288,7 +295,11 @@ public static class ReflectionExtensions
     /// <param name="method"></param>
     /// <param name="argumentType"></param>
     /// <returns></returns>
-    public static bool TryFindMethod(this Type? type, string methodName, [NotNullWhen(true)]out MethodInfo? method, Type argumentType)
+    public static bool TryFindMethod(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] this Type? type,
+        string methodName,
+        [NotNullWhen(true)]out MethodInfo? method,
+        Type argumentType)
     {
         if (type == null)
         {
@@ -312,7 +323,11 @@ public static class ReflectionExtensions
     /// <param name="method"></param>
     /// <param name="argumentType"></param>
     /// <returns></returns>
-    public static bool TryFindStaticMethod(this Type? type, string methodName, [NotNullWhen(true)]out MethodInfo? method, Type argumentType)
+    public static bool TryFindStaticMethod(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)] this Type? type,
+        string methodName,
+        [NotNullWhen(true)]out MethodInfo? method,
+        Type argumentType)
     {
         if (type == null)
         {

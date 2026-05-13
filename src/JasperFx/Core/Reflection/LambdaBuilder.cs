@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Reflection;
 using FastExpressionCompiler;
 
@@ -7,8 +8,15 @@ namespace JasperFx.Core.Reflection;
 /// <summary>
 ///     Can be used to create compiled Func's to retrieve a value from the TTarget type
 /// </summary>
+/// <remarks>
+///     Every method here builds an expression tree and compiles it via
+///     <see cref="ExpressionCompiler.CompileFast{TDelegate}"/>, which the .NET
+///     trimmer cannot statically analyse. AOT-publishing apps should source-generate
+///     accessor delegates rather than route through LambdaBuilder.
+/// </remarks>
 public static class LambdaBuilder
 {
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public static Func<TTarget, TProperty> GetProperty<TTarget, TProperty>(PropertyInfo property)
     {
         var target = Expression.Parameter(property.DeclaringType!, "target");
@@ -31,6 +39,7 @@ public static class LambdaBuilder
     /// <typeparam name="TTarget"></typeparam>
     /// <typeparam name="TProperty"></typeparam>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public static Action<TTarget, TProperty>? SetProperty<TTarget, TProperty>(PropertyInfo property)
     {
         var target = Expression.Parameter(typeof(TTarget), "target");
@@ -55,6 +64,7 @@ public static class LambdaBuilder
     }
 
 
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public static Func<TTarget, TField> GetField<TTarget, TField>(FieldInfo field)
     {
         var target = Expression.Parameter(typeof(TTarget), "target");
@@ -68,6 +78,7 @@ public static class LambdaBuilder
         return lambda.CompileFast();
     }
 
+    [RequiresUnreferencedCode("Delegates to GetProperty / GetField which compile expression trees via FastExpressionCompiler.")]
     public static Func<TTarget, TMember> Getter<TTarget, TMember>(MemberInfo member)
     {
         return member is PropertyInfo
@@ -76,6 +87,7 @@ public static class LambdaBuilder
     }
 
 
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public static Action<TTarget, TField> SetField<TTarget, TField>(FieldInfo field)
     {
         var target = Expression.Parameter(typeof(TTarget), "target");
@@ -90,6 +102,7 @@ public static class LambdaBuilder
     }
 
 
+    [RequiresUnreferencedCode("Delegates to SetProperty / SetField which compile expression trees via FastExpressionCompiler.")]
     public static Action<TTarget, TMember>? Setter<TTarget, TMember>(MemberInfo member)
     {
         return member is PropertyInfo
