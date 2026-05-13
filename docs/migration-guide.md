@@ -106,13 +106,16 @@ dotnet run -- codegen write     # dev-time pre-generation
 dotnet publish /p:PublishAot=true   # production publish, Static mode, no Roslyn
 ```
 
-Key APIs that participate in dynamic code are annotated:
+Status as of JasperFx 2.0.0-alpha.12 + JasperFx.Events 2.0.0-alpha.5:
 
-* `JasperFx.Core.Reflection.CloseAndBuildAs<T>` overloads carry `[RequiresDynamicCode]` + `[RequiresUnreferencedCode]`. The AOT-friendly replacement for hot paths is `JasperFx.Core.Reflection.GenericFactoryCache` — a delegate cache keyed on type arguments.
-* `JasperFx.RuntimeCompiler.AssemblyGenerator` carries both attributes at the class level. Don't reference the package or call `services.AddRuntimeCompilation()` in your production publish.
+* `JasperFx.csproj` builds with **`IsAotCompatible=true` and 0 IL warnings**. Every reflective surface either has precise `[RequiresUnreferencedCode]` / `[RequiresDynamicCode]` annotations or carries a `[DynamicallyAccessedMembers]` parameter constraint. Consumers compiling with `IsAotCompatible=true` see a precise punch-list of which JasperFx APIs are trim-hostile rather than a wall of analyzer noise.
+* `JasperFx.Events.csproj` also has `IsAotCompatible=true`; the annotation propagation cascade is tracked in [#262](https://github.com/JasperFx/jasperfx/issues/262) for completion.
+* `JasperFx.Core.Reflection.CloseAndBuildAs<T>` overloads carry `[RequiresDynamicCode]` + `[RequiresUnreferencedCode]`. The AOT-friendly replacement for hot paths is `JasperFx.Core.Reflection.GenericFactoryCache` — a delegate cache keyed on type arguments. Consumers source-generate the per-type delegate factory and stay clean.
+* `JasperFx.RuntimeCompiler.AssemblyGenerator` carries both attributes at the class level. Don't reference the package or call `services.AddRuntimeCompilation()` in your production publish — letting the trimmer drop the entire `Microsoft.CodeAnalysis.*` graph is the whole point of the package split.
 * `DynamicTypeLoader` carries both attributes; `StaticTypeLoader` is AOT-safe by construction.
+* `JasperFx.CommandLine` is annotated as a dev-time CLI surface. AOT consumers route command discovery through the `JasperFx.SourceGenerator`-emitted `DiscoveredCommands` manifest, which is read at runtime by string lookup and survives trimming.
 
-End-to-end "publish AOT with JasperFx" guide is in flight; for now the [Critter Stack 2026 master plan](https://github.com/JasperFx/jasperfx/issues/217) tracks the cross-stack story.
+For the full end-to-end walkthrough — package references, csproj configuration, dev-time + publish-time workflow, the `WarningsAsErrors` policy, smoke-test verification, and the cross-stack AOT story — see **[Publishing AOT with JasperFx](./codegen/aot.md)**.
 
 ### Internal changes worth noting
 
