@@ -16,6 +16,7 @@ namespace JasperFx;
 
 public class JasperFxOptions : SystemPartBase
 {
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Walks assembly.GetReferencedAssemblies() and loads each by name. AOT-publishing apps statically reference their dependencies; the JasperFx-tool detection here is for the dotnet-tool flow which is dev-time.")]
     public static bool HasReferenceToJasperFxTool(Assembly assembly)
     {
         var names = assembly.GetReferencedAssemblies();
@@ -118,6 +119,7 @@ public class JasperFxOptions : SystemPartBase
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Calls DetermineCallingAssembly when no explicit application assembly is supplied — walks the call stack via StackTrace + StackFrame.GetMethod().")]
     private void establishApplicationAssembly(string? assemblyName)
     {
         if (assemblyName.IsNotEmpty())
@@ -139,6 +141,7 @@ public class JasperFxOptions : SystemPartBase
         }
     }
     
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Walks the call stack via StackTrace + StackFrame.GetMethod() to determine the calling assembly. AOT-publishing apps should call SetApplicationProject(Assembly) explicitly.")]
     internal static Assembly? DetermineCallingAssembly()
     {
         if (HasReferenceToJasperFxTool(Assembly.GetEntryAssembly())) return Assembly.GetEntryAssembly();
@@ -252,6 +255,7 @@ public class JasperFxOptions : SystemPartBase
         set => _autoResolveProjectRoot = value;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Calls establishApplicationAssembly when ApplicationAssembly is unset; the fallback walks the call stack to determine the calling assembly.")]
     internal void ReadHostEnvironment(IHostEnvironment environment)
     {
         if (GeneratedCodeOutputPath == null)

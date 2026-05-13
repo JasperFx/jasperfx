@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using JasperFx.CodeGeneration.Model;
@@ -37,6 +38,8 @@ public static class CodeGenerationExtensions
         return index.TryGetValue(fullName, out var type) ? type : null;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Indexes exported types of an assembly already loaded into the AppDomain. Used by FindPreGeneratedType to locate codegen output — types that aren't preserved by the consuming app's static graph wouldn't be reachable from FindPreGeneratedType callers anyway.")]
     private static IReadOnlyDictionary<string, Type> BuildExportedTypeIndex(Assembly assembly)
     {
         // ExportedTypes can contain duplicates only in pathological cases (forwarded

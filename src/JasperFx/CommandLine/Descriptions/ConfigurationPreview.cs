@@ -13,6 +13,7 @@ internal class ConfigurationPreview : SystemPartBase
         _configuration = configuration;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Override of SystemPartBase.WriteToConsole — see base for trim notes.")]
     public override Task WriteToConsole()
     {
         if (!(_configuration is IConfigurationRoot root))

@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
@@ -24,6 +25,7 @@ public class OptionsDescription
     /// </summary>
     /// <param name="subject"></param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Derives an OptionsDescription via reflection over subject's public properties when subject doesn't implement IDescribeMyself.")]
     public static OptionsDescription For(object subject)
     {
         if (subject is IDescribeMyself describeMyself) return describeMyself.ToDescription();
@@ -80,11 +82,13 @@ public class OptionsDescription
         return $"{nameof(Subject)}: {Subject}";
     }
 
+    [RequiresUnreferencedCode("Reads subject.GetType().GetProperties() to build a diagnostic description. Properties of subject's runtime type must survive trimming for the description to be complete; missing properties are silently omitted (this surface is diagnostic-only).")]
     public OptionsDescription(object subject)
     {
         readProperties(subject);
     }
 
+    [RequiresUnreferencedCode("Reads subject.GetType().GetProperties() reflectively.")]
     private void readProperties(object subject)
     {
         if (subject == null)
@@ -162,6 +166,7 @@ public class OptionsDescription
         return set;
     }
     
+    [RequiresUnreferencedCode("Builds child OptionsDescriptions via reflection over each child's public properties when the child doesn't implement IDescribeMyself.")]
     public OptionSet AddChildSet(string name, IEnumerable<object> children)
     {
         var set = AddChildSet(name);

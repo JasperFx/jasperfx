@@ -20,7 +20,8 @@ public class JasperFxAssemblyAttribute : Attribute
     ///     commands
     /// </summary>
     /// <param name="extensionType"></param>
-    public JasperFxAssemblyAttribute(Type extensionType)
+    public JasperFxAssemblyAttribute(
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicConstructors)] Type extensionType)
     {
         if (extensionType.HasDefaultConstructor() && extensionType.CanBeCastTo<IServiceRegistrations>())
         {

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 
@@ -25,6 +26,7 @@ public static class AssemblyFinder
     /// <param name="filter">Allow list filter of assemblies to scan</param>
     /// <param name="includeExeFiles">Optionally include *.exe files</param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("FindAssemblies scans the application base directory for assemblies and inspects their referenced-assembly graph. The trimmer cannot statically reason about which types those assemblies contribute; AOT-publishing apps should rely on explicit assembly references and source-generated type lists instead.")]
     public static IEnumerable<Assembly> FindAssemblies(Action<string> logFailure, Func<Assembly, bool> filter,
         bool includeExeFiles)
     {
@@ -48,6 +50,7 @@ public static class AssemblyFinder
     /// <param name="logFailure">Take an action when an assembly file could not be loaded</param>
     /// <param name="includeExeFiles">Optionally include *.exe files</param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("FindAssemblies scans the given path for assemblies and inspects their referenced-assembly graph. The trimmer cannot statically reason about which types those assemblies contribute; AOT-publishing apps should rely on explicit assembly references and source-generated type lists instead.")]
     public static IEnumerable<Assembly> FindAssemblies(Func<Assembly, bool> filter, string assemblyPath,
         Action<string> logFailure, bool includeExeFiles)
     {
@@ -117,6 +120,7 @@ public static class AssemblyFinder
     /// <param name="filter"></param>
     /// <param name="includeExeFiles"></param>
     /// <returns></returns>
+    [RequiresUnreferencedCode("FindAssemblies scans the application base directory and inspects the referenced-assembly graph. AOT-publishing apps should rely on explicit assembly references and source-generated type lists.")]
     public static IEnumerable<Assembly> FindAssemblies(Func<Assembly, bool>? filter,
         bool includeExeFiles = false)
     {
@@ -128,8 +132,12 @@ public static class AssemblyFinder
 
 internal interface IJasperFxAssemblyLoadContext
 {
+    [RequiresUnreferencedCode("Loads an assembly the trimmer hasn't seen statically.")]
     Assembly LoadFromStream(Stream assembly);
+
     Assembly LoadFromAssemblyName(AssemblyName assemblyName);
+
+    [RequiresUnreferencedCode("Loads an assembly the trimmer hasn't seen statically.")]
     Assembly LoadFromAssemblyPath(string assemblyName);
 }
 
@@ -142,6 +150,7 @@ internal sealed class AssemblyLoadContextWrapper : IJasperFxAssemblyLoadContext
         _ctx = ctx;
     }
 
+    [RequiresUnreferencedCode("Wraps AssemblyLoadContext.LoadFromStream, which loads an assembly the trimmer hasn't seen statically.")]
     public Assembly LoadFromStream(Stream assembly)
     {
         return _ctx.LoadFromStream(assembly);
@@ -152,6 +161,7 @@ internal sealed class AssemblyLoadContextWrapper : IJasperFxAssemblyLoadContext
         return _ctx.LoadFromAssemblyName(assemblyName);
     }
 
+    [RequiresUnreferencedCode("Wraps AssemblyLoadContext.LoadFromAssemblyPath, which loads an assembly the trimmer hasn't seen statically.")]
     public Assembly LoadFromAssemblyPath(string assemblyName)
     {
         return _ctx.LoadFromAssemblyPath(assemblyName);

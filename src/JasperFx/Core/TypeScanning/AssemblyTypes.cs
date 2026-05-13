@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.Core.Reflection;
 
@@ -20,6 +21,7 @@ public class AssemblyTypes
     public readonly AssemblyShelf OpenTypes = new();
 
 
+    [RequiresUnreferencedCode("Enumerates Assembly.ExportedTypes. AOT-publishing apps should construct AssemblyTypes via the (name, typeSource) overload with an explicit type list rather than scanning at runtime.")]
     public AssemblyTypes(Assembly assembly) : this(assembly.FullName!, () => assembly.ExportedTypes)
     {
     }

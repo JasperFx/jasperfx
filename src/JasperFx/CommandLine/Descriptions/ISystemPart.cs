@@ -16,11 +16,12 @@ public interface ISystemPart
     ///     A descriptive title to be shown in the rendered output
     /// </summary>
     string Title { get; }
-    
+
     Uri SubjectUri { get; }
-    
+
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Default implementation derives an OptionsDescription via reflection over the runtime type's public properties; consumers writing custom system-part descriptions reflectively must keep their properties alive.")]
     Task WriteToConsole();
-    
+
     ValueTask<IReadOnlyList<IStatefulResource>> FindResources();
 
     Task AssertEnvironmentAsync(IServiceProvider services, EnvironmentCheckResults results, CancellationToken token);
@@ -37,6 +38,7 @@ public abstract class SystemPartBase : ISystemPart
         SubjectUri = subjectUri;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Derives an OptionsDescription via reflection over this instance's runtime type's public properties.")]
     public virtual Task WriteToConsole()
     {
         var description = OptionsDescription.For(this);

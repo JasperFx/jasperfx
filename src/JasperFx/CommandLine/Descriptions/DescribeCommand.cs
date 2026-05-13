@@ -15,6 +15,8 @@ namespace JasperFx.CommandLine.Descriptions;
 [Description("Writes out a description of your running application to either the console or a file")]
 public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
 {
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Dev-time `describe` CLI command. Dispatches part.WriteToConsole() on each ISystemPart, which is annotated [RequiresUnreferencedCode] for diagnostic reflection over arbitrary host components. The describe command is dev-time / Roslyn-path tooling, not part of an AOT-published binary.")]
     public override async Task<bool> Execute(DescribeInput input)
     {
         using var host = input.BuildHost();
@@ -102,7 +104,15 @@ public class DescribeCommand : JasperFxAsyncCommand<DescribeInput>
             AnsiConsole.Write(rule);
             AnsiConsole.WriteLine();
 
+            // Dev-time describe CLI. ISystemPart.WriteToConsole is annotated
+            // [RequiresUnreferencedCode] for diagnostic reflection over arbitrary
+            // host components; the describe command is dev-time / Roslyn-path
+            // tooling, not part of an AOT-published binary. The suppression on
+            // the enclosing method doesn't propagate through the async state
+            // machine to this call site.
+#pragma warning disable IL2026
             await part.WriteToConsole();
+#pragma warning restore IL2026
 
             Console.WriteLine();
             Console.WriteLine();
@@ -119,6 +129,7 @@ public class AboutThisAppPart : SystemPartBase
         _host = host;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Override of SystemPartBase.WriteToConsole — see base for trim notes.")]
     public override Task WriteToConsole()
     {
         var table = new Table
@@ -150,8 +161,7 @@ public class ReferencedAssemblies : SystemPartBase
     {
     }
 
-    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-        Justification = "Diagnostic-only describe command. Trimmed assemblies simply drop from the listed output; nothing branches on the value.")]
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Override of SystemPartBase.WriteToConsole — also calls Assembly.GetReferencedAssemblies(). Diagnostic-only describe command; trimmed assemblies drop from the output.")]
     public override Task WriteToConsole()
     {
         var description = new TextualDisplay("Referenced Assemblies");

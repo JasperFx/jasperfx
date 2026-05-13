@@ -94,6 +94,8 @@ public class ResourcesCommand : JasperFxAsyncCommand<ResourceInput>
         return ResourceExecutor.FindResources(host.Services, input.TypeFlag, input.NameFlag);
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Spectre.Console.AnsiConsole.WriteException is invoked only on the error-display path of a dev-time CLI command (resources init/apply/clear). The dev-time CLI is the canonical Roslyn path; AOT-publishing apps don't run resource commands as part of their AOT binary.")]
     internal async Task<bool> ExecuteOnEach(string heading, IList<IStatefulResource> resources, CancellationToken token,
         string progressTitle, Func<IStatefulResource, Task<IRenderable>> execution)
     {

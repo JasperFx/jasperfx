@@ -54,7 +54,12 @@ public class GeneratedAssembly
         _assemblies.Fill(assembly);
     }
 
-    public GeneratedType AddType(string typeName, Type baseType)
+    public GeneratedType AddType(
+        string typeName,
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods)] Type baseType)
     {
         if (Assembly != null)
         {
@@ -76,6 +81,7 @@ public class GeneratedAssembly
         return generatedType;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Reads assembly.GetExportedTypes() to attach generated types into this GeneratedAssembly. AOT consumers loading pre-generated code rely on the source-generated type registry rather than this reflective scan.")]
     public void AttachAssembly(Assembly assembly)
     {
         var generated = assembly.GetExportedTypes().ToArray();

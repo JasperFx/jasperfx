@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -76,6 +77,8 @@ public static class SnapshotGate
     ///     (the <c>Internal/Generated</c>-style directory). Must exist; this method
     ///     does not create it.
     /// </param>
+    [RequiresUnreferencedCode("Uses System.Text.Json.JsonSerializer.Deserialize<SnapshotFingerprint>. AOT-publishing consumers should wrap this call with their own STJ source-generator context, or hand-deserialize the fingerprint file.")]
+    [RequiresDynamicCode("System.Text.Json.JsonSerializer.Deserialize uses runtime code generation for non-source-generated types.")]
     public static SnapshotFingerprint? Read(string generatedFolder)
     {
         if (string.IsNullOrWhiteSpace(generatedFolder)) return null;
@@ -103,6 +106,8 @@ public static class SnapshotGate
     ///     if it doesn't exist. Overwrites any prior fingerprint atomically (writes
     ///     to a temp file then moves into place).
     /// </summary>
+    [RequiresUnreferencedCode("Uses System.Text.Json.JsonSerializer.Serialize. AOT-publishing consumers should wrap this call with their own STJ source-generator context, or hand-serialize the fingerprint.")]
+    [RequiresDynamicCode("System.Text.Json.JsonSerializer.Serialize uses runtime code generation for non-source-generated types.")]
     public static void Write(string generatedFolder, SnapshotFingerprint fingerprint)
     {
         if (string.IsNullOrWhiteSpace(generatedFolder))

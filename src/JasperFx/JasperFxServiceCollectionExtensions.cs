@@ -19,6 +19,7 @@ public static class JasperFxServiceCollectionExtensions
     /// <param name="configure"></param>
     /// <returns></returns>
     /// <exception cref="ArgumentNullException"></exception>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("CritterStackDefaults wires AddJasperFx, which scans entry/extension assemblies for IJasperFxCommand types via Assembly.GetExportedTypes(). Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
     public static IServiceCollection CritterStackDefaults(this IServiceCollection services,
         Action<JasperFxOptions> configure)
     {
@@ -36,6 +37,7 @@ public static class JasperFxServiceCollectionExtensions
     /// <param name="services"></param>
     /// <param name="configure">Optional configuration of the JasperFxDefaults for resource management</param>
     /// <returns></returns>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans entry/extension assemblies for IJasperFxCommand types via Assembly.GetExportedTypes(). Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
     public static IServiceCollection AddJasperFx(this IServiceCollection services, Action<JasperFxOptions>? configure = null)
     {
         // It's actually important to do this as close as possible to this call

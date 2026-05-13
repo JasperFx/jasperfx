@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -181,7 +182,11 @@ public interface IAssemblyScanner
     void SingleImplementationsOfInterface(ServiceLifetime lifetime);
 
     void TheCallingAssembly();
+
+    [RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies.")]
     void AssembliesFromApplicationBaseDirectory();
+
+    [RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies.")]
     void AssembliesFromApplicationBaseDirectory(Func<Assembly, bool> assemblyFilter);
 
 
@@ -208,17 +213,22 @@ public interface IAssemblyScanner
     /// <param name="scanner"></param>
     /// <param name="assemblyFilter"></param>
     /// <param name="includeExeFiles"></param>
+    [RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies, including *.exe files.")]
     void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool>? assemblyFilter = null);
 
     [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    [RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies, including *.exe files.")]
     void AssembliesAndExecutablesFromPath(string path);
 
     [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    [RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies.")]
     void AssembliesFromPath(string path);
 
+    [RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies, including *.exe files.")]
     void AssembliesAndExecutablesFromPath(string path,
         Func<Assembly, bool> assemblyFilter);
 
+    [RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies.")]
     void AssembliesFromPath(string path,
         Func<Assembly, bool> assemblyFilter);
 

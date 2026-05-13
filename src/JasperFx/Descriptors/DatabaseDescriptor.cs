@@ -13,10 +13,12 @@ public class DatabaseDescriptor : OptionsDescription
     {
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Inherits the OptionsDescription ctor's reflective property read of subject's runtime type.")]
     public DatabaseDescriptor(object subject) : base(subject)
     {
     }
-    
+
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Inherits the OptionsDescription ctor's reflective property read of subject's runtime type.")]
     public DatabaseDescriptor(object subject, Uri subjectUri) : base(subject)
     {
         SubjectUri = subjectUri;
