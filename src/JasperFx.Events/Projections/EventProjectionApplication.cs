@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using FastExpressionCompiler;
@@ -13,6 +14,18 @@ public interface IEntityStorage<TOperations>
     void Store<T>(TOperations ops, T entity) where T : notnull;
 }
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: discovers Project/Create handlers on the projection type via reflection and compiles delegates via Expression trees + FastExpressionCompiler. The projection and event types are preserved by the registered projection boundary on the caller side. AOT consumers should rely on JasperFx.Events.SourceGenerator-emitted projection helpers per the AOT publishing guide.")]
+[UnconditionalSuppressMessage("Trimming", "IL2062:DynamicallyAccessedMembers",
+    Justification = "Class-level: passes event-type Type values resolved reflectively to TypeExtensions.Closes(...). Event types preserved at registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level: assigns reflective Type/MethodInfo results to DAM-annotated targets when building handler delegates. Source types preserved at registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+    Justification = "Class-level: PublicMethods/PublicProperties access via Type returned by other reflection calls. Source preserved at registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic method parameter receives Type values obtained reflectively (eventType). Event types preserved at registration.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: handler discovery uses Type.MakeGenericType / MethodInfo.MakeGenericMethod + FastExpressionCompiler.CompileFast — runtime code generation. AOT consumers rely on the source-generated projection helpers.")]
 public class EventProjectionApplication<TOperations>
 {
     private readonly IEntityStorage<TOperations> _entity;
@@ -300,6 +313,10 @@ public class EventProjectionApplication<TOperations>
             MethodInfo method);
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Nested-class-level: builds handler delegates via FastExpressionCompiler.CompileFast — RUC. AOT consumers rely on the source-generated projection helpers per the AOT publishing guide.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Nested-class-level: Type.MakeGenericType + CompileFast — runtime code generation.")]
     internal class CreatorBuilder<T> : ICreatorBuilder where T : notnull
     {
         public Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IEntityStorage<TOperations> entityStorage,

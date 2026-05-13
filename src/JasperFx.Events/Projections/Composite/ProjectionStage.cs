@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Events.Subscriptions;
@@ -5,6 +6,8 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections.Composite;
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: OptionsDescription(this) reads PublicProperties on subject's runtime type for diagnostic rendering only. The runtime stage subclass is preserved via its registration; missing properties degrade the diagnostic readout gracefully.")]
 public class ProjectionStage<TOperations, TQuerySession>(int order)
     where TOperations : TQuerySession, IStorageOperations
 {

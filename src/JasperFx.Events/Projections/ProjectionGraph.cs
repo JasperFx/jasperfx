@@ -12,7 +12,9 @@ using JasperFx.Events.Subscriptions;
 
 namespace JasperFx.Events.Projections;
 
-public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> : DaemonSettings 
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level: reflects on registered projection Type values via TypeExtensions.Closes(...). The projection types are preserved at the registration boundary on the caller side.")]
+public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> : DaemonSettings
     where TOperations : TQuerySession, IStorageOperations
     where TProjection : IJasperFxProjection<TOperations>
 {

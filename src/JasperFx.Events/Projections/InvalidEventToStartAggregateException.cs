@@ -1,7 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 
 namespace JasperFx.Events.Projections;
 
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: error-message formatter uses Type.MakeGenericType to render IEvent<TEvent> in a diagnostic — runtime code generation. This is on the exception path only; never executes during normal AOT-published code paths.")]
 public class InvalidEventToStartAggregateException : Exception
 {
     public static string ToMessage(Type aggregateType, Type projectionType, Type eventType)

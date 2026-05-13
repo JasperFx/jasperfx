@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
@@ -15,6 +16,8 @@ namespace JasperFx.Events.Projections.ContainerScoped;
 /// <typeparam name="TId"></typeparam>
 /// <typeparam name="TOperations"></typeparam>
 /// <typeparam name="TQuerySession"></typeparam>
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument flow on the IoC wrapper. TSource/TDoc/TId/TOperations/TQuerySession are preserved by the IoC registration of the projection on the caller side.")]
 public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySession> :
     ProjectionSourceWrapperBase<TSource, TOperations, TQuerySession>, IJasperFxProjection<TOperations>,
     IAggregateProjection
