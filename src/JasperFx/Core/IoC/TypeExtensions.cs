@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.Core.Reflection;
 
@@ -5,22 +6,29 @@ namespace JasperFx.Core.IoC;
 
 internal static class TypeExtensions
 {
-    public static bool CanBeCreated(this Type type)
+    public static bool CanBeCreated(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] this Type type)
     {
         return type.IsConcrete() && type.GetConstructors().Any();
     }
 
 
-    public static Type FindFirstInterfaceThatCloses(this Type implementationType, Type templateType)
+    public static Type FindFirstInterfaceThatCloses(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type implementationType,
+        Type templateType)
     {
         return implementationType.FindInterfacesThatClose(templateType).FirstOrDefault()!;
     }
 
-    public static IEnumerable<Type> FindInterfacesThatClose(this Type pluggedType, Type templateType)
+    public static IEnumerable<Type> FindInterfacesThatClose(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type pluggedType,
+        Type templateType)
     {
         return rawFindInterfacesThatCloses(pluggedType, templateType).Distinct();
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+        Justification = "Recurses up BaseType chain to find matching interface closures. The caller chain enters from FindInterfacesThatClose which carries [DAM(Interfaces)] on the first parameter; base types beyond the entry point are walked best-effort and the trim impact is bounded by the entry-point annotation.")]
     private static IEnumerable<Type> rawFindInterfacesThatCloses(Type TPluggedType, Type templateType)
     {
         if (!TPluggedType.IsConcrete())
