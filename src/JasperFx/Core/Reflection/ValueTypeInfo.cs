@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using FastExpressionCompiler;
@@ -12,8 +13,10 @@ namespace JasperFx.Core.Reflection;
 public class ValueTypeInfo
 {
     private static ImHashMap<Type, ValueTypeInfo> _valueTypes = ImHashMap<Type, ValueTypeInfo>.Empty;
-    
-    public static ValueTypeInfo ForType(Type type)
+
+    [RequiresUnreferencedCode("Reflects over type's public properties + constructors + static factory methods to discover the strong-typed-id shape. Discovered members must survive trimming.")]
+    public static ValueTypeInfo ForType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.PublicMethods)] Type type)
     {
         if (_valueTypes.TryFind(type, out var valueType)) return valueType;
         
@@ -84,6 +87,7 @@ public class ValueTypeInfo
     public MethodInfo? Builder { get; }
     public ConstructorInfo? Ctor { get; }
 
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public Func<TInner, TOuter> CreateWrapper<TOuter, TInner>()
     {
         if (_converter != null)
@@ -119,6 +123,7 @@ public class ValueTypeInfo
     /// <typeparam name="TOuter"></typeparam>
     /// <typeparam name="TInner"></typeparam>
     /// <returns></returns>
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
     public Func<TOuter, TInner> UnWrapper<TOuter, TInner>()
     {
         var outer = Expression.Parameter(typeof(TOuter), "outer");

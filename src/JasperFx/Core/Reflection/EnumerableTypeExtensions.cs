@@ -1,4 +1,6 @@
-﻿namespace JasperFx.Core.Reflection;
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace JasperFx.Core.Reflection;
 
 public static class EnumerableTypeExtensions
 {
@@ -17,7 +19,8 @@ public static class EnumerableTypeExtensions
     /// </summary>
     /// <param name="type"></param>
     /// <returns></returns>
-    public static bool IsEnumerable(this Type type)
+    public static bool IsEnumerable(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type type)
     {
         if (type.IsArray)
         {
