@@ -13,6 +13,18 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Aggregation;
 
+[UnconditionalSuppressMessage("Trimming", "IL2065:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): reflects on `this.GetType()` / projection type for handler discovery. The concrete projection type is preserved by registration on the caller side.")]
+[UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): parameter receiving DAM-annotated Type from reflective lookup. Both source and target preserved at the registration boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): reflects PublicMethods / PublicProperties on TDoc / projection Type for aggregation step discovery. Types preserved at registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): assigns reflective Type/MethodInfo results to DAM-annotated targets. Source types preserved at registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): PublicProperties access via Type returned by other reflection calls. Source preserved at registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2090:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): generic type argument flow at base-class instantiation. TDoc/TId/TOperations/TQuerySession preserved by registration.")]
 public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
     : ProjectionBase, IAggregateProjection, IAggregationSteps<TDoc, TQuerySession>,
         IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>,

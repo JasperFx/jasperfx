@@ -1,8 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Internals;
 
 namespace JasperFx.Events.Aggregation;
 
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: Type.MakeGenericType for Task<T>.MakeGenericType(aggregateType) — runtime code generation. AOT consumers should rely on the source-generated evolver per the AOT publishing guide.")]
 internal class ApplyMethodCollection: MethodCollection
 {
     public static readonly string MethodName = "Apply";

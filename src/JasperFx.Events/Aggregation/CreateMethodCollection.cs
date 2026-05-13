@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -5,6 +6,12 @@ using JasperFx.Events.Internals;
 
 namespace JasperFx.Events.Aggregation;
 
+[UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+    Justification = "Class-level: scans constructors / public methods on aggregateType and projectionType to discover Create handlers. Both types are preserved at the registration boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level: assigns reflective ConstructorInfo/MethodInfo results to DAM-annotated targets when building MethodSlot. Source types preserved at registration.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level: Type.MakeGenericType for Task<T>.MakeGenericType(aggregateType) — runtime code generation. AOT consumers should rely on the source-generated evolver per the AOT publishing guide.")]
 internal class CreateMethodCollection: MethodCollection
 {
     public static readonly string MethodName = "Create";

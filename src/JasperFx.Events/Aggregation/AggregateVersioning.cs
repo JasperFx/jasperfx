@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using FastExpressionCompiler;
@@ -23,6 +24,10 @@ public interface IAggregateVersioning<in T>
     void TrySetVersion(T aggregate, IEvent lastEvent);
 }
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: reflects the aggregate's Version property via Expression-tree-based getters/setters compiled with FastExpressionCompiler. The aggregate type T is preserved by the registered projection boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2090:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument flow on the aggregator. T preserved by registration.")]
 public class AggregateVersioning<T> : IAggregateVersioning
 {
     private readonly Lazy<Action<T, IEvent>> _setValue;
@@ -150,6 +155,10 @@ public class AggregateVersioning<T> : IAggregateVersioning
     }
 }
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: same as the single-arg sibling — reflective Version member access via FastExpressionCompiler. T preserved by registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2090:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic type-argument flow on the aggregator. T preserved by registration.")]
 public class AggregateVersioning<T, TQuerySession> : AggregateVersioning<T>, IAggregateVersioning, IAggregateVersioning<T>, IAggregator<T, TQuerySession>
 {
     public AggregateVersioning(AggregationScope scope) : base(scope)

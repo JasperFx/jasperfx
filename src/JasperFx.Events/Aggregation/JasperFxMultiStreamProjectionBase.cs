@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -5,6 +6,10 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level: inherits aggregation method discovery from JasperFxAggregationProjectionBase; reflective handler lookup propagates RUC. Aggregate/Id types preserved by registration.")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level: generic method parameter receives Type values obtained reflectively via inherited helpers. TDoc/TId preserved at registration.")]
 public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> :
     JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IInlineProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull

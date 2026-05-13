@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
@@ -6,6 +7,22 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 
+[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+    Justification = "Class-level (all partials): aggregate Create/Apply/ShouldDelete method discovery scans TAggregate / TProjection via reflection, and the discovered handlers may call methods annotated RUC. The aggregate type T flows in from caller registration where trimming preserves T. AOT consumers must register concrete aggregate types per the AOT publishing guide.")]
+[UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): reflects PublicMethods on the aggregate / projection Type to discover Create/Apply/ShouldDelete handlers. Type flows in from caller-side generic parameters that trimming sees.")]
+[UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): assigns the result of reflective method/property lookup to DAM-annotated targets when building handler delegates via Expression.Call/CompileFast. Source type is preserved at the registration boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): accesses PublicProperties on event-data Type returned by other reflection calls (e.g. GetGenericArguments). Event types are preserved by IEvent<T> registration on the caller side.")]
+[UnconditionalSuppressMessage("Trimming", "IL2077:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): field/property of DAM-annotated type assigned from reflective lookups whose source type is preserved at the registration boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): generic method parameter receives Type values obtained reflectively (e.g. eventType via IEvent.EventType / GetGenericArguments). Both source and target types are preserved at the registration boundary.")]
+[UnconditionalSuppressMessage("Trimming", "IL2090:DynamicallyAccessedMembers",
+    Justification = "Class-level (all partials): generic class type argument flow at the aggregator instantiation point. TAggregate / TQuerySession are preserved by the registered projection boundary.")]
+[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+    Justification = "Class-level (all partials): handler discovery uses Type.MakeGenericType / MethodInfo.MakeGenericMethod + FastExpressionCompiler.CompileFast — runtime code generation. AOT consumers should rely on the JasperFx.Events.SourceGenerator-emitted aggregator (covered by the AOT publishing guide).")]
 internal partial class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAggregate, TQuerySession>, IMetadataApplication
 {
     // This would be for external projections
