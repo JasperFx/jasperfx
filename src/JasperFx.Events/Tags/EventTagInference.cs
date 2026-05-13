@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace JasperFx.Events.Tags;
@@ -9,6 +10,8 @@ namespace JasperFx.Events.Tags;
 /// this utility scans the event type's public properties for any that match
 /// registered tag types and creates EventTag values from them.
 /// </summary>
+[UnconditionalSuppressMessage("Trimming", "IL2070:DynamicallyAccessedMembers",
+    Justification = "Class-level: reflects PublicProperties on the event-data Type. The event type is preserved by registration (the caller's appended event type) per the AOT publishing guide.")]
 public static class EventTagInference
 {
     private static readonly ConcurrentDictionary<(Type EventType, Type TagType), Func<object, object>?> _propertyAccessors = new();
