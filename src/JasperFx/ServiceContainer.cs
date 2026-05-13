@@ -209,8 +209,10 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return false;
     }
     
-    [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
-        Justification = "The IsPublic + IsConcrete branch below auto-registers a self-binding ServiceDescriptor for public concrete types that weren't explicitly registered. Public concrete types reached via the family lookup either come from typeof(T) (compiler-preserved) or from user-supplied registrations whose constructors the user must keep alive. A missing public ctor at activation time surfaces from ConstructorPlan.TryBuildPlan as an InvalidPlan, not a silent failure.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Calls into ServiceFamily.Close for open-generic registration close-over. Open-generic registrations are themselves a dynamic-code feature; AOT-publishing apps should use closed-generic registrations or source-generated equivalents and won't reach this branch.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Same as IL2026 — ServiceFamily.Close uses MakeGenericType, reached only via the open-generic registration path.")]
     private ServiceFamily findFamily(Type serviceType)
     {
         if (_families.TryFind(serviceType, out var family)) return family;

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -16,12 +17,14 @@ internal class ServiceFamily
 
     public ServiceDescriptor? Default => Services.LastOrDefault(x => !x.IsKeyedService);
 
+    [RequiresUnreferencedCode("Closes an open-generic ServiceType / ImplementationType via MakeGenericType using user-supplied parameter types. The trimmer cannot statically reason about the closed shape; consumers depending on this path either accept the warning or replace open-generic registration with closed-generic / source-generated alternatives.")]
+    [RequiresDynamicCode("ServiceType.MakeGenericType + descriptor.ImplementationType.MakeGenericType require runtime code generation.")]
     public ServiceFamily Close(Type[] parameterTypes)
     {
         if (!ServiceType.IsOpenGeneric())
             throw new InvalidOperationException($"{ServiceType.FullNameInCode()} is not an open type");
         var serviceType = ServiceType.MakeGenericType(parameterTypes);
-        
+
         var candidates = Services.Where(x => x.ImplementationType != null).Select(open =>
         {
             try

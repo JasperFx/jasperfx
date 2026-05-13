@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
@@ -8,6 +9,8 @@ namespace JasperFx.CodeGeneration.Services;
 
 internal class ArrayFamily : ServiceFamily
 {
+    [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "ArrayFamily wraps a collection-shaped serviceType (T[] / IEnumerable<T> / IList<T> / IReadOnlyList<T>) — there is no real constructor to preserve. The placeholder ServiceDescriptor exists so the family has a Default; the actual code emission uses CreateArrayFrame to write `new T[]{...}` source literal, never reflection.")]
     public ArrayFamily(Type serviceType) : base(serviceType, [new ServiceDescriptor(serviceType, serviceType, ServiceLifetime.Scoped)])
     {
         ElementType = serviceType.GetElementType() ?? serviceType.GenericTypeArguments[0];
