@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Services;
@@ -206,6 +207,10 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return false;
     }
     
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Calls into ServiceFamily.Close for open-generic registration close-over. Open-generic registrations are themselves a dynamic-code feature; AOT-publishing apps should use closed-generic registrations or source-generated equivalents and won't reach this branch.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Same as IL2026 — ServiceFamily.Close uses MakeGenericType, reached only via the open-generic registration path.")]
     private ServiceFamily findFamily(Type serviceType)
     {
         if (_families.TryFind(serviceType, out var family)) return family;

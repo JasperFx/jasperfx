@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using JasperFx.CodeGeneration.Frames;
@@ -9,7 +10,8 @@ namespace JasperFx.CodeGeneration.Services;
 
 internal class ConstructorPlan : ServicePlan
 {
-    public static ConstructorInfo[] FindPublicConstructorCandidates(Type implementationType)
+    public static ConstructorInfo[] FindPublicConstructorCandidates(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type implementationType)
     {
         // The codegen cannot use any non-public types
         if (implementationType is { IsPublic: false, IsNestedPublic: false })
