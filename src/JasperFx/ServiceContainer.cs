@@ -75,6 +75,8 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return DefaultFor(typeof(T));
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
+        Justification = "Builds a transient self-binding ServiceDescriptor for each MethodCall.HandlerType so Wolverine can wire constructor dependencies into generated code. Handler types are reached from Wolverine's IHandlerDiscovery surface, which is itself an annotated reflective entry point — handler types preserve their public constructors transitively, and a missing public ctor surfaces as the explicit NotSupportedException below rather than as a silent runtime failure.")]
     public IEnumerable<Frame> TryCreateConstructorFrames(IEnumerable<MethodCall> calls)
     {
         if (calls.All(x => x.Method.IsStatic)) return new List<Frame>();
@@ -292,7 +294,7 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
         return findFamily(serviceType).Services.Select(descriptor => PlanFor(descriptor, trail)).ToArray();
     }
 
-    public object BuildFromType(Type concreteType)
+    public object BuildFromType([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type concreteType)
     {
         var constructor = concreteType.GetConstructors().Single();
         var dependencies = constructor.GetParameters().Select(x => _provider.GetService(x.ParameterType)).ToArray();
@@ -311,11 +313,13 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
     /// <param name="provider"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public T QuickBuild<T>()
+    [RequiresUnreferencedCode("QuickBuild reflects over T's public constructors and resolves [FromKeyedServices] parameters by closing IFinder<TParameter> via CloseAndBuildAs. The trimmer may remove types reached only through that closure.")]
+    [RequiresDynamicCode("CloseAndBuildAs uses MakeGenericType + Activator.CreateInstance on IFinder<TParameter>.")]
+    public T QuickBuild<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>()
     {
         return (T)QuickBuild(typeof(T));
     }
-    
+
     /// <summary>
     /// Polyfill to make IServiceProvider work like Lamar's ability
     /// to create unknown concrete types
@@ -323,7 +327,9 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
     /// <param name="provider"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public object QuickBuild(Type concreteType)
+    [RequiresUnreferencedCode("QuickBuild reflects over concreteType's public constructors and resolves [FromKeyedServices] parameters by closing IFinder<TParameter> via CloseAndBuildAs. The trimmer may remove types reached only through that closure.")]
+    [RequiresDynamicCode("CloseAndBuildAs uses MakeGenericType + Activator.CreateInstance on IFinder<TParameter>.")]
+    public object QuickBuild([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type concreteType)
     {
         var constructor = concreteType.GetConstructors().Single();
         var args = constructor
@@ -334,7 +340,7 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
                 {
                     return typeof(IFinder<>).CloseAndBuildAs<IFinder>(x.ParameterType).Find(_provider, att.Key.ToString());
                 }
-                
+
                 return _provider.GetService(x.ParameterType);
             })
             .ToArray();
