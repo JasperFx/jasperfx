@@ -173,12 +173,6 @@ public class EventRange
 
     public IReadOnlyList<ICanWrapEvent> AllRecordedActions() => _updates;
 
-    [Obsolete("Will be removed in 2.0")]
-    public void MarkUpdated<T>(string tenantId, T entity)
-    {
-        _updates.Add(new Updated<T>(tenantId, entity, ActionType.Store));
-    }
-    
     public void MarkSliceAction<TDoc, TId>(string tenantId, EventSlice<TDoc, TId> slice)
     {
         if (slice.Snapshot != null)
