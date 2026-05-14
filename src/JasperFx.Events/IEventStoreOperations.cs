@@ -16,8 +16,6 @@ namespace JasperFx.Events;
 ///
 /// Intentionally excluded from this version of the contract:
 /// <list type="bullet">
-///   <item><c>FetchForWritingByTags&lt;T&gt;(EventTagQuery)</c> — returns a product-specific
-///   <c>IEventBoundary&lt;T&gt;</c>. Lifted in a follow-up once Polecat reaches DCB parity.</item>
 ///   <item><c>StreamLatestJson&lt;T&gt;(...)</c> — Marten-specific JSON-passthrough optimization.</item>
 /// </list>
 /// </remarks>
@@ -277,6 +275,19 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     /// Query events by tag and aggregate them into type T using a live fold.
     /// </summary>
     Task<T?> AggregateByTagsAsync<T>(EventTagQuery query, CancellationToken cancellation = default) where T : class;
+
+    /// <summary>
+    /// Fetch every event matching the tag query, aggregate them into <typeparamref name="T"/>,
+    /// and return a writable <see cref="IEventBoundary{T}"/> that enforces Dynamic
+    /// Consistency Boundary (DCB) checking. Additional events appended via the
+    /// boundary are routed to the appropriate stream(s) by tag; at
+    /// <c>SaveChangesAsync()</c> time the consuming product asserts that no new
+    /// events matching the tag query have been written past
+    /// <see cref="IEventBoundary{T}.LastSeenSequence"/>, throwing a product-specific
+    /// DCB concurrency exception if the boundary has shifted.
+    /// </summary>
+    Task<IEventBoundary<T>> FetchForWritingByTags<T>(EventTagQuery query,
+        CancellationToken cancellation = default) where T : class;
 
     // Natural-key (strong-typed-id) fetch overloads ---------------------------------------------
 
