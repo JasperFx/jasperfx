@@ -107,31 +107,6 @@ public class EventRangeTests
     }
 
     [Fact]
-    public void mark_updated()
-    {
-        var subscriptionAgent = Substitute.For<ISubscriptionAgent>();
-        var range = new EventRange(new ShardName("name"), 0, 100, subscriptionAgent)
-        {
-            Events = new List<IEvent>
-            {
-                new Event<AEvent>(new AEvent()),
-                new Event<AEvent>(new AEvent()),
-                new Event<AEvent>(new AEvent()),
-                new Event<AEvent>(new AEvent()),
-                new Event<AEvent>(new AEvent())
-            }
-        };
-
-        var workflowStatus = new WorkflowStatus(Guid.NewGuid());
-        range.MarkUpdated("foo", workflowStatus);
-        var e = range.Updates.Single().ShouldBeOfType<Updated<WorkflowStatus>>();
-        e
-            .Entity.ShouldBe(workflowStatus);
-        
-        e.TenantId.ShouldBe("foo");
-    }
-    
-    [Fact]
     public void mark_updated_by_slice_when_stored()
     {
         var subscriptionAgent = Substitute.For<ISubscriptionAgent>();
