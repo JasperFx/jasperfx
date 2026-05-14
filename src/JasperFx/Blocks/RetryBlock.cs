@@ -1,4 +1,3 @@
-using System.Threading.Tasks.Dataflow;
 using JasperFx.Core;
 using Microsoft.Extensions.Logging;
 
@@ -31,40 +30,15 @@ public class RetryBlock<T> : IRetryBlock<T>, IDisposable
     private readonly IItemHandler<T> _handler;
     private readonly ILogger _logger;
 
-    public RetryBlock(Func<T, CancellationToken, Task> handler, ILogger logger, CancellationToken cancellationToken,
-        Action<ExecutionDataflowBlockOptions>? configure = null)
-        : this(new LambdaItemHandler<T>(handler), logger, cancellationToken, configure)
+    public RetryBlock(Func<T, CancellationToken, Task> handler, ILogger logger, CancellationToken cancellationToken)
+        : this(new LambdaItemHandler<T>(handler), logger, cancellationToken)
     {
     }
 
-    // TODO -- make the usage of ExecutionDataflowBlockOptions [Obsolete]
-    public RetryBlock(Func<T, CancellationToken, Task> handler, ILogger logger, CancellationToken cancellationToken,
-        ExecutionDataflowBlockOptions options)
-    {
-        _handler = new LambdaItemHandler<T>(handler);
-        _logger = logger;
-
-        options.CancellationToken = cancellationToken;
-        options.SingleProducerConstrained = true;
-
-        _cancellationToken = cancellationToken;
-
-        _block = new Block<Item>(executeAsync);
-    }
-
-    public RetryBlock(IItemHandler<T> handler, ILogger logger, CancellationToken cancellationToken,
-        Action<ExecutionDataflowBlockOptions>? configure = null)
+    public RetryBlock(IItemHandler<T> handler, ILogger logger, CancellationToken cancellationToken)
     {
         _handler = handler;
         _logger = logger;
-        var options = new ExecutionDataflowBlockOptions
-        {
-            CancellationToken = cancellationToken,
-            SingleProducerConstrained = true
-        };
-
-        configure?.Invoke(options);
-
         _cancellationToken = cancellationToken;
 
         _block = new Block<Item>(executeAsync);
