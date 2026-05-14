@@ -216,11 +216,21 @@ public interface IAssemblyScanner
     [RequiresUnreferencedCode("Scans the application base directory via AssemblyFinder.FindAssemblies, including *.exe files.")]
     void AssembliesAndExecutablesFromApplicationBaseDirectory(Func<Assembly, bool>? assemblyFilter = null);
 
-    [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    /// <summary>
+    ///     Scans every assembly under <paramref name="path"/> including *.exe files. Prefer the
+    ///     <see cref="AssembliesAndExecutablesFromPath(string, Func{Assembly, bool})"/> overload
+    ///     with an explicit assembly filter — passing one reliably cuts startup scan time by
+    ///     skipping framework assemblies and unrelated dependencies.
+    /// </summary>
     [RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies, including *.exe files.")]
     void AssembliesAndExecutablesFromPath(string path);
 
-    [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    /// <summary>
+    ///     Scans every assembly under <paramref name="path"/>. Prefer the
+    ///     <see cref="AssembliesFromPath(string, Func{Assembly, bool})"/> overload with an
+    ///     explicit assembly filter — passing one reliably cuts startup scan time by skipping
+    ///     framework assemblies and unrelated dependencies.
+    /// </summary>
     [RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies.")]
     void AssembliesFromPath(string path);
 
