@@ -67,17 +67,6 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         _states = _states.AddOrUpdate(value.ShardName, value);
     }
 
-    [Obsolete("Try to eliminate this")]
-    public void Publish(ShardState state)
-    {
-        if (state.ShardName == ShardState.HighWaterMark)
-        {
-            HighWaterMark = state.Sequence;
-        }
-
-        _block.Post(state);
-    }
-    
     public ValueTask PublishAsync(ShardState state)
     {
         if (state.ShardName == ShardState.HighWaterMark)

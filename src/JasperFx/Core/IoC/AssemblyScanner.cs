@@ -237,7 +237,12 @@ public class AssemblyScanner : IAssemblyScanner
         foreach (var assembly in assemblies) Assembly(assembly);
     }
 
-    [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    /// <summary>
+    ///     Scans every assembly under <paramref name="path"/> including *.exe files. Prefer the
+    ///     <see cref="AssembliesAndExecutablesFromPath(string, Func{Assembly, bool})"/> overload
+    ///     with an explicit assembly filter — passing one reliably cuts startup scan time by
+    ///     skipping framework assemblies and unrelated dependencies.
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies, including *.exe files.")]
     public void AssembliesAndExecutablesFromPath(string path)
     {
@@ -247,7 +252,12 @@ public class AssemblyScanner : IAssemblyScanner
         foreach (var assembly in assemblies) Assembly(assembly);
     }
 
-    [Obsolete("It is very strongly recommended to use the overload with an Assembly filter to improve performance")]
+    /// <summary>
+    ///     Scans every assembly under <paramref name="path"/>. Prefer the
+    ///     <see cref="AssembliesFromPath(string, Func{Assembly, bool})"/> overload with an
+    ///     explicit assembly filter — passing one reliably cuts startup scan time by skipping
+    ///     framework assemblies and unrelated dependencies.
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans the given path via AssemblyFinder.FindAssemblies.")]
     public void AssembliesFromPath(string path)
     {
