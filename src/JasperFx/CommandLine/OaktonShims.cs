@@ -14,15 +14,6 @@ using JasperFx.CommandLine;
 
 namespace Oakton;
 
-[Obsolete("Prefer JasperFxAsyncCommand")]
-public abstract class OaktonAsyncCommand<T> : JasperFxAsyncCommand<T>
-{
-    
-}
-
-[Obsolete("Prefer JasperFxCommand")]
-public abstract class OaktonCommand<T> : JasperFxCommand<T>{}
-
 [Obsolete("Prefer JasperFxEnvironment")]
 public static class OaktonEnvironment
 {
