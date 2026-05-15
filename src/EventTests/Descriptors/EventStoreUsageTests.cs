@@ -204,6 +204,26 @@ public class EventStoreUsageTests
         subscription.AgentUris[0].ShouldBe("event-subscriptions://marten/main/localhost.postgres/multi/one");
         subscription.AgentUris[1].ShouldBe("event-subscriptions://marten/main/localhost.postgres/multi/two");
     }
+
+    [Fact]
+    public void max_event_sequence_defaults_to_null()
+    {
+        // CW#150 signal 2 semantics: null means "not populated by this
+        // implementation" — CritterWatch renders that as "n/a" rather than 0.
+        new EventStoreUsage().MaxEventSequence.ShouldBeNull();
+        new EventStoreUsage(new Uri("marten://main"), new MyThing()).MaxEventSequence.ShouldBeNull();
+    }
+
+    [Fact]
+    public void max_event_sequence_round_trips()
+    {
+        var usage = new EventStoreUsage
+        {
+            MaxEventSequence = 123_456L
+        };
+
+        usage.MaxEventSequence.ShouldBe(123_456L);
+    }
 }
 
 public class MyThing

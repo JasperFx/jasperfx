@@ -84,6 +84,20 @@ public class EventStoreUsage : OptionsDescription
     public List<EventTypeDescriptor> RegisteredEventTypes { get; set; } = new();
 
     /// <summary>
+    /// Highest event sequence currently persisted in the underlying event-store
+    /// table — <c>max(sequence) FROM mt_streams</c> in Marten, the
+    /// <c>pc_events</c> equivalent in Polecat. Different from the
+    /// HighWaterMark (which is the max-safe-to-read sequence async readers
+    /// can trust): this is the absolute physical maximum.
+    ///
+    /// Null when the implementation hasn't populated it — CritterWatch
+    /// renders that as "n/a" rather than zero. The gap between this and
+    /// the HighWaterMark is what surfaces CritterWatch#150 signal 2
+    /// ("HWM is behind the actual max event sequence").
+    /// </summary>
+    public long? MaxEventSequence { get; set; }
+
+    /// <summary>
     /// Populates AgentUris on each async SubscriptionDescriptor based on the
     /// agent URI pattern: {agentScheme}://{identity.Type}/{identity.Name}/{databaseId}/{shardName.RelativeUrl}
     /// </summary>
