@@ -99,6 +99,22 @@ public class ShardState
     /// </summary>
     public long? CriticalBehindThreshold { get; set; }
 
+    /// <summary>
+    /// Count of event sequences the HighWater agent has flagged as skipped.
+    /// Implementations decide whether this is cumulative (running total over
+    /// the lifetime of the daemon) or most-recent (events skipped in the
+    /// current <see cref="ShardAction.Skipped"/> publication) — both reach
+    /// the same operator conclusion: "this projection skipped some events".
+    /// Null when the implementation hasn't populated it — CritterWatch
+    /// renders null as "n/a" rather than 0 to distinguish "no skips
+    /// reported" from "zero skips have happened".
+    ///
+    /// Surfaces CritterWatch#150 signal 3 ("High Water Agent skipped
+    /// events"). Daemon-emitted; only meaningful on the HighWaterMark
+    /// shard.
+    /// </summary>
+    public long? SkippedEventsCount { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";

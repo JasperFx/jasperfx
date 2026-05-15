@@ -89,4 +89,24 @@ public class ShardStateTrackerTests : IDisposable
             States.Add(value);
         }
     }
+
+    [Fact]
+    public void shard_state_skipped_events_count_defaults_to_null()
+    {
+        // CW#150 signal 3 semantics: null distinguishes "implementation hasn't
+        // populated it" from "zero skips have happened" — CritterWatch renders
+        // null as "n/a" not "0".
+        new ShardState("foo", 100).SkippedEventsCount.ShouldBeNull();
+    }
+
+    [Fact]
+    public void shard_state_skipped_events_count_round_trips()
+    {
+        var state = new ShardState(ShardState.HighWaterMark, 1_000_000)
+        {
+            SkippedEventsCount = 42L
+        };
+
+        state.SkippedEventsCount.ShouldBe(42L);
+    }
 }
