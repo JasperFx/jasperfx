@@ -84,7 +84,13 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     
     public ValueTask MarkSkippingAsync(long lastKnownGoodHighWaterMark, long newHighWaterMark)
     {
-        return PublishAsync(new ShardState(ShardState.HighWaterMark, newHighWaterMark){PreviousGoodMark = lastKnownGoodHighWaterMark, Action = ShardAction.Skipped});
+        var skipped = newHighWaterMark - lastKnownGoodHighWaterMark;
+        return PublishAsync(new ShardState(ShardState.HighWaterMark, newHighWaterMark)
+        {
+            PreviousGoodMark = lastKnownGoodHighWaterMark,
+            Action = ShardAction.Skipped,
+            SkippedEventsCount = skipped > 0 ? skipped : null
+        });
     }
 
     /// <summary>

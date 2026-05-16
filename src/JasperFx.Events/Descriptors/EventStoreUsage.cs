@@ -85,7 +85,7 @@ public class EventStoreUsage : OptionsDescription
 
     /// <summary>
     /// Highest event sequence currently persisted in the underlying event-store
-    /// table — <c>max(sequence) FROM mt_streams</c> in Marten, the
+    /// table — <c>SELECT max(seq_id) FROM {schema}.mt_events</c> in Marten, the
     /// <c>pc_events</c> equivalent in Polecat. Different from the
     /// HighWaterMark (which is the max-safe-to-read sequence async readers
     /// can trust): this is the absolute physical maximum.
