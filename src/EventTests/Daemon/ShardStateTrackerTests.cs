@@ -66,6 +66,34 @@ public class ShardStateTrackerTests : IDisposable
     }
 
     [Fact]
+    public async Task mark_skipping_populates_skipped_events_count()
+    {
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        await theTracker.MarkSkippingAsync(100, 105);
+
+        await theTracker.Complete();
+
+        var state = observer.States.Last();
+        state.SkippedEventsCount.ShouldBe(5L);
+    }
+
+    [Fact]
+    public async Task mark_skipping_with_no_advance_leaves_skipped_events_count_null()
+    {
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        await theTracker.MarkSkippingAsync(100, 100);
+
+        await theTracker.Complete();
+
+        var state = observer.States.Last();
+        state.SkippedEventsCount.ShouldBeNull();
+    }
+
+    [Fact]
     public void default_state_action_is_update()
     {
         new ShardState("foo", 22L)
