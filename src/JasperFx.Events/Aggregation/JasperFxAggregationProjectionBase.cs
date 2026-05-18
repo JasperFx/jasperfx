@@ -129,10 +129,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     [MemberNotNullWhen(true, nameof(_evolve))]
     private bool tryUseAssemblyRegisteredEvolver()
     {
-        // Don't use a generated IGeneratedSyncEvolver when the projection has ShouldDelete methods,
-        // because the evolver only knows about Apply/Create on the aggregate type itself.
-        // ShouldDelete needs the full DetermineAction flow via AggregateApplication.
-        if (_application.HasShouldDeleteMethods()) return false;
+        // When the aggregate declares ShouldDelete methods, the IGeneratedSyncEvolver /
+        // IGeneratedAsyncEvolver shapes don't help — those only dispatch Apply/Create,
+        // and silently dropping the ShouldDelete arm would lose deletions. Those branches
+        // are skipped below. IGeneratedSyncDetermineAction *does* bake the ShouldDelete
+        // arm into its switch (see EvolverCodeEmitter.EmitSelfAggregatingDetermineAction)
+        // — that branch is always allowed.
+        var hasShouldDelete = _application.HasShouldDeleteMethods();
 
         var docType = typeof(TDoc);
 
@@ -144,9 +147,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
             var evolverType = attr.EvolverType;
 
-            // Check for IGeneratedSyncEvolver<TDoc, TId>
+            // Check for IGeneratedSyncEvolver<TDoc, TId> — Apply/Create only, no ShouldDelete arm
             var syncEvolverInterface = typeof(IGeneratedSyncEvolver<TDoc, TId>);
-            if (syncEvolverInterface.IsAssignableFrom(evolverType))
+            if (!hasShouldDelete && syncEvolverInterface.IsAssignableFrom(evolverType))
             {
                 var evolver = (IGeneratedSyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
                 _generatedEvolverEventTypes = evolver.EventTypes;
@@ -162,7 +165,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 return true;
             }
 
-            // Check for IGeneratedSyncDetermineAction<TDoc, TId>
+            // Check for IGeneratedSyncDetermineAction<TDoc, TId> — handles ShouldDelete natively
             var determineActionInterface = typeof(IGeneratedSyncDetermineAction<TDoc, TId>);
             if (determineActionInterface.IsAssignableFrom(evolverType))
             {
@@ -174,9 +177,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 return true;
             }
 
-            // Check for IGeneratedAsyncEvolver<TDoc, TId> (from Evolve/EvolveAsync on self-aggregating types)
+            // Check for IGeneratedAsyncEvolver<TDoc, TId> — Evolve/EvolveAsync on self-aggregating types, no ShouldDelete arm
             var asyncEvolverInterface = typeof(IGeneratedAsyncEvolver<TDoc, TId>);
-            if (asyncEvolverInterface.IsAssignableFrom(evolverType))
+            if (!hasShouldDelete && asyncEvolverInterface.IsAssignableFrom(evolverType))
             {
                 var evolver = (IGeneratedAsyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
                 _generatedEvolverEventTypes = evolver.EventTypes;

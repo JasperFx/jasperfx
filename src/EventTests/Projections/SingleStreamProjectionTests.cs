@@ -22,6 +22,19 @@ public class SingleStreamProjectionTests
         Activator.CreateInstance(type).As<ProjectionBase>().AssembleAndAssertValidity();
     }
 
+    // Regression for #298: tryUseAssemblyRegisteredEvolver was short-circuiting on
+    // HasShouldDeleteMethods() BEFORE checking IGeneratedSyncDetermineAction, even though
+    // that interface is exactly what the SG emits for self-aggregating docs with
+    // ShouldDelete and handles the ShouldDelete arm internally. Result: registering
+    // SingleStreamProjection<SelfAggregatingWithShouldDelete, Guid> threw
+    // InvalidProjectionException at AssembleAndAssertValidity time.
+    [Fact]
+    public void self_aggregating_with_should_delete_binds_via_assembly_registered_determine_action_evolver()
+    {
+        var projection = new SingleStreamProjection<SelfAggregatingWithShouldDelete, Guid>();
+        Should.NotThrow(() => projection.AssembleAndAssertValidity());
+    }
+
     [Theory]
     [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods, but not both")]
     [InlineData(typeof(MultipleOverrides), "Only one of these methods can be overridden: Evolve, EvolveAsync")]
@@ -115,9 +128,22 @@ public partial class OverridesEnrichEventsAsyncWithConventionalApply : SingleStr
     public void Apply(AEvent e, MyAggregate a) => a.ACount++;
 }
 
-public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession> where TDoc : notnull where TId : notnull
+// Self-aggregating fixture for #298 regression. Apply + Create + ShouldDelete on the
+// document type → SG emits IGeneratedSyncDetermineAction<SelfAggregatingWithShouldDelete, Guid>
+// (with the ShouldDelete arm baked into the switch) + [assembly: GeneratedEvolver(...)].
+public partial class SelfAggregatingWithShouldDelete
 {
-    protected SingleStreamProjection() : base()
+    public Guid Id { get; set; }
+    public int ACount { get; set; }
+
+    public static SelfAggregatingWithShouldDelete Create(AEvent _) => new();
+    public void Apply(BEvent _) => ACount++;
+    public bool ShouldDelete(CEvent _) => true;
+}
+
+public class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, FakeOperations, FakeSession> where TDoc : notnull where TId : notnull
+{
+    public SingleStreamProjection() : base()
     {
     }
 }
