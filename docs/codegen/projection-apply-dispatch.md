@@ -188,6 +188,7 @@ sites do. It is not dropped under #276.
 
 ## Known follow-up: source generator should emit `global::` prefixes
 
+Tracked at [JasperFx/jasperfx#288](https://github.com/JasperFx/jasperfx/issues/288).
 While porting the EventTests suite to the source-generator path, the generator
 produced uncompilable code in the presence of a same-named class shadowing a
 namespace lookup (e.g. a `class EventTests` inside `namespace EventTests`
@@ -196,4 +197,4 @@ collides with the parent namespace when the generated file is inside
 rename the colliding test class. A proper fix — making
 `EvolverCodeEmitter.ToDisplayString()` call sites consistently use
 `SymbolDisplayFormat.FullyQualifiedFormat` so generated output uses
-`global::` prefixes everywhere — is a separate item.
+`global::` prefixes everywhere — is tracked separately.
