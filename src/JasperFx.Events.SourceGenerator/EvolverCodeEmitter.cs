@@ -39,7 +39,7 @@ internal static class EvolverCodeEmitter
         var containingTypes = GetContainingTypes(info.ClassSymbol);
         foreach (var container in containingTypes)
         {
-            sb.AppendLine($"partial class {container.Name}{ContainerTypeParams(container)}");
+            sb.AppendLine($"partial {ContainerKeyword(container)} {container.Name}{ContainerTypeParams(container)}");
             sb.AppendLine("{");
         }
 
@@ -88,6 +88,23 @@ internal static class EvolverCodeEmitter
         return "<" + string.Join(", ", container.TypeParameters.Select(t => t.Name)) + ">";
     }
 
+    /// <summary>
+    /// Returns the type-declaration keyword that matches the user's source.
+    /// Required when a projection class is nested inside a record (a fairly
+    /// common pattern, e.g. `record Foo { partial class Projector ... }`)
+    /// — emitting `partial class Foo` against a `partial record Foo` fails
+    /// the build with CS0102 ("already contains a definition").
+    /// </summary>
+    private static string ContainerKeyword(INamedTypeSymbol container)
+    {
+        if (container.IsRecord)
+        {
+            return container.TypeKind == TypeKind.Struct ? "record struct" : "record";
+        }
+
+        return container.TypeKind == TypeKind.Struct ? "struct" : "class";
+    }
+
     private static void EmitConstructorWithIncludeTypes(StringBuilder sb, CandidateInfo info, string className)
     {
         var eventTypes = info.Methods.Select(m => Fqn(m.EventType)).Distinct().ToList();
@@ -123,7 +140,7 @@ internal static class EvolverCodeEmitter
         var containingTypes = GetContainingTypes(info.ClassSymbol);
         foreach (var container in containingTypes)
         {
-            sb.AppendLine($"partial class {container.Name}{ContainerTypeParams(container)}");
+            sb.AppendLine($"partial {ContainerKeyword(container)} {container.Name}{ContainerTypeParams(container)}");
             sb.AppendLine("{");
         }
 
@@ -179,7 +196,7 @@ internal static class EvolverCodeEmitter
         var containingTypes = GetContainingTypes(info.ClassSymbol);
         foreach (var container in containingTypes)
         {
-            sb.AppendLine($"partial class {container.Name}{ContainerTypeParams(container)}");
+            sb.AppendLine($"partial {ContainerKeyword(container)} {container.Name}{ContainerTypeParams(container)}");
             sb.AppendLine("{");
         }
 
@@ -312,8 +329,48 @@ internal static class EvolverCodeEmitter
         }
     }
 
+    /// <summary>
+    /// Picks one handler per event type so the generated switch doesn't emit
+    /// duplicate arms (CS8120). When the SG discovers both a projection-side
+    /// handler (e.g. `Bug4268ProductProjection.Apply(EventX, AggregateY)`)
+    /// AND an aggregate-side handler for the same event type (e.g.
+    /// `Bug4268Product.Apply(EventX)`), the projection-side handler wins —
+    /// the projection's method typically wraps / extends the aggregate's
+    /// behavior and is the user's intentional dispatch entry point. Ties on
+    /// IsOnAggregate break to the overload with more parameters (the more
+    /// specific signature). Final ordering puts more-derived event types
+    /// first so interface arms don't shadow concrete-class arms.
+    /// </summary>
+    private static List<ConventionalMethodInfo> CoalesceByEventType(IEnumerable<ConventionalMethodInfo> methods)
+    {
+        return methods
+            .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
+            .Select(g => g
+                .OrderBy(m => m.IsOnAggregate)
+                .ThenByDescending(m => m.Symbol.Parameters.Length)
+                .First())
+            .OrderByDescending(m => GetTypeDepth(m.EventType))
+            .ToList();
+    }
+
     private static int GetTypeDepth(ITypeSymbol type)
     {
+        // Used to order `switch (e.Data)` arms so that more-derived types come
+        // before their base types / interfaces. C# pattern matching falls
+        // through to the first satisfied case; if `case IBase data` is emitted
+        // before `case Concrete data` and Concrete : IBase, the compiler flags
+        // the latter as unreachable (CS8120).
+        //
+        // Interfaces are pushed below every concrete class (negative key) so
+        // an interface arm always sinks below any class arm — including arms
+        // for classes that *don't* implement the interface, which is fine
+        // because order among unrelated types doesn't matter to correctness.
+        // Among interfaces, ones that extend more other interfaces sort first.
+        if (type.TypeKind == TypeKind.Interface)
+        {
+            return -1_000_000 + type.AllInterfaces.Length;
+        }
+
         int depth = 0;
         var current = type.BaseType;
         while (current != null)
@@ -433,7 +490,7 @@ internal static class EvolverCodeEmitter
 
         var aggregateFullName = Fqn(info.AggregateType!);
         var idFullName = Fqn(info.IdentityType!);
-        var evolverName = info.ClassSymbol.Name + "Evolver";
+        var evolverName = BuildUniqueEvolverName(info, "Evolver");
 
         // Assembly attributes must precede namespace declarations
         sb.AppendLine($"[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof({aggregateFullName}), typeof({GetFullyQualifiedEvolverName(info, evolverName)}))]");
@@ -486,7 +543,7 @@ internal static class EvolverCodeEmitter
         var evolve = info.EvolveMethod!;
         var aggregateFullName = Fqn(info.AggregateType!);
         var idFullName = Fqn(info.IdentityType!);
-        var evolverName = info.ClassSymbol.Name + "EvolveEvolver";
+        var evolverName = BuildUniqueEvolverName(info, "EvolveEvolver");
 
         // Assembly attribute for discovery
         sb.AppendLine($"[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof({aggregateFullName}), typeof({GetFullyQualifiedEvolverName(info, evolverName)}))]");
@@ -640,6 +697,40 @@ internal static class EvolverCodeEmitter
         return name.EndsWith("IQuerySession") || name.EndsWith("QuerySession");
     }
 
+    /// <summary>
+    /// Builds an evolver class name that includes the parent-type chain so two
+    /// aggregates with the same simple name (e.g. `Bug_2666.CounterWithCreate`
+    /// and `Bug_2528.CounterWithCreate`, common in xUnit test files where the
+    /// aggregate is nested inside the test class) don't collide on the
+    /// generated `CounterWithCreateEvolver` class name in the shared namespace.
+    /// See #297.
+    /// </summary>
+    private static string BuildUniqueEvolverName(CandidateInfo info, string suffix)
+    {
+        var prefix = new StringBuilder();
+        for (INamedTypeSymbol? container = info.ClassSymbol.ContainingType;
+             container is not null;
+             container = container.ContainingType)
+        {
+            prefix.Insert(0, container.Name + "_");
+        }
+
+        // When the same aggregate type can be registered against multiple
+        // stream-identity types (e.g. `AggregateStreamAsync<CountOfLetters>`
+        // with both Guid and string stream IDs), emit a separate evolver per
+        // TId. Include a sanitized TId tag in the name so the two evolvers
+        // don't collide in the same namespace. See #297.
+        var idTag = "";
+        if (info.IdentityType is { } id)
+        {
+            var idName = id.Name;
+            if (!string.IsNullOrEmpty(idName))
+                idTag = "_" + idName.Replace(".", "_").Replace("<", "_").Replace(">", "_").Replace(",", "_").Replace(" ", "");
+        }
+
+        return prefix.ToString() + info.ClassSymbol.Name + idTag + suffix;
+    }
+
     private static string GetFullyQualifiedEvolverName(CandidateInfo info, string evolverName)
     {
         var ns = info.ClassSymbol.ContainingNamespace;
@@ -667,8 +758,8 @@ internal static class EvolverCodeEmitter
         sb.AppendLine($"    public override {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
         sb.AppendLine("    {");
 
-        var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
+        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
 
         // Null snapshot branch
         sb.AppendLine("        if (snapshot == null)");
@@ -705,8 +796,8 @@ internal static class EvolverCodeEmitter
         sb.AppendLine($"        global::JasperFx.Events.IEvent e, global::System.Threading.CancellationToken cancellation)");
         sb.AppendLine("    {");
 
-        var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
+        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
 
         sb.AppendLine("        if (snapshot == null)");
         sb.AppendLine("        {");
@@ -753,22 +844,36 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("            switch (e.Data)");
         sb.AppendLine("            {");
 
-        // ShouldDelete cases first
+        // ShouldDelete cases first — coalesce overloads sharing the same event
+        // type into a single switch arm so the compiler doesn't flag duplicate
+        // arms as unreachable (CS8120). Multiple ShouldDelete overloads on the
+        // same event type are OR'd together so the snapshot is dropped if any
+        // overload returns true.
         var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
-        foreach (var method in shouldDeleteMethods)
+        var shouldDeleteByEventType = shouldDeleteMethods
+            .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
+            .OrderByDescending(g => GetTypeDepth(g.Key))
+            .ToList();
+        foreach (var group in shouldDeleteByEventType)
         {
-            var eventTypeName = Fqn(method.EventType);
+            var eventTypeName = Fqn(group.Key);
             var dataVar = "data";
             sb.AppendLine($"                case {eventTypeName} {dataVar}:");
-            sb.Append("                    if (snapshot != null && ");
-            EmitShouldDeleteCall(sb, method, dataVar);
-            sb.AppendLine(")");
+            sb.Append("                    if (snapshot != null && (");
+            bool first = true;
+            foreach (var method in group)
+            {
+                if (!first) sb.Append(" || ");
+                first = false;
+                EmitShouldDeleteCall(sb, method, dataVar);
+            }
+            sb.AppendLine("))");
             sb.AppendLine("                        snapshot = null;");
             sb.AppendLine("                    break;");
         }
 
-        // Create cases
-        var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
+        // Create cases — coalesce by event type, prefer projection-defined over aggregate-defined.
+        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
         foreach (var method in createMethods)
         {
             var eventTypeName = Fqn(method.EventType);
@@ -779,8 +884,8 @@ internal static class EvolverCodeEmitter
             sb.AppendLine("                    break;");
         }
 
-        // Apply cases
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+        // Apply cases — coalesce by event type.
+        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
         foreach (var method in applyMethods)
         {
             var eventTypeName = Fqn(method.EventType);
@@ -841,8 +946,13 @@ internal static class EvolverCodeEmitter
         var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
         var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
 
-        // Each event type gets one case
-        var allEventTypes = info.Methods.Select(m => m.EventType).Distinct<ITypeSymbol>(SymbolEqualityComparer.Default).ToList();
+        // Each event type gets one case. Sort more-derived types first so
+        // `case IBase data:` doesn't shadow `case Concrete data:` (CS8120).
+        var allEventTypes = info.Methods
+            .Select(m => m.EventType)
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
+            .OrderByDescending(t => GetTypeDepth(t!))
+            .ToList();
 
         foreach (var eventType in allEventTypes)
         {
@@ -933,6 +1043,7 @@ internal static class EvolverCodeEmitter
             .Select(m => m.EventType)
             .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
             .Where(t => !handledDeleteTypes.Contains(t!))
+            .OrderByDescending(t => GetTypeDepth(t!))
             .ToList();
 
         foreach (var eventType in applyAndCreateTypes)
@@ -1164,16 +1275,21 @@ internal static class EvolverCodeEmitter
             }
             else
             {
+                // Sync method body inside the async dispatch path — `session` and
+                // `cancellation` are still in scope from the enclosing
+                // EvolveAsync / DetermineActionAsync method, so handler params
+                // that need them must still bind correctly. Pass
+                // includeSessionAndCancellation=true here. See #297.
                 if (method.ReturnsAggregate)
                 {
                     sb.Append($"{indent}    return ");
-                    EmitApplyCallExpression(sb, method, "data", "e", false);
+                    EmitApplyCallExpression(sb, method, "data", "e", true);
                     sb.AppendLine(";");
                 }
                 else
                 {
                     sb.Append($"{indent}    ");
-                    EmitApplyCallExpression(sb, method, "data", "e", false);
+                    EmitApplyCallExpression(sb, method, "data", "e", true);
                     sb.AppendLine(";");
                     sb.AppendLine($"{indent}    return snapshot;");
                 }
@@ -1271,14 +1387,15 @@ internal static class EvolverCodeEmitter
     private static void EmitShouldDeleteCall(StringBuilder sb, ConventionalMethodInfo method, string dataVar)
     {
         var args = BuildShouldDeleteArgs(method, dataVar);
+        var awaitKeyword = method.IsAsync ? "await " : "";
 
         if (method.IsOnAggregate)
         {
-            sb.Append($"snapshot.{method.MethodName}({args})");
+            sb.Append($"{awaitKeyword}snapshot.{method.MethodName}({args})");
         }
         else
         {
-            sb.Append($"{method.MethodName}({args})");
+            sb.Append($"{awaitKeyword}{method.MethodName}({args})");
         }
     }
 
@@ -1286,6 +1403,7 @@ internal static class EvolverCodeEmitter
     {
         var parts = new List<string>();
         var parameters = method.Symbol.Parameters;
+        var containingType = method.Symbol.ContainingType;
 
         foreach (var param in parameters)
         {
@@ -1299,6 +1417,23 @@ internal static class EvolverCodeEmitter
             else if (IsRawIEvent(paramType))
             {
                 parts.Add("e");
+            }
+            else if (SymbolEqualityComparer.Default.Equals(paramType, containingType))
+            {
+                // The aggregate itself, as a second/third parameter on a self-aggregating
+                // Apply/Create/ShouldDelete method — e.g.
+                //   public TAgg Apply(SomeEvent e, TAgg current) => ...;
+                // The previous emitter unconditionally fell through to `dataVar` for any
+                // non-IEvent parameter, generating `snapshot.Apply(data, data)` (CS1503).
+                parts.Add("snapshot");
+            }
+            else if (IsQuerySession(paramType))
+            {
+                parts.Add("session");
+            }
+            else if (IsCancellationToken(paramType))
+            {
+                parts.Add("cancellation");
             }
             else
             {
@@ -1332,14 +1467,20 @@ internal static class EvolverCodeEmitter
     {
         var args = BuildSelfAggregatingArgs(method, dataVar);
 
-        // Self-aggregating: method is on the aggregate instance
+        // Static Apply on a self-aggregating record (e.g.
+        //   public static TAgg Apply(SomeEvent e, TAgg current) => ...;
+        // ) — must be invoked as Type.Apply(...) not snapshot.Apply(...) (CS0176).
+        var receiver = method.IsStatic
+            ? Fqn(method.Symbol.ContainingType)
+            : "snapshot";
+
         if (method.ReturnsAggregate)
         {
-            sb.AppendLine($"snapshot = snapshot.{method.MethodName}({args});");
+            sb.AppendLine($"snapshot = {receiver}.{method.MethodName}({args});");
         }
         else
         {
-            sb.AppendLine($"snapshot.{method.MethodName}({args});");
+            sb.AppendLine($"{receiver}.{method.MethodName}({args});");
         }
     }
 
@@ -1347,7 +1488,10 @@ internal static class EvolverCodeEmitter
         string dataVar)
     {
         var args = BuildSelfAggregatingArgs(method, dataVar);
-        sb.Append($"snapshot.{method.MethodName}({args})");
+        var receiver = method.IsStatic
+            ? Fqn(method.Symbol.ContainingType)
+            : "snapshot";
+        sb.Append($"{receiver}.{method.MethodName}({args})");
     }
 
     // --- Argument builders ---
@@ -1451,6 +1595,14 @@ internal static class EvolverCodeEmitter
             else if (IsRawIEvent(paramType))
             {
                 parts.Add("e");
+            }
+            else if (IsQuerySession(paramType))
+            {
+                parts.Add("session");
+            }
+            else if (IsCancellationToken(paramType))
+            {
+                parts.Add("cancellation");
             }
             else
             {

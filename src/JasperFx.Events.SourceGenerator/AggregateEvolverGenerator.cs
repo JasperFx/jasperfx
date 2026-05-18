@@ -100,9 +100,23 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     /// </summary>
     private static readonly HashSet<string> SnapshotRegistrationNames = new()
     {
+        // Registration APIs that close `SingleStreamProjection<T, TId>` over T:
         "Snapshot",
         "LiveStreamAggregation",
         "SingleStreamProjection",
+
+        // Per-call APIs on Marten's IEventStore / IEventStream surface. These
+        // also internally construct `SingleStreamProjection<T, TId>` and need
+        // a generated dispatcher for T. Adding them here lets a user who only
+        // calls e.g. `theSession.Events.AggregateStreamAsync<MyAgg>(streamId)`
+        // (without ever registering MyAgg via `Snapshot<T>(...)`) still get a
+        // dispatcher. See #297.
+        "AggregateStreamAsync",
+        "AggregateStream",
+        "AggregateStreamToLastKnownAsync",
+        "FetchLatest",
+        "FetchForWriting",
+        "FetchForExclusiveWriting",
     };
 
     /// <summary>
@@ -146,7 +160,13 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         if (generic.TypeArgumentList.Arguments.Count != 1) return null;
 
         var typeArgSyntax = generic.TypeArgumentList.Arguments[0];
-        if (ctx.SemanticModel.GetSymbolInfo(typeArgSyntax, ct).Symbol is not INamedTypeSymbol aggregateType)
+        var aggregateSymbol = ctx.SemanticModel.GetSymbolInfo(typeArgSyntax, ct).Symbol;
+        // Skip generic helper methods (e.g. a user wrapper that forwards
+        // `Snapshot<T>(...)` for arbitrary T) — the type arg is an open
+        // TypeParameterSymbol, not a concrete aggregate. Trying to cast
+        // it to INamedTypeSymbol threw InvalidCastException at compile time
+        // and aborted the whole SG run for that compilation. See #297.
+        if (aggregateSymbol is not INamedTypeSymbol aggregateType)
             return null;
 
         // Resolve the invoked method and require it to be defined on a JasperFx.Events
@@ -159,7 +179,35 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
         if (!IsKnownSnapshotApi(method)) return null;
 
-        return AggregateAnalyzer.AnalyzeRefersToAggregate(aggregateType, ct);
+        // Some call sites carry a stream identity argument (e.g.
+        // `AggregateStreamAsync<MyAgg>(streamId, ...)` or
+        // `FetchForWriting<MyAgg>(streamId, ...)`). When the aggregate type
+        // itself has no Id property and no [AggregateIdentity] attribute,
+        // we fall back to the first non-trivially-typed positional argument's
+        // compile-time type as the TId hint. This covers anonymous-aggregate
+        // live aggregation patterns common in tests:
+        //
+        //     theSession.Events.AggregateStreamAsync<CountOfLetters>(streamId);
+        //
+        // — where CountOfLetters has Apply methods but no Id of its own. See #297.
+        INamedTypeSymbol? idHint = null;
+        foreach (var arg in invocation.ArgumentList.Arguments)
+        {
+            var argType = ctx.SemanticModel.GetTypeInfo(arg.Expression, ct).Type;
+            if (argType is INamedTypeSymbol named && IsLikelyStreamIdType(named))
+            {
+                idHint = named;
+                break;
+            }
+        }
+
+        return AggregateAnalyzer.AnalyzeRefersToAggregate(aggregateType, ct, idHint);
+    }
+
+    private static bool IsLikelyStreamIdType(INamedTypeSymbol type)
+    {
+        var name = type.ToDisplayString();
+        return name is "System.Guid" or "string" or "System.String";
     }
 
     private static bool IsKnownSnapshotApi(IMethodSymbol method)
@@ -247,12 +295,29 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             }
         }
 
-        // Pipeline 3: only for types not already handled by pipelines 1 or 2
+        // Pipeline 3: emit one dispatcher per unique (TDoc, TId) pair that
+        // Pipelines 1/2 didn't already cover. An aggregate without its own
+        // Id property (e.g. `CountOfLetters` used only via
+        // `AggregateStreamAsync<T>(streamId)`) can be invoked with multiple
+        // stream identity types in the same compilation — a Guid stream in
+        // one test, a string stream in another. We need one dispatcher per
+        // (TDoc, TId) so the runtime's `[GeneratedEvolver]` attribute scan
+        // finds the matching `IGeneratedSyncEvolver<TDoc, TId>` for each
+        // configured StreamIdentity. Many call sites can share the same
+        // (TDoc, TId) — emit once per unique pair so the SG doesn't trip
+        // the "hintName must be unique" guard. See #297.
+        var pipeline3Pairs = new System.Collections.Generic.HashSet<string>();
         foreach (var info in snapshots)
         {
             if (info == null) continue;
-            var key = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            if (seen.Add(key))
+            var classKey = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            // Skip aggregates whose closed-shape evolver was already covered
+            // by Pipelines 1/2 — those don't depend on call-site TId hints.
+            if (seen.Contains(classKey)) continue;
+
+            var idKey = info.IdentityType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "";
+            var pairKey = $"{classKey}::{idKey}";
+            if (pipeline3Pairs.Add(pairKey))
             {
                 Execute(spc, info);
             }
@@ -317,6 +382,23 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         return $"{fullName}{suffix}.g.cs";
     }
 
+    /// <summary>
+    /// Self-aggregating evolvers emitted via Pipeline 3 (Snapshot/LiveStream/
+    /// AggregateStreamAsync call sites) can target the same aggregate with
+    /// multiple TId types depending on the configured StreamIdentity. Include
+    /// TId in the hint name so two emissions for the same TDoc but different
+    /// TId (e.g. `CountOfLetters` with Guid AND string) don't trip the
+    /// "hintName must be unique" guard. See #297.
+    /// </summary>
+    private static string SafeSelfAggregatingHintName(CandidateInfo info, string suffix)
+    {
+        var typeName = info.ClassSymbol.ToDisplayString();
+        var idName = info.IdentityType?.ToDisplayString() ?? string.Empty;
+        var combined = (typeName + "_" + idName)
+            .Replace('<', '_').Replace('>', '_').Replace(',', '_').Replace(' ', '_').Replace('.', '_');
+        return $"{combined}{suffix}.g.cs";
+    }
+
     private static void EmitPartialProjection(SourceProductionContext context, CandidateInfo info)
     {
         if (info.Methods.Count == 0) return;
@@ -356,7 +438,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         }
 
         var source = EvolverCodeEmitter.EmitSelfAggregatingEvolveEvolver(info);
-        context.AddSource(SafeHintName(info.ClassSymbol, "EvolveEvolver"), source);
+        context.AddSource(SafeSelfAggregatingHintName(info, "EvolveEvolver"), source);
     }
 
     private static void EmitSelfAggregating(SourceProductionContext context, CandidateInfo info)
@@ -384,6 +466,6 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         }
 
         var source = EvolverCodeEmitter.EmitSelfAggregatingEvolver(info);
-        context.AddSource(SafeHintName(info.ClassSymbol, "Evolver"), source);
+        context.AddSource(SafeSelfAggregatingHintName(info, "Evolver"), source);
     }
 }
