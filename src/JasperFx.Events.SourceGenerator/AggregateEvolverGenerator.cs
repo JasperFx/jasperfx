@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
@@ -28,8 +29,20 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             .Where(static info => info != null)
             .Collect();
 
-        var combined = directCandidates.Combine(refCandidates);
-        context.RegisterSourceOutput(combined, static (spc, pair) => ExecuteCombined(spc, pair.Left, pair.Right));
+        // Pipeline 3: aggregate types registered via `Snapshot<T>(...)` / `LiveStreamAggregation<T>(...)` /
+        // `SingleStreamProjection<T>(...)` call sites. Marten's `opts.Projections.Snapshot<T>(...)` etc.
+        // instantiate the framework-side `SingleStreamProjection<T, TId>` directly, so there is no user
+        // subclass for pipeline 1 to find. The aggregate type itself still owns the Apply/Create methods,
+        // so we analyze it as a self-aggregating candidate keyed off the call-site type argument. See #293.
+        var snapshotCandidates = context.SyntaxProvider.CreateSyntaxProvider(
+            predicate: static (node, _) => IsSnapshotRegistrationInvocation(node),
+            transform: static (ctx, ct) => AnalyzeSnapshotInvocation(ctx, ct))
+            .Where(static info => info != null)
+            .Collect();
+
+        var combined = directCandidates.Combine(refCandidates).Combine(snapshotCandidates);
+        context.RegisterSourceOutput(combined,
+            static (spc, triple) => ExecuteCombined(spc, triple.Left.Left, triple.Left.Right, triple.Right));
     }
 
     private static bool IsCandidateClass(SyntaxNode node)
@@ -73,6 +86,91 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Method names that register a self-aggregating snapshot/projection keyed on a single
+    /// generic aggregate type argument. The intent is to catch consumer code like:
+    ///   <c>opts.Projections.Snapshot&lt;TAggregate&gt;(...)</c>
+    ///   <c>opts.Projections.LiveStreamAggregation&lt;TAggregate&gt;(...)</c>
+    ///   <c>opts.Projections.SingleStreamProjection&lt;TAggregate&gt;(...)</c>
+    /// We match by simple name only — semantic-model resolution happens in
+    /// <see cref="AnalyzeSnapshotInvocation"/>, so a same-named user helper that isn't a
+    /// Marten/JasperFx registration is naturally filtered by the analysis step. See #293.
+    /// </summary>
+    private static readonly HashSet<string> SnapshotRegistrationNames = new()
+    {
+        "Snapshot",
+        "LiveStreamAggregation",
+        "SingleStreamProjection",
+    };
+
+    /// <summary>
+    /// Lightweight syntax check: does <paramref name="node"/> look like a generic
+    /// method invocation whose simple name is one of the snapshot/self-aggregating
+    /// registration entry points? Final filtering happens in <see cref="AnalyzeSnapshotInvocation"/>.
+    /// </summary>
+    private static bool IsSnapshotRegistrationInvocation(SyntaxNode node)
+    {
+        if (node is not InvocationExpressionSyntax invocation) return false;
+
+        var name = invocation.Expression switch
+        {
+            MemberAccessExpressionSyntax m => m.Name,
+            GenericNameSyntax g => g,
+            _ => null
+        };
+
+        if (name is not GenericNameSyntax generic) return false;
+        if (generic.TypeArgumentList.Arguments.Count != 1) return false;
+
+        return SnapshotRegistrationNames.Contains(generic.Identifier.ValueText);
+    }
+
+    /// <summary>
+    /// Pipeline 3: resolve <c>Snapshot&lt;T&gt;()</c> (and equivalents) call sites,
+    /// extract the aggregate type argument, and analyze it as self-aggregating.
+    /// </summary>
+    private static CandidateInfo? AnalyzeSnapshotInvocation(GeneratorSyntaxContext ctx, CancellationToken ct)
+    {
+        var invocation = (InvocationExpressionSyntax)ctx.Node;
+
+        var generic = invocation.Expression switch
+        {
+            MemberAccessExpressionSyntax m => m.Name as GenericNameSyntax,
+            GenericNameSyntax g => g,
+            _ => null
+        };
+
+        if (generic is null) return null;
+        if (generic.TypeArgumentList.Arguments.Count != 1) return null;
+
+        var typeArgSyntax = generic.TypeArgumentList.Arguments[0];
+        if (ctx.SemanticModel.GetSymbolInfo(typeArgSyntax, ct).Symbol is not INamedTypeSymbol aggregateType)
+            return null;
+
+        // Resolve the invoked method and require it to be defined on a JasperFx.Events
+        // or Marten projections-collection-style API. The conservative check: the
+        // containing namespace path must include "JasperFx.Events" or "Marten". This
+        // prevents matching a same-named helper in unrelated user code that happens to
+        // have a single generic type argument named Snapshot/LiveStreamAggregation/etc.
+        if (ctx.SemanticModel.GetSymbolInfo(invocation, ct).Symbol is not IMethodSymbol method)
+            return null;
+
+        if (!IsKnownSnapshotApi(method)) return null;
+
+        return AggregateAnalyzer.AnalyzeRefersToAggregate(aggregateType, ct);
+    }
+
+    private static bool IsKnownSnapshotApi(IMethodSymbol method)
+    {
+        // Walk the containing-type chain and check whether any owning namespace is a
+        // JasperFx.Events / Marten projections surface. We don't require an exact
+        // type match because the registration entry point can live on several
+        // user-facing collection types (e.g. Marten's ProjectionOptions).
+        var ns = method.ContainingType?.ContainingNamespace?.ToDisplayString() ?? string.Empty;
+        return ns.StartsWith("Marten", StringComparison.Ordinal)
+               || ns.StartsWith("JasperFx.Events", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -124,7 +222,8 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     private static void ExecuteCombined(
         SourceProductionContext spc,
         ImmutableArray<CandidateInfo?> direct,
-        ImmutableArray<CandidateInfo?> refs)
+        ImmutableArray<CandidateInfo?> refs,
+        ImmutableArray<CandidateInfo?> snapshots)
     {
         var seen = new System.Collections.Generic.HashSet<string>();
 
@@ -139,6 +238,17 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
         // Pipeline 2: only for types not already handled by pipeline 1
         foreach (var info in refs)
+        {
+            if (info == null) continue;
+            var key = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (seen.Add(key))
+            {
+                Execute(spc, info);
+            }
+        }
+
+        // Pipeline 3: only for types not already handled by pipelines 1 or 2
+        foreach (var info in snapshots)
         {
             if (info == null) continue;
             var key = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);

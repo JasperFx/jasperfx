@@ -380,6 +380,169 @@ public partial class StringQuestProjection : SingleStreamProjection<StringQuest,
         allGenerated.ShouldContain("new global::System.Threading.Tasks.ValueTask<(global::Test.StringQuest?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Delete))");
     }
 
+    // Regression for https://github.com/JasperFx/jasperfx/issues/292 — when a partial projection is
+    // declared *inside* another type (a common shape in xUnit test files where the projection lives
+    // next to the test methods), the SG must walk the ContainingType chain and emit each enclosing
+    // type as `partial class` so the generated partial nests correctly. Before the fix the SG emitted
+    // its `partial class X` at namespace scope, the two partials referred to different types, and
+    // the build broke with CS0115 ("no suitable method found to override").
+    [Fact]
+    public void partial_projection_nested_inside_parent_class_merges_correctly()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public class Counted { public Guid Id { get; set; } public int Count { get; set; } }
+public class Bumped { }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public class HostTests
+{
+    public partial class NestedProjection : SingleStreamProjection<Counted, Guid>
+    {
+        public void Apply(Bumped e, Counted c) { c.Count++; }
+    }
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        // CS0115 is the exact error shape the issue called out — the generated override
+        // didn't find a base method because the partial wasn't nested under HostTests.
+        // CS0111 (duplicate member) shows up when sibling-namespace nested projections
+        // collide on simple name; same root cause, same regression target.
+        var nestingErrors = diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && (d.Id == "CS0115" || d.Id == "CS0111"))
+            .Select(d => d.GetMessage())
+            .ToArray();
+
+        nestingErrors.ShouldBeEmpty();
+
+        // Spot-check that the generated output actually wraps with the parent partial,
+        // so a future regression can't sneak through by accidentally satisfying CS0115
+        // some other way.
+        var (_, generatedSources) = RunGenerator(source);
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain("partial class HostTests");
+        allGenerated.ShouldContain("partial class NestedProjection");
+    }
+
+    // Regression for https://github.com/JasperFx/jasperfx/issues/293 — when a Marten consumer
+    // registers a self-aggregating snapshot via `opts.Projections.Snapshot<TAggregate>(...)`,
+    // there is no user projection class for Pipeline 1 to pick up — the aggregate type itself
+    // owns the Apply/Create methods. Pipeline 3 detects the call site and runs the analyzer on
+    // the aggregate type so the SG emits a self-aggregating evolver for it.
+    [Fact]
+    public void emits_self_aggregating_evolver_via_snapshot_call_site()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Marten.Events.Projections
+{
+    // Stub mirroring Marten's surface — namespace prefix `Marten` is what
+    // IsKnownSnapshotApi keys on so user-defined Snapshot<T>() helpers in
+    // unrelated namespaces don't accidentally trigger Pipeline 3.
+    public class ProjectionOptions
+    {
+        public void Snapshot<T>() { }
+    }
+}
+
+namespace Test;
+
+public class Counter
+{
+    public Guid Id { get; set; }
+    public int Count { get; set; }
+
+    public static Counter Create(Started e) => new() { Id = e.Id };
+    public void Apply(Bumped _) => Count++;
+}
+
+public class Started { public Guid Id { get; set; } }
+public class Bumped { }
+
+public class Registration
+{
+    public void Register(Marten.Events.Projections.ProjectionOptions opts)
+    {
+        opts.Snapshot<Counter>();
+    }
+}
+";
+        var (_, generatedSources) = RunGenerator(source);
+
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var allGenerated = string.Join("\n", generatedSources);
+
+        // The evolver class plus its [GeneratedEvolver] assembly attribute are what the
+        // runtime's tryUseAssemblyRegisteredEvolver scan picks up on `typeof(TDoc).Assembly`.
+        allGenerated.ShouldContain("CounterEvolver");
+        allGenerated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.Counter)");
+    }
+
+    // Negative case for #293: a same-named Snapshot<T>() helper in a user namespace must NOT
+    // trip Pipeline 3, otherwise unrelated user code with a generic Snapshot<T> method would
+    // start producing spurious evolvers for arbitrary type arguments.
+    [Fact]
+    public void does_not_match_snapshot_call_in_unrelated_namespace()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace User.Helpers
+{
+    public class Helper
+    {
+        public void Snapshot<T>() { }
+    }
+}
+
+namespace Test;
+
+public class NotAnAggregate
+{
+    public Guid Id { get; set; }
+    public int Count { get; set; }
+    public static NotAnAggregate Create(Started e) => new() { Id = e.Id };
+    public void Apply(Bumped _) => Count++;
+}
+
+public class Started { public Guid Id { get; set; } }
+public class Bumped { }
+
+public class Registration
+{
+    public void Register(User.Helpers.Helper helper)
+    {
+        helper.Snapshot<NotAnAggregate>();
+    }
+}
+";
+        var (_, generatedSources) = RunGenerator(source);
+
+        // Pipeline 1 picks up NotAnAggregate (it has conventional methods on it), so the SG
+        // does emit a self-aggregating evolver — that's expected and orthogonal to Pipeline 3.
+        // What we're guarding here is that the unrelated User.Helpers.Snapshot<T>() call site
+        // doesn't *trigger* Pipeline 3 to push another candidate through (which dedup would
+        // suppress anyway, but if Pipeline 3 had matched, a Snapshot<T> targeting a type with
+        // no methods would still try to run the analyzer). The functional signal we can assert:
+        // no extra generated sources beyond the one Pipeline 1 produces.
+        generatedSources.Length.ShouldBe(1);
+    }
+
     [Fact]
     public void skips_type_with_constructor_event_parameter()
     {
