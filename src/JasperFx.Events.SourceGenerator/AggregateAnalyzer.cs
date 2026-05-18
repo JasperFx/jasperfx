@@ -75,7 +75,11 @@ internal sealed class CandidateInfo
     public INamedTypeSymbol? QuerySessionType { get; set; } // TQuerySession
     public List<ConventionalMethodInfo> Methods { get; set; } = new();
     public bool HasShouldDelete => Methods.Any(m => m.MethodName == "ShouldDelete");
-    public bool HasAnyAsync => Methods.Any(m => m.IsAsync);
+    // A method that takes IQuerySession can only run from the EvolveAsync /
+    // DetermineActionAsync path (the sync Evolve doesn't have a session to
+    // pass). Treat any session-taking handler as forcing the async dispatch
+    // path so the generated switch arm can bind `session` correctly. See #297.
+    public bool HasAnyAsync => Methods.Any(m => m.IsAsync || m.HasSession);
     public bool HasCreate => Methods.Any(m => m.MethodName == "Create");
     public bool HasDefaultConstructor { get; set; }
     public bool HasExistingParameterlessConstructor { get; set; } // On the projection class itself
@@ -594,7 +598,14 @@ internal static class AggregateAnalyzer
             var param = parameters[i];
             var paramType = param.Type;
 
-            if (SymbolEqualityComparer.Default.Equals(paramType, aggregateType) && !isOnAggregate)
+            // A parameter whose type is the aggregate type is the aggregate
+            // slot. For projection-side methods (!isOnAggregate) this is the
+            // shape `Apply(SomeEvent, TAggregate)`. For self-aggregating
+            // methods we also accept the same shape via static helpers
+            // (e.g. `static TAggregate Apply(SomeEvent, TAggregate current)`
+            // on a record). Without this branch the second param falls
+            // through to the "unrecognized parameter" bail below. See #297.
+            if (SymbolEqualityComparer.Default.Equals(paramType, aggregateType))
             {
                 aggregateSeen = true;
                 if (eventType == null)
@@ -637,6 +648,18 @@ internal static class AggregateAnalyzer
                     foundAggregateFirst = true;
                 else
                     foundAggregateFirst = false;
+            }
+            else
+            {
+                // An unrecognized parameter that comes after we've already
+                // identified the event type — e.g. `Apply(AEvent, MyAggregate, IDocumentOperations)`
+                // on a SingleStreamProjection where IDocumentOperations isn't a
+                // supported convention slot. Bail rather than emit a garbled
+                // dispatcher (CS1503 cascades from this). Runtime validation
+                // already covers these "invalid signature" shapes — letting
+                // the SG opt out preserves that behavior without breaking the
+                // build. See #297.
+                return null;
             }
         }
 
@@ -721,13 +744,18 @@ internal static class AggregateAnalyzer
             var fullName = current.ConstructedFrom.ToDisplayString();
             if (fullName.StartsWith(AggregationProjectionBaseFullName + "<"))
             {
-                if (current.TypeArguments.Length >= 4)
+                if (current.TypeArguments.Length >= 4
+                    && current.TypeArguments[0] is INamedTypeSymbol docType
+                    && current.TypeArguments[1] is INamedTypeSymbol idType
+                    && current.TypeArguments[3] is INamedTypeSymbol querySessionType)
                 {
-                    return (
-                        (INamedTypeSymbol)current.TypeArguments[0],
-                        (INamedTypeSymbol)current.TypeArguments[1],
-                        (INamedTypeSymbol)current.TypeArguments[3]
-                    );
+                    // Only return concrete (INamedTypeSymbol) instantiations. An
+                    // open generic base — e.g. `class MyBase<T> : SingleStreamProjection<T, Guid>`
+                    // declared inside the JasperFx.Events runtime library itself —
+                    // has TypeParameterSymbol type arguments which can't be cast
+                    // to INamedTypeSymbol and previously crashed the SG with
+                    // InvalidCastException. See #297.
+                    return (docType, idType, querySessionType);
                 }
             }
 
@@ -1060,15 +1088,39 @@ internal static class AggregateAnalyzer
 
     private static bool HasLambdaRegistrations(TypeDeclarationSyntax classDecl)
     {
+        // Only ProjectEvent / CreateEvent / DeleteEvent invocations that *take
+        // an argument* (a handler / predicate lambda) opt the projection out of
+        // SG dispatch — those were the inline-lambda APIs JasperFx 2.0 removed.
+        // The parameterless variant `DeleteEvent<T>()` is still a supported way
+        // to declare delete-on events from the constructor and must NOT block
+        // dispatcher emission. See #297. A plain substring match on the body
+        // (previous implementation) misclassified `DeleteEvent<T>()` as a
+        // lambda registration and silently skipped dispatcher emission.
         var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
         foreach (var ctor in constructors)
         {
             if (ctor.Body == null) continue;
-            var text = ctor.Body.ToFullString();
-            foreach (var name in LambdaMethodNames)
+            foreach (var invocation in ctor.Body.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
-                if (text.Contains(name))
-                    return true;
+                if (invocation.ArgumentList.Arguments.Count == 0) continue;
+
+                var simpleName = invocation.Expression switch
+                {
+                    MemberAccessExpressionSyntax m => m.Name,
+                    GenericNameSyntax g => g,
+                    IdentifierNameSyntax i => (SimpleNameSyntax?)i,
+                    _ => null
+                };
+
+                var name = (simpleName as GenericNameSyntax)?.Identifier.ValueText
+                           ?? (simpleName as IdentifierNameSyntax)?.Identifier.ValueText;
+
+                if (name == null) continue;
+
+                foreach (var lambdaName in LambdaMethodNames)
+                {
+                    if (name == lambdaName) return true;
+                }
             }
         }
 
@@ -1091,7 +1143,21 @@ internal static class AggregateAnalyzer
                 .FirstOrDefault(p => p.Name == "Id");
 
             if (idProp?.Type is INamedTypeSymbol idType)
+            {
+                // Unwrap `Nullable<T>` so `public PaymentId? Id { get; }` resolves
+                // to PaymentId (the runtime TId) instead of `Nullable<PaymentId>`.
+                // The runtime closes `SingleStreamProjection<TDoc, TId>` over the
+                // unwrapped struct type, so a generated evolver keyed on the
+                // nullable wrapper would never match. See #297.
+                if (idType.IsGenericType
+                    && idType.ConstructedFrom.ToDisplayString() == "System.Nullable<T>"
+                    && idType.TypeArguments.Length == 1
+                    && idType.TypeArguments[0] is INamedTypeSymbol unwrappedId)
+                {
+                    return unwrappedId;
+                }
                 return idType;
+            }
         }
 
         // 2. Check for [AggregateIdentity(typeof(...))]
@@ -1109,11 +1175,40 @@ internal static class AggregateAnalyzer
 
     private static bool HasParameterlessConstructor(INamedTypeSymbol type)
     {
+        // A type with `required` members can't be constructed with `new T()` even
+        // when a parameterless constructor exists — the compiler emits CS9035 unless
+        // every required member is initialized at the call site (or the ctor is
+        // annotated with [SetsRequiredMembers]). Treat "has required members" the
+        // same as "no usable parameterless ctor" so the SG doesn't emit
+        // `var s = new T(); Apply(data, s);` for these aggregates. See #297.
+        if (HasRequiredMembers(type)) return false;
+
         // If no explicit constructors, there's an implicit default
         var constructors = type.InstanceConstructors;
         if (constructors.Length == 0) return true;
 
         return constructors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+    }
+
+    private static bool HasRequiredMembers(INamedTypeSymbol type)
+    {
+        // Walk the inheritance chain — a required member on a base class still
+        // forces the derived `new T()` to initialize it.
+        for (INamedTypeSymbol? current = type;
+             current is not null && current.SpecialType != SpecialType.System_Object;
+             current = current.BaseType)
+        {
+            foreach (var member in current.GetMembers())
+            {
+                switch (member)
+                {
+                    case IPropertySymbol prop when prop.IsRequired:
+                    case IFieldSymbol field when field.IsRequired:
+                        return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -1165,7 +1260,8 @@ internal static class AggregateAnalyzer
     /// </summary>
     public static CandidateInfo? AnalyzeRefersToAggregate(
         INamedTypeSymbol aggregateType,
-        CancellationToken ct)
+        CancellationToken ct,
+        INamedTypeSymbol? identityTypeHint = null)
     {
         if (IsProjectionBase(aggregateType)) return null;
 
@@ -1204,7 +1300,7 @@ internal static class AggregateAnalyzer
         if (methods.Count == 0) return null;
         if (HasEventParameterConstructor(aggregateType)) return null;
 
-        var inferredId = InferIdentityType(aggregateType);
+        var inferredId = InferIdentityType(aggregateType) ?? identityTypeHint;
         if (inferredId == null) return null;
 
         return new CandidateInfo
