@@ -443,17 +443,13 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     private static void EmitSelfAggregating(SourceProductionContext context, CandidateInfo info)
     {
-        if (info.Methods.Count == 0) return;
+        if (info.Methods.Count == 0 && info.EventConstructors.Count == 0) return;
 
-        // Self-aggregating with async methods falls back
-        if (info.HasAnyAsync)
-        {
-            context.ReportDiagnostic(Diagnostic.Create(
-                DiagnosticDescriptors.AsyncSelfAggregating,
-                info.ClassSyntax.Identifier.GetLocation(),
-                info.ClassSymbol.Name));
-            return;
-        }
+        // Async self-aggregating Apply/Create methods (e.g. a
+        // `static async Task<T> Create(SomeEvent, IQuerySession)` that does
+        // a DB lookup during creation) are now supported via
+        // EmitSelfAggregatingEvolveAsync — the SG emits
+        // IGeneratedAsyncEvolver. See #297.
 
         // Must be able to infer identity
         if (info.IdentityType == null)
