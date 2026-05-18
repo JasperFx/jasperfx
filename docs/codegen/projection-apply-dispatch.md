@@ -134,24 +134,22 @@ handler is a runtime closure, not a discoverable method. **1 site**
 (`AggregateVersioning`) is not covered by SG today and would need either a new
 emit shape or a reflective rewrite.
 
-## Decisions (resolved)
+## Decisions (resolved and applied)
 
-1. **Inline-lambda registration is out of scope for #276.** The
+1. **Inline-lambda registration removed in this PR (folds in #286).** The
    `CreateEvent` / `DeleteEvent` / `ProjectEvent` / `Project<TEvent>(handler)` /
-   `ProjectAsync<TEvent>(handler)` APIs will be removed entirely in 2.0 under a
-   follow-up tracked at [JasperFx/jasperfx#286](https://github.com/JasperFx/jasperfx/issues/286)
-   (and Marten 9.0 migration notes at [JasperFx/marten#4467](https://github.com/JasperFx/marten/issues/4467)).
-   Until that lands, the four inline-lambda FEC sites (#1, #2, #3, #16) stay on
-   FEC and the surrounding class-level `IL2026` / `IL3050` suppressions remain
-   in place.
-2. **`AggregateVersioning` keeps FEC, routed through `LambdaBuilder`.** The
-   site is rewritten to compose `LambdaBuilder.Setter<T, int>` /
-   `LambdaBuilder.Setter<T, long>` with a plain closure that reads
-   `IEvent.Version` / `IEvent.Sequence`. `LambdaBuilder` already compiles via
-   `CompileFast` under the hood, so the AOT compromise is identical to what
-   exists today — the change is structural, not behavioural. The
-   class-level `IL2026` / `IL3050` suppressions on
-   `AggregateVersioning.cs` stay.
+   `ProjectAsync<TEvent>(handler)` APIs are deleted from the JasperFx.Events
+   public surface. Marten 9.0 migration advice is tracked at
+   [JasperFx/marten#4467](https://github.com/JasperFx/marten/issues/4467).
+2. **`AggregateVersioning` routes through `LambdaBuilder`, which is now
+   AOT-aware.** `LambdaBuilder.{Setter, Getter, GetProperty, SetProperty,
+   GetField, SetField}` branch on `RuntimeFeature.IsDynamicCodeSupported`:
+   FEC under a JIT runtime (same perf as before), reflective `PropertyInfo.SetValue`
+   / `FieldInfo.SetValue` under NativeAOT (correct, no crash). The
+   class-level `IL2026` suppression on `AggregateVersioning.cs` stays
+   because the JIT branch still uses FEC; `IL3050` is no longer needed at
+   the call site because the dynamic-code requirement moved to the private
+   `LambdaBuilder.Compiled*` helpers.
 3. **`partial` is required only on `EventProjection` /
    `SingleStreamProjection` / `MultiStreamProjection` types that use
    conventional methods.** Types that do not use conventional methods
@@ -159,28 +157,43 @@ emit shape or a reflective rewrite.
    to be `partial`. The fail-fast exception message at registration spells
    out this narrower condition.
 
-## What ships in the #276 PR
+## What shipped in #276
 
 | Action | Files | Notes |
 |---|---|---|
-| **Delete FEC method-discovery dispatch** in `AggregateApplication` | `AggregateApplication.Applies.cs`, `AggregateApplication.Creating.cs`, `AggregateApplication.ShouldDelete.cs` | Sites #4, #5, #6, #7, #8 above. `ApplyAsync` / `Create` now return the default / throw for event types not pre-registered by the inline-lambda path; the SG-emitted override on the projection class catches the live dispatch path. |
-| **Delete FEC method-discovery dispatch** in `EventProjectionApplication` | `EventProjectionApplication.cs` | Sites #10–#15 above. The `Project<TEvent>` / `ProjectAsync<TEvent>` inline-lambda path (#16) stays. |
-| **Refactor `AggregateVersioning.buildAction`** to use `LambdaBuilder` | `AggregateVersioning.cs` | Site #9. Same FEC under the hood, no direct `Expression.Lambda(...).CompileFast()` in this file any more. |
-| **Drop FEC method-discovery class-level suppressions** | `AggregateApplication.cs` | Once method-discovery FEC is gone, `IL2026` / `IL3050` suppressions on `AggregateApplication.cs` are scoped down to just what `Register.cs` (inline lambdas) still justifies. |
-| **Add fail-fast assertion at registration** | `JasperFxAggregationProjectionBase.AssembleAndAssertValidity`, `JasperFxEventProjectionBase.AssembleAndAssertValidity` | Throws when a `Single/Multi/Event` projection has conventional methods declared on its body but the SG override is missing. Error names the type, points at `JasperFx.Events.SourceGenerator`, and notes that the projection class must be `partial`. |
-| **Equivalence tests** | `src/EventTests/Aggregation/` | Per the brief. |
-| **AOT smoke verification** | `src/JasperFx.AotSmoke` | Confirm `dotnet build` still clean. |
-| **Version bump** | `Directory.Packages.props` etc. | `JasperFx.Events` + `JasperFx.Events.SourceGenerator` lockstep alpha bump. |
+| **AOT-aware `LambdaBuilder`** | `src/JasperFx/Core/Reflection/LambdaBuilder.cs` | Every public accessor (`Getter`/`Setter`/`GetProperty`/`SetProperty`/`GetField`/`SetField`) branches on `RuntimeFeature.IsDynamicCodeSupported`. JIT runtime: FEC. NativeAOT: reflective `GetValue`/`SetValue`. `[RequiresDynamicCode]` moves to the private `Compiled*` helpers. |
+| **`AggregateVersioning` routed through `LambdaBuilder`** | `src/JasperFx.Events/Aggregation/AggregateVersioning.cs` | Site #9. Picks up the AOT-aware behaviour automatically. |
+| **Inline-lambda APIs removed** (folds in #286) | `AggregateApplication.Register.cs` (deleted), `IAggregationSteps.cs` trimmed to `DeleteEvent<TEvent>()`/`TransformsEvent<TEvent>()`, `JasperFxAggregationProjectionBase.AggregationSteps.cs` matching trim, `EventProjectionApplication` `Project<T>`/`ProjectAsync<T>`/`projectEvent` deleted, `JasperFxEventProjectionBase` `Project<T>`/`ProjectAsync<T>` wrappers deleted | Sites #1, #2, #3, #16. |
+| **FEC method-discovery dispatch deleted** | `AggregateApplication.Applies.cs`, `AggregateApplication.Creating.cs`, `AggregateApplication.ShouldDelete.cs` (all deleted); `AggregateApplication.cs` rewritten as validity-only. `EventProjectionApplication.cs` FEC paths (`determineApplication` / `buildApplication` / `buildCreator` / `CreatorBuilder<T>`) deleted; class trimmed to validity-only. | Sites #4–#8, #10–#15. Hot-path dispatch is now exclusively the source-generated `Evolve` / `EvolveAsync` / `DetermineActionAsync` / `ApplyAsync` override on the user's partial projection class. |
+| **Class-level FEC suppressions dropped** | `AggregateApplication.cs`, `EventProjectionApplication.cs` | `IL2026` / `IL3050` suppressions on these classes are gone because their FEC paths are gone. `AggregateVersioning.cs` keeps `IL2026` because the JIT branch of `LambdaBuilder` still uses FEC internally. |
+| **`[GeneratedCodeAttribute]` on partial-projection overrides** | `src/JasperFx.Events.SourceGenerator/EvolverCodeEmitter.cs` (`EmitEvolveOverride`, `EmitEvolveAsyncOverride`, `EmitDetermineActionAsyncOverride`) | Matches what `EventProjection` mode already does. Runtime uses this to distinguish source-generated dispatch from user-authored overrides in `AssembleAndAssertValidity`. |
+| **Fail-fast at registration** | `JasperFxAggregationProjectionBase.AssembleAndAssertValidity`, `JasperFxEventProjectionBase.AssembleAndAssertValidity` | Throws when a `Single/Multi/Event` projection has conventional methods declared but no source-generated dispatcher is in place. Error names the type, points at `JasperFx.Events.SourceGenerator`, and notes that the projection class must be `partial`. Source-generated override + conventional methods is the supported pairing; user override + source-generated override is rejected as a configuration conflict. |
+| **Runtime backstop** | `JasperFxAggregationProjectionBase.Runtime.cs` virtual `EvolveAsync` body; `EventProjectionApplication.ApplyAsync` body; `AggregateApplication.BuildAsync` body | All throw the same fail-fast message. Hot-path SG override always wins at vtable dispatch; these bodies are only reached if a projection is exercised outside the registration flow that runs the fail-fast. |
+| **Test-suite cascade** | `EventTests.csproj` references the SG as an analyzer; conventional-method fixtures are `partial`; `LambdaEventProjection` / `InlineProjection` fixtures deleted; `AggregateApplicationTests.cs` deleted (it tested the now-gone FEC dispatch surface); colliding `EventTests.EventTests` class renamed to `EventBasicsTests` so the SG resolves `EventTests.Projections.*` correctly. |
+| **Version bump** | `JasperFx.Events.csproj` 2.0.0-alpha.10 → 2.0.0-alpha.11, `JasperFx.Events.SourceGenerator.csproj` 2.0.0-alpha.2 → 2.0.0-alpha.3 |
 
 ## What stays on FEC after #276 lands
 
-- Inline-lambda registration sites #1, #2, #3, #16 — removed under #286.
-- `AggregateVersioning` — version-property setter via `LambdaBuilder`.
-- `IEvent.cs` line 261, `StreamAction.cs` line 516 — strong-typed-id converters,
-  out of scope for #276.
+- `AggregateVersioning` — version-property setter via `LambdaBuilder`,
+  which uses FEC on JIT and reflection on AOT.
+- `IEvent.cs` line 261, `StreamAction.cs` line 516 — strong-typed-id
+  converters, out of scope for #276. Both `[RequiresDynamicCode]`
+  unchanged.
 - `Tags/TagTypeRegistration.cs`, `Internals/MethodSlot.cs`,
   `Protected/StreamCompactingRequest.cs` — orthogonal sites, not projection
-  dispatch.
+  dispatch. Could be made AOT-aware in a follow-up.
 
 The `FastExpressionCompiler` package reference stays as long as any of these
 sites do. It is not dropped under #276.
+
+## Known follow-up: source generator should emit `global::` prefixes
+
+While porting the EventTests suite to the source-generator path, the generator
+produced uncompilable code in the presence of a same-named class shadowing a
+namespace lookup (e.g. a `class EventTests` inside `namespace EventTests`
+collides with the parent namespace when the generated file is inside
+`namespace EventTests.Projections;`). The pragmatic fix in this PR was to
+rename the colliding test class. A proper fix — making
+`EvolverCodeEmitter.ToDisplayString()` call sites consistently use
+`SymbolDisplayFormat.FullyQualifiedFormat` so generated output uses
+`global::` prefixes everywhere — is a separate item.
