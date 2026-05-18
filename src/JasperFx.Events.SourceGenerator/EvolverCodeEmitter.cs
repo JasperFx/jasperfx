@@ -718,10 +718,14 @@ internal static class EvolverCodeEmitter
         // When the same aggregate type can be registered against multiple
         // stream-identity types (e.g. `AggregateStreamAsync<CountOfLetters>`
         // with both Guid and string stream IDs), emit a separate evolver per
-        // TId. Include a sanitized TId tag in the name so the two evolvers
-        // don't collide in the same namespace. See #297.
+        // TId. Append a sanitized TId tag in the name so the two evolvers
+        // don't collide in the same namespace. Only needed when the aggregate
+        // *itself* doesn't determine TId via an Id property — when it does,
+        // Pipeline 1 emits a single dispatcher per TDoc and existing tests
+        // (and downstream consumers) reference the original
+        // `{Name}Evolver` class name. See #297.
         var idTag = "";
-        if (info.IdentityType is { } id)
+        if (info.IdentityType is { } id && !AggregateHasOwnIdentity(info))
         {
             var idName = id.Name;
             if (!string.IsNullOrEmpty(idName))
@@ -729,6 +733,35 @@ internal static class EvolverCodeEmitter
         }
 
         return prefix.ToString() + info.ClassSymbol.Name + idTag + suffix;
+    }
+
+    /// <summary>
+    /// True when the aggregate type itself locks in the TId (via an Id property
+    /// or [AggregateIdentity] attribute). False when the candidate's TId came
+    /// from a Pipeline 3 call-site hint and could conceivably vary by call site.
+    /// </summary>
+    private static bool AggregateHasOwnIdentity(CandidateInfo info)
+    {
+        if (info.AggregateType is null) return false;
+
+        for (INamedTypeSymbol? current = info.AggregateType;
+             current is not null && current.SpecialType != SpecialType.System_Object;
+             current = current.BaseType)
+        {
+            foreach (var member in current.GetMembers())
+            {
+                if (member is IPropertySymbol prop && prop.Name == "Id")
+                    return true;
+            }
+
+            foreach (var attr in current.GetAttributes())
+            {
+                if (attr.AttributeClass?.Name is "AggregateIdentityAttribute" or "AggregateIdentity")
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static string GetFullyQualifiedEvolverName(CandidateInfo info, string evolverName)
