@@ -10,6 +10,14 @@ namespace JasperFx.Events.SourceGenerator;
 
 internal static class EvolverCodeEmitter
 {
+    // Always emit type references with `global::` so generated code is robust to
+    // identifiers in the consumer's namespace that shadow a parent namespace name
+    // (see https://github.com/JasperFx/jasperfx/issues/288). Default ToDisplayString()
+    // omits the alias, which becomes uncompilable when a type like `EventTests` lives
+    // in `namespace EventTests`.
+    private static string Fqn(ITypeSymbol type) =>
+        type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+
     public static string EmitPartialProjection(CandidateInfo info)
     {
         var sb = new StringBuilder();
@@ -59,7 +67,7 @@ internal static class EvolverCodeEmitter
 
     private static void EmitConstructorWithIncludeTypes(StringBuilder sb, CandidateInfo info, string className)
     {
-        var eventTypes = info.Methods.Select(m => m.EventType.ToDisplayString()).Distinct().ToList();
+        var eventTypes = info.Methods.Select(m => Fqn(m.EventType)).Distinct().ToList();
         if (eventTypes.Count == 0) return;
 
         // Skip if the class already has an explicit parameterless constructor
@@ -168,7 +176,7 @@ internal static class EvolverCodeEmitter
             sb.AppendLine($"    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
             sb.AppendLine($"    public {className}()");
             sb.AppendLine("    {");
-            foreach (var docType in info.DiscoveredPublishedTypes.Select(t => t.ToDisplayString()).Distinct())
+            foreach (var docType in info.DiscoveredPublishedTypes.Select(t => Fqn(t)).Distinct())
             {
                 sb.AppendLine($"        RegisterPublishedType(typeof({docType}));");
             }
@@ -212,7 +220,7 @@ internal static class EvolverCodeEmitter
         // Collect distinct entity return types from Create/Transform methods
         var publishedTypes = info.Methods
             .Where(m => m.EntityReturnType != null && (m.MethodName == "Create" || m.MethodName == "Transform"))
-            .Select(m => m.EntityReturnType!.ToDisplayString())
+            .Select(m => Fqn(m.EntityReturnType!))
             .Distinct()
             .ToList();
 
@@ -231,7 +239,7 @@ internal static class EvolverCodeEmitter
 
     private static void EmitEventProjectionApplyAsync(StringBuilder sb, CandidateInfo info)
     {
-        var operationsType = info.OperationsType!.ToDisplayString();
+        var operationsType = Fqn(info.OperationsType!);
         var hasAnyAsync = info.HasAnyAsync;
 
         // Sort methods so that derived event types come before base event types
@@ -297,7 +305,7 @@ internal static class EvolverCodeEmitter
     private static void EmitEventProjectionCase(StringBuilder sb, ConventionalMethodInfo method,
         string operationsType, bool isAsyncContext)
     {
-        var eventTypeName = method.EventType.ToDisplayString();
+        var eventTypeName = Fqn(method.EventType);
 
         if (method.UsesIEventWrapper)
         {
@@ -361,7 +369,7 @@ internal static class EvolverCodeEmitter
 
             if (method.UsesIEventWrapper && IsIEventGenericWrapper(paramType))
             {
-                var innerType = ((INamedTypeSymbol)paramType).TypeArguments[0].ToDisplayString();
+                var innerType = Fqn(((INamedTypeSymbol)paramType).TypeArguments[0]);
                 parts.Add($"(global::JasperFx.Events.IEvent<{innerType}>)e");
             }
             else if (IsRawIEvent(paramType))
@@ -376,7 +384,7 @@ internal static class EvolverCodeEmitter
             {
                 if (method.UsesIEventWrapper)
                 {
-                    parts.Add($"(({paramType.ToDisplayString()})e.Data)");
+                    parts.Add($"(({Fqn(paramType)})e.Data)");
                 }
                 else
                 {
@@ -400,8 +408,8 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
 
-        var aggregateFullName = info.AggregateType!.ToDisplayString();
-        var idFullName = info.IdentityType!.ToDisplayString();
+        var aggregateFullName = Fqn(info.AggregateType!);
+        var idFullName = Fqn(info.IdentityType!);
         var evolverName = info.ClassSymbol.Name + "Evolver";
 
         // Assembly attributes must precede namespace declarations
@@ -453,8 +461,8 @@ internal static class EvolverCodeEmitter
         sb.AppendLine();
 
         var evolve = info.EvolveMethod!;
-        var aggregateFullName = info.AggregateType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-        var idFullName = info.IdentityType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var aggregateFullName = Fqn(info.AggregateType!);
+        var idFullName = Fqn(info.IdentityType!);
         var evolverName = info.ClassSymbol.Name + "EvolveEvolver";
 
         // Assembly attribute for discovery
@@ -509,7 +517,7 @@ internal static class EvolverCodeEmitter
     {
         if (evolve.ExtractedEventTypes.Count > 0)
         {
-            var types = evolve.ExtractedEventTypes.Select(t => t.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Distinct().ToList();
+            var types = evolve.ExtractedEventTypes.Select(t => Fqn(t)).Distinct().ToList();
             sb.Append("    public global::System.Type[] EventTypes => [");
             sb.Append(string.Join(", ", types.Select(t => $"typeof({t})")));
             sb.AppendLine("];");
@@ -578,7 +586,7 @@ internal static class EvolverCodeEmitter
             var sessionParam = evolve.Symbol.Parameters.FirstOrDefault(p =>
                 IsQuerySession(p.Type));
             var sessionTypeName = sessionParam != null
-                ? sessionParam.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                ? Fqn(sessionParam.Type)
                 : "object";
             args.Add($"({sessionTypeName})session");
         }
@@ -613,13 +621,13 @@ internal static class EvolverCodeEmitter
     {
         var ns = info.ClassSymbol.ContainingNamespace;
         if (!ns.IsGlobalNamespace)
-            return $"{ns.ToDisplayString()}.{evolverName}";
-        return evolverName;
+            return $"global::{ns.ToDisplayString()}.{evolverName}";
+        return $"global::{evolverName}";
     }
 
     private static void EmitEventTypesProperty(StringBuilder sb, CandidateInfo info)
     {
-        var eventTypes = info.Methods.Select(m => m.EventType.ToDisplayString()).Distinct().ToList();
+        var eventTypes = info.Methods.Select(m => Fqn(m.EventType)).Distinct().ToList();
         sb.Append("    public global::System.Type[] EventTypes => [");
         sb.Append(string.Join(", ", eventTypes.Select(t => $"typeof({t})")));
         sb.AppendLine("];");
@@ -629,8 +637,8 @@ internal static class EvolverCodeEmitter
 
     private static void EmitEvolveOverride(StringBuilder sb, CandidateInfo info)
     {
-        var docType = info.AggregateType!.ToDisplayString();
-        var idType = info.IdentityType!.ToDisplayString();
+        var docType = Fqn(info.AggregateType!);
+        var idType = Fqn(info.IdentityType!);
 
         sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
         sb.AppendLine($"    public override {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
@@ -664,9 +672,9 @@ internal static class EvolverCodeEmitter
 
     private static void EmitEvolveAsyncOverride(StringBuilder sb, CandidateInfo info)
     {
-        var docType = info.AggregateType!.ToDisplayString();
-        var idType = info.IdentityType!.ToDisplayString();
-        var sessionType = info.QuerySessionType?.ToDisplayString() ?? "object";
+        var docType = Fqn(info.AggregateType!);
+        var idType = Fqn(info.IdentityType!);
+        var sessionType = info.QuerySessionType is { } qs ? Fqn(qs) : "object";
 
         sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
         sb.AppendLine($"    public override async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync(");
@@ -700,9 +708,9 @@ internal static class EvolverCodeEmitter
 
     private static void EmitDetermineActionAsyncOverride(StringBuilder sb, CandidateInfo info)
     {
-        var docType = info.AggregateType!.ToDisplayString();
-        var idType = info.IdentityType!.ToDisplayString();
-        var sessionType = info.QuerySessionType?.ToDisplayString() ?? "object";
+        var docType = Fqn(info.AggregateType!);
+        var idType = Fqn(info.IdentityType!);
+        var sessionType = info.QuerySessionType is { } qs ? Fqn(qs) : "object";
 
         var isAsync = info.HasAnyAsync;
         var asyncKeyword = isAsync ? "async " : "";
@@ -726,7 +734,7 @@ internal static class EvolverCodeEmitter
         var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
         foreach (var method in shouldDeleteMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             var dataVar = "data";
             sb.AppendLine($"                case {eventTypeName} {dataVar}:");
             sb.Append("                    if (snapshot != null && ");
@@ -740,7 +748,7 @@ internal static class EvolverCodeEmitter
         var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
         foreach (var method in createMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             sb.AppendLine($"                case {eventTypeName} data when snapshot == null:");
             sb.Append("                    snapshot = ");
             EmitCreateCall(sb, method, "data", "e", isAsync);
@@ -752,7 +760,7 @@ internal static class EvolverCodeEmitter
         var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
         foreach (var method in applyMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             // For apply methods where there's no create, we need to handle null snapshot
             bool hasCreateForType = createMethods.Any(c =>
                 SymbolEqualityComparer.Default.Equals(c.EventType, method.EventType));
@@ -765,7 +773,7 @@ internal static class EvolverCodeEmitter
             else if (info.HasDefaultConstructor)
             {
                 sb.AppendLine($"                case {eventTypeName} data:");
-                sb.AppendLine($"                    snapshot ??= new {info.AggregateType!.ToDisplayString()}();");
+                sb.AppendLine($"                    snapshot ??= new {Fqn(info.AggregateType!)}();");
             }
             else
             {
@@ -808,11 +816,11 @@ internal static class EvolverCodeEmitter
         var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
 
         // Each event type gets one case
-        var allEventTypes = info.Methods.Select(m => m.EventType).Distinct(SymbolEqualityComparer.Default).ToList();
+        var allEventTypes = info.Methods.Select(m => m.EventType).Distinct<ITypeSymbol>(SymbolEqualityComparer.Default).ToList();
 
         foreach (var eventType in allEventTypes)
         {
-            var eventTypeName = eventType!.ToDisplayString();
+            var eventTypeName = Fqn(eventType!);
             var creates = createMethods.Where(m =>
                 SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
             var applies = applyMethods.Where(m =>
@@ -877,7 +885,7 @@ internal static class EvolverCodeEmitter
         var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
         foreach (var method in shouldDeleteMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             sb.AppendLine($"                case {eventTypeName} data:");
             sb.Append("                    if (snapshot != null && ");
             EmitSelfAggregatingShouldDeleteCall(sb, method, "data");
@@ -897,13 +905,13 @@ internal static class EvolverCodeEmitter
         var applyAndCreateTypes = info.Methods
             .Where(m => m.MethodName != "ShouldDelete")
             .Select(m => m.EventType)
-            .Distinct(SymbolEqualityComparer.Default)
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
             .Where(t => !handledDeleteTypes.Contains(t!))
             .ToList();
 
         foreach (var eventType in applyAndCreateTypes)
         {
-            var eventTypeName = eventType!.ToDisplayString();
+            var eventTypeName = Fqn(eventType!);
             var creates = createMethods.Where(m =>
                 SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
             var applies = applyMethods.Where(m =>
@@ -931,7 +939,7 @@ internal static class EvolverCodeEmitter
                 if (info.HasDefaultConstructor)
                 {
                     sb.AppendLine(
-                        $"                    snapshot ??= new {info.AggregateType!.ToDisplayString()}();");
+                        $"                    snapshot ??= new {Fqn(info.AggregateType!)}();");
                 }
                 else
                 {
@@ -963,7 +971,7 @@ internal static class EvolverCodeEmitter
         // For each event type with a Create method
         foreach (var method in createMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             if (method.UsesIEventWrapper)
             {
                 sb.AppendLine($"{indent}case {eventTypeName}:");
@@ -988,8 +996,8 @@ internal static class EvolverCodeEmitter
         {
             if (createEventTypes.Contains(method.EventType)) continue;
 
-            var eventTypeName = method.EventType.ToDisplayString();
-            var docType = info.AggregateType!.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
+            var docType = Fqn(info.AggregateType!);
 
             if (!info.HasDefaultConstructor) continue; // Can't create without constructor
 
@@ -1029,7 +1037,7 @@ internal static class EvolverCodeEmitter
     {
         foreach (var method in createMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             if (method.UsesIEventWrapper)
             {
                 sb.AppendLine($"{indent}case {eventTypeName}:");
@@ -1053,8 +1061,8 @@ internal static class EvolverCodeEmitter
             if (createEventTypes.Contains(method.EventType)) continue;
             if (!info.HasDefaultConstructor) continue;
 
-            var eventTypeName = method.EventType.ToDisplayString();
-            var docType = info.AggregateType!.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
+            var docType = Fqn(info.AggregateType!);
 
             sb.AppendLine($"{indent}case {eventTypeName} data:");
             sb.AppendLine($"{indent}{{");
@@ -1075,7 +1083,7 @@ internal static class EvolverCodeEmitter
     {
         foreach (var method in applyMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
 
             if (method.UsesIEventWrapper)
             {
@@ -1109,7 +1117,7 @@ internal static class EvolverCodeEmitter
     {
         foreach (var method in applyMethods)
         {
-            var eventTypeName = method.EventType.ToDisplayString();
+            var eventTypeName = Fqn(method.EventType);
             sb.AppendLine($"{indent}case {eventTypeName} data:");
 
             if (method.IsAsync)
@@ -1171,13 +1179,13 @@ internal static class EvolverCodeEmitter
 
         if (method.IsStatic)
         {
-            var containingType = method.Symbol.ContainingType.ToDisplayString();
+            var containingType = Fqn(method.Symbol.ContainingType);
             sb.Append($"{containingType}.{method.MethodName}({args})");
         }
         else if (method.IsOnAggregate)
         {
             // Static create on aggregate
-            var containingType = method.Symbol.ContainingType.ToDisplayString();
+            var containingType = Fqn(method.Symbol.ContainingType);
             sb.Append($"{containingType}.{method.MethodName}({args})");
         }
         else
@@ -1194,12 +1202,12 @@ internal static class EvolverCodeEmitter
 
         if (method.IsStatic)
         {
-            var containingType = method.Symbol.ContainingType.ToDisplayString();
+            var containingType = Fqn(method.Symbol.ContainingType);
             sb.Append($"{awaitPrefix}{containingType}.{method.MethodName}({args})");
         }
         else if (method.IsOnAggregate)
         {
-            var containingType = method.Symbol.ContainingType.ToDisplayString();
+            var containingType = Fqn(method.Symbol.ContainingType);
             sb.Append($"{awaitPrefix}{containingType}.{method.MethodName}({args})");
         }
         else
@@ -1259,7 +1267,7 @@ internal static class EvolverCodeEmitter
 
             if (method.UsesIEventWrapper && IsIEventGenericWrapper(paramType))
             {
-                var innerType = ((INamedTypeSymbol)paramType).TypeArguments[0].ToDisplayString();
+                var innerType = Fqn(((INamedTypeSymbol)paramType).TypeArguments[0]);
                 parts.Add($"(global::JasperFx.Events.IEvent<{innerType}>)e");
             }
             else if (IsRawIEvent(paramType))
@@ -1283,7 +1291,7 @@ internal static class EvolverCodeEmitter
 
         if (method.IsStatic)
         {
-            var containingType = method.Symbol.ContainingType.ToDisplayString();
+            var containingType = Fqn(method.Symbol.ContainingType);
             sb.Append($"{containingType}.{method.MethodName}({args})");
         }
         else
@@ -1330,7 +1338,7 @@ internal static class EvolverCodeEmitter
 
             if (method.UsesIEventWrapper && IsIEventGenericWrapper(paramType))
             {
-                var innerType = ((INamedTypeSymbol)paramType).TypeArguments[0].ToDisplayString();
+                var innerType = Fqn(((INamedTypeSymbol)paramType).TypeArguments[0]);
                 parts.Add($"(global::JasperFx.Events.IEvent<{innerType}>){eventVar}");
             }
             else if (IsRawIEvent(paramType))
@@ -1352,7 +1360,7 @@ internal static class EvolverCodeEmitter
             else
             {
                 // Event data
-                parts.Add(dataVar ?? $"(({paramType.ToDisplayString()})e.Data)");
+                parts.Add(dataVar ?? $"(({Fqn(paramType)})e.Data)");
             }
         }
 
@@ -1371,7 +1379,7 @@ internal static class EvolverCodeEmitter
 
             if (method.UsesIEventWrapper && IsIEventGenericWrapper(paramType))
             {
-                var innerType = ((INamedTypeSymbol)paramType).TypeArguments[0].ToDisplayString();
+                var innerType = Fqn(((INamedTypeSymbol)paramType).TypeArguments[0]);
                 parts.Add($"(global::JasperFx.Events.IEvent<{innerType}>){eventVar}");
             }
             else if (IsRawIEvent(paramType))
@@ -1389,7 +1397,7 @@ internal static class EvolverCodeEmitter
             else
             {
                 // Event data
-                parts.Add(dataVar ?? $"(({paramType.ToDisplayString()})e.Data)");
+                parts.Add(dataVar ?? $"(({Fqn(paramType)})e.Data)");
             }
         }
 
@@ -1411,7 +1419,7 @@ internal static class EvolverCodeEmitter
             }
             else if (method.UsesIEventWrapper && IsIEventGenericWrapper(paramType))
             {
-                var innerType = ((INamedTypeSymbol)paramType).TypeArguments[0].ToDisplayString();
+                var innerType = Fqn(((INamedTypeSymbol)paramType).TypeArguments[0]);
                 parts.Add($"(global::JasperFx.Events.IEvent<{innerType}>)e");
             }
             else if (IsRawIEvent(paramType))
