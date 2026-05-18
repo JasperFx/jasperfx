@@ -710,7 +710,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             var agent = buildAgentForShard(asyncShard);
             
             await agent.CatchUpAsync(HighWaterMark(), state, cancellation);
-            var exceptions = recorder.States.Select(x => x.Exception).Where(x => x != null).ToArray();
+            var exceptions = recorder.States
+                .Select(x => x.Exception)
+                .Where(x => x != null)
+                .Where(x => cancellation.IsCancellationRequested || !isCancellationNoise(x!))
+                .ToArray();
             if (exceptions.Length != 0)
             {
                 throw new AggregateException(exceptions!);
@@ -723,6 +727,18 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         cts.CancelAfter(timeout);
         await CatchUpAsync(cts.Token);
+    }
+
+    private static bool isCancellationNoise(Exception exception)
+    {
+        if (exception is OperationCanceledException) return true;
+        if (exception is AggregateException aggregate)
+        {
+            return aggregate.InnerExceptions.Count > 0
+                   && aggregate.InnerExceptions.All(isCancellationNoise);
+        }
+
+        return false;
     }
 }
 
