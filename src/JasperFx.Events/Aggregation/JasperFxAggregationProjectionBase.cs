@@ -129,11 +129,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     [MemberNotNullWhen(true, nameof(_evolve))]
     private bool tryUseAssemblyRegisteredEvolver()
     {
-        // Don't use a generated IGeneratedSyncEvolver when the projection has ShouldDelete methods,
-        // because the evolver only knows about Apply/Create on the aggregate type itself.
-        // ShouldDelete needs the full DetermineAction flow via AggregateApplication.
-        if (_application.HasShouldDeleteMethods()) return false;
-
+        var hasShouldDelete = _application.HasShouldDeleteMethods();
         var docType = typeof(TDoc);
 
         // Scan the aggregate's assembly for GeneratedEvolverAttribute registrations
@@ -144,9 +140,14 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
             var evolverType = attr.EvolverType;
 
-            // Check for IGeneratedSyncEvolver<TDoc, TId>
+            // Check for IGeneratedSyncEvolver<TDoc, TId>. Skip this branch when
+            // the projection has ShouldDelete methods — a plain SyncEvolver
+            // only knows about Apply/Create on the aggregate type itself, so
+            // the ShouldDelete contract is unreachable from it. The SG knows
+            // to emit IGeneratedSyncDetermineAction for ShouldDelete-having
+            // projections, which the next branch picks up. See #297.
             var syncEvolverInterface = typeof(IGeneratedSyncEvolver<TDoc, TId>);
-            if (syncEvolverInterface.IsAssignableFrom(evolverType))
+            if (!hasShouldDelete && syncEvolverInterface.IsAssignableFrom(evolverType))
             {
                 var evolver = (IGeneratedSyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
                 _generatedEvolverEventTypes = evolver.EventTypes;

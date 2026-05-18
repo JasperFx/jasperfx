@@ -173,8 +173,12 @@ public class NonPartial : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
-    public void skips_self_aggregating_with_async_methods()
+    public void emits_async_evolver_for_async_self_aggregating_apply()
     {
+        // Async self-aggregating Apply/Create handlers are now supported via
+        // IGeneratedAsyncEvolver. The pre-#297 SG would bail with JFXEVT001;
+        // we now emit an async EvolveAsync that awaits each handler call.
+        // See #297.
         var source = @"
 using System;
 using System.Threading.Tasks;
@@ -190,10 +194,13 @@ public class AsyncAggregate
 
 public class SomeEvent { }
 ";
-        var (diagnostics, generatedSources) = RunGenerator(source);
+        var (_, generatedSources) = RunGenerator(source);
 
-        generatedSources.ShouldBeEmpty();
-        diagnostics.Any(d => d.Id == "JFXEVT001").ShouldBeTrue();
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var evolver = generatedSources[0];
+        evolver.ShouldContain("IGeneratedAsyncEvolver");
+        evolver.ShouldContain("public async global::System.Threading.Tasks.ValueTask<global::Test.AsyncAggregate?> EvolveAsync(");
+        evolver.ShouldContain("await snapshot.Apply(data)");
     }
 
     [Fact]
@@ -631,8 +638,12 @@ public class DerivedCounter : BaseCounter
     }
 
     [Fact]
-    public void skips_type_with_constructor_event_parameter()
+    public void event_constructor_becomes_implicit_create()
     {
+        // Bucket 1 in JasperFx#297-followup: a public single-argument
+        // constructor whose parameter is a user-defined event type acts as an
+        // implicit Create handler. The pre-#276 reflection runtime did the
+        // same; we keep the behavior in the SG-emitted code.
         var source = @"
 using System;
 using JasperFx.Events;
@@ -650,9 +661,13 @@ public class CtorAggregate
 public class CreatedEvent { }
 public class UpdatedEvent { }
 ";
-        var (diagnostics, generatedSources) = RunGenerator(source);
+        var (_, generatedSources) = RunGenerator(source);
 
-        // Should not generate because it has a constructor-based creation pattern
-        generatedSources.ShouldBeEmpty();
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var evolver = generatedSources[0];
+        evolver.ShouldContain("snapshot = new global::Test.CtorAggregate(data);");
+        evolver.ShouldContain("snapshot.Apply(data)");
+        evolver.ShouldContain("case global::Test.CreatedEvent");
+        evolver.ShouldContain("case global::Test.UpdatedEvent");
     }
 }

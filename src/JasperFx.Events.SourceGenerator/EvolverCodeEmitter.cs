@@ -515,6 +515,18 @@ internal static class EvolverCodeEmitter
             sb.AppendLine();
             EmitSelfAggregatingDetermineAction(sb, info, aggregateFullName, idFullName);
         }
+        else if (info.HasAnyAsync)
+        {
+            // Async self-aggregating Apply/Create methods (e.g. a `static async
+            // Task<T> Create(SomeEvent, IQuerySession)` that does a DB lookup
+            // during creation). Emit IGeneratedAsyncEvolver so the runtime
+            // can await each handler invocation. See #297.
+            sb.AppendLine($"internal sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedAsyncEvolver<{aggregateFullName}, {idFullName}>");
+            sb.AppendLine("{");
+            EmitEventTypesProperty(sb, info);
+            sb.AppendLine();
+            EmitSelfAggregatingEvolveAsync(sb, info, aggregateFullName, idFullName);
+        }
         else
         {
             sb.AppendLine($"internal sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<{aggregateFullName}, {idFullName}>");
@@ -695,6 +707,59 @@ internal static class EvolverCodeEmitter
     {
         var name = type.ToDisplayString();
         return name.EndsWith("IQuerySession") || name.EndsWith("QuerySession");
+    }
+
+    /// <summary>
+    /// Constructor expression for the aggregate when the SG needs to build a
+    /// fresh instance in the Apply-only / null-snapshot branch. Three cases:
+    ///
+    /// 1. Public parameterless ctor, no required members → `new T()`.
+    /// 2. Required members → `new T { Required = default!, ... }`. The C#
+    ///    compiler accepts the construction even though required members are
+    ///    about to be overwritten by Apply.
+    /// 3. No public parameterless ctor (e.g. `private T()` signalling
+    ///    "construct me reflectively" or no parameterless ctor at all) →
+    ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
+    ///    the instance without invoking any ctor or field initializers. Pre-#276
+    ///    Marten used `Activator.CreateInstance(nonPublic: true)` for this
+    ///    pattern; GetUninitializedObject is the AOT-clean equivalent.
+    ///    Caveat: field initializers don't run — aggregates that rely on
+    ///    them must move initialization into Apply / Create.
+    ///
+    /// See #297 + Marten 9.0 migration guide.
+    /// </summary>
+    private static string BuildAggregateConstructorExpression(INamedTypeSymbol type)
+    {
+        var fqn = Fqn(type);
+        var requiredMembers = new List<string>();
+        for (INamedTypeSymbol? current = type;
+             current is not null && current.SpecialType != SpecialType.System_Object;
+             current = current.BaseType)
+        {
+            foreach (var member in current.GetMembers())
+            {
+                if (member is IPropertySymbol prop && prop.IsRequired)
+                    requiredMembers.Add(prop.Name);
+                else if (member is IFieldSymbol field && field.IsRequired)
+                    requiredMembers.Add(field.Name);
+            }
+        }
+
+        var ctors = type.InstanceConstructors;
+        var hasPublicParameterless = ctors.Length == 0
+            || ctors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+
+        if (requiredMembers.Count > 0)
+        {
+            var inits = string.Join(", ", requiredMembers.Select(n => $"{n} = default!"));
+            return $"new {fqn} {{ {inits} }}";
+        }
+
+        if (hasPublicParameterless) return $"new {fqn}()";
+
+        // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
+        // aggregates. Field initializers won't run; document in the migration guide.
+        return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
     }
 
     /// <summary>
@@ -887,6 +952,18 @@ internal static class EvolverCodeEmitter
             .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
             .OrderByDescending(g => GetTypeDepth(g.Key))
             .ToList();
+        // Constructor-side `DeleteEvent<T>()` registrations — the kept Marten
+        // 9.0 API for "this event type always deletes the aggregate." Emit one
+        // arm per event type that sets `snapshot = null` unconditionally.
+        // Skip types that already have a ShouldDelete handler so we don't emit
+        // duplicate switch arms (CS8120). See #297.
+        var shouldDeleteEventTypes = new HashSet<ITypeSymbol>(
+            shouldDeleteMethods.Select(m => m.EventType), SymbolEqualityComparer.Default);
+        var ctorDeleteEventTypes = info.ConstructorDeleteEventTypes
+            .Where(t => !shouldDeleteEventTypes.Contains(t))
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
+            .OrderByDescending(t => GetTypeDepth(t))
+            .ToList();
         foreach (var group in shouldDeleteByEventType)
         {
             var eventTypeName = Fqn(group.Key);
@@ -902,6 +979,12 @@ internal static class EvolverCodeEmitter
             }
             sb.AppendLine("))");
             sb.AppendLine("                        snapshot = null;");
+            sb.AppendLine("                    break;");
+        }
+        foreach (var eventType in ctorDeleteEventTypes)
+        {
+            sb.AppendLine($"                case {Fqn(eventType)}:");
+            sb.AppendLine("                    snapshot = null;");
             sb.AppendLine("                    break;");
         }
 
@@ -934,7 +1017,7 @@ internal static class EvolverCodeEmitter
             else if (info.HasDefaultConstructor)
             {
                 sb.AppendLine($"                case {eventTypeName} data:");
-                sb.AppendLine($"                    snapshot ??= new {Fqn(info.AggregateType!)}();");
+                sb.AppendLine($"                    snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
             }
             else
             {
@@ -979,10 +1062,15 @@ internal static class EvolverCodeEmitter
         var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
         var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
 
-        // Each event type gets one case. Sort more-derived types first so
-        // `case IBase data:` doesn't shadow `case Concrete data:` (CS8120).
+        // Each event type gets one case. Include event types referenced by
+        // event-shaped public constructors (Bucket 1) so e.g.
+        // `public Invoice(InvoiceCreated e)` becomes a dispatch arm with
+        // `snapshot = new Invoice(data);` in the null-snapshot branch.
+        // Sort more-derived types first so `case IBase data:` doesn't shadow
+        // `case Concrete data:` (CS8120).
         var allEventTypes = info.Methods
             .Select(m => m.EventType)
+            .Concat(info.EventConstructors.Select(c => c.EventType))
             .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
             .OrderByDescending(t => GetTypeDepth(t!))
             .ToList();
@@ -994,6 +1082,8 @@ internal static class EvolverCodeEmitter
                 SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
             var applies = applyMethods.Where(m =>
                 SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
+            var eventCtor = info.EventConstructors.FirstOrDefault(c =>
+                SymbolEqualityComparer.Default.Equals(c.EventType, eventType));
 
             sb.AppendLine($"            case {eventTypeName} data:");
 
@@ -1012,11 +1102,24 @@ internal static class EvolverCodeEmitter
                     EmitSelfAggregatingApplyCall(sb, applies[0], "data");
                 }
             }
+            else if (eventCtor != null)
+            {
+                // Implicit Create via public T(EventType) constructor.
+                sb.AppendLine("                if (snapshot == null)");
+                sb.AppendLine($"                    snapshot = new {Fqn(info.AggregateType!)}(data);");
+
+                if (applies.Count > 0)
+                {
+                    sb.AppendLine("                else");
+                    sb.Append("                    ");
+                    EmitSelfAggregatingApplyCall(sb, applies[0], "data");
+                }
+            }
             else if (applies.Count > 0)
             {
                 if (info.HasDefaultConstructor)
                 {
-                    sb.AppendLine($"                snapshot ??= new {docType}();");
+                    sb.AppendLine($"                snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
                 }
                 else
                 {
@@ -1034,6 +1137,194 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("                return snapshot;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    // --- Self-aggregating: EvolveAsync (async, no ShouldDelete) ---
+
+    /// <summary>
+    /// Async sibling of <see cref="EmitSelfAggregatingEvolve"/>. Emitted when
+    /// any of the aggregate's Apply/Create handlers is async (returns Task /
+    /// ValueTask) or takes IQuerySession. Implements
+    /// <c>IGeneratedAsyncEvolver&lt;TDoc, TId&gt;</c> so the runtime awaits
+    /// each handler call individually. See #297.
+    /// </summary>
+    private static void EmitSelfAggregatingEvolveAsync(StringBuilder sb, CandidateInfo info, string docType,
+        string idType)
+    {
+        sb.AppendLine(
+            $"    public async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e, object session, global::System.Threading.CancellationToken cancellation)");
+        sb.AppendLine("    {");
+
+        // The IGeneratedAsyncEvolver contract types `session` as `object` so
+        // the runtime doesn't need to be parameterized over TQuerySession.
+        // The user's Create/Apply methods take the strongly-typed session
+        // (e.g. IQuerySession), so we need to cast once at the top of the
+        // method. Pick the type from any handler that has HasSession=true;
+        // if none do, the session local is unused and the cast is omitted.
+        var sessionParamType = info.Methods
+            .Where(m => m.HasSession)
+            .Select(m => m.Symbol.Parameters.FirstOrDefault(p => IsQuerySession(p.Type))?.Type)
+            .FirstOrDefault(t => t != null);
+        if (sessionParamType != null)
+        {
+            sb.AppendLine($"        var typedSession = ({Fqn(sessionParamType)})session;");
+        }
+
+        sb.AppendLine("        switch (e.Data)");
+        sb.AppendLine("        {");
+
+        var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
+        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+
+        var allEventTypes = info.Methods
+            .Select(m => m.EventType)
+            .Concat(info.EventConstructors.Select(c => c.EventType))
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
+            .OrderByDescending(t => GetTypeDepth(t!))
+            .ToList();
+
+        foreach (var eventType in allEventTypes)
+        {
+            var eventTypeName = Fqn(eventType!);
+            var creates = createMethods.Where(m =>
+                SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
+            var applies = applyMethods.Where(m =>
+                SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
+            var eventCtor = info.EventConstructors.FirstOrDefault(c =>
+                SymbolEqualityComparer.Default.Equals(c.EventType, eventType));
+
+            sb.AppendLine($"            case {eventTypeName} data:");
+
+            if (creates.Count > 0)
+            {
+                var create = creates[0];
+                sb.AppendLine("                if (snapshot == null)");
+                sb.Append("                    snapshot = ");
+                EmitSelfAggregatingCreateCallAsync(sb, create, "data");
+                sb.AppendLine(";");
+
+                if (applies.Count > 0)
+                {
+                    sb.AppendLine("                else");
+                    sb.Append("                    ");
+                    EmitSelfAggregatingApplyCallAsync(sb, applies[0], "data");
+                }
+            }
+            else if (eventCtor != null)
+            {
+                sb.AppendLine("                if (snapshot == null)");
+                sb.AppendLine($"                    snapshot = new {Fqn(info.AggregateType!)}(data);");
+
+                if (applies.Count > 0)
+                {
+                    sb.AppendLine("                else");
+                    sb.Append("                    ");
+                    EmitSelfAggregatingApplyCallAsync(sb, applies[0], "data");
+                }
+            }
+            else if (applies.Count > 0)
+            {
+                if (info.HasDefaultConstructor)
+                {
+                    sb.AppendLine($"                snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
+                }
+                else
+                {
+                    sb.AppendLine("                if (snapshot == null) return null;");
+                }
+
+                sb.Append("                ");
+                EmitSelfAggregatingApplyCallAsync(sb, applies[0], "data");
+            }
+
+            sb.AppendLine("                return snapshot;");
+        }
+
+        sb.AppendLine("            default:");
+        sb.AppendLine("                return snapshot;");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+    }
+
+    private static void EmitSelfAggregatingCreateCallAsync(StringBuilder sb, ConventionalMethodInfo method,
+        string dataVar)
+    {
+        var args = BuildSelfAggregatingArgsAsync(method, dataVar);
+        var awaitPrefix = method.IsAsync ? "await " : "";
+
+        if (method.IsStatic)
+        {
+            var containingType = Fqn(method.Symbol.ContainingType);
+            sb.Append($"{awaitPrefix}{containingType}.{method.MethodName}({args})");
+        }
+        else
+        {
+            sb.Append($"{awaitPrefix}snapshot.{method.MethodName}({args})");
+        }
+    }
+
+    private static void EmitSelfAggregatingApplyCallAsync(StringBuilder sb, ConventionalMethodInfo method,
+        string dataVar)
+    {
+        var args = BuildSelfAggregatingArgsAsync(method, dataVar);
+        var awaitPrefix = method.IsAsync ? "await " : "";
+        var receiver = method.IsStatic
+            ? Fqn(method.Symbol.ContainingType)
+            : "snapshot";
+
+        if (method.ReturnsAggregate)
+        {
+            sb.AppendLine($"snapshot = {awaitPrefix}{receiver}.{method.MethodName}({args});");
+        }
+        else
+        {
+            sb.AppendLine($"{awaitPrefix}{receiver}.{method.MethodName}({args});");
+        }
+    }
+
+    /// <summary>
+    /// Variant of <see cref="BuildSelfAggregatingArgs"/> for the async emit
+    /// path — routes IQuerySession-typed params to `typedSession` (the cast
+    /// local emitted at the top of EvolveAsync) instead of `session`.
+    /// </summary>
+    private static string BuildSelfAggregatingArgsAsync(ConventionalMethodInfo method, string dataVar)
+    {
+        var parts = new List<string>();
+        var parameters = method.Symbol.Parameters;
+        var containingType = method.Symbol.ContainingType;
+
+        foreach (var param in parameters)
+        {
+            var paramType = param.Type;
+
+            if (method.UsesIEventWrapper && IsIEventGenericWrapper(paramType))
+            {
+                var innerType = Fqn(((INamedTypeSymbol)paramType).TypeArguments[0]);
+                parts.Add($"(global::JasperFx.Events.IEvent<{innerType}>)e");
+            }
+            else if (IsRawIEvent(paramType))
+            {
+                parts.Add("e");
+            }
+            else if (SymbolEqualityComparer.Default.Equals(paramType, containingType))
+            {
+                parts.Add("snapshot");
+            }
+            else if (IsQuerySession(paramType))
+            {
+                parts.Add("typedSession");
+            }
+            else if (IsCancellationToken(paramType))
+            {
+                parts.Add("cancellation");
+            }
+            else
+            {
+                parts.Add(dataVar);
+            }
+        }
+
+        return string.Join(", ", parts);
     }
 
     // --- Self-aggregating: DetermineAction (sync, with ShouldDelete) ---
@@ -1109,7 +1400,7 @@ internal static class EvolverCodeEmitter
                 if (info.HasDefaultConstructor)
                 {
                     sb.AppendLine(
-                        $"                    snapshot ??= new {Fqn(info.AggregateType!)}();");
+                        $"                    snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
                 }
                 else
                 {
@@ -1180,10 +1471,11 @@ internal static class EvolverCodeEmitter
                 sb.AppendLine($"{indent}case {eventTypeName} data:");
             }
 
+            var ctorExpression = BuildAggregateConstructorExpression(info.AggregateType!);
             if (method.IsVoid && !method.ReturnsAggregate)
             {
                 sb.AppendLine($"{indent}{{");
-                sb.AppendLine($"{indent}    var s = new {docType}();");
+                sb.AppendLine($"{indent}    var s = {ctorExpression};");
                 sb.Append($"{indent}    ");
                 EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "s");
                 sb.AppendLine(";");
@@ -1194,7 +1486,7 @@ internal static class EvolverCodeEmitter
             {
                 // Returns aggregate - pass new instance
                 sb.Append($"{indent}    return ");
-                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, $"new {docType}()");
+                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, ctorExpression);
                 sb.AppendLine(";");
             }
         }
@@ -1236,7 +1528,7 @@ internal static class EvolverCodeEmitter
 
             sb.AppendLine($"{indent}case {eventTypeName} data:");
             sb.AppendLine($"{indent}{{");
-            sb.AppendLine($"{indent}    var s = new {docType}();");
+            sb.AppendLine($"{indent}    var s = {BuildAggregateConstructorExpression(info.AggregateType!)};");
             var awaitPrefix = method.IsAsync ? "await " : "";
             sb.Append($"{indent}    {awaitPrefix}");
             EmitApplyCallExpression(sb, method, "data", "e", true, "s");
