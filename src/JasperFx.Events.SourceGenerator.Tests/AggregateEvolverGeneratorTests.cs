@@ -543,6 +543,93 @@ public class Registration
         generatedSources.Length.ShouldBe(1);
     }
 
+    // Regression for https://github.com/JasperFx/jasperfx/issues/295 — DiscoverMethodsOnType
+    // and InferIdentityType used to enumerate direct members only, so an aggregate that
+    // inherited Apply/Create/Id from a user base class was invisible to the SG. The
+    // analyzer now walks the inheritance chain (stopping at framework bases) so an evolver
+    // is still emitted.
+    [Fact]
+    public void discovers_inherited_apply_create_and_id_on_self_aggregating_type()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Test;
+
+public class Bumped { }
+public class Started { public Guid Id { get; set; } }
+
+public abstract class CounterBase
+{
+    public Guid Id { get; set; }
+    public int Count { get; set; }
+
+    public void Apply(Bumped _) { Count++; }
+}
+
+public class Counter : CounterBase
+{
+    public static Counter Create(Started e) => new() { Id = e.Id };
+}
+";
+        var (_, generatedSources) = RunGenerator(source);
+
+        // The aggregate is `Counter`; Apply + Id come from CounterBase. Before #295 the SG
+        // saw no methods and no Id directly on Counter and skipped it entirely. After the
+        // inheritance walk the evolver is emitted, keyed on Counter, with both Apply
+        // (from the base) and Create (from the derived) dispatched.
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var counterEvolver = generatedSources.FirstOrDefault(s => s.Contains("CounterEvolver"));
+        counterEvolver.ShouldNotBeNull();
+
+        counterEvolver!.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.Counter)");
+
+        // Both event types should appear in the dispatch:
+        counterEvolver.ShouldContain("global::Test.Bumped");
+        counterEvolver.ShouldContain("global::Test.Started");
+    }
+
+    // Verifies the inheritance walk respects the override/new resolution rule: a derived
+    // declaration with the same signature wins over the base declaration, matching how the
+    // language itself dispatches. Without the dedupe, both would land in the result list
+    // and the emitter would generate duplicate case branches.
+    [Fact]
+    public void inherited_apply_is_shadowed_by_derived_override_with_same_signature()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Test;
+
+public class Bumped { }
+
+public class BaseCounter
+{
+    public Guid Id { get; set; }
+    public int Count { get; set; }
+
+    public virtual void Apply(Bumped _) { Count++; }
+}
+
+public class DerivedCounter : BaseCounter
+{
+    public override void Apply(Bumped _) { Count += 10; }
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        // Duplicate `case Test.Bumped:` branches would surface as CS0152 (the switch already
+        // contains a case for that label) on the generated code.
+        var dupCaseErrors = diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id == "CS0152")
+            .Select(d => d.GetMessage())
+            .ToArray();
+
+        dupCaseErrors.ShouldBeEmpty();
+    }
+
     [Fact]
     public void skips_type_with_constructor_event_parameter()
     {
