@@ -160,12 +160,17 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
             if (!isSourceGenerated && _application.HasAnyMethods())
             {
                 throw new InvalidProjectionException(
-                    "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods and inline lambda registrations per event type, but not both");
+                    "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods, but not both");
             }
         }
         else
         {
             _application.AssertMethodValidity();
+
+            // AssertMethodValidity passed, so conventional Project/Create/Transform methods exist.
+            // ApplyAsync was not overridden (neither by the user nor by the source generator) —
+            // fail fast at registration with a clear message rather than blowing up at first dispatch.
+            throw new InvalidProjectionException(_application.MissingDispatcherMessage());
         }
     }
 }

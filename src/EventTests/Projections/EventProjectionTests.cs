@@ -18,7 +18,7 @@ public class EventProjectionTests
 
     [Theory]
     [InlineData(typeof(OverridesAndUsesConventions),
-        "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods and inline lambda registrations per event type, but not both")]
+        "Event projections can be written by either overriding the ApplyAsync() method or by using conventional methods, but not both")]
     public void bad_options(Type type, string message)
     {
         var ex = Should.Throw<InvalidProjectionException>(() =>
@@ -52,7 +52,7 @@ public class EventProjectionTests
     }
 }
 
-public class ErrorCausingProjection : EventProjection
+public partial class ErrorCausingProjection : EventProjection
 {
     public void Project(FakeOperations operations, AEvent e)
     {
@@ -77,7 +77,7 @@ public class EmptyEventProjection : EventProjection
     
 }
 
-public class ConventionalEventProjection : EventProjection
+public partial class ConventionalEventProjection : EventProjection
 {
     public void Project(AEvent e, FakeOperations ops)
     {

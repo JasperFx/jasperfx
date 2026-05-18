@@ -118,6 +118,14 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return GetType().GetMethod(methodName)!.DeclaringType!.Assembly != typeof(IEvent).Assembly;
     }
 
+    private bool isSourceGeneratedOverride(string methodName)
+    {
+        var method = GetType().GetMethod(methodName);
+        return method != null
+               && method.DeclaringType!.Assembly != typeof(IEvent).Assembly
+               && method.IsDefined(typeof(System.CodeDom.Compiler.GeneratedCodeAttribute), false);
+    }
+
     [MemberNotNullWhen(true, nameof(_evolve))]
     private bool tryUseAssemblyRegisteredEvolver()
     {
@@ -203,23 +211,47 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         var overrides = methodNames.Where(isOverridden).ToArray();
-        switch (overrides.Length)
-        {
-            case 0:
-                _application.AssertValidity();
-                break;
-            case 1:
-                if (_application.HasAnyMethods())
-                {
-                    throw new InvalidProjectionException(
-                        $"This projection can only use the override of '{overrides.Single()}' or conventional Apply/Create/ShouldDelete methods and line lambdas, but not both");
-                }
+        var sgOverrides = overrides.Where(isSourceGeneratedOverride).ToArray();
+        var userOverrides = overrides.Except(sgOverrides).ToArray();
 
-                break;
-            case 2:
-                throw new InvalidProjectionException("Only one of these methods can be overridden: " +
-                                                    overrides.Join(", "));
-                
+        if (sgOverrides.Length > 0)
+        {
+            // The source generator emitted the dispatcher into the partial projection class.
+            // Conventional Apply/Create/ShouldDelete methods are what it dispatches to — that
+            // pairing is intentional, not a configuration conflict. A simultaneous user
+            // override of one of the same methods would create two competing dispatch paths,
+            // so block that combination.
+            if (userOverrides.Length > 0)
+            {
+                throw new InvalidProjectionException(
+                    $"Source generator emitted '{sgOverrides[0]}' for {GetType().FullNameInCode()}; " +
+                    $"cannot also manually override '{userOverrides[0]}' on the same projection.");
+            }
+        }
+        else
+        {
+            switch (userOverrides.Length)
+            {
+                case 0:
+                    _application.AssertValidity();
+
+                    // AssertValidity passed, so conventional Apply/Create methods exist on this
+                    // projection or its aggregate. Neither a user override nor a source-generated
+                    // dispatcher is in place to consume them — fail fast at registration with a
+                    // clear message rather than blowing up at first event dispatch.
+                    throw new InvalidProjectionException(_application.MissingDispatcherMessage());
+                case 1:
+                    if (_application.HasAnyMethods())
+                    {
+                        throw new InvalidProjectionException(
+                            $"This projection can only use the override of '{userOverrides[0]}' or conventional Apply/Create/ShouldDelete methods, but not both");
+                    }
+
+                    break;
+                case 2:
+                    throw new InvalidProjectionException("Only one of these methods can be overridden: " +
+                                                        userOverrides.Join(", "));
+            }
         }
 
         var eventTypes = determineEventTypes();

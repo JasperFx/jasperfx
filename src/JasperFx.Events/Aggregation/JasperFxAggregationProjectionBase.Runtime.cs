@@ -1,4 +1,5 @@
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 
@@ -141,9 +142,17 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     public virtual ValueTask<TDoc?> EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e,
         CancellationToken cancellation)
     {
-        return (snapshot == null
-            ? _application.Create(e, session, cancellation)
-            : _application.ApplyAsync(snapshot, e, session, cancellation)!)!;
+        // Backstop: AssembleAndAssertValidity should have either accepted a user override of
+        // EvolveAsync / DetermineAction* / Evolve, found a source-generated dispatcher on a
+        // partial projection class, or thrown at registration. If we reach this base body,
+        // the fail-fast was bypassed (e.g. the projection was constructed and used outside
+        // the registration flow).
+        throw new InvalidOperationException(
+            $"No source-generated dispatcher found for {GetType().FullNameInCode()}. " +
+            "When using conventional Apply/Create/ShouldDelete methods, the projection class must be declared " +
+            "`partial` in an assembly that references the JasperFx.Events.SourceGenerator analyzer, " +
+            "or alternatively override Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly. " +
+            "See docs/codegen/aot.md for the AOT publishing guide.");
     }
 
     /// <summary>
