@@ -632,6 +632,7 @@ internal static class EvolverCodeEmitter
         var docType = info.AggregateType!.ToDisplayString();
         var idType = info.IdentityType!.ToDisplayString();
 
+        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
         sb.AppendLine($"    public override {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
         sb.AppendLine("    {");
 
@@ -667,6 +668,7 @@ internal static class EvolverCodeEmitter
         var idType = info.IdentityType!.ToDisplayString();
         var sessionType = info.QuerySessionType?.ToDisplayString() ?? "object";
 
+        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
         sb.AppendLine($"    public override async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync(");
         sb.AppendLine($"        {docType}? snapshot, {idType} id, {sessionType} session,");
         sb.AppendLine($"        global::JasperFx.Events.IEvent e, global::System.Threading.CancellationToken cancellation)");
@@ -705,6 +707,7 @@ internal static class EvolverCodeEmitter
         var isAsync = info.HasAnyAsync;
         var asyncKeyword = isAsync ? "async " : "";
 
+        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
         sb.AppendLine($"    public override {asyncKeyword}global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)> DetermineActionAsync(");
         sb.AppendLine($"        {sessionType} session,");
         sb.AppendLine($"        {docType}? snapshot,");

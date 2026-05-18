@@ -1,8 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
-using System.Reflection;
-using FastExpressionCompiler;
-using ImTools;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Internals;
@@ -14,27 +10,20 @@ public interface IEntityStorage<TOperations>
     void Store<T>(TOperations ops, T entity) where T : notnull;
 }
 
-[UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-    Justification = "Class-level: discovers Project/Create handlers on the projection type via reflection and compiles delegates via Expression trees + FastExpressionCompiler. The projection and event types are preserved by the registered projection boundary on the caller side. AOT consumers should rely on JasperFx.Events.SourceGenerator-emitted projection helpers per the AOT publishing guide.")]
 [UnconditionalSuppressMessage("Trimming", "IL2062:DynamicallyAccessedMembers",
     Justification = "Class-level: passes event-type Type values resolved reflectively to TypeExtensions.Closes(...). Event types preserved at registration.")]
 [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
-    Justification = "Class-level: assigns reflective Type/MethodInfo results to DAM-annotated targets when building handler delegates. Source types preserved at registration.")]
+    Justification = "Class-level: assigns reflective Type/MethodInfo results to DAM-annotated targets when validating projection methods. Source types preserved at registration.")]
 [UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
     Justification = "Class-level: PublicMethods/PublicProperties access via Type returned by other reflection calls. Source preserved at registration.")]
 [UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
     Justification = "Class-level: generic method parameter receives Type values obtained reflectively (eventType). Event types preserved at registration.")]
-[UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
-    Justification = "Class-level: handler discovery uses Type.MakeGenericType / MethodInfo.MakeGenericMethod + FastExpressionCompiler.CompileFast — runtime code generation. AOT consumers rely on the source-generated projection helpers.")]
 public class EventProjectionApplication<TOperations>
 {
     private readonly IEntityStorage<TOperations> _entity;
     private readonly ProjectMethodCollection _projectMethods;
     private readonly CreateMethodCollection _createMethods;
-    private ImHashMap<Type, Func<TOperations, IEvent, CancellationToken, ValueTask>> _applications 
-        = ImHashMap<Type, Func<TOperations, IEvent, CancellationToken, ValueTask>>.Empty;
-
-    private Type _projectionType;
+    private readonly Type _projectionType;
 
     public EventProjectionApplication(IEntityStorage<TOperations> entityStorage)
     {
@@ -48,21 +37,19 @@ public class EventProjectionApplication<TOperations>
     {
         return MethodCollection
             .AllEventTypes(_projectMethods, _createMethods)
-            .Concat(_applications.Enumerate().Select(x => x.Key))
             .Distinct().ToArray();
     }
 
+    /// <summary>
+    /// Backstop runtime dispatch. When the source generator emits an override on the
+    /// user's partial projection class, that override wins at virtual dispatch and this
+    /// body is never reached. If we get here, the projection was registered without a
+    /// source-generated dispatcher and the registration-time fail-fast either didn't
+    /// run or was bypassed.
+    /// </summary>
     public ValueTask ApplyAsync(TOperations operations, IEvent e, CancellationToken token)
     {
-        if (_applications.TryFind(e.EventType, out var application))
-        {
-            return application(operations, e, token);
-        }
-
-        application = determineApplication(e.EventType);
-        _applications = _applications.AddOrUpdate(e.EventType, application);
-
-        return application(operations, e, token);
+        throw new InvalidOperationException(MissingDispatcherMessage());
     }
 
     public IEnumerable<Type> PublishedTypes()
@@ -75,109 +62,11 @@ public class EventProjectionApplication<TOperations>
         });
     }
 
-    private Func<TOperations,IEvent,CancellationToken,ValueTask> determineApplication(Type eventType)
-    {
-        var projects = _projectMethods.Methods.Where(x => x.EventType == eventType).Select(x => buildApplication(eventType, (MethodInfo)x.Method));
-        var creates = _createMethods.Methods.Where(x => x.EventType == eventType).Select(x => buildCreator(eventType, (MethodInfo)x.Method));
-        
-        var list = new List<Func<TOperations, IEvent, CancellationToken, ValueTask>>();
-        list.AddRange(projects);
-        list.AddRange(creates);
-        
-        if (!list.Any())
-        {
-            // look for base types
-            var superType = AllEventTypes().FirstOrDefault(x => eventType.CanBeCastTo(x) && x != eventType);
-            if (superType != null)
-            {
-                if (_applications.TryFind(superType, out var func))
-                {
-                    return (ops, @event, c) => func(ops, @event, c);
-                }
-            }
-        }
-
-        if (list.Count == 1) return list[0];
-
-        return async (o, e, c) =>
-        {
-            foreach (var func in list)
-            {
-                await func(o, e, c);
-            }
-        };
-    }
-
-    private Func<TOperations, IEvent, CancellationToken, ValueTask> buildApplication(Type eventType, MethodInfo method)
-    {
-        var e = Expression.Parameter(typeof(IEvent), "e");
-        var session = Expression.Parameter(typeof(TOperations), "ops");
-        var cancellation = Expression.Parameter(typeof(CancellationToken), "cancellation");
-        
-        var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
-        var strongTypedEvent = Expression.Convert(e, wrappedType);
-        var data = Expression.Call(strongTypedEvent, getData);
-        
-        Func<ParameterInfo, Expression> buildParameter = p =>
-        {
-            if (p.ParameterType == eventType) return data;
-            if (p.ParameterType == wrappedType) return strongTypedEvent;
-            if (p.ParameterType == typeof(TOperations)) return session;
-            if (p.ParameterType == typeof(CancellationToken)) return cancellation;
-            if (p.ParameterType == typeof(IEvent)) return e;
-
-            throw new ArgumentOutOfRangeException(nameof(p),
-                $"Unable to determine an expression for parameter {p.Name} of type {p.ParameterType.FullNameInCode()}");
-        };
-        
-        // You would use null for static methods
-        Expression? caller = default(Expression);
-        if (!method.IsStatic) caller = Expression.Constant(_entity);
-            
-        var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
-        var body = Expression.Call(caller, method, arguments);
-
-        if (body.Type == typeof(ValueTask))
-        {
-            return Expression
-                .Lambda<Func<TOperations, IEvent, CancellationToken, ValueTask>>(body, session, e, cancellation)
-                .CompileFast();
-        }
-
-        if (body.Type == typeof(Task))
-        {
-            var func = Expression
-                .Lambda<Func<TOperations, IEvent, CancellationToken, Task>>(body, session, e, cancellation)
-                .CompileFast();
-            return (o1, e1, c1) => new ValueTask(func(o1, e1, c1));
-        }
-        var apply =  Expression
-            .Lambda<Action<TOperations, IEvent>>(body, session, e)
-            .CompileFast();
-
-        return (o1, e1, _) =>
-        {
-            apply(o1, e1);
-            return new ValueTask();
-        };
-    }
-    
-    private Func<TOperations, IEvent, CancellationToken, ValueTask> buildCreator(Type eventType, MethodInfo method)
-    {
-        var entityType = method.ReturnType;
-        if (entityType.Closes(typeof(Task<>))) entityType = entityType.GetGenericArguments()[0];
-        if (entityType.Closes(typeof(ValueTask<>))) entityType = entityType.GetGenericArguments()[0];
-
-        var builder = typeof(CreatorBuilder<>).CloseAndBuildAs<ICreatorBuilder>( entityType);
-        return builder.Build<TOperations>(_entity, eventType, method);
-    }
-
-    internal class ProjectMethodCollection: MethodCollection
+    internal class ProjectMethodCollection : MethodCollection
     {
         public static readonly string MethodName = "Project";
-        
-        public ProjectMethodCollection(Type projectionType): base(MethodName, projectionType, null)
+
+        public ProjectMethodCollection(Type projectionType) : base(MethodName, projectionType, null)
         {
             _validArgumentTypes.Add(typeof(TOperations));
             _validReturnTypes.Add(typeof(void));
@@ -192,13 +81,13 @@ public class EventProjectionApplication<TOperations>
             }
         }
     }
-    
-    internal class CreateMethodCollection: MethodCollection
+
+    internal class CreateMethodCollection : MethodCollection
     {
         public static readonly string MethodName = "Create";
         public static readonly string TransformMethodName = "Transform";
-        
-        public CreateMethodCollection(Type projectionType): base([MethodName, TransformMethodName], projectionType, null)
+
+        public CreateMethodCollection(Type projectionType) : base([MethodName, TransformMethodName], projectionType, null)
         {
             _validArgumentTypes.Add(typeof(TOperations));
         }
@@ -214,175 +103,32 @@ public class EventProjectionApplication<TOperations>
 
     public bool HasAnyMethods()
     {
-        return _projectMethods.Methods.Any() || _createMethods.Methods.Any() || !_applications.IsEmpty;
+        return _projectMethods.Methods.Any() || _createMethods.Methods.Any();
     }
 
     public void AssertMethodValidity()
     {
-        if (!_projectMethods.Methods.Any() && !_createMethods.Methods.Any() && _applications.IsEmpty)
+        if (!_projectMethods.Methods.Any() && !_createMethods.Methods.Any())
         {
             throw new InvalidProjectionException(
-                $"EventProjection {GetType().FullNameInCode()} has no valid projection operations. Either use the Lambda registrations, or expose methods named '{ProjectMethodCollection.MethodName}', '{CreateMethodCollection.MethodName}', or '{CreateMethodCollection.TransformMethodName}'");
+                $"EventProjection {_projectionType.FullNameInCode()} has no valid projection operations. " +
+                $"Expose methods named '{ProjectMethodCollection.MethodName}', " +
+                $"'{CreateMethodCollection.MethodName}', or '{CreateMethodCollection.TransformMethodName}'.");
         }
 
-        var invalidMethods = MethodCollection.FindInvalidMethods(GetType(), _projectMethods, _createMethods);
+        var invalidMethods = MethodCollection.FindInvalidMethods(_projectionType, _projectMethods, _createMethods);
         if (invalidMethods.Any())
         {
             throw new InvalidProjectionException(_entity, invalidMethods);
         }
     }
 
-    public void Project<TEvent>(Action<TEvent,TOperations> project) where TEvent : class
+    internal string MissingDispatcherMessage()
     {
-        projectEvent<TEvent>(project);
-    }
-
-    public void ProjectAsync<TEvent>(Func<TEvent, TOperations, CancellationToken, Task> project) where TEvent : class
-    {
-        projectEvent<TEvent>(project);
-    }
-    
-    private void projectEvent<TEvent>(object handler) where TEvent : class
-    {
-        var e = Expression.Parameter(typeof(IEvent), "e");
-        var session = Expression.Parameter(typeof(TOperations), "session");
-        var cancellation = Expression.Parameter(typeof(CancellationToken), "cancellation");
-
-        var eventType = typeof(TEvent).Closes(typeof(IEvent<>))
-            ? typeof(TEvent).GetGenericArguments()[0]
-            : typeof(TEvent);
-        
-        var caller = Expression.Constant(handler);
-        var method = handler.GetType().GetMethod("Invoke")!;
-        
-        var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-        var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
-        var strongTypedEvent = Expression.Convert(e, wrappedType);
-        var data = Expression.Call(strongTypedEvent, getData);
-        
-        Func<ParameterInfo, Expression> buildParameter = p =>
-        {
-            if (p.ParameterType == eventType) return data;
-            if (p.ParameterType == wrappedType) return strongTypedEvent;
-            if (p.ParameterType == typeof(TOperations)) return session;
-            if (p.ParameterType == typeof(CancellationToken)) return cancellation;
-
-            throw new ArgumentOutOfRangeException(nameof(p),
-                $"Unable to determine an expression for parameter {p.Name} of type {p.ParameterType.FullNameInCode()}");
-        };
-
-        var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
-        var body = Expression.Call(caller, method, arguments);
-
-        Func<TOperations, IEvent, CancellationToken, ValueTask>? func = default;
-        if (body.Type == typeof(ValueTask))
-        {
-            func = Expression
-                .Lambda<Func<TOperations, IEvent, CancellationToken, ValueTask>>(body, session, e, cancellation)
-                .CompileFast();
-
-            
-        }
-        else if (body.Type == typeof(Task))
-        {
-            var inner = Expression
-                .Lambda<Func<TOperations, IEvent, CancellationToken, Task>>(body, session, e, cancellation)
-                .CompileFast();
-            func = (o1, e1, c1) => new ValueTask(inner(o1, e1, c1));
-        }
-        else
-        {
-            var apply =  Expression
-                .Lambda<Action<TOperations, IEvent>>(body, session, e)
-                .CompileFast();
-
-            func = (o1, e1, _) =>
-            {
-                apply(o1, e1);
-                return new ValueTask();
-            };
-        }
-        
-        _applications = _applications.AddOrUpdate(eventType, func);
+        return $"No source-generated dispatcher found for EventProjection {_projectionType.FullNameInCode()}. " +
+               "When using conventional Project/Create/Transform methods, the projection class must be declared " +
+               "`partial` in an assembly that references the JasperFx.Events.SourceGenerator analyzer, " +
+               "or alternatively override ApplyAsync directly. " +
+               "See docs/codegen/aot.md for the AOT publishing guide.";
     }
 }
-
-    internal interface ICreatorBuilder
-    {
-        Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IEntityStorage<TOperations> entityStorage, Type eventType,
-            MethodInfo method);
-    }
-
-    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-        Justification = "Nested-class-level: builds handler delegates via FastExpressionCompiler.CompileFast — RUC. AOT consumers rely on the source-generated projection helpers per the AOT publishing guide.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
-        Justification = "Nested-class-level: Type.MakeGenericType + CompileFast — runtime code generation.")]
-    internal class CreatorBuilder<T> : ICreatorBuilder where T : notnull
-    {
-        public Func<TOperations, IEvent, CancellationToken, ValueTask> Build<TOperations>(IEntityStorage<TOperations> entityStorage,
-            Type eventType, MethodInfo method)
-        {
-            var e = Expression.Parameter(typeof(IEvent), "e");
-            var session = Expression.Parameter(typeof(TOperations), "ops");
-            var cancellation = Expression.Parameter(typeof(CancellationToken), "cancellation");
-        
-            var wrappedType = typeof(IEvent<>).MakeGenericType(eventType);
-            var getData = wrappedType.GetProperty(nameof(IEvent.Data))!.GetMethod!;
-            var strongTypedEvent = Expression.Convert(e, wrappedType);
-            var data = Expression.Call(strongTypedEvent, getData);
-        
-            Func<ParameterInfo, Expression> buildParameter = p =>
-            {
-                if (p.ParameterType == eventType) return data;
-                if (p.ParameterType == wrappedType) return strongTypedEvent;
-                if (p.ParameterType == typeof(TOperations)) return session;
-                if (p.ParameterType == typeof(CancellationToken)) return cancellation;
-                if (p.ParameterType == typeof(IEvent)) return e;
-
-                throw new ArgumentOutOfRangeException(nameof(p),
-                    $"Unable to determine an expression for parameter {p.Name} of type {p.ParameterType.FullNameInCode()}");
-            };
-            
-            // You would use null for static methods
-            Expression? caller = default(Expression);
-            if (!method.IsStatic) caller = Expression.Constant(entityStorage);
-            
-            var arguments = method.GetParameters().Select(x => buildParameter(x)).ToArray();
-            var body = Expression.Call(caller, method, arguments);
-
-            if (body.Type == typeof(T))
-            {
-                var func = Expression
-                    .Lambda<Func<TOperations, IEvent, CancellationToken, T>>(body, session, e, cancellation)
-                    .CompileFast();
-
-                return (o1, e1, c1) =>
-                {
-                    entityStorage.Store(o1, func(o1, e1, c1));
-                    return new ValueTask();
-                };
-            }
-
-            if (body.Type == typeof(ValueTask<T>))
-            {
-                var func = Expression
-                    .Lambda<Func<TOperations, IEvent, CancellationToken, ValueTask<T>>>(body, session, e, cancellation)
-                    .CompileFast();
-                
-                return async (o1, e1, c1) =>
-                {
-                    entityStorage.Store(o1, await func(o1, e1, c1));
-                };
-            }
-            
-            var taskFunc = Expression
-                .Lambda<Func<TOperations, IEvent, CancellationToken, Task<T>>>(body, session, e, cancellation)
-                .CompileFast();
-                
-            return async (o1, e1, c1) =>
-            {
-                entityStorage.Store(o1, await taskFunc(o1, e1, c1));
-            };
-        }
-    }
-    

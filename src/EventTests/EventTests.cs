@@ -3,7 +3,7 @@ using Shouldly;
 
 namespace EventTests;
 
-public class EventTests
+public class EventBasicsTests
 {
     [Fact]
     public void wrap_an_object_as_an_event()

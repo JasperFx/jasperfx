@@ -62,7 +62,7 @@ public class Day
     public double South { get; set; }
 }
 
-public class UsesCustomSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
+public partial class UsesCustomSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
     public UsesCustomSlicerDayProjection() : base()
     {
@@ -80,7 +80,7 @@ public class UsesCustomSlicerDayProjection : JasperFxMultiStreamProjectionBase<D
     }
 }
 
-public class NoSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
+public partial class NoSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
     public NoSlicerDayProjection() : base()
     {
@@ -97,7 +97,7 @@ public class NoSlicerDayProjection : JasperFxMultiStreamProjectionBase<Day, int,
     }
 }
 
-public class DayProjection: JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
+public partial class DayProjection: JasperFxMultiStreamProjectionBase<Day, int, FakeOperations, FakeSession>
 {
     public DayProjection() : base()
     {

@@ -16,7 +16,6 @@ public class SingleStreamProjectionTests
     [InlineData("Overrides DetermineActionAsync()", typeof(OverridesDetermineActionAsync))]
     [InlineData("Overrides Evolve()", typeof(OverridesEvolve))]
     [InlineData("Overrides EvolveAsync()", typeof(OverridesEvolveAsync))]
-    [InlineData("Uses inline lambdas", typeof(InlineProjection))]
     [InlineData("Overrides EnrichEventsAsync with conventional Apply", typeof(OverridesEnrichEventsAsyncWithConventionalApply))]
     public void validation_is_good_with_only_conventional_methods(string explanation, Type type)
     {
@@ -24,7 +23,7 @@ public class SingleStreamProjectionTests
     }
 
     [Theory]
-    [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods and line lambdas, but not both")]
+    [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods, but not both")]
     [InlineData(typeof(MultipleOverrides), "Only one of these methods can be overridden: Evolve, EvolveAsync")]
     [InlineData(typeof(EmptyProjection), "No matching conventional Apply/Create/ShouldDelete methods for the EventTests.MyAggregate aggregate.")]
     public void validation_fails(Type type, string message)
@@ -67,17 +66,9 @@ public class MultipleOverrides : SingleStreamProjection<MyAggregate, Guid>
     }
 }
 
-public class ConventionalProjection : SingleStreamProjection<MyAggregate, Guid>
+public partial class ConventionalProjection : SingleStreamProjection<MyAggregate, Guid>
 {
     public void Apply(AEvent e, MyAggregate a) => a.ACount++;
-}
-
-public class InlineProjection : SingleStreamProjection<MyAggregate, Guid>
-{
-    public InlineProjection()
-    {
-        ProjectEvent<AEvent>((a, e) => a.ACount++);
-    }
 }
 
 public class OverridesDetermineAction : SingleStreamProjection<MyAggregate, Guid>
@@ -113,7 +104,7 @@ public class OverridesEvolveAsync : SingleStreamProjection<MyAggregate, Guid>
     }
 }
 
-public class OverridesEnrichEventsAsyncWithConventionalApply : SingleStreamProjection<MyAggregate, Guid>
+public partial class OverridesEnrichEventsAsyncWithConventionalApply : SingleStreamProjection<MyAggregate, Guid>
 {
     public override Task EnrichEventsAsync(
         SliceGroup<MyAggregate, Guid> group, FakeSession session, CancellationToken ct)

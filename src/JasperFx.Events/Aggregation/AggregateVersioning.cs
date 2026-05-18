@@ -1,7 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
-using FastExpressionCompiler;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -25,7 +24,7 @@ public interface IAggregateVersioning<in T>
 }
 
 [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-    Justification = "Class-level: reflects the aggregate's Version property via Expression-tree-based getters/setters compiled with FastExpressionCompiler. The aggregate type T is preserved by the registered projection boundary.")]
+    Justification = "Class-level: routes the Version member setter through LambdaBuilder, which is RequiresUnreferencedCode under the hood (FastExpressionCompiler-compiled expression tree). The aggregate type T is preserved by the registered projection boundary.")]
 [UnconditionalSuppressMessage("Trimming", "IL2090:DynamicallyAccessedMembers",
     Justification = "Class-level: generic type-argument flow on the aggregator. T preserved by registration.")]
 public class AggregateVersioning<T> : IAggregateVersioning
@@ -95,41 +94,33 @@ public class AggregateVersioning<T> : IAggregateVersioning
             return (_, _) => { };
         }
 
-        var aggregate = Expression.Parameter(typeof(T), "aggregate");
-        var @event = Expression.Parameter(typeof(IEvent), "e");
+        var memberType = VersionMember.GetMemberType();
+        var singleStream = _scope == AggregationScope.SingleStream;
 
-        var eventMethod = _scope == AggregationScope.SingleStream
-            ? ReflectionHelper.GetProperty<IEvent>(x => x.Version).GetMethod
-            : ReflectionHelper.GetProperty<IEvent>(x => x.Sequence).GetMethod;
-
-        var accessVersion = Expression.Call(@event, eventMethod!);
-
-        if (VersionMember.GetMemberType() == typeof(int))
+        if (memberType == typeof(int))
         {
-            accessVersion = Expression.Call(typeof(Convert).GetMethod(nameof(Convert.ToInt32), [typeof(long)])!,
-                accessVersion);
+            var setter = LambdaBuilder.Setter<T, int>(VersionMember)
+                         ?? throw new InvalidOperationException(
+                             $"Unable to build a setter for the Version member '{VersionMember.Name}' on {typeof(T).FullNameInCode()}");
+
+            return singleStream
+                ? (aggregate, e) => setter(aggregate, Convert.ToInt32(e.Version))
+                : (aggregate, e) => setter(aggregate, Convert.ToInt32(e.Sequence));
         }
 
-        var body = determineBody(aggregate, accessVersion);
-
-        var lambda = Expression.Lambda<Action<T, IEvent>>(body, aggregate, @event);
-        return lambda.CompileFast();
-    }
-
-    private Expression determineBody(ParameterExpression aggregate, MethodCallExpression accessVersion)
-    {
-        switch (VersionMember)
+        if (memberType == typeof(long))
         {
-            case PropertyInfo prop:
-                return Expression.Call(aggregate, prop.SetMethod!, accessVersion);
-            case FieldInfo field:
-            {
-                var fieldExpr = Expression.Field(aggregate, field);
-                return Expression.Assign(fieldExpr, accessVersion);
-            }
-            default:
-                throw new InvalidOperationException("The Version member must be either a Field or Property");
+            var setter = LambdaBuilder.Setter<T, long>(VersionMember)
+                         ?? throw new InvalidOperationException(
+                             $"Unable to build a setter for the Version member '{VersionMember.Name}' on {typeof(T).FullNameInCode()}");
+
+            return singleStream
+                ? (aggregate, e) => setter(aggregate, e.Version)
+                : (aggregate, e) => setter(aggregate, e.Sequence);
         }
+
+        throw new InvalidOperationException(
+            $"The Version member '{VersionMember.Name}' on {typeof(T).FullNameInCode()} must be an int or long");
     }
     
     public void Override(Expression<Func<T, int>> expression)
@@ -156,7 +147,7 @@ public class AggregateVersioning<T> : IAggregateVersioning
 }
 
 [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-    Justification = "Class-level: same as the single-arg sibling — reflective Version member access via FastExpressionCompiler. T preserved by registration.")]
+    Justification = "Class-level: same as the single-arg sibling — Version member setter via LambdaBuilder (RUC). T preserved by registration.")]
 [UnconditionalSuppressMessage("Trimming", "IL2090:DynamicallyAccessedMembers",
     Justification = "Class-level: generic type-argument flow on the aggregator. T preserved by registration.")]
 public class AggregateVersioning<T, TQuerySession> : AggregateVersioning<T>, IAggregateVersioning, IAggregateVersioning<T>, IAggregator<T, TQuerySession>
