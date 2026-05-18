@@ -789,13 +789,16 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        if (snapshot == null)");
-        sb.AppendLine($"            return exists ? (null, global::JasperFx.Events.Daemon.ActionType.Delete) : (null, global::JasperFx.Events.Daemon.ActionType.Nothing);");
         if (!isAsync)
         {
+            // Sync-path DetermineActionAsync returns ValueTask<(...)> directly; wrap the tuple.
+            sb.AppendLine($"            return exists ? new global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Delete)) : new global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Nothing));");
             sb.AppendLine($"        return new global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)>((snapshot, global::JasperFx.Events.Daemon.ActionType.Store));");
         }
         else
         {
+            // Async method body — bare tuple is implicitly wrapped by the async state machine.
+            sb.AppendLine($"            return exists ? (null, global::JasperFx.Events.Daemon.ActionType.Delete) : (null, global::JasperFx.Events.Daemon.ActionType.Nothing);");
             sb.AppendLine($"        return (snapshot, global::JasperFx.Events.Daemon.ActionType.Store);");
         }
         sb.AppendLine("    }");
