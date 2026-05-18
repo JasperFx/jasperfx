@@ -631,8 +631,12 @@ public class DerivedCounter : BaseCounter
     }
 
     [Fact]
-    public void skips_type_with_constructor_event_parameter()
+    public void event_constructor_becomes_implicit_create()
     {
+        // Bucket 1 in JasperFx#297-followup: a public single-argument
+        // constructor whose parameter is a user-defined event type acts as an
+        // implicit Create handler. The pre-#276 reflection runtime did the
+        // same; we keep the behavior in the SG-emitted code.
         var source = @"
 using System;
 using JasperFx.Events;
@@ -650,9 +654,13 @@ public class CtorAggregate
 public class CreatedEvent { }
 public class UpdatedEvent { }
 ";
-        var (diagnostics, generatedSources) = RunGenerator(source);
+        var (_, generatedSources) = RunGenerator(source);
 
-        // Should not generate because it has a constructor-based creation pattern
-        generatedSources.ShouldBeEmpty();
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var evolver = generatedSources[0];
+        evolver.ShouldContain("snapshot = new global::Test.CtorAggregate(data);");
+        evolver.ShouldContain("snapshot.Apply(data)");
+        evolver.ShouldContain("case global::Test.CreatedEvent");
+        evolver.ShouldContain("case global::Test.UpdatedEvent");
     }
 }

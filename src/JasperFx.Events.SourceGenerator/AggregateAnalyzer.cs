@@ -64,6 +64,18 @@ internal sealed class EvolveMethodInfo
     public List<ITypeSymbol> ExtractedEventTypes { get; set; } = new();
 }
 
+/// <summary>
+/// Records a public single-argument constructor on an aggregate type whose
+/// parameter is the implicit "create" event. The pre-#276 Marten reflection
+/// runtime would call `new TAggregate(eventData)` for the first event of
+/// the matching type; the SG emits the same call via a switch arm.
+/// </summary>
+internal sealed class EventConstructorInfo
+{
+    public ITypeSymbol EventType { get; set; } = null!;
+    public IMethodSymbol Ctor { get; set; } = null!;
+}
+
 internal sealed class CandidateInfo
 {
     public CandidateMode Mode { get; set; }
@@ -74,13 +86,30 @@ internal sealed class CandidateInfo
     public INamedTypeSymbol? IdentityType { get; set; } // TId
     public INamedTypeSymbol? QuerySessionType { get; set; } // TQuerySession
     public List<ConventionalMethodInfo> Methods { get; set; } = new();
-    public bool HasShouldDelete => Methods.Any(m => m.MethodName == "ShouldDelete");
+    public bool HasShouldDelete => Methods.Any(m => m.MethodName == "ShouldDelete") || ConstructorDeleteEventTypes.Count > 0;
     // A method that takes IQuerySession can only run from the EvolveAsync /
     // DetermineActionAsync path (the sync Evolve doesn't have a session to
     // pass). Treat any session-taking handler as forcing the async dispatch
     // path so the generated switch arm can bind `session` correctly. See #297.
     public bool HasAnyAsync => Methods.Any(m => m.IsAsync || m.HasSession);
     public bool HasCreate => Methods.Any(m => m.MethodName == "Create");
+
+    /// <summary>
+    /// Event types registered via the kept `DeleteEvent&lt;T&gt;()` parameterless
+    /// API in the projection's constructor. The emitter adds one switch arm
+    /// per type that sets `snapshot = null` to trigger a delete. Per the Marten
+    /// 9.0 / JasperFx#276 chip, this constructor-side registration is one of
+    /// the explicitly-kept ways to mark an event type as a delete trigger.
+    /// </summary>
+    public List<ITypeSymbol> ConstructorDeleteEventTypes { get; set; } = new();
+
+    /// <summary>
+    /// Public single-argument constructors on the aggregate whose parameter
+    /// looks like an event type. The emitter treats each as an implicit
+    /// Create handler — `case TEvent data: return new TAggregate(data);` —
+    /// preserving the pre-#276 reflection behavior. See #297.
+    /// </summary>
+    public List<EventConstructorInfo> EventConstructors { get; set; } = new();
     public bool HasDefaultConstructor { get; set; }
     public bool HasExistingParameterlessConstructor { get; set; } // On the projection class itself
     // EventProjection-specific
@@ -125,7 +154,7 @@ internal static class AggregateAnalyzer
 
         if (projBaseInfo != null)
         {
-            return AnalyzeProjectionSubclass(classDecl, classSymbol, projBaseInfo.Value, ct);
+            return AnalyzeProjectionSubclass(classDecl, classSymbol, projBaseInfo.Value, context.SemanticModel, ct);
         }
 
         // Check if this is an EventProjection subclass
@@ -148,6 +177,7 @@ internal static class AggregateAnalyzer
         TypeDeclarationSyntax classDecl,
         INamedTypeSymbol classSymbol,
         (INamedTypeSymbol docType, INamedTypeSymbol idType, INamedTypeSymbol querySessionType) baseInfo,
+        SemanticModel semanticModel,
         CancellationToken ct)
     {
         var isPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword);
@@ -168,8 +198,9 @@ internal static class AggregateAnalyzer
         }
 
         var methods = DiscoverConventionalMethods(classSymbol, baseInfo.docType, classSymbol);
+        var ctorDeleteTypes = DiscoverConstructorDeleteEventTypes(classDecl, semanticModel, ct);
 
-        if (methods.Count == 0) return null;
+        if (methods.Count == 0 && ctorDeleteTypes.Count == 0) return null;
 
         return new CandidateInfo
         {
@@ -177,6 +208,7 @@ internal static class AggregateAnalyzer
             ClassSymbol = classSymbol,
             ClassSyntax = classDecl,
             IsPartial = isPartial,
+            ConstructorDeleteEventTypes = ctorDeleteTypes,
             AggregateType = baseInfo.docType,
             IdentityType = baseInfo.idType,
             QuerySessionType = baseInfo.querySessionType,
@@ -196,11 +228,8 @@ internal static class AggregateAnalyzer
         if (evolveResult != null) return evolveResult;
 
         var methods = DiscoverConventionalMethods(classSymbol, classSymbol, null);
-        if (methods.Count == 0) return null;
-
-        // Skip types that use constructor-based creation (we don't generate for these)
-        if (HasEventParameterConstructor(classSymbol))
-            return null;
+        var eventCtors = DiscoverEventConstructors(classSymbol);
+        if (methods.Count == 0 && eventCtors.Count == 0) return null;
 
         // Infer TId from Id property or AggregateIdentityAttribute
         var idType = InferIdentityType(classSymbol);
@@ -215,9 +244,54 @@ internal static class AggregateAnalyzer
             AggregateType = classSymbol,
             IdentityType = idType,
             Methods = methods,
+            EventConstructors = eventCtors,
             HasDefaultConstructor = HasParameterlessConstructor(classSymbol),
             HasNaturalKey = HasNaturalKeyProperty(classSymbol)
         };
+    }
+
+    /// <summary>
+    /// Find public single-argument constructors on the aggregate whose
+    /// parameter is an event type (i.e. matches an event type referenced by
+    /// any of the aggregate's Apply methods, or is referenced by name from
+    /// an enclosing test fixture's event list). Pre-#276 Marten reflectively
+    /// invoked these as implicit Create handlers; we preserve that
+    /// behavior by emitting `new T(eventData)` in the null-snapshot
+    /// branch for each registered event type. See #297.
+    ///
+    /// The conservative heuristic here is "param is not a framework type and
+    /// the type-arg looks like a user-defined class/record/struct" — that's
+    /// the same shape the previous reflection path accepted. Filtering by
+    /// "must match an Apply event type" would be stricter, but Marten's
+    /// existing tests register aggregates whose first event ONLY arrives via
+    /// the ctor (no separate Apply for that event type), so we deliberately
+    /// don't require a matching Apply.
+    /// </summary>
+    private static List<EventConstructorInfo> DiscoverEventConstructors(INamedTypeSymbol type)
+    {
+        var result = new List<EventConstructorInfo>();
+        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+
+        foreach (var ctor in type.InstanceConstructors)
+        {
+            if (ctor.Parameters.Length != 1) continue;
+            if (ctor.DeclaredAccessibility != Accessibility.Public) continue;
+
+            var paramType = ctor.Parameters[0].Type;
+            if (IsFrameworkType(paramType)) continue;
+
+            // Skip if the param looks like IEvent / IEvent<T> — those are
+            // handled by the regular Apply/Create method discovery.
+            if (IsIEventGenericWrapper(paramType, out _)) continue;
+            if (IsRawIEvent(paramType)) continue;
+
+            if (seen.Add(paramType))
+            {
+                result.Add(new EventConstructorInfo { EventType = paramType, Ctor = ctor });
+            }
+        }
+
+        return result;
     }
 
     private static CandidateInfo? AnalyzeSelfAggregatingEvolve(
@@ -1086,6 +1160,57 @@ internal static class AggregateAnalyzer
             .Any(m => m.IsOverride && m.Name is "Evolve" or "EvolveAsync" or "DetermineAction" or "DetermineActionAsync");
     }
 
+    /// <summary>
+    /// Scan the projection's constructor(s) for the kept parameterless
+    /// `DeleteEvent&lt;T&gt;()` registration API. Each unique type argument T
+    /// becomes a switch arm in the emitted dispatcher that sets `snapshot =
+    /// null` (i.e. delete the aggregate when an event of that type arrives).
+    /// Mirrors the pre-#276 runtime behavior where DeleteEvent registrations
+    /// were resolved reflectively. See #297.
+    /// </summary>
+    private static List<ITypeSymbol> DiscoverConstructorDeleteEventTypes(
+        TypeDeclarationSyntax classDecl,
+        SemanticModel semanticModel,
+        CancellationToken ct)
+    {
+        var result = new List<ITypeSymbol>();
+        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+
+        foreach (var ctor in classDecl.Members.OfType<ConstructorDeclarationSyntax>())
+        {
+            if (ctor.Body == null && ctor.ExpressionBody == null) continue;
+
+            var nodes = ctor.Body is { } body
+                ? body.DescendantNodes()
+                : ctor.ExpressionBody!.DescendantNodes();
+
+            foreach (var invocation in nodes.OfType<InvocationExpressionSyntax>())
+            {
+                if (invocation.ArgumentList.Arguments.Count != 0) continue;
+
+                var generic = invocation.Expression switch
+                {
+                    MemberAccessExpressionSyntax m => m.Name as GenericNameSyntax,
+                    GenericNameSyntax g => g,
+                    _ => null
+                };
+
+                if (generic is null) continue;
+                if (generic.Identifier.ValueText != "DeleteEvent") continue;
+                if (generic.TypeArgumentList.Arguments.Count != 1) continue;
+
+                var typeArgSyntax = generic.TypeArgumentList.Arguments[0];
+                if (semanticModel.GetSymbolInfo(typeArgSyntax, ct).Symbol is not ITypeSymbol symbol) continue;
+                if (seen.Add(symbol))
+                {
+                    result.Add(symbol);
+                }
+            }
+        }
+
+        return result;
+    }
+
     private static bool HasLambdaRegistrations(TypeDeclarationSyntax classDecl)
     {
         // Only ProjectEvent / CreateEvent / DeleteEvent invocations that *take
@@ -1129,34 +1254,49 @@ internal static class AggregateAnalyzer
 
     public static INamedTypeSymbol? InferIdentityType(INamedTypeSymbol classSymbol)
     {
-        // 1. Check for an Id property — walk the inheritance chain so aggregates that
-        // inherit Id from a user base class are still recognized. Stop at framework
-        // bases and at System.Object. See #295.
+        // 1. Check for an Id property OR a property/field tagged with
+        // [Identity] (Marten.Schema.IdentityAttribute) — walk the inheritance
+        // chain so aggregates that inherit Id from a user base class are still
+        // recognized. Stop at framework bases and at System.Object. See #295.
+        // The [Identity] attribute path covers user types like
+        //   public record LoadTestInlineProjection { [Identity] public string StreamKey { get; init; } ... }
+        // where the identity property isn't named "Id". Marten supports this
+        // for document mapping in general and aggregates rely on it.
         for (INamedTypeSymbol? current = classSymbol;
              current is not null
              && current.SpecialType != SpecialType.System_Object
              && !IsFrameworkBase(current);
              current = current.BaseType)
         {
+            // Prefer an [Identity]-attributed member (or field), since that's the
+            // user's explicit override of the Id-by-convention rule.
+            var attributedMember = current.GetMembers()
+                .FirstOrDefault(m =>
+                    (m is IPropertySymbol || m is IFieldSymbol)
+                    && m.GetAttributes().Any(a => a.AttributeClass?.Name is "IdentityAttribute" or "Identity"));
+
+            if (attributedMember is not null)
+            {
+                var memberType = attributedMember switch
+                {
+                    IPropertySymbol p => p.Type,
+                    IFieldSymbol f => f.Type,
+                    _ => null
+                };
+
+                if (memberType is INamedTypeSymbol attributedIdType)
+                {
+                    return UnwrapNullable(attributedIdType);
+                }
+            }
+
             var idProp = current.GetMembers()
                 .OfType<IPropertySymbol>()
                 .FirstOrDefault(p => p.Name == "Id");
 
             if (idProp?.Type is INamedTypeSymbol idType)
             {
-                // Unwrap `Nullable<T>` so `public PaymentId? Id { get; }` resolves
-                // to PaymentId (the runtime TId) instead of `Nullable<PaymentId>`.
-                // The runtime closes `SingleStreamProjection<TDoc, TId>` over the
-                // unwrapped struct type, so a generated evolver keyed on the
-                // nullable wrapper would never match. See #297.
-                if (idType.IsGenericType
-                    && idType.ConstructedFrom.ToDisplayString() == "System.Nullable<T>"
-                    && idType.TypeArguments.Length == 1
-                    && idType.TypeArguments[0] is INamedTypeSymbol unwrappedId)
-                {
-                    return unwrappedId;
-                }
-                return idType;
+                return UnwrapNullable(idType);
             }
         }
 
@@ -1175,19 +1315,34 @@ internal static class AggregateAnalyzer
 
     private static bool HasParameterlessConstructor(INamedTypeSymbol type)
     {
-        // A type with `required` members can't be constructed with `new T()` even
-        // when a parameterless constructor exists — the compiler emits CS9035 unless
-        // every required member is initialized at the call site (or the ctor is
-        // annotated with [SetsRequiredMembers]). Treat "has required members" the
-        // same as "no usable parameterless ctor" so the SG doesn't emit
-        // `var s = new T(); Apply(data, s);` for these aggregates. See #297.
-        if (HasRequiredMembers(type)) return false;
+        // Always-true: the emitter knows how to instantiate every reference
+        // type via `BuildAggregateConstructorExpression`, which picks between
+        // `new T()`, `new T { ... = default! }` (required members), or
+        // `RuntimeHelpers.GetUninitializedObject(typeof(T))` (no public
+        // parameterless ctor). Keeping the property name + signature
+        // unchanged so downstream gates that read it still compile; the value
+        // now reflects "can the emitter produce an instance?" rather than
+        // strictly "is there a public parameterless ctor?". See #297.
+        return true;
+    }
 
-        // If no explicit constructors, there's an implicit default
-        var constructors = type.InstanceConstructors;
-        if (constructors.Length == 0) return true;
-
-        return constructors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+    /// <summary>
+    /// Unwrap `Nullable&lt;T&gt;` so a `public PaymentId? Id { get; }` resolves to
+    /// PaymentId (the runtime TId) instead of `Nullable&lt;PaymentId&gt;`. The
+    /// runtime closes `SingleStreamProjection&lt;TDoc, TId&gt;` over the
+    /// unwrapped struct type, so a generated evolver keyed on the nullable
+    /// wrapper would never match. See #297.
+    /// </summary>
+    private static INamedTypeSymbol UnwrapNullable(INamedTypeSymbol type)
+    {
+        if (type.IsGenericType
+            && type.ConstructedFrom.ToDisplayString() == "System.Nullable<T>"
+            && type.TypeArguments.Length == 1
+            && type.TypeArguments[0] is INamedTypeSymbol unwrapped)
+        {
+            return unwrapped;
+        }
+        return type;
     }
 
     private static bool HasRequiredMembers(INamedTypeSymbol type)
@@ -1297,8 +1452,8 @@ internal static class AggregateAnalyzer
 
         // Try conventional methods
         var methods = DiscoverConventionalMethods(aggregateType, aggregateType, null);
-        if (methods.Count == 0) return null;
-        if (HasEventParameterConstructor(aggregateType)) return null;
+        var eventCtors = DiscoverEventConstructors(aggregateType);
+        if (methods.Count == 0 && eventCtors.Count == 0) return null;
 
         var inferredId = InferIdentityType(aggregateType) ?? identityTypeHint;
         if (inferredId == null) return null;
@@ -1311,6 +1466,7 @@ internal static class AggregateAnalyzer
             AggregateType = aggregateType,
             IdentityType = inferredId,
             Methods = methods,
+            EventConstructors = eventCtors,
             HasDefaultConstructor = HasParameterlessConstructor(aggregateType)
         };
     }
