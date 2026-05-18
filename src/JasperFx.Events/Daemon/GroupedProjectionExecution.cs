@@ -128,6 +128,11 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
             return range;
         }
+        catch when (_cancellation.IsCancellationRequested)
+        {
+            // Shard is being torn down — don't promote the cancellation to a critical failure.
+            return null!;
+        }
         catch (Exception e)
         {
             activity?.AddException(e);
@@ -182,6 +187,17 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             }
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Daemon-internal cancellation (StopAllAsync / HardStopAsync / DisposeAsync fired the
+            // shard's CTS). Don't surface as a critical shard failure — matches the guard already
+            // used in applyBatchOperationsToDatabaseAsync and SubscriptionExecutionBase.executeRange.
+        }
+        catch when (_cancellation.IsCancellationRequested)
+        {
+            // Wrapped/aggregated cancellation (e.g. Npgsql 57014 surfaced through a non-OCE) that
+            // is really a side effect of the shard being torn down. Same rationale as above.
         }
         catch (Exception e)
         {
