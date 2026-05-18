@@ -173,8 +173,12 @@ public class NonPartial : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
-    public void skips_self_aggregating_with_async_methods()
+    public void emits_async_evolver_for_async_self_aggregating_apply()
     {
+        // Async self-aggregating Apply/Create handlers are now supported via
+        // IGeneratedAsyncEvolver. The pre-#297 SG would bail with JFXEVT001;
+        // we now emit an async EvolveAsync that awaits each handler call.
+        // See #297.
         var source = @"
 using System;
 using System.Threading.Tasks;
@@ -190,10 +194,13 @@ public class AsyncAggregate
 
 public class SomeEvent { }
 ";
-        var (diagnostics, generatedSources) = RunGenerator(source);
+        var (_, generatedSources) = RunGenerator(source);
 
-        generatedSources.ShouldBeEmpty();
-        diagnostics.Any(d => d.Id == "JFXEVT001").ShouldBeTrue();
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var evolver = generatedSources[0];
+        evolver.ShouldContain("IGeneratedAsyncEvolver");
+        evolver.ShouldContain("public async global::System.Threading.Tasks.ValueTask<global::Test.AsyncAggregate?> EvolveAsync(");
+        evolver.ShouldContain("await snapshot.Apply(data)");
     }
 
     [Fact]
