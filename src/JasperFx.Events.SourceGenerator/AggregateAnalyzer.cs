@@ -496,22 +496,56 @@ internal static class AggregateAnalyzer
         bool isOnAggregate,
         List<ConventionalMethodInfo> results)
     {
-        var members = searchType.GetMembers();
-        foreach (var member in members)
+        // Walk the inheritance chain so aggregates / projections that inherit
+        // Apply/Create/ShouldDelete from a user base class still get those
+        // methods dispatched. Stop at System.Object and at any framework base
+        // (ProjectionBase / JasperFxAggregationProjectionBase /
+        // JasperFxEventProjectionBase) so we don't slurp framework internals.
+        // See https://github.com/JasperFx/jasperfx/issues/295.
+        var seenSignatures = new HashSet<string>();
+        for (INamedTypeSymbol? current = searchType;
+             current is not null
+             && current.SpecialType != SpecialType.System_Object
+             && !IsFrameworkBase(current);
+             current = current.BaseType)
         {
-            if (member is not IMethodSymbol method) continue;
-            if (method.MethodKind != MethodKind.Ordinary) continue;
-            if (method.Name is not ("Apply" or "Create" or "ShouldDelete")) continue;
-            if (HasJasperFxIgnoreAttribute(method)) continue;
-            // Skip non-public methods - we can't call them from generated code
-            if (method.DeclaredAccessibility != Accessibility.Public) continue;
-
-            var info = AnalyzeMethod(method, aggregateType, isOnAggregate);
-            if (info != null)
+            foreach (var member in current.GetMembers())
             {
-                results.Add(info);
+                if (member is not IMethodSymbol method) continue;
+                if (method.MethodKind != MethodKind.Ordinary) continue;
+                if (method.Name is not ("Apply" or "Create" or "ShouldDelete")) continue;
+                if (HasJasperFxIgnoreAttribute(method)) continue;
+                // Skip non-public methods - we can't call them from generated code
+                if (method.DeclaredAccessibility != Accessibility.Public) continue;
+
+                // Walking derived → base, the first sighting of a given signature wins.
+                // That gives a derived `override` or `new` declaration priority over
+                // the base-class declaration with the same signature, matching the
+                // language's own method-resolution behavior.
+                if (!seenSignatures.Add(SignatureKey(method))) continue;
+
+                var info = AnalyzeMethod(method, aggregateType, isOnAggregate);
+                if (info != null)
+                {
+                    results.Add(info);
+                }
             }
         }
+    }
+
+    private static bool IsFrameworkBase(INamedTypeSymbol type)
+    {
+        var fullName = type.ConstructedFrom?.ToDisplayString() ?? type.ToDisplayString();
+        return fullName.StartsWith(ProjectionBaseFullName, StringComparison.Ordinal)
+               || fullName.StartsWith(AggregationProjectionBaseFullName, StringComparison.Ordinal)
+               || fullName.StartsWith(EventProjectionBaseFullName, StringComparison.Ordinal);
+    }
+
+    private static string SignatureKey(IMethodSymbol method)
+    {
+        return method.Name + "("
+               + string.Join(",", method.Parameters.Select(p => p.Type.ToDisplayString()))
+               + ")";
     }
 
     private static ConventionalMethodInfo? AnalyzeMethod(
@@ -1043,13 +1077,22 @@ internal static class AggregateAnalyzer
 
     public static INamedTypeSymbol? InferIdentityType(INamedTypeSymbol classSymbol)
     {
-        // 1. Check for Id property
-        var idProp = classSymbol.GetMembers()
-            .OfType<IPropertySymbol>()
-            .FirstOrDefault(p => p.Name == "Id");
+        // 1. Check for an Id property — walk the inheritance chain so aggregates that
+        // inherit Id from a user base class are still recognized. Stop at framework
+        // bases and at System.Object. See #295.
+        for (INamedTypeSymbol? current = classSymbol;
+             current is not null
+             && current.SpecialType != SpecialType.System_Object
+             && !IsFrameworkBase(current);
+             current = current.BaseType)
+        {
+            var idProp = current.GetMembers()
+                .OfType<IPropertySymbol>()
+                .FirstOrDefault(p => p.Name == "Id");
 
-        if (idProp?.Type is INamedTypeSymbol idType)
-            return idType;
+            if (idProp?.Type is INamedTypeSymbol idType)
+                return idType;
+        }
 
         // 2. Check for [AggregateIdentity(typeof(...))]
         var attr = classSymbol.GetAttributes()
