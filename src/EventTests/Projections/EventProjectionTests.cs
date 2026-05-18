@@ -9,7 +9,6 @@ namespace EventTests.Projections;
 public class EventProjectionTests
 {
     [Theory]
-    [InlineData(typeof(LambdaEventProjection))]
     [InlineData(typeof(ConventionalEventProjection))]
     [InlineData(typeof(OverridesApplyAsyncEventProjection))]
     public void good_options(Type type)
@@ -76,14 +75,6 @@ public class SpecialEventException : Exception
 public class EmptyEventProjection : EventProjection
 {
     
-}
-
-public class LambdaEventProjection : EventProjection
-{
-    public LambdaEventProjection()
-    {
-        Project<AEvent>((e, o) => { });
-    }
 }
 
 public class ConventionalEventProjection : EventProjection

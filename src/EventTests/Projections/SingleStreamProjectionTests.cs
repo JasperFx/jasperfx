@@ -16,7 +16,6 @@ public class SingleStreamProjectionTests
     [InlineData("Overrides DetermineActionAsync()", typeof(OverridesDetermineActionAsync))]
     [InlineData("Overrides Evolve()", typeof(OverridesEvolve))]
     [InlineData("Overrides EvolveAsync()", typeof(OverridesEvolveAsync))]
-    [InlineData("Uses inline lambdas", typeof(InlineProjection))]
     [InlineData("Overrides EnrichEventsAsync with conventional Apply", typeof(OverridesEnrichEventsAsyncWithConventionalApply))]
     public void validation_is_good_with_only_conventional_methods(string explanation, Type type)
     {
@@ -70,14 +69,6 @@ public class MultipleOverrides : SingleStreamProjection<MyAggregate, Guid>
 public class ConventionalProjection : SingleStreamProjection<MyAggregate, Guid>
 {
     public void Apply(AEvent e, MyAggregate a) => a.ACount++;
-}
-
-public class InlineProjection : SingleStreamProjection<MyAggregate, Guid>
-{
-    public InlineProjection()
-    {
-        ProjectEvent<AEvent>((a, e) => a.ACount++);
-    }
 }
 
 public class OverridesDetermineAction : SingleStreamProjection<MyAggregate, Guid>

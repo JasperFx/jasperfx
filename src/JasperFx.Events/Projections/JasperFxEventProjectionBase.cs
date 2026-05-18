@@ -149,7 +149,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     }
 
     protected abstract void storeEntity<T>(TOperations ops, T entity) where T : notnull;
-    
+
     public sealed override void AssembleAndAssertValidity()
     {
         var applyMethod = GetType()!.GetMethod(nameof(ApplyAsync))!;
@@ -167,17 +167,5 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
         {
             _application.AssertMethodValidity();
         }
-    }
-
-    [JasperFxIgnore]
-    public void Project<T>(Action<T, TOperations> action) where T : class
-    {
-        _application.Project<T>(action);
-    }
-
-    [JasperFxIgnore]
-    public void ProjectAsync<T>(Func<T, TOperations, CancellationToken, Task> action) where T : class
-    {
-        _application.ProjectAsync(action);
     }
 }
