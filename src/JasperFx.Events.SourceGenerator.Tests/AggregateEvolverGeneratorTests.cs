@@ -311,6 +311,75 @@ namespace EventTests.Projections
         allGenerated.ShouldContain("global::EventTests.Projections.DayEvent");
     }
 
+    // Regression for the sync `DetermineActionAsync` override emit: when a
+    // partial projection has both an `Apply` (sync) and a `ShouldDelete`
+    // method, the SG emits a sync method returning `ValueTask<(TDoc?, ActionType)>`
+    // but the `snapshot == null` early-return path used to emit a raw tuple
+    //
+    //   return exists ? (null, ActionType.Delete) : (null, ActionType.Nothing);
+    //
+    // instead of wrapping it in `new ValueTask<...>(...)`, producing CS8135
+    // ("Tuple with 2 elements cannot be converted to type 'ValueTask<...>'")
+    // in downstream compilations. The async path was correct (async state
+    // machine wraps the tuple) — only the sync branch was broken.
+    [Fact]
+    public void partial_projection_with_should_delete_compiles_sync_path()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public class StringQuest
+{
+    public string Id { get; set; } = """";
+    public int Members { get; set; }
+}
+
+public class StartQuest { }
+public class JoinQuest { }
+public class EndQuest { }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public partial class StringQuestProjection : SingleStreamProjection<StringQuest, string>
+{
+    public static StringQuest Create(IEvent<StartQuest> e) => new StringQuest();
+    public void Apply(JoinQuest e, StringQuest q) { q.Members++; }
+    public bool ShouldDelete(EndQuest e) => true;
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        // Filter to CS8135 (the bug's compile error): "Tuple with N elements
+        // cannot be converted to type 'ValueTask<...>'". Stub-setup errors
+        // from the minimal test fixture (CS0311 etc. on the stub
+        // SingleStreamProjection<,>) are pre-existing and don't relate to the
+        // generated code — mirroring the filtering pattern used by the
+        // CS0426 regression test for #288.
+        var valueTaskTupleErrors = diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id == "CS8135")
+            .Select(d => d.GetMessage())
+            .ToArray();
+
+        valueTaskTupleErrors.ShouldBeEmpty();
+
+        // Spot-check that the generated sync DetermineActionAsync wraps the
+        // snapshot==null tuple in a ValueTask<>, so a future regression that
+        // accidentally compiles some other way still trips this assertion.
+        var (_, generatedSources) = RunGenerator(source);
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain("public override global::System.Threading.Tasks.ValueTask<(global::Test.StringQuest?,");
+        allGenerated.ShouldContain("new global::System.Threading.Tasks.ValueTask<(global::Test.StringQuest?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Delete))");
+    }
+
     [Fact]
     public void skips_type_with_constructor_event_parameter()
     {
