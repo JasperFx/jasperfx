@@ -32,6 +32,17 @@ internal static class EvolverCodeEmitter
             sb.AppendLine();
         }
 
+        // If the projection is declared inside another type (common in xUnit test
+        // files where the projection lives next to test methods), emit a matching
+        // chain of `partial class Container { ... }` wrappers so the generated
+        // partial merges with the user's source partial. See #292.
+        var containingTypes = GetContainingTypes(info.ClassSymbol);
+        foreach (var container in containingTypes)
+        {
+            sb.AppendLine($"partial class {container.Name}{ContainerTypeParams(container)}");
+            sb.AppendLine("{");
+        }
+
         var className = info.ClassSymbol.Name;
 
         // Include type parameters if the class is generic
@@ -62,7 +73,19 @@ internal static class EvolverCodeEmitter
         }
 
         sb.AppendLine("}");
+
+        foreach (var _ in containingTypes)
+        {
+            sb.AppendLine("}");
+        }
+
         return sb.ToString();
+    }
+
+    private static string ContainerTypeParams(INamedTypeSymbol container)
+    {
+        if (container.TypeParameters.Length == 0) return string.Empty;
+        return "<" + string.Join(", ", container.TypeParameters.Select(t => t.Name)) + ">";
     }
 
     private static void EmitConstructorWithIncludeTypes(StringBuilder sb, CandidateInfo info, string className)
@@ -100,7 +123,7 @@ internal static class EvolverCodeEmitter
         var containingTypes = GetContainingTypes(info.ClassSymbol);
         foreach (var container in containingTypes)
         {
-            sb.AppendLine($"partial class {container.Name}");
+            sb.AppendLine($"partial class {container.Name}{ContainerTypeParams(container)}");
             sb.AppendLine("{");
         }
 
@@ -156,7 +179,7 @@ internal static class EvolverCodeEmitter
         var containingTypes = GetContainingTypes(info.ClassSymbol);
         foreach (var container in containingTypes)
         {
-            sb.AppendLine($"partial class {container.Name}");
+            sb.AppendLine($"partial class {container.Name}{ContainerTypeParams(container)}");
             sb.AppendLine("{");
         }
 
