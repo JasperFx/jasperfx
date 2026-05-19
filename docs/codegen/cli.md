@@ -104,6 +104,8 @@ dotnet run -- codegen write
 
 Generates all source code and writes the files into the project directory. The generated files are then compiled into the assembly on the next `dotnet build`. After writing, you can switch to `TypeLoadMode.Static` or `TypeLoadMode.Auto` to load the pre-built types.
 
+For the Docker pattern that runs `codegen write` inside the build stage so a production image ships with pre-generated artifacts, see [Pre-generating Codegen in Docker](./docker).
+
 ### codegen delete
 
 ```bash
