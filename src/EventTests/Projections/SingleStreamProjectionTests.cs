@@ -35,6 +35,44 @@ public class SingleStreamProjectionTests
         Should.NotThrow(() => projection.AssembleAndAssertValidity());
     }
 
+    // Regression for #303: pre-#276 the reflection path wrapped each Apply call in a
+    // try/catch keyed off RebuildErrors.SkipApplyErrors so the daemon could route just
+    // the poison event to the dead-letter queue. The SG-emitted IGeneratedSyncDetermineAction
+    // path processed the whole batch in one call, so a thrown Apply propagated as the raw
+    // user exception with no per-event seam. The runtime adapter now dispatches one event
+    // at a time and wraps each in ApplyEventException carrying *that* event's sequence,
+    // restoring the seam.
+    [Fact]
+    public async Task sg_determine_action_wraps_per_event_apply_failure_in_apply_event_exception()
+    {
+        var projection = new SingleStreamProjection<SelfAggregatingWithFailingApply, Guid>();
+        projection.AssembleAndAssertValidity();
+
+        // Three events: the first is fine (Create), the second is the poison pill (Apply
+        // throws), the third would otherwise succeed but execution stops at the poison.
+        var events = new IEvent[]
+        {
+            new Event<AEvent>(new AEvent()) { Sequence = 1 },
+            new Event<BEvent>(new BEvent()) { Sequence = 2 },  // poison
+            new Event<AEvent>(new AEvent()) { Sequence = 3 }
+        };
+
+        var ex = await Should.ThrowAsync<ApplyEventException>(async () =>
+        {
+            await projection.DetermineActionAsync(
+                new FakeSession(),
+                null,
+                Guid.NewGuid(),
+                new NulloIdentitySetter<SelfAggregatingWithFailingApply, Guid>(),
+                events,
+                CancellationToken.None);
+        });
+
+        ex.Event.Sequence.ShouldBe(2);
+        ex.InnerException.ShouldBeOfType<InvalidOperationException>();
+        ex.InnerException!.Message.ShouldBe("poison pill");
+    }
+
     [Theory]
     [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods, but not both")]
     [InlineData(typeof(MultipleOverrides), "Only one of these methods can be overridden: Evolve, EvolveAsync")]
@@ -138,6 +176,19 @@ public partial class SelfAggregatingWithShouldDelete
 
     public static SelfAggregatingWithShouldDelete Create(AEvent _) => new();
     public void Apply(BEvent _) => ACount++;
+    public bool ShouldDelete(CEvent _) => true;
+}
+
+// Self-aggregating fixture for #303 regression. Apply on BEvent throws — the daemon
+// rebuild flow needs the runtime to re-raise that as ApplyEventException carrying the
+// BEvent so SkipApplyErrors can dead-letter just that event. ShouldDelete is present
+// so the SG emits IGeneratedSyncDetermineAction (the path the issue targets).
+public partial class SelfAggregatingWithFailingApply
+{
+    public Guid Id { get; set; }
+
+    public static SelfAggregatingWithFailingApply Create(AEvent _) => new();
+    public void Apply(BEvent _) => throw new InvalidOperationException("poison pill");
     public bool ShouldDelete(CEvent _) => true;
 }
 
