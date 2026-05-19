@@ -159,7 +159,6 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 
 ### AOT-clean (no annotation; safe in AOT publishes)
 
-- `JasperFx.CodeGeneration.Snapshots.SnapshotFingerprint` + `SnapshotVerdict` + `SnapshotGate.ComputeHash` / `Verify` — the codegen-snapshot invalidation substrate.
 - `JasperFx.Events.Event.For<T>(T)` — generic event factory.
 - `JasperFx.Core.Reflection.GenericFactoryCache.BuildAs<T>(…)` **when you supply your own delegate factory** that avoids `MakeGenericType` + `Activator.CreateInstance`. The default factory does use those and carries `[RequiresDynamicCode]`; consumers source-generate the per-type factory and stay clean.
 - Pure utility surface in `JasperFx.Core` (string helpers, `LightweightCache`, etc.).
@@ -171,7 +170,6 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 - `JasperFx.Core.IoC` convention-based registration (`AssemblyScanner.Scan`, `IRegistrationConvention` impls). AOT consumers use explicit `services.AddSingleton<TService, TImpl>()` registrations.
 - `JasperFx.Core.Reflection.LambdaBuilder` + `ValueTypeInfo` — expression-tree compilation via FastExpressionCompiler. AOT consumers source-generate accessor delegates.
 - `JasperFx.CodeGeneration.GeneratedType` / `GeneratedAssembly` / `MethodCall` — the codegen builder API. Reached only at codegen-write time, not at production startup in Static mode.
-- `JasperFx.CodeGeneration.Snapshots.SnapshotGate.Read` / `Write` — System.Text.Json without a generation context. Consumers using snapshots in AOT should wrap these calls with their own STJ source-generator context.
 - `OptionsDescription` — diagnostic reflection over runtime types for the `describe` command.
 
 ### Source-generated command manifest
@@ -204,7 +202,7 @@ The generator runs at compile time, so this reference doesn't end up in your pub
 ## Known limitations
 
 - **Wolverine middleware** that uses runtime reflection over handler types reflects in a way that can't be source-generated. Stick with the pre-generated codegen path for handler dispatch and you stay clean.
-- **STJ without a generation context** is the most common AOT warning source in real apps. `SnapshotGate.Read` / `Write` is one example in the JasperFx surface; if you serialize your own types via the default `JsonSerializer.Deserialize<T>(string)` etc., you'll see the same warnings. The fix is to register a `JsonSerializerContext` source-generated context.
+- **STJ without a generation context** is the most common AOT warning source in real apps. If you serialize your own types via the default `JsonSerializer.Deserialize<T>(string)` etc., you'll see IL2026 / IL3050 warnings. The fix is to register a `JsonSerializerContext` source-generated context.
 - **First-time codegen output**: the `codegen write` command requires a running `Host`, which in turn requires the runtime services for your app. Make sure your app actually starts (e.g. connection strings are valid) at the time you run it. Otherwise you'll see the error from your dependency, not from codegen.
 - **CI-time publish**: AOT publish takes meaningfully longer than a JIT-mode publish (typically 30-90 seconds vs. a few seconds). Budget for it in your build pipeline.
 
