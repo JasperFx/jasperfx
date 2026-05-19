@@ -155,7 +155,21 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 {
                     foreach (var e in events)
                     {
-                        snapshot = evolver.Evolve(snapshot, id, e);
+                        try
+                        {
+                            snapshot = evolver.Evolve(snapshot, id, e);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Transient errors bubble for Polly to retry; non-transient
+                            // user errors get wrapped in ApplyEventException so the
+                            // daemon's SkipApplyErrors handler can route just the
+                            // offending event to the dead-letter queue. Matches the
+                            // semantics of the pre-#276 reflection path in
+                            // evolveDefaultAsync. See #303.
+                            if (ProjectionExceptions.IsExceptionTransient(ex)) throw;
+                            throw new ApplyEventException(e, ex);
+                        }
                     }
 
                     return new ValueTask<TDoc?>(snapshot);
@@ -170,7 +184,32 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 var evolver = (IGeneratedSyncDetermineAction<TDoc, TId>)Activator.CreateInstance(evolverType)!;
                 _generatedEvolverEventTypes = evolver.EventTypes;
                 _buildAction = (_, snapshot, id, _, events, _) =>
-                    new ValueTask<(TDoc?, ActionType)>(evolver.DetermineAction(snapshot, id, events));
+                {
+                    // Dispatch one event at a time so a poison-pill Apply can be wrapped
+                    // in ApplyEventException carrying *that* event. Bulk-dispatching the
+                    // whole batch through DetermineAction would lose the per-event seam
+                    // the daemon's SkipApplyErrors handler relies on (see #303). The
+                    // final action is whichever the last event produced — same outcome
+                    // as a single batch call because DetermineAction's per-event branches
+                    // are independent of the rest of the batch state apart from snapshot.
+                    var action = ActionType.Nothing;
+                    var single = new IEvent[1];
+                    foreach (var e in events)
+                    {
+                        single[0] = e;
+                        try
+                        {
+                            (snapshot, action) = evolver.DetermineAction(snapshot, id, single);
+                        }
+                        catch (Exception ex)
+                        {
+                            if (ProjectionExceptions.IsExceptionTransient(ex)) throw;
+                            throw new ApplyEventException(e, ex);
+                        }
+                    }
+
+                    return new ValueTask<(TDoc?, ActionType)>((snapshot, action));
+                };
                 _evolve = evolveDefaultAsync; // not used when _buildAction is set, but must be non-null
                 return true;
             }
@@ -185,7 +224,15 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 {
                     foreach (var e in events)
                     {
-                        snapshot = await evolver.EvolveAsync(snapshot, id, e, session!, ct);
+                        try
+                        {
+                            snapshot = await evolver.EvolveAsync(snapshot, id, e, session!, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            if (ProjectionExceptions.IsExceptionTransient(ex)) throw;
+                            throw new ApplyEventException(e, ex);
+                        }
                     }
 
                     return snapshot;
