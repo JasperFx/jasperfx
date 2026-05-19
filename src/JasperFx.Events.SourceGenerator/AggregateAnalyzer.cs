@@ -167,7 +167,7 @@ internal static class AggregateAnalyzer
         // Not a projection subclass - check if self-aggregating
         if (!IsProjectionBase(classSymbol))
         {
-            return AnalyzeSelfAggregating(classDecl, classSymbol, ct);
+            return AnalyzeSelfAggregating(classDecl, classSymbol, context.SemanticModel, ct);
         }
 
         return null;
@@ -221,6 +221,7 @@ internal static class AggregateAnalyzer
     private static CandidateInfo? AnalyzeSelfAggregating(
         TypeDeclarationSyntax classDecl,
         INamedTypeSymbol classSymbol,
+        SemanticModel semanticModel,
         CancellationToken ct)
     {
         // Check for Evolve/EvolveAsync methods first — these take priority
@@ -233,7 +234,18 @@ internal static class AggregateAnalyzer
 
         // Infer TId from Id property or AggregateIdentityAttribute
         var idType = InferIdentityType(classSymbol);
-        if (idType == null) return null; // Will emit diagnostic elsewhere
+        if (idType == null)
+        {
+            // Identity-less "boundary" aggregate (DCB): no Id and no [AggregateIdentity],
+            // so there's nothing to key a single stream on. We only emit an evolver when
+            // the type opts in with [BoundaryAggregate] — a bare no-Id aggregate is far
+            // more likely a mistake (forgot the Id) than an intentional boundary aggregate,
+            // and we don't want to silently swallow that. When opted in, default TId to
+            // string to match the SingleStreamProjection<T, string> the DCB aggregator
+            // builds; the id is vestigial for boundary dispatch. See #324.
+            if (!HasBoundaryAggregateAttribute(classSymbol)) return null;
+            idType = semanticModel.Compilation.GetSpecialType(SpecialType.System_String);
+        }
 
         return new CandidateInfo
         {
@@ -1250,6 +1262,16 @@ internal static class AggregateAnalyzer
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when the aggregate type opts into identity-less boundary-aggregate evolver
+    /// generation via [BoundaryAggregate] (JasperFx.Events.Aggregation). See #324.
+    /// </summary>
+    private static bool HasBoundaryAggregateAttribute(INamedTypeSymbol classSymbol)
+    {
+        return classSymbol.GetAttributes()
+            .Any(a => a.AttributeClass?.Name is "BoundaryAggregateAttribute" or "BoundaryAggregate");
     }
 
     public static INamedTypeSymbol? InferIdentityType(INamedTypeSymbol classSymbol)

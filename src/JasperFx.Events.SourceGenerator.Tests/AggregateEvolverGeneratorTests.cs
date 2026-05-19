@@ -225,6 +225,69 @@ public class SomeEvent { }
         generatedSources.ShouldBeEmpty();
     }
 
+    // Regression for #324: a pure DCB boundary aggregate has Apply methods but no
+    // single-stream identity (no Id, no [AggregateIdentity]). Without opt-in the SG
+    // emits nothing (see skips_type_without_id_property above). Marking the type
+    // [BoundaryAggregate] opts it into evolver generation, keyed on string TId to
+    // match the SingleStreamProjection<T, string> the DCB aggregator builds.
+    [Fact]
+    public void generates_string_keyed_evolver_for_boundary_aggregate_with_attribute()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public class SubscriptionState
+{
+    public int Count { get; set; }
+    public void Apply(Subscribed e) { Count++; }
+}
+
+public class Subscribed { }
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var generated = generatedSources[0];
+        // The evolver class carries the _String TId-disambiguation suffix
+        // (BuildUniqueEvolverName) since the boundary aggregate has no own Id.
+        generated.ShouldContain("SubscriptionState_StringEvolver");
+        // Identity-less boundary aggregate is keyed on string (decision B in #324).
+        generated.ShouldContain("global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<global::Test.SubscriptionState, string>");
+        generated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.SubscriptionState)");
+        generated.ShouldContain("snapshot.Apply(data)");
+    }
+
+    // Negative half of #324: the marker is required. An identity-less aggregate
+    // WITHOUT [BoundaryAggregate] still emits nothing — a bare no-Id aggregate is far
+    // more likely a forgot-the-Id mistake than an intentional boundary aggregate, and
+    // we don't want to silently swallow that into a string-keyed evolver.
+    [Fact]
+    public void skips_identity_less_aggregate_without_boundary_attribute()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Test;
+
+public class SubscriptionState
+{
+    public int Count { get; set; }
+    public void Apply(Subscribed e) { Count++; }
+}
+
+public class Subscribed { }
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        generatedSources.ShouldBeEmpty();
+    }
+
     [Fact]
     public void generates_determine_action_for_self_aggregating_with_should_delete()
     {
