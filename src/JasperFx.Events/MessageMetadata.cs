@@ -31,10 +31,6 @@ public struct MessageMetadata : IMetadataContext
     public string? CorrelationId { get; set; }
 
     /// <inheritdoc />
-    [Obsolete("Prefer CurrentUserName")]
-    public string? LastModifiedBy { get; set; }
-
-    /// <inheritdoc />
     public string? CurrentUserName { get; set; }
 
     private Dictionary<string, object>? _headers;
@@ -56,7 +52,5 @@ public struct MessageMetadata : IMetadataContext
     public bool CausationIdEnabled => CausationId is not null;
     public bool CorrelationIdEnabled => CorrelationId is not null;
     public bool HeadersEnabled => _headers is { Count: > 0 };
-#pragma warning disable CS0618
-    public bool UserNameEnabled => CurrentUserName is not null || LastModifiedBy is not null;
-#pragma warning restore CS0618
+    public bool UserNameEnabled => CurrentUserName is not null;
 }

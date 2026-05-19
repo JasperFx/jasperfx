@@ -20,9 +20,6 @@ public interface IMetadataContext
     ///     Optional metadata describing the user name or
     ///     process name for this unit of work
     /// </summary>
-    [Obsolete("Prefer CurrentUserName")]
-    string? LastModifiedBy { get; set; }
-    
     string? CurrentUserName { get; set; }
 
     /// <summary>

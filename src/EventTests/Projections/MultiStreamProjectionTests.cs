@@ -66,7 +66,9 @@ public partial class UsesCustomSlicerDayProjection : JasperFxMultiStreamProjecti
 {
     public UsesCustomSlicerDayProjection() : base()
     {
-        CustomGrouping(Substitute.For<IEventSlicer<Day, int, FakeSession>>());
+        // Switched from the now-removed CustomGrouping(IEventSlicer<...>) overload (closed
+        // in #273) to the lambda overload, which is the documented replacement.
+        CustomGrouping((session, events, grouping) => Task.CompletedTask);
     }
     
     public void Apply(Day day, TripStarted e)
