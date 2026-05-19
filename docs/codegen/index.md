@@ -97,3 +97,4 @@ See [CLI: codegen Command](./cli) for tooling that writes generated code ahead o
 - [Generated Types & Methods](./generated-types) -- assembling complete types.
 - [Built-in Frames](./built-in-frames) -- catalog of frames shipped with JasperFx.
 - [CLI: codegen Command](./cli) -- ahead-of-time code generation tooling.
+- [Pre-generating Codegen in Docker](./docker) -- multi-stage Dockerfile pattern that pre-builds codegen artifacts so production images skip the runtime-codegen cold-start cost.
