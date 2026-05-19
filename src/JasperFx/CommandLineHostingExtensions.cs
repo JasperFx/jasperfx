@@ -113,9 +113,29 @@ public static class CommandLineHostingExtensions
         return args;
     }
 
-    [RequiresUnreferencedCode("Scans the entry/extension assemblies for IJasperFxCommand types via Assembly.GetExportedTypes().")]
+    /// <summary>
+    /// Populate <paramref name="factory"/> with the standard JasperFx command set:
+    /// built-in commands shipped with the framework, the application's own commands,
+    /// and commands contributed by extension assemblies.
+    /// </summary>
+    /// <remarks>
+    /// Tries the source-generated <c>DiscoveredCommands</c> manifest first and
+    /// short-circuits entirely when it's present — the manifest already covers
+    /// built-in + application + extension commands as a single trim-clean list.
+    /// Only the no-manifest fallback path is trim-unsafe; its
+    /// <see cref="CommandFactory.RegisterCommands(Assembly)"/> calls are suppressed
+    /// here with documented justification so AOT-compatible consumers don't see
+    /// IL2026 at the <c>CritterStackDefaults</c> / <c>AddJasperFx</c> call site.
+    /// </remarks>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Fallback assembly scan is only reached when the source-generated DiscoveredCommands manifest is absent. Consumers targeting trim/AOT wire JasperFx.SourceGeneration, which emits the manifest as ordinary code in the consuming assembly so RegisterCommands(Assembly) is never reached at runtime. Apps that omit the analyzer are by definition opting into the runtime-codegen path and accept the scan.")]
     internal static void ApplyFactoryDefaults(this CommandFactory factory, Assembly? applicationAssembly)
     {
+        if (factory.TryRegisterFromGeneratedManifest())
+        {
+            return;
+        }
+
         factory.RegisterCommands(typeof(RunCommand).GetTypeInfo().Assembly);
 
         if (applicationAssembly != null)

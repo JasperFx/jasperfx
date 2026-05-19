@@ -19,8 +19,10 @@
 //     context — Marten and Wolverine consumers wrap these with their own
 //     STJ context or pre-serialized strings)
 
+using JasperFx;
 using JasperFx.CodeGeneration.Snapshots;
 using JasperFx.Events;
+using Microsoft.Extensions.DependencyInjection;
 
 // --- SnapshotGate.ComputeHash / Verify ----------------------------------
 // Pure functions that compute SHA-256 over a canonical-input string and
@@ -67,6 +69,26 @@ if (evt.Data.Message != tenantEvt.Data.Message)
     Console.Error.WriteLine("Event.For<T> regression.");
     return 1;
 }
+
+// --- CritterStackDefaults / AddJasperFx --------------------------------
+// Regression for #312. These are the unified 2.0 codegen-mode entry points
+// the per-store opts.GeneratedCodeMode obsoletion recommends as replacement.
+// They previously carried [RequiresUnreferencedCode] which fired IL2026
+// for every IsAotCompatible consumer even when JasperFx.SourceGeneration
+// was wired — locking AOT consumers onto the obsolete per-store form.
+// The annotation has been pushed down to the inner fallback path that
+// only runs when the source-generated DiscoveredCommands manifest is absent.
+// Per the AOT publishing guide, set the application assembly explicitly
+// before calling CritterStackDefaults to short-circuit the stack-walk
+// fallback in JasperFxOptions.
+
+JasperFxOptions.RememberedApplicationAssembly = typeof(SampleEvent).Assembly;
+
+var services = new ServiceCollection();
+services.CritterStackDefaults(jfx =>
+{
+    jfx.ServiceName = "jasperfx-aot-smoke";
+});
 
 Console.WriteLine($"JasperFx AOT smoke OK — ConfigHash={hashA[..16]}…");
 return 0;
