@@ -2,7 +2,7 @@
     <PropertyGroup>
         <Description>Runtime Roslyn Compilation and Code Generation Chicanery</Description>
         <PackageId>JasperFx.RuntimeCompiler</PackageId>
-        <Version>5.0.0-alpha.8</Version>
+        <Version>5.0.0-alpha.9</Version>
     </PropertyGroup>
     <ItemGroup>
 
