@@ -939,6 +939,16 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("        var exists = snapshot != null;");
         sb.AppendLine("        foreach (var e in events)");
         sb.AppendLine("        {");
+        // Per-event try/catch so a poison-pill Apply/Create/ShouldDelete is re-raised
+        // as ApplyEventException carrying *that* event. The daemon's buildBatchWithSkipping
+        // catch handler keys off ApplyEventException.Event.Sequence to route the failing
+        // event to the dead-letter queue — without this wrap the daemon sees the raw
+        // user exception and SkipApplyErrors can't isolate the offending event.
+        // Matches evolveDefaultAsync's semantics in JasperFxAggregationProjectionBase.Runtime.cs.
+        // Already-ApplyEventException-typed throws (e.g. user code raised it explicitly)
+        // propagate unchanged so we don't double-wrap. See #305.
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
         sb.AppendLine("            switch (e.Data)");
         sb.AppendLine("            {");
 
@@ -1029,6 +1039,16 @@ internal static class EvolverCodeEmitter
             sb.AppendLine("                    break;");
         }
 
+        sb.AppendLine("            }");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::JasperFx.Events.Daemon.ApplyEventException)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::System.Exception __ex)");
+        sb.AppendLine("                when (!global::JasperFx.Events.Projections.ProjectionExceptions.IsExceptionTransient(__ex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new global::JasperFx.Events.Daemon.ApplyEventException(e, __ex);");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();
@@ -1338,6 +1358,11 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("        var exists = snapshot != null;");
         sb.AppendLine("        foreach (var e in events)");
         sb.AppendLine("        {");
+        // Per-event try/catch (parallel to EmitDetermineActionAsyncOverride, same
+        // rationale — preserve the per-event seam for the daemon's dead-letter routing).
+        // See #305.
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
         sb.AppendLine("            switch (e.Data)");
         sb.AppendLine("            {");
 
@@ -1414,6 +1439,16 @@ internal static class EvolverCodeEmitter
             sb.AppendLine("                    break;");
         }
 
+        sb.AppendLine("            }");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::JasperFx.Events.Daemon.ApplyEventException)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::System.Exception __ex)");
+        sb.AppendLine("                when (!global::JasperFx.Events.Projections.ProjectionExceptions.IsExceptionTransient(__ex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new global::JasperFx.Events.Daemon.ApplyEventException(e, __ex);");
         sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine();

@@ -73,6 +73,46 @@ public class SingleStreamProjectionTests
         ex.InnerException!.Message.ShouldBe("poison pill");
     }
 
+    // Regression for #305: PR #304 wrapped the runtime adapter delegates but the
+    // *projection subclass* path bypasses those — when a partial projection has
+    // Apply + ShouldDelete, the SG emits a `DetermineActionAsync` override directly
+    // on the user class, so establishBuildActionAndEvolve sets
+    // `_buildAction = DetermineActionAsync` (the SG-emitted method) and the
+    // per-event wrap in tryUseAssemblyRegisteredEvolver is bypassed entirely.
+    // The Marten DaemonTests rebuild_the_projection_skip_failed_events failure was
+    // raw InvalidOperationException leaking up through the SG override directly to
+    // GroupedProjectionExecution.buildBatchWithSkipping, which only routes events
+    // for AggregateException-of-ApplyEventException. The SG-emitted DetermineActionAsync
+    // must wrap each event's switch body itself.
+    [Fact]
+    public async Task sg_determine_action_async_override_on_partial_projection_wraps_per_event()
+    {
+        var projection = new ProjectionWithFailingApplyAndShouldDelete();
+        projection.AssembleAndAssertValidity();
+
+        var events = new IEvent[]
+        {
+            new Event<AEvent>(new AEvent()) { Sequence = 10 },     // Create, fine
+            new Event<BEvent>(new BEvent()) { Sequence = 11 },     // poison Apply
+            new Event<AEvent>(new AEvent()) { Sequence = 12 }
+        };
+
+        var ex = await Should.ThrowAsync<ApplyEventException>(async () =>
+        {
+            await projection.DetermineActionAsync(
+                new FakeSession(),
+                null,
+                Guid.NewGuid(),
+                new NulloIdentitySetter<MyAggregate, Guid>(),
+                events,
+                CancellationToken.None);
+        });
+
+        ex.Event.Sequence.ShouldBe(11);
+        ex.InnerException.ShouldBeOfType<InvalidOperationException>();
+        ex.InnerException!.Message.ShouldBe("You shall not pass!");
+    }
+
     [Theory]
     [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods, but not both")]
     [InlineData(typeof(MultipleOverrides), "Only one of these methods can be overridden: Evolve, EvolveAsync")]
@@ -120,6 +160,18 @@ public class MultipleOverrides : SingleStreamProjection<MyAggregate, Guid>
 public partial class ConventionalProjection : SingleStreamProjection<MyAggregate, Guid>
 {
     public void Apply(AEvent e, MyAggregate a) => a.ACount++;
+}
+
+// Regression fixture for #305. Apply on BEvent throws. The SG sees ShouldDelete +
+// Apply on a partial projection subclass → emits a DetermineActionAsync override
+// directly on this class. That override's per-event switch body must now wrap the
+// thrown user exception as ApplyEventException carrying *that* event so the
+// daemon's buildBatchWithSkipping can route the poison event to the dead-letter queue.
+public partial class ProjectionWithFailingApplyAndShouldDelete : SingleStreamProjection<MyAggregate, Guid>
+{
+    public static MyAggregate Create(AEvent _) => new();
+    public void Apply(BEvent _, MyAggregate _2) => throw new InvalidOperationException("You shall not pass!");
+    public bool ShouldDelete(CEvent _) => false;
 }
 
 public class OverridesDetermineAction : SingleStreamProjection<MyAggregate, Guid>

@@ -201,6 +201,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                         {
                             (snapshot, action) = evolver.DetermineAction(snapshot, id, single);
                         }
+                        catch (ApplyEventException)
+                        {
+                            // Already wrapped (either by the SG-emitted dispatcher
+                            // per #305 or by user code throwing it explicitly); pass
+                            // through unchanged so we don't double-wrap.
+                            throw;
+                        }
                         catch (Exception ex)
                         {
                             if (ProjectionExceptions.IsExceptionTransient(ex)) throw;
@@ -227,6 +234,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                         try
                         {
                             snapshot = await evolver.EvolveAsync(snapshot, id, e, session!, ct);
+                        }
+                        catch (ApplyEventException)
+                        {
+                            // Already wrapped (either by the SG-emitted dispatcher
+                            // per #305 or by user code throwing it explicitly); pass
+                            // through unchanged so we don't double-wrap.
+                            throw;
                         }
                         catch (Exception ex)
                         {
