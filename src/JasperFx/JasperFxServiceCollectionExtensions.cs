@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.CommandLine;
 using JasperFx.CommandLine.Descriptions;
@@ -19,7 +20,16 @@ public static class JasperFxServiceCollectionExtensions
     /// <param name="configure"></param>
     /// <returns></returns>
     /// <exception cref="ArgumentNullException"></exception>
-    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("CritterStackDefaults wires AddJasperFx, which scans entry/extension assemblies for IJasperFxCommand types via Assembly.GetExportedTypes(). Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
+    /// <remarks>
+    /// This method is annotation-free for trim/AOT consumers: the only trim-unsafe
+    /// work is the assembly-scan fallback in <see cref="CommandFactory.RegisterCommands(Assembly)"/>,
+    /// which is gated behind the source-generated <c>DiscoveredCommands</c> manifest
+    /// (emitted by the <c>JasperFx.SourceGeneration</c> analyzer). When the manifest
+    /// is present at runtime, registration is fully trim-clean. When it is absent,
+    /// the fallback path still works for runtime-codegen apps but will emit IL2026
+    /// at the inner <c>RegisterCommands</c> call site. See <see cref="CommandLineHostingExtensions.ApplyFactoryDefaults"/>
+    /// for the manifest-first short-circuit.
+    /// </remarks>
     public static IServiceCollection CritterStackDefaults(this IServiceCollection services,
         Action<JasperFxOptions> configure)
     {
@@ -30,14 +40,18 @@ public static class JasperFxServiceCollectionExtensions
 
         return services.AddJasperFx(configure);
     }
-    
+
     /// <summary>
     /// Configure JasperFx and Critter Stack tool behavior for resource management at runtime
     /// </summary>
     /// <param name="services"></param>
     /// <param name="configure">Optional configuration of the JasperFxDefaults for resource management</param>
     /// <returns></returns>
-    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Scans entry/extension assemblies for IJasperFxCommand types via Assembly.GetExportedTypes(). Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
+    /// <remarks>
+    /// Annotation-free for trim/AOT — see the remarks on <see cref="CritterStackDefaults"/>.
+    /// </remarks>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Two reachable RUC call sites are stack-walk fallbacks that only execute when the consumer hasn't pre-set the application assembly: DetermineCallingAssembly is guarded by `RememberedApplicationAssembly == null`, and ReadHostEnvironment's establishApplicationAssembly fallback is guarded by `ApplicationAssembly == null`. AOT consumers are expected to call `JasperFxOptions.SetApplicationProject(typeof(Program).Assembly)` before AddJasperFx per the AOT publishing guide, which short-circuits both fallbacks. Apps that omit that call are by definition on the runtime-codegen path. See docs/codegen/aot.md.")]
     public static IServiceCollection AddJasperFx(this IServiceCollection services, Action<JasperFxOptions>? configure = null)
     {
         // It's actually important to do this as close as possible to this call
