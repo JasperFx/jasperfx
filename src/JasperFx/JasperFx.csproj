@@ -3,7 +3,7 @@
         <Description>Foundational helpers and command line support used by JasperFx and the Critter Stack projects</Description>
         <AssemblyName>JasperFx</AssemblyName>
         <PackageId>JasperFx</PackageId>
-        <Version>2.0.0-alpha.18</Version>
+        <Version>2.0.0-alpha.20</Version>
         <!-- AOT pillar (jasperfx#213). Enables IL2026/IL2075/IL3050 analyzers so any
              reflective public surface that isn't already annotated with
              [RequiresDynamicCode] / [RequiresUnreferencedCode] / [DynamicallyAccessedMembers]
