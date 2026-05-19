@@ -230,10 +230,6 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
 
     Task RewindAgentProgressAsync(IEventDatabase database, string shardName, CancellationToken token, long sequenceFloor);
 
-    [Obsolete("This was badly named as in the current implementation it is really TeardownExistingProjectionStateAsync()")]
-    Task TeardownExistingProjectionProgressAsync(IEventDatabase database, string subscriptionName,
-        CancellationToken token);
-
     /// <summary>
     /// Tear down all stored projection data and the projection progression
     /// </summary>

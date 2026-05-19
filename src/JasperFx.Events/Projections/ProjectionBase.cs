@@ -53,20 +53,6 @@ public abstract class ProjectionBase : EventFilterable, IHasLogger
         Version = version;
     }
 
-    [Obsolete("Use Name instead.")]
-    public string ProjectionName
-    {
-        get => Name;
-        set => Name = value;
-    }
-    
-    [Obsolete("Use Version instead.")]
-    public uint ProjectionVersion
-    {
-        get => Version;
-        set => Version = value;
-    }
-
     /// <summary>
     ///     The projection lifecycle that governs when this projection is executed
     /// </summary>

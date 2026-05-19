@@ -37,12 +37,6 @@ public interface IEventSlice<T>: IEventSlice
     /// </summary>
     T? Snapshot { get; }
 
-    /// <summary>
-    /// The current snapshot of this projected aggregate
-    /// </summary>
-    [Obsolete("Use Snapshot instead")]
-    T? Aggregate { get; }
-
     IEnumerable<IEvent> RaisedEvents();
     IEnumerable<object> PublishedMessages();
 
@@ -210,16 +204,6 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     ///     The related aggregate document
     /// </summary>
     public TDoc? Snapshot { get; set; }
-
-    /// <summary>
-    ///     The related aggregate document
-    /// </summary>
-    [Obsolete("Use Snapshot instead")]
-    public TDoc? Aggregate
-    {
-        get => Snapshot;
-        set => Snapshot = value;
-    }
 
     public string TenantId { get; }
 

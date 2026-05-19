@@ -229,15 +229,4 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         _defaultSlicer.CustomGrouping(func);
     }
 
-    /// <summary>
-    /// If your grouping of events to aggregates doesn't fall into any simple pattern supported
-    /// directly by MultiStreamProjection, supply your own "let me do whatever I want" event slicer
-    /// </summary>
-    /// <param name="slicer"></param>
-    [Obsolete("This can be accomplished by using the overload that takes in a lambda. See the documentation")]
-    public void CustomGrouping(IEventSlicer<TDoc, TId, TQuerySession> slicer)
-    {
-        _customSlicer = slicer;
-    }
-    
 }

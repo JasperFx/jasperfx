@@ -426,7 +426,7 @@ public class StreamAction
 
         if (metadata.UserNameEnabled)
         {
-            @event.UserName ??= metadata.CurrentUserName ?? metadata.LastModifiedBy;
+            @event.UserName ??= metadata.CurrentUserName;
         }
 
         if (!metadata.HeadersEnabled)
