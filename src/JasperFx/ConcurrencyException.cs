@@ -13,6 +13,11 @@ public class ConcurrencyException: Exception
             message +=
                 $". For documents of type {typeof(IRevisioned).FullNameInCode()}, JasperFx uses the current value of {nameof(IRevisioned)}.{nameof(IRevisioned.Version)} as the revision when a document storage operation is requested. You may need to explicitly call IDocumentSession.UpdateRevision() instead, or set the expected version correctly on the document itself";
         }
+        else if (docType.CanBeCastTo<ILongVersioned>())
+        {
+            message +=
+                $". For documents of type {typeof(ILongVersioned).FullNameInCode()}, JasperFx uses the current value of {nameof(ILongVersioned)}.{nameof(ILongVersioned.Version)} as the revision when a document storage operation is requested. You may need to explicitly call IDocumentSession.UpdateRevision() instead, or set the expected version correctly on the document itself";
+        }
 
         return message;
     }
