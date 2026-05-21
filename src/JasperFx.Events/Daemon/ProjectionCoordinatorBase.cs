@@ -50,12 +50,21 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
 
     /// <summary>
     /// The distributor that decides which (database × shards) sets this node should
-    /// try to run, and negotiates the per-set leadership locks.
+    /// try to run, and negotiates the per-set leadership locks. Null when the coordinator
+    /// is constructed in a "nothing to coordinate" state — see the <see cref="ProjectionCoordinatorBase"/>
+    /// ctor remarks.
     /// </summary>
-    public IProjectionDistributor Distributor { get; }
+    public IProjectionDistributor? Distributor { get; }
 
+    /// <param name="distributor">
+    /// May be null. A coordinator can be legitimately constructed but never started when the
+    /// async daemon is <c>Disabled</c>: there is no distribution work, so a store's
+    /// <c>BuildDistributor</c> naturally returns null in that mode. In that case
+    /// <see cref="StartAsync"/> no-ops and the loop never runs. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/352">#352</see>.
+    /// </param>
     protected ProjectionCoordinatorBase(
-        IProjectionDistributor distributor,
+        IProjectionDistributor? distributor,
         ILogger logger,
         ResiliencePipeline resilience,
         TimeProvider timeProvider,
@@ -63,7 +72,7 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
         TimeSpan agentPauseTime,
         TimeSpan healthCheckPollingTime)
     {
-        Distributor = distributor ?? throw new ArgumentNullException(nameof(distributor));
+        Distributor = distributor;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _resilience = resilience ?? throw new ArgumentNullException(nameof(resilience));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
@@ -98,6 +107,13 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        // No distributor means there is nothing to coordinate (e.g. a Disabled async daemon).
+        // The coordinator was constructed but should never spin up its leadership loop. See #352.
+        if (Distributor == null)
+        {
+            return Task.CompletedTask;
+        }
+
         _cancellation?.SafeDispose();
 
         _cancellation = new CancellationTokenSource();
@@ -146,13 +162,17 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
             daemon.SafeDispose();
         }
 
-        try
+        var distributor = Distributor;
+        if (distributor != null)
         {
-            await Distributor.ReleaseAllLocks().ConfigureAwait(false);
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "Error trying to release subscription agent locks");
+            try
+            {
+                await distributor.ReleaseAllLocks().ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Error trying to release subscription agent locks");
+            }
         }
     }
 
@@ -182,32 +202,37 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
 
     private async Task executeAsync(CancellationToken stoppingToken)
     {
-        await Distributor.RandomWait(stoppingToken).ConfigureAwait(false);
+        // StartAsync only reaches here with a non-null distributor; capture it locally so the
+        // null-state flows cleanly through the loop and the nested start path.
+        var distributor = Distributor;
+        if (distributor == null) return;
+
+        await distributor.RandomWait(stoppingToken).ConfigureAwait(false);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var sets = await Distributor.BuildDistributionAsync().ConfigureAwait(false);
+                var sets = await distributor.BuildDistributionAsync().ConfigureAwait(false);
 
                 foreach (var set in sets)
                 {
                     if (stoppingToken.IsCancellationRequested) return;
 
                     // Is it already running here?
-                    if (Distributor.HasLock(set))
+                    if (distributor.HasLock(set))
                     {
                         var daemon = ResolveDaemon(set);
-                        await startAgentsIfNecessaryAsync(set, daemon, stoppingToken).ConfigureAwait(false);
+                        await startAgentsIfNecessaryAsync(distributor, set, daemon, stoppingToken).ConfigureAwait(false);
                         continue;
                     }
 
                     try
                     {
-                        if (await Distributor.TryAttainLockAsync(set, stoppingToken).ConfigureAwait(false))
+                        if (await distributor.TryAttainLockAsync(set, stoppingToken).ConfigureAwait(false))
                         {
                             var daemon = ResolveDaemon(set);
-                            await startAgentsIfNecessaryAsync(set, daemon, stoppingToken).ConfigureAwait(false);
+                            await startAgentsIfNecessaryAsync(distributor, set, daemon, stoppingToken).ConfigureAwait(false);
                         }
                         else
                         {
@@ -264,20 +289,20 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
         }
     }
 
-    private async Task startAgentsIfNecessaryAsync(IProjectionSet set, IProjectionDaemon daemon,
-        CancellationToken stoppingToken)
+    private async Task startAgentsIfNecessaryAsync(IProjectionDistributor distributor, IProjectionSet set,
+        IProjectionDaemon daemon, CancellationToken stoppingToken)
     {
         foreach (var name in set.Names)
         {
             var agent = daemon.CurrentAgents().FirstOrDefault(x => x.Name.Equals(name));
             if (agent == null)
             {
-                await tryStartAgent(stoppingToken, daemon, name, set).ConfigureAwait(false);
+                await tryStartAgent(distributor, stoppingToken, daemon, name, set).ConfigureAwait(false);
             }
             else if (agent is { Status: AgentStatus.Paused, PausedTime: not null } &&
                      _timeProvider.GetUtcNow().Subtract(agent.PausedTime.Value) > _healthCheckPollingTime)
             {
-                await tryStartAgent(stoppingToken, daemon, name, set).ConfigureAwait(false);
+                await tryStartAgent(distributor, stoppingToken, daemon, name, set).ConfigureAwait(false);
             }
         }
     }
@@ -294,8 +319,8 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
         }
     }
 
-    private async Task tryStartAgent(CancellationToken stoppingToken, IProjectionDaemon daemon, ShardName name,
-        IProjectionSet set)
+    private async Task tryStartAgent(IProjectionDistributor distributor, CancellationToken stoppingToken,
+        IProjectionDaemon daemon, ShardName name, IProjectionSet set)
     {
         try
         {
@@ -312,7 +337,7 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
                 daemon.EjectPausedShard(name.Identity);
             }
 
-            await Distributor.ReleaseLockAsync(set).ConfigureAwait(false);
+            await distributor.ReleaseLockAsync(set).ConfigureAwait(false);
         }
     }
 

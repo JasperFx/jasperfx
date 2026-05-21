@@ -97,6 +97,41 @@ public class ProjectionCoordinatorBaseTests
         daemon.StopAllCount.ShouldBeGreaterThanOrEqualTo(1);
     }
 
+    // #352: a coordinator can be legitimately constructed but never started when the async
+    // daemon is Disabled — the store's BuildDistributor returns null because there is nothing
+    // to coordinate. The ctor must not reject that; the lifecycle methods must no-op cleanly.
+    [Fact]
+    public void can_be_constructed_with_a_null_distributor()
+    {
+        var coordinator = new TestCoordinator(
+            distributor: null,
+            new FakeDaemon(),
+            leadershipPollingTime: TimeSpan.FromSeconds(30),
+            agentPauseTime: TimeSpan.FromSeconds(30),
+            healthCheckPollingTime: TimeSpan.FromSeconds(30));
+
+        coordinator.Distributor.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task start_and_stop_no_op_when_the_distributor_is_null()
+    {
+        var daemon = new FakeDaemon();
+        var coordinator = new TestCoordinator(
+            distributor: null,
+            daemon,
+            leadershipPollingTime: TimeSpan.FromSeconds(30),
+            agentPauseTime: TimeSpan.FromSeconds(30),
+            healthCheckPollingTime: TimeSpan.FromSeconds(30));
+
+        // No runner spins up, and neither lifecycle call throws on the absent distributor.
+        await Should.NotThrowAsync(() => coordinator.StartAsync(CancellationToken.None));
+        await Should.NotThrowAsync(() => coordinator.StopAsync(CancellationToken.None));
+
+        // The loop never ran, so no agents were touched.
+        daemon.Started.ShouldBeEmpty();
+    }
+
     private static async Task WaitFor(Func<bool> condition, int timeoutMs = 3000)
     {
         var elapsed = 0;
@@ -111,7 +146,7 @@ public class ProjectionCoordinatorBaseTests
     {
         private readonly FakeDaemon _daemon;
 
-        public TestCoordinator(IProjectionDistributor distributor, FakeDaemon daemon,
+        public TestCoordinator(IProjectionDistributor? distributor, FakeDaemon daemon,
             TimeSpan leadershipPollingTime, TimeSpan agentPauseTime, TimeSpan healthCheckPollingTime)
             : base(distributor, NullLogger.Instance, ResiliencePipeline.Empty, TimeProvider.System,
                 leadershipPollingTime, agentPauseTime, healthCheckPollingTime)
