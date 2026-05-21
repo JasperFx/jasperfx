@@ -5,6 +5,10 @@ export default withMermaid(
   defineConfig({
     title: 'JasperFx',
     description: 'The foundational .NET library behind the Critter Stack',
+    // Relative links to .cs source files (with optional #Lxxx anchors) are source
+    // references, not doc pages — VitePress can't resolve them and fails the build.
+    // Don't dead-link-check source-file links; doc-to-doc links are still validated.
+    ignoreDeadLinks: [/\.cs(#.*)?$/],
     head: [
       ['link', { rel: 'icon', href: '/jasperfx-logo.png' }]
     ],
