@@ -273,14 +273,13 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         ImmutableArray<CandidateInfo?> refs,
         ImmutableArray<CandidateInfo?> snapshots)
     {
-        var seen = new System.Collections.Generic.HashSet<string>();
+        var seen = new HashSet<string>();
 
         // Pipeline 1 candidates have priority
         foreach (var info in direct)
         {
             if (info == null) continue;
-            var key = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            seen.Add(key);
+            MarkSeen(seen, info);
             Execute(spc, info);
         }
 
@@ -288,7 +287,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         foreach (var info in refs)
         {
             if (info == null) continue;
-            var key = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var key = SymbolKey(info.ClassSymbol);
             if (seen.Add(key))
             {
                 Execute(spc, info);
@@ -322,6 +321,21 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                 Execute(spc, info);
             }
         }
+    }
+
+    private static void MarkSeen(HashSet<string> seen, CandidateInfo info)
+    {
+        seen.Add(SymbolKey(info.ClassSymbol));
+
+        if (info.Mode == CandidateMode.PartialProjection && info.AggregateType != null && info.Methods.Count > 0)
+        {
+            seen.Add(SymbolKey(info.AggregateType));
+        }
+    }
+
+    private static string SymbolKey(INamedTypeSymbol symbol)
+    {
+        return symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
 
     private static void Execute(SourceProductionContext context, CandidateInfo info)

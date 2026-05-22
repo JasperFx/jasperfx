@@ -594,11 +594,11 @@ internal static class EvolverCodeEmitter
         // Emit the Evolve or EvolveAsync method
         if (isAsync)
         {
-            EmitAsyncEvolveMethod(sb, evolve, aggregateFullName, idFullName);
+            EmitAsyncEvolveMethod(sb, evolve, info.AggregateType!, aggregateFullName, idFullName);
         }
         else
         {
-            EmitSyncEvolveMethod(sb, evolve, aggregateFullName, idFullName);
+            EmitSyncEvolveMethod(sb, evolve, info.AggregateType!, aggregateFullName, idFullName);
         }
 
         sb.AppendLine("}");
@@ -621,16 +621,17 @@ internal static class EvolverCodeEmitter
         }
     }
 
-    private static void EmitSyncEvolveMethod(StringBuilder sb, EvolveMethodInfo evolve,
+    private static void EmitSyncEvolveMethod(StringBuilder sb, EvolveMethodInfo evolve, INamedTypeSymbol aggregateType,
         string docType, string idType)
     {
+        var ctorExpression = BuildAggregateConstructorExpression(aggregateType);
         sb.AppendLine($"    public {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
         sb.AppendLine("    {");
 
         if (evolve.IsMutable)
         {
             // void Evolve(object) or void Evolve(IEvent)
-            sb.AppendLine($"        snapshot ??= new {docType}();");
+            sb.AppendLine($"        snapshot ??= {ctorExpression};");
             if (evolve.TakesIEvent)
             {
                 sb.AppendLine("        snapshot.Evolve(e);");
@@ -646,20 +647,21 @@ internal static class EvolverCodeEmitter
             // TDoc Evolve(object) or TDoc Evolve(IEvent)
             if (evolve.TakesIEvent)
             {
-                sb.AppendLine($"        return (snapshot ?? new {docType}()).Evolve(e);");
+                sb.AppendLine($"        return (snapshot ?? {ctorExpression}).Evolve(e);");
             }
             else
             {
-                sb.AppendLine($"        return (snapshot ?? new {docType}()).Evolve(e.Data);");
+                sb.AppendLine($"        return (snapshot ?? {ctorExpression}).Evolve(e.Data);");
             }
         }
 
         sb.AppendLine("    }");
     }
 
-    private static void EmitAsyncEvolveMethod(StringBuilder sb, EvolveMethodInfo evolve,
+    private static void EmitAsyncEvolveMethod(StringBuilder sb, EvolveMethodInfo evolve, INamedTypeSymbol aggregateType,
         string docType, string idType)
     {
+        var ctorExpression = BuildAggregateConstructorExpression(aggregateType);
         sb.AppendLine($"    public async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync(");
         sb.AppendLine($"        {docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e,");
         sb.AppendLine("        object session, global::System.Threading.CancellationToken ct)");
@@ -691,13 +693,13 @@ internal static class EvolverCodeEmitter
 
         if (evolve.IsMutable)
         {
-            sb.AppendLine($"        snapshot ??= new {docType}();");
+            sb.AppendLine($"        snapshot ??= {ctorExpression};");
             sb.AppendLine($"        await snapshot.{methodName}({argsStr});");
             sb.AppendLine("        return snapshot;");
         }
         else
         {
-            sb.AppendLine($"        return await (snapshot ?? new {docType}()).{methodName}({argsStr});");
+            sb.AppendLine($"        return await (snapshot ?? {ctorExpression}).{methodName}({argsStr});");
         }
 
         sb.AppendLine("    }");
@@ -714,9 +716,9 @@ internal static class EvolverCodeEmitter
     /// fresh instance in the Apply-only / null-snapshot branch. Three cases:
     ///
     /// 1. Public parameterless ctor, no required members → `new T()`.
-    /// 2. Required members → `new T { Required = default!, ... }`. The C#
-    ///    compiler accepts the construction even though required members are
-    ///    about to be overwritten by Apply.
+    /// 2. Public parameterless ctor with required members →
+    ///    `new T { Required = default!, ... }`. The C# compiler accepts the
+    ///    construction even though required members are about to be overwritten by Apply.
     /// 3. No public parameterless ctor (e.g. `private T()` signalling
     ///    "construct me reflectively" or no parameterless ctor at all) →
     ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
@@ -745,11 +747,11 @@ internal static class EvolverCodeEmitter
             }
         }
 
-        var ctors = type.InstanceConstructors;
-        var hasPublicParameterless = ctors.Length == 0
-            || ctors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+        var hasPublicParameterless = type.TypeKind == TypeKind.Struct ||
+            type.InstanceConstructors.Any(c =>
+                c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
 
-        if (requiredMembers.Count > 0)
+        if (hasPublicParameterless && requiredMembers.Count > 0)
         {
             var inits = string.Join(", ", requiredMembers.Select(n => $"{n} = default!"));
             return $"new {fqn} {{ {inits} }}";
