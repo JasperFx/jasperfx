@@ -713,24 +713,36 @@ internal static class EvolverCodeEmitter
     /// Constructor expression for the aggregate when the SG needs to build a
     /// fresh instance in the Apply-only / null-snapshot branch. Three cases:
     ///
-    /// 1. Public parameterless ctor, no required members → `new T()`.
-    /// 2. Required members → `new T { Required = default!, ... }`. The C#
-    ///    compiler accepts the construction even though required members are
-    ///    about to be overwritten by Apply.
-    /// 3. No public parameterless ctor (e.g. `private T()` signalling
-    ///    "construct me reflectively" or no parameterless ctor at all) →
-    ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
-    ///    the instance without invoking any ctor or field initializers. Pre-#276
-    ///    Marten used `Activator.CreateInstance(nonPublic: true)` for this
-    ///    pattern; GetUninitializedObject is the AOT-clean equivalent.
-    ///    Caveat: field initializers don't run — aggregates that rely on
-    ///    them must move initialization into Apply / Create.
+    /// 1. Public parameterless ctor (or a struct) WITH required members →
+    ///    `new T { R = default!, … }`. The C# compiler accepts the object
+    ///    initializer (the required members are nominally satisfied) and Apply
+    ///    immediately overwrites them. Only legal because there's an accessible
+    ///    parameterless ctor for the initializer to call — `default!` is never
+    ///    emitted without one (marten#4542).
+    /// 2. Public parameterless ctor (or a struct) WITHOUT required members →
+    ///    `new T()`.
+    /// 3. No accessible parameterless ctor (e.g. `private T()` signalling
+    ///    "construct me reflectively", or a primary-constructor record) →
+    ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates the
+    ///    instance without invoking any ctor, field initializer, or required-
+    ///    member enforcement; Apply then populates it. Pre-#276 Marten used
+    ///    `Activator.CreateInstance(nonPublic: true)` for this;
+    ///    GetUninitializedObject is the AOT-clean equivalent. Caveat: field
+    ///    initializers don't run — aggregates that rely on them must initialize
+    ///    in Apply / Create.
     ///
-    /// See #297 + Marten 9.0 migration guide.
+    /// The marten#4542 bug was emitting case 1's `new T { R = default! }` for a
+    /// primary-constructor record (no parameterless ctor): the initializer needs
+    /// a parameterless ctor the record doesn't have (CS7036) and `new T(id)`
+    /// leaves the required members unset (CS9035). Guarding `default!` on
+    /// `hasPublicParameterless` routes those types to case 3 instead.
+    ///
+    /// See #297, marten#4542 + Marten 9.0 migration guide.
     /// </summary>
     private static string BuildAggregateConstructorExpression(INamedTypeSymbol type)
     {
         var fqn = Fqn(type);
+
         var requiredMembers = new List<string>();
         for (INamedTypeSymbol? current = type;
              current is not null && current.SpecialType != SpecialType.System_Object;
@@ -745,11 +757,19 @@ internal static class EvolverCodeEmitter
             }
         }
 
-        var ctors = type.InstanceConstructors;
-        var hasPublicParameterless = ctors.Length == 0
-            || ctors.Any(c => c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+        // A struct always has a parameterless ctor; a class has one when it's
+        // declared public (or implicit, when no instance ctors are declared).
+        // A positional record (`record T(string Id)`) has only its primary +
+        // copy ctors, so this is false — that's the marten#4542 case.
+        var hasPublicParameterless = type.TypeKind == TypeKind.Struct
+            || type.InstanceConstructors.Any(c =>
+                c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
 
-        if (requiredMembers.Count > 0)
+        // Only synthesize `new T { Required = default! }` when an accessible
+        // parameterless ctor exists for the object initializer to call. Without
+        // one (a primary-ctor record), fall through to GetUninitializedObject —
+        // never emit `default!` initializers that wouldn't compile (marten#4542).
+        if (hasPublicParameterless && requiredMembers.Count > 0)
         {
             var inits = string.Join(", ", requiredMembers.Select(n => $"{n} = default!"));
             return $"new {fqn} {{ {inits} }}";
@@ -757,8 +777,8 @@ internal static class EvolverCodeEmitter
 
         if (hasPublicParameterless) return $"new {fqn}()";
 
-        // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
-        // aggregates. Field initializers won't run; document in the migration guide.
+        // Reflective fallback for `private T()` / primary-ctor-record aggregates.
+        // Field initializers won't run; documented in the migration guide.
         return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
     }
 

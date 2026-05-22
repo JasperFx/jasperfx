@@ -733,4 +733,162 @@ public class UpdatedEvent { }
         evolver.ShouldContain("case global::Test.CreatedEvent");
         evolver.ShouldContain("case global::Test.UpdatedEvent");
     }
+
+    [Fact]
+    public void required_members_with_primary_ctor_and_conventional_projection_compiles()
+    {
+        // marten#4542: a record aggregate with a primary constructor for the id
+        // PLUS required members, projected by a partial SingleStreamProjection
+        // with conventional Create/Apply. The projection's Create fully
+        // initialises the aggregate, so the generator must NOT emit a standalone
+        // fallback evolver whose `new T(data)` ignores the required members
+        // (CS9035). The record's primary ctor (string Id) is the id-construction
+        // parameter, not an event-shaped implicit Create handler.
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public record DiagnostiekActiviteit(string Id)
+{
+    public required Guid? SubContractorId { get; set; }
+    public required string Aanlevercode { get; set; }
+    public required int Prestatiecodelijst { get; set; }
+}
+
+public class CareReceived { public string ProvidedCareId { get; set; } public Guid? SubContractorId { get; set; } public string Prestatiecode { get; set; } public int Prestatiecodelijst { get; set; } }
+public class CareImported { }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public partial class DiagnostiekActiviteitProjection : SingleStreamProjection<DiagnostiekActiviteit, string>
+{
+    public static DiagnostiekActiviteit Create(CareReceived e) => new(e.ProvidedCareId)
+    {
+        SubContractorId = e.SubContractorId,
+        Aanlevercode = e.Prestatiecode,
+        Prestatiecodelijst = e.Prestatiecodelijst,
+    };
+
+    public void Apply(CareImported e, DiagnostiekActiviteit a) { }
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        // CS9035 = required member not set in initializer; CS7036 = required
+        // constructor argument (the record's primary-ctor id) not supplied.
+        // The generator hits one or the other depending on which construction
+        // path it picks; both are the same root gap (primary ctor + required
+        // members). Filter to just these so the stub projection base's
+        // unrelated constraint errors don't mask the assertion.
+        var ctorErrors = diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS9035" or "CS7036")
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+
+        ctorErrors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void required_members_with_primary_ctor_apply_only_synthesizes_via_uninitialized_object_not_default()
+    {
+        // marten#4542: a primary-constructor record (no accessible parameterless
+        // ctor) with required members, built purely via Apply (no Create). There
+        // is no legal `new T { Required = default! }` here — the object
+        // initializer needs a parameterless ctor the record doesn't have. The
+        // emitter must instead allocate via RuntimeHelpers.GetUninitializedObject
+        // and let Apply populate the members — never emit a `default!`
+        // initializer that wouldn't compile.
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public record DiagnostiekActiviteit(string Id)
+{
+    public required Guid? SubContractorId { get; set; }
+    public required string Aanlevercode { get; set; }
+}
+
+public class CareImported { public Guid? SubContractorId { get; set; } public string Aanlevercode { get; set; } }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public partial class DiagnostiekActiviteitProjection : SingleStreamProjection<DiagnostiekActiviteit, string>
+{
+    public void Apply(CareImported e, DiagnostiekActiviteit a) { }
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS9035" or "CS7036")
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ShouldBeEmpty();
+
+        var (_, generatedSources) = RunGenerator(source);
+        var evolver = generatedSources.Single(s => s.Contains("DiagnostiekActiviteitProjection"));
+
+        // No accessible parameterless ctor → reflective allocation, never a
+        // `default!` object initializer.
+        evolver.ShouldContain("GetUninitializedObject(typeof(global::Test.DiagnostiekActiviteit))");
+        evolver.ShouldNotContain("default!");
+    }
+
+    [Fact]
+    public void required_members_on_plain_class_apply_only_synthesizes_via_default_initializers()
+    {
+        // marten#4542: a required-member PLAIN CLASS with an implicit public
+        // parameterless ctor — built purely via Apply, no Create (Marten's
+        // sample_external-account-link pattern). Unlike a primary-ctor record,
+        // `new T { Required = default! }` compiles here (an accessible
+        // parameterless ctor exists) and Apply overwrites the members, so the
+        // emitter keeps using the object initializer.
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public class ExternalAccountLink
+{
+    public required string Id { get; set; }
+    public required Guid CustomerId { get; set; }
+}
+
+public class CustomerLinked { public string ExternalAccountId { get; set; } public Guid CustomerId { get; set; } }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public partial class ExternalAccountLinkProjection : SingleStreamProjection<ExternalAccountLink, string>
+{
+    public void Apply(CustomerLinked e, ExternalAccountLink link) { link.Id = e.ExternalAccountId; link.CustomerId = e.CustomerId; }
+}
+";
+        var (_, generatedSources) = RunGenerator(source);
+
+        // The emitter synthesizes the plain class via the object initializer.
+        var evolver = generatedSources.Single(s => s.Contains("ExternalAccountLinkProjection"));
+        evolver.ShouldContain("new global::Test.ExternalAccountLink { Id = default!, CustomerId = default! }");
+    }
 }
