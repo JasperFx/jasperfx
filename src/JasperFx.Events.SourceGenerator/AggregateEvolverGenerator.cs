@@ -168,6 +168,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         // and aborted the whole SG run for that compilation. See #297.
         if (aggregateSymbol is not INamedTypeSymbol aggregateType)
             return null;
+        aggregateType = NormalizeAggregateType(aggregateType);
 
         // Resolve the invoked method and require it to be defined on a JasperFx.Events
         // or Marten projections-collection-style API. The conservative check: the
@@ -244,20 +245,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                     // Get the parameter type (the aggregate type)
                     var paramSymbol = ctx.SemanticModel.GetDeclaredSymbol(param, ct) as IParameterSymbol;
                     if (paramSymbol?.Type is not INamedTypeSymbol aggregateType) continue;
-
-                    // Unwrap nullable
-                    if (aggregateType.IsGenericType &&
-                        aggregateType.ConstructedFrom.ToDisplayString() == "System.Nullable<T>")
-                    {
-                        aggregateType = (INamedTypeSymbol)aggregateType.TypeArguments[0];
-                    }
-
-                    // Unwrap IEventStream<T>
-                    if (aggregateType.IsGenericType &&
-                        aggregateType.ConstructedFrom.ToDisplayString().Contains("IEventStream"))
-                    {
-                        aggregateType = (INamedTypeSymbol)aggregateType.TypeArguments[0];
-                    }
+                    aggregateType = NormalizeAggregateType(aggregateType);
 
                     return AggregateAnalyzer.AnalyzeRefersToAggregate(aggregateType, ct);
                 }
@@ -265,6 +253,29 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         }
 
         return null;
+    }
+
+    private static INamedTypeSymbol NormalizeAggregateType(INamedTypeSymbol aggregateType)
+    {
+        if (aggregateType.IsGenericType &&
+            aggregateType.ConstructedFrom.ToDisplayString() == "System.Nullable<T>")
+        {
+            aggregateType = (INamedTypeSymbol)aggregateType.TypeArguments[0];
+        }
+
+        if (aggregateType.IsGenericType &&
+            aggregateType.ConstructedFrom.ToDisplayString().Contains("IEventStream"))
+        {
+            aggregateType = (INamedTypeSymbol)aggregateType.TypeArguments[0];
+        }
+
+        if (aggregateType.IsGenericType &&
+            aggregateType.ConstructedFrom.ToDisplayString() == "System.Nullable<T>")
+        {
+            aggregateType = (INamedTypeSymbol)aggregateType.TypeArguments[0];
+        }
+
+        return (INamedTypeSymbol)aggregateType.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
     }
 
     private static void ExecuteCombined(
@@ -392,8 +403,20 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     private static string SafeHintName(INamedTypeSymbol symbol, string suffix)
     {
-        var fullName = symbol.ToDisplayString().Replace('<', '_').Replace('>', '_').Replace(',', '_').Replace(' ', '_').Replace('.', '_');
+        var fullName = SanitizeHintNamePart(symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
         return $"{fullName}{suffix}.g.cs";
+    }
+
+    private static string SanitizeHintNamePart(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+
+        foreach (var ch in value)
+        {
+            builder.Append(char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_');
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>
@@ -406,11 +429,9 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     /// </summary>
     private static string SafeSelfAggregatingHintName(CandidateInfo info, string suffix)
     {
-        var typeName = info.ClassSymbol.ToDisplayString();
-        var idName = info.IdentityType?.ToDisplayString() ?? string.Empty;
-        var combined = (typeName + "_" + idName)
-            .Replace('<', '_').Replace('>', '_').Replace(',', '_').Replace(' ', '_').Replace('.', '_');
-        return $"{combined}{suffix}.g.cs";
+        var typeName = info.ClassSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var idName = info.IdentityType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? string.Empty;
+        return $"{SanitizeHintNamePart(typeName + "_" + idName)}{suffix}.g.cs";
     }
 
     private static void EmitPartialProjection(SourceProductionContext context, CandidateInfo info)

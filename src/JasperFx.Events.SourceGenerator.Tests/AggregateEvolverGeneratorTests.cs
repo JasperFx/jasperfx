@@ -665,6 +665,65 @@ public class Registration
         allGenerated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.Counter)");
     }
 
+    [Fact]
+    public void nullable_aggregate_parameter_attribute_does_not_crash_hint_name_generation()
+    {
+        var source = @"
+#nullable enable
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+public class ReadAggregateAttribute(string memberName) : Attribute, IRefersToAggregate;
+
+public record EigenPrestatie
+{
+    public required string Id { get; init; }
+    public required string Prestatiecode { get; init; }
+
+    public static EigenPrestatie Create(EigenPrestatieAangemaakt e) => new()
+    {
+        Id = e.PrestatieId,
+        Prestatiecode = e.Prestatiecode
+    };
+}
+
+public class EigenPrestatieAangemaakt
+{
+    public string PrestatieId { get; set; } = """";
+    public string Prestatiecode { get; set; } = """";
+}
+
+public class EigenTariefAanmaken
+{
+    public string PrestatieId { get; set; } = """";
+}
+
+public static class EigenTariefAanmakenEndpoint
+{
+    public static void Validate(
+        EigenTariefAanmaken request,
+        [ReadAggregate(nameof(EigenTariefAanmaken.PrestatieId))]
+        EigenPrestatie? prestatie)
+    {
+    }
+}
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        diagnostics
+            .Where(d => d.Id == "CS8785")
+            .Select(d => d.GetMessage())
+            .ShouldBeEmpty();
+
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain("IGeneratedSyncEvolver<global::Test.EigenPrestatie, string>");
+        allGenerated.ShouldContain("EigenPrestatieEvolver");
+    }
+
     // Negative case for #293: a same-named Snapshot<T>() helper in a user namespace must NOT
     // trip Pipeline 3, otherwise unrelated user code with a generic Snapshot<T> method would
     // start producing spurious evolvers for arbitrary type arguments.
