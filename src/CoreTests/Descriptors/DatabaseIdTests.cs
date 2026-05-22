@@ -32,7 +32,8 @@ public class DatabaseIdTests
     [Theory]
     [InlineData("one")]
     [InlineData("one,two")]
-    [InlineData("one.two.three")]
+    [InlineData("one.")]
+    [InlineData(".one")]
     public void try_parse_sad_path(string text)
     {
         DatabaseId.TryParse(text, out var id).ShouldBeFalse();
@@ -59,5 +60,44 @@ public class DatabaseIdTests
         DatabaseId.TryParse("~some~host.tom", out var id).ShouldBeTrue();
         id.Server.ShouldBe("/some/host");
         id.Name.ShouldBe("tom");
+    }
+
+    [Fact]
+    public void round_trips_dotted_server_name()
+    {
+        var id = new DatabaseId(
+            "database-feature2.zorgdeclaraties-test.aws.topicus.healthcare",
+            "feature2_claims2");
+
+        var roundTripped = DatabaseId.Parse(id.ToString());
+
+        roundTripped.ShouldBe(id);
+    }
+
+    [Fact]
+    public void parse_legacy_dotted_server_name()
+    {
+        var id = DatabaseId.Parse(
+            "database-feature2.zorgdeclaraties-test.aws.topicus.healthcare.feature2_claims2");
+
+        id.Server.ShouldBe("database-feature2.zorgdeclaraties-test.aws.topicus.healthcare");
+        id.Name.ShouldBe("feature2_claims2");
+    }
+
+    [Fact]
+    public void escapes_dots_inside_segments()
+    {
+        var id = new DatabaseId("server.with.dots", "name.with.dots");
+
+        id.ToString().ShouldBe("server%2Ewith%2Edots.name%2Ewith%2Edots");
+        DatabaseId.Parse(id.ToString()).ShouldBe(id);
+    }
+
+    [Fact]
+    public void round_trips_percent_encoded_text()
+    {
+        var id = new DatabaseId("server%2Ename", "db%25name");
+
+        DatabaseId.Parse(id.ToString()).ShouldBe(id);
     }
 }
