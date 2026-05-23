@@ -1339,9 +1339,9 @@ internal static class AggregateAnalyzer
     {
         // Always-true: the emitter knows how to instantiate every reference
         // type via `BuildAggregateConstructorExpression`, which picks between
-        // `new T()`, `new T { ... = default! }` (required members), or
-        // `RuntimeHelpers.GetUninitializedObject(typeof(T))` (no public
-        // parameterless ctor). Keeping the property name + signature
+        // `new T()`, `new T { ... = default! }` (required members with a
+        // public parameterless ctor), or `RuntimeHelpers.GetUninitializedObject(typeof(T))`
+        // (no public parameterless ctor). Keeping the property name + signature
         // unchanged so downstream gates that read it still compile; the value
         // now reflects "can the emitter produce an instance?" rather than
         // strictly "is there a public parameterless ctor?". See #297.

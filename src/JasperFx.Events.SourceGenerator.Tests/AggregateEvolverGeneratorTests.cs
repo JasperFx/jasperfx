@@ -111,6 +111,109 @@ public partial class AllSync : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
+    public void partial_projection_for_required_member_aggregate_suppresses_snapshot_fallback()
+    {
+        var source = @"
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Daemon;
+using JasperFx.Events.Projections;
+
+namespace Marten.Events.Projections
+{
+    public class ProjectionOptions
+    {
+        public void Snapshot<T>() { }
+    }
+}
+
+namespace Test
+{
+
+public record DiagnostiekActiviteit(string Id)
+{
+    public required string Aanlevercode { get; set; }
+    public required int Prestatiecodelijst { get; set; }
+
+    public DiagnostiekActiviteit(DiagnosticProvidedCareImported e) : this(e.ProvidedCareId)
+    {
+        Aanlevercode = e.Prestatiecode;
+        Prestatiecodelijst = e.Prestatiecodelijst;
+    }
+}
+
+public class DiagnosticProvidedCareReceived
+{
+    public string ProvidedCareId { get; set; } = """";
+    public string Prestatiecode { get; set; } = """";
+    public int Prestatiecodelijst { get; set; }
+}
+
+public class DiagnosticProvidedCareImported
+{
+    public string ProvidedCareId { get; set; } = """";
+    public string Prestatiecode { get; set; } = """";
+    public int Prestatiecodelijst { get; set; }
+}
+
+public class StubOperations : IStorageOperations
+{
+    public bool EnableSideEffectsOnInlineProjections => false;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(
+        string tenantId,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public ValueTask<IMessageSink> GetOrStartMessageSink() => throw new NotSupportedException();
+}
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, StubOperations, StubOperations>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() { }
+}
+
+public partial class DiagnostiekActiviteitProjection : SingleStreamProjection<DiagnostiekActiviteit, string>
+{
+    public static DiagnostiekActiviteit Create(DiagnosticProvidedCareReceived e) => new(e.ProvidedCareId)
+    {
+        Aanlevercode = e.Prestatiecode,
+        Prestatiecodelijst = e.Prestatiecodelijst
+    };
+
+    public void Apply(DiagnosticProvidedCareImported e, DiagnostiekActiviteit a) { }
+}
+
+public class Registration
+{
+    public void Register(Marten.Events.Projections.ProjectionOptions opts)
+    {
+        opts.Snapshot<DiagnostiekActiviteit>();
+    }
+}
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.GetMessage())
+            .ShouldBeEmpty();
+
+        var (_, generatedSources) = RunGenerator(source);
+        var allGenerated = string.Join("\n", generatedSources);
+
+        allGenerated.ShouldContain("partial class DiagnostiekActiviteitProjection");
+        allGenerated.ShouldNotContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.DiagnostiekActiviteit)");
+        allGenerated.ShouldNotContain("DiagnostiekActiviteit_StringEvolver");
+    }
+
+    [Fact]
     public void generates_evolver_for_self_aggregating_type()
     {
         var source = @"
@@ -560,6 +663,65 @@ public class Registration
         // runtime's tryUseAssemblyRegisteredEvolver scan picks up on `typeof(TDoc).Assembly`.
         allGenerated.ShouldContain("CounterEvolver");
         allGenerated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.Counter)");
+    }
+
+    [Fact]
+    public void nullable_aggregate_parameter_attribute_does_not_crash_hint_name_generation()
+    {
+        var source = @"
+#nullable enable
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+public class ReadAggregateAttribute(string memberName) : Attribute, IRefersToAggregate;
+
+public record EigenPrestatie
+{
+    public required string Id { get; init; }
+    public required string Prestatiecode { get; init; }
+
+    public static EigenPrestatie Create(EigenPrestatieAangemaakt e) => new()
+    {
+        Id = e.PrestatieId,
+        Prestatiecode = e.Prestatiecode
+    };
+}
+
+public class EigenPrestatieAangemaakt
+{
+    public string PrestatieId { get; set; } = """";
+    public string Prestatiecode { get; set; } = """";
+}
+
+public class EigenTariefAanmaken
+{
+    public string PrestatieId { get; set; } = """";
+}
+
+public static class EigenTariefAanmakenEndpoint
+{
+    public static void Validate(
+        EigenTariefAanmaken request,
+        [ReadAggregate(nameof(EigenTariefAanmaken.PrestatieId))]
+        EigenPrestatie? prestatie)
+    {
+    }
+}
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        diagnostics
+            .Where(d => d.Id == "CS8785")
+            .Select(d => d.GetMessage())
+            .ShouldBeEmpty();
+
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain("IGeneratedSyncEvolver<global::Test.EigenPrestatie, string>");
+        allGenerated.ShouldContain("EigenPrestatieEvolver");
     }
 
     // Negative case for #293: a same-named Snapshot<T>() helper in a user namespace must NOT
