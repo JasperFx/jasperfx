@@ -8,17 +8,19 @@ namespace JasperFx.CodeGeneration.Services;
 public class GetServiceFromScopedContainerFrame : SyncFrame
 {
     private readonly Variable _scoped;
+    private readonly object? _serviceKey;
 
 
-    public GetServiceFromScopedContainerFrame(Variable scoped, Type serviceType)
+    public GetServiceFromScopedContainerFrame(Variable scoped, Type serviceType, object? serviceKey = null)
     {
         if (scoped.VariableType != typeof(IServiceProvider))
         {
             throw new ArgumentOutOfRangeException(nameof(scoped),
                 $"Wrong type for the variable. Expected {typeof(IServiceProvider).FullNameInCode()} but got {scoped.VariableType.FullNameInCode()}");
         }
-        
+
         _scoped = scoped;
+        _serviceKey = serviceKey;
         uses.Add(_scoped);
 
         Variable = new Variable(serviceType, this);
@@ -60,8 +62,19 @@ public class GetServiceFromScopedContainerFrame : SyncFrame
             Header.Write(writer);
         }
 
-        writer.Write(
-            $"var {Variable.Usage} = {typeof(ServiceProviderServiceExtensions).FullNameInCode()}.{nameof(ServiceProviderServiceExtensions.GetRequiredService)}<{Variable.VariableType.FullNameInCode()}>({_scoped.Usage});");
+        if (_serviceKey != null)
+        {
+            // Keyed service resolved through service location. Without the key this would emit
+            // GetRequiredService<T> and either throw or resolve the wrong registration. See GH-2878.
+            writer.Write(
+                $"var {Variable.Usage} = {typeof(ServiceProviderKeyedServiceExtensions).FullNameInCode()}.{nameof(ServiceProviderKeyedServiceExtensions.GetRequiredKeyedService)}<{Variable.VariableType.FullNameInCode()}>({_scoped.Usage}, {CodeFormatter.Write(_serviceKey)});");
+        }
+        else
+        {
+            writer.Write(
+                $"var {Variable.Usage} = {typeof(ServiceProviderServiceExtensions).FullNameInCode()}.{nameof(ServiceProviderServiceExtensions.GetRequiredService)}<{Variable.VariableType.FullNameInCode()}>({_scoped.Usage});");
+        }
+
         Next?.GenerateCode(method, writer);
     }
 }

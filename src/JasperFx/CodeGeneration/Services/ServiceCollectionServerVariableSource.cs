@@ -153,7 +153,11 @@ because at least one dependency is directly using IServiceProvider or has an opa
         var written = false;
         foreach (var standin in _standins)
         {
-            var frame = new GetServiceFromScopedContainerFrame(_scoped, standin.VariableType);
+            // Keyed services must keep their key when dragged onto the service-location path,
+            // otherwise the generated code emits GetRequiredService<T> and loses the key. See GH-2878.
+            var descriptor = standin.Plan.Descriptor;
+            var serviceKey = descriptor is { IsKeyedService: true } ? descriptor.ServiceKey : null;
+            var frame = new GetServiceFromScopedContainerFrame(_scoped, standin.VariableType, serviceKey);
             var variable = frame.Variable;
 
             // Write description of why this had to use the nested container

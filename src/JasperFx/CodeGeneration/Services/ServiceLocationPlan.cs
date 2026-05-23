@@ -40,7 +40,8 @@ internal class ServiceLocationPlan : ServicePlan
 
     public override Variable CreateVariable(ServiceVariables resolverVariables)
     {
-        return new GetServiceFromScopedContainerFrame(resolverVariables.ServiceProvider, Descriptor.ServiceType)
+        var serviceKey = Descriptor.IsKeyedService ? Descriptor.ServiceKey : null;
+        return new GetServiceFromScopedContainerFrame(resolverVariables.ServiceProvider, Descriptor.ServiceType, serviceKey)
             .Variable;
     }
 }
