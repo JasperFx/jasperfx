@@ -3,7 +3,7 @@
     <PropertyGroup>
         <Description>Foundational Event Store Abstractions and Projections for the Critter Stack</Description>
         <PackageId>JasperFx.Events</PackageId>
-        <Version>2.0.0</Version>
+        <Version>2.1.0</Version>
         <!-- AOT pillar (jasperfx#213). Enables IL2026/IL2075/IL3050 analyzers so any
              reflective surface that isn't already annotated surfaces during our own
              build. JasperFx.csproj carries the same flag — together they're the
