@@ -67,4 +67,28 @@ public interface IEventDatabase
     /// <returns></returns>
     Task<IReadOnlyList<ShardState>> AllProjectionProgress(
         CancellationToken token = default);
+
+    /// <summary>
+    ///     Count the stored dead letter events for a single projection/subscription shard. With
+    ///     <c>SkipApplyErrors</c> on (the JasperFx.Events 2.0 default), a failed <c>Apply()</c> is
+    ///     recorded as a <see cref="DeadLetterEvent" /> and the shard keeps advancing, so the
+    ///     accumulation of these is the primary "this projection is unhealthy" signal.
+    ///     The default implementation returns 0 as a stand-in; event stores that persist dead
+    ///     letters should override this. See jasperfx#356.
+    /// </summary>
+    /// <param name="shard">The projection/subscription shard to count dead letters for.</param>
+    /// <param name="token"></param>
+    Task<long> CountDeadLetterEventsAsync(ShardName shard, CancellationToken token = default)
+        => Task.FromResult(0L);
+
+    /// <summary>
+    ///     Fetch the stored dead letter event counts for this database, one row per shard
+    ///     (<see cref="DeadLetterShardCount.ProjectionName" /> + <see cref="DeadLetterShardCount.ShardKey" />).
+    ///     Mirrors the "give me every row" shape of <see cref="AllProjectionProgress" />.
+    ///     The default implementation returns an empty list as a stand-in; event stores that
+    ///     persist dead letters should override this. See jasperfx#356.
+    /// </summary>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<DeadLetterShardCount>> FetchDeadLetterCountsAsync(CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<DeadLetterShardCount>>([]);
 }
