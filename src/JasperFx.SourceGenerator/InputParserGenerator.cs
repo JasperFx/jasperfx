@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace JasperFx.SourceGeneration;
+namespace JasperFx.SourceGenerator;
 
 /// <summary>
 /// Source generator that creates optimized input model parsers for JasperFx commands.

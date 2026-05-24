@@ -23,7 +23,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\ExtensionCommands\ExtensionCommands.csproj" />
-        <ProjectReference Include="..\JasperFx.SourceGeneration\JasperFx.SourceGeneration.csproj"
+        <ProjectReference Include="..\JasperFx.SourceGenerator\JasperFx.SourceGenerator.csproj"
                           OutputItemType="Analyzer"
                           ReferenceOutputAssembly="false" />
     </ItemGroup>

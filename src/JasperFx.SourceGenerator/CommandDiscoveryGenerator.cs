@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace JasperFx.SourceGeneration;
+namespace JasperFx.SourceGenerator;
 
 /// <summary>
 /// Source generator that discovers JasperFx command types at compile time,

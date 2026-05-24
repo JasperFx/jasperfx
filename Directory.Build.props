@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
     <PropertyGroup>
+        <!-- Shared version for the core JasperFx package and its merged source generator
+             (JasperFx.SourceGenerator). Both leaf csprojs set <Version>$(JasperFxVersion)</Version>
+             so they always bump together (jasperfx#365). Other packages in this repo
+             (JasperFx.Events, JasperFx.RuntimeCompiler, JasperFx.Events.SourceGenerator)
+             version independently and keep their own <Version> in their csproj. -->
+        <JasperFxVersion>2.0.1</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>

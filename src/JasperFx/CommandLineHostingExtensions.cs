@@ -128,7 +128,7 @@ public static class CommandLineHostingExtensions
     /// IL2026 at the <c>CritterStackDefaults</c> / <c>AddJasperFx</c> call site.
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-        Justification = "Fallback assembly scan is only reached when the source-generated DiscoveredCommands manifest is absent. Consumers targeting trim/AOT wire JasperFx.SourceGeneration, which emits the manifest as ordinary code in the consuming assembly so RegisterCommands(Assembly) is never reached at runtime. Apps that omit the analyzer are by definition opting into the runtime-codegen path and accept the scan.")]
+        Justification = "Fallback assembly scan is only reached when the source-generated DiscoveredCommands manifest is absent. Consumers targeting trim/AOT wire JasperFx.SourceGenerator, which emits the manifest as ordinary code in the consuming assembly so RegisterCommands(Assembly) is never reached at runtime. Apps that omit the analyzer are by definition opting into the runtime-codegen path and accept the scan.")]
     internal static void ApplyFactoryDefaults(this CommandFactory factory, Assembly? applicationAssembly)
     {
         if (factory.TryRegisterFromGeneratedManifest())
