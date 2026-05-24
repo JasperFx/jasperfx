@@ -24,7 +24,7 @@ public static class JasperFxServiceCollectionExtensions
     /// This method is annotation-free for trim/AOT consumers: the only trim-unsafe
     /// work is the assembly-scan fallback in <see cref="CommandFactory.RegisterCommands(Assembly)"/>,
     /// which is gated behind the source-generated <c>DiscoveredCommands</c> manifest
-    /// (emitted by the <c>JasperFx.SourceGeneration</c> analyzer). When the manifest
+    /// (emitted by the <c>JasperFx.SourceGenerator</c> analyzer). When the manifest
     /// is present at runtime, registration is fully trim-clean. When it is absent,
     /// the fallback path still works for runtime-codegen apps but will emit IL2026
     /// at the inner <c>RegisterCommands</c> call site. See <see cref="CommandLineHostingExtensions.ApplyFactoryDefaults"/>

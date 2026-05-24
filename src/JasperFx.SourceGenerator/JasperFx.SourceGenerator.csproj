@@ -10,9 +10,9 @@
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
         <NoWarn>RS2008;NU5128</NoWarn>
         <IsRoslynComponent>true</IsRoslynComponent>
-        <Description>Source generator for JasperFx OptionsDescription — generates IDescribeMyself.ToDescription() without Reflection</Description>
+        <Description>Source generators for JasperFx: OptionsDescription (IDescribeMyself.ToDescription() without Reflection), CLI command discovery, and command input parsing — all reflection-free for fast cold start and trim/AOT</Description>
         <PackageId>JasperFx.SourceGenerator</PackageId>
-        <Version>2.0.0</Version>
+        <Version>$(JasperFxVersion)</Version>
         <IncludeBuildOutput>false</IncludeBuildOutput>
         <DevelopmentDependency>true</DevelopmentDependency>
     </PropertyGroup>

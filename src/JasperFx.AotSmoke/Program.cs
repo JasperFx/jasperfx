@@ -35,7 +35,7 @@ if (evt.Data.Message != tenantEvt.Data.Message)
 // Regression for #312. These are the unified 2.0 codegen-mode entry points
 // the per-store opts.GeneratedCodeMode obsoletion recommends as replacement.
 // They previously carried [RequiresUnreferencedCode] which fired IL2026
-// for every IsAotCompatible consumer even when JasperFx.SourceGeneration
+// for every IsAotCompatible consumer even when JasperFx.SourceGenerator
 // was wired — locking AOT consumers onto the obsolete per-store form.
 // The annotation has been pushed down to the inner fallback path that
 // only runs when the source-generated DiscoveredCommands manifest is absent.
