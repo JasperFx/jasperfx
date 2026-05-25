@@ -47,19 +47,28 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     private static bool IsCandidateClass(SyntaxNode node)
     {
-        if (node is ClassDeclarationSyntax classDecl)
+        // Classes and records are treated identically. A self-aggregating type owns its
+        // Apply/Create/ShouldDelete (or Evolve/EvolveAsync) methods; a projection subclass
+        // declares Apply/Create/ShouldDelete/Project/Transform (ApplyAsync covers an
+        // EventProjection override that still needs published-type registration).
+        //
+        // Records are NOT special-cased: a self-aggregating `record` with Apply/Create must
+        // get an evolver emitted from its OWN declaration (Pipeline 1) so it works regardless
+        // of where — or whether — a `Snapshot<T>` / `AggregateStream<T>` call site is visible,
+        // and crucially without ever requiring the record to be `partial`. Otherwise a record
+        // aggregate defined in one assembly but registered in another (the common
+        // domain-library + composition-root split) never gets a `[GeneratedEvolver]` emitted
+        // into its own assembly — which is exactly where the runtime scans. See marten#4557.
+        //
+        // (Pre-#4557 records were filtered to Evolve/EvolveAsync only, on the assumption that
+        // Apply/Create on a record were dispatched by a runtime reflection path. That path was
+        // removed in the 9.0 projections rework, so a self-aggregating record must be
+        // source-generated exactly like a class.)
+        if (node is ClassDeclarationSyntax or RecordDeclarationSyntax)
         {
-            // Classes: check for Apply, Create, ShouldDelete, Project, Transform, Evolve, EvolveAsync,
-            // or ApplyAsync (for EventProjection with explicit override that needs type registration)
-            return classDecl.Members.OfType<MethodDeclarationSyntax>()
+            var typeDecl = (TypeDeclarationSyntax)node;
+            return typeDecl.Members.OfType<MethodDeclarationSyntax>()
                 .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete" or "Project" or "Transform" or "Evolve" or "EvolveAsync" or "ApplyAsync");
-        }
-
-        if (node is RecordDeclarationSyntax recordDecl)
-        {
-            // Records: only check for Evolve/EvolveAsync (Apply/Create on records is handled at runtime)
-            return recordDecl.Members.OfType<MethodDeclarationSyntax>()
-                .Any(m => m.Identifier.ValueText is "Evolve" or "EvolveAsync");
         }
 
         return false;

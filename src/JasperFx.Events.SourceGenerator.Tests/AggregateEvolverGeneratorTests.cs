@@ -895,4 +895,39 @@ public class UpdatedEvent { }
         evolver.ShouldContain("case global::Test.CreatedEvent");
         evolver.ShouldContain("case global::Test.UpdatedEvent");
     }
+
+    // marten#4557: a self-aggregating immutable `record` with static Create/Apply must get
+    // an evolver emitted from its OWN declaration — with NO Snapshot<T> call site anywhere in
+    // the compilation, and WITHOUT being declared `partial`. This is what lets a record
+    // aggregate defined in a domain library work when the `Snapshot<T>` registration lives in
+    // a different (composition-root) assembly: the `[GeneratedEvolver]` lands in the record's
+    // own assembly, which is where the runtime scans. Pre-#4557 the record was skipped here
+    // (only Evolve/EvolveAsync triggered records), so it had to be reached via the call site.
+    [Fact]
+    public void self_aggregating_record_emits_evolver_from_its_own_declaration_without_partial()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Test;
+
+public record MyType(Guid Id, string Name, int Count, string LastEvent)
+{
+    public static MyType Create(MyTypeCreated e) => new(e.Id, e.Name, 0, nameof(MyTypeCreated));
+    public static MyType Apply(MyTypeIncremented e, MyType current)
+        => current with { Count = current.Count + e.Amount, LastEvent = nameof(MyTypeIncremented) };
+}
+
+public record MyTypeCreated(Guid Id, string Name);
+public record MyTypeIncremented(int Amount);
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain("MyTypeEvolver");
+        allGenerated.ShouldContain("IGeneratedSyncEvolver");
+        allGenerated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.MyType)");
+        diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error).ShouldBeFalse();
+    }
 }

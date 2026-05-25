@@ -119,10 +119,14 @@ internal class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAg
     {
         var owner = _projectionType ?? typeof(TAggregate);
         return $"No source-generated dispatcher found for {owner.FullNameInCode()}. " +
-               "When using conventional Apply/Create/ShouldDelete methods, the projection class must be declared " +
-               "`partial` in an assembly that references the JasperFx.Events.SourceGenerator analyzer, " +
-               "or alternatively override Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly. " +
-               "See docs/codegen/aot.md for the AOT publishing guide.";
+               "Conventional Apply/Create/ShouldDelete methods are dispatched by the compile-time " +
+               "JasperFx.Events.SourceGenerator; there is no runtime fallback. Ensure that analyzer runs in the " +
+               $"assembly that defines {typeof(TAggregate).FullNameInCode()} (for Marten consumers the generator " +
+               "ships inside the Marten NuGet package, so verify the project reference does not exclude the " +
+               "'analyzers' asset). A self-aggregating type registered via Snapshot<T> / SingleStreamProjection<T> / " +
+               "AggregateStream<T> does NOT need to be `partial`; a projection subclass that uses convention methods " +
+               "DOES need to be declared `partial`. Alternatively, override " +
+               "Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly.";
     }
 
     // IAggregator<>: the runtime aggregator contract. Reachable only when the registration-time
