@@ -11,8 +11,8 @@ namespace JasperFx.CommandLine;
 /// <remarks>
 ///     The annotations propagate the reflective surface to implementations (default
 ///     <see cref="CommandFactory"/>) and to consumers (<see cref="CommandExecutor"/>,
-///     <see cref="CommandLineHostingExtensions"/>). AOT/trim-clean apps short-circuit
-///     the reflective discovery path via <see cref="CommandFactory.TryRegisterFromGeneratedManifest"/>
+///     <see cref="CommandLineHostingExtensions"/>). AOT/trim-clean apps bypass
+///     the reflective discovery path via <see cref="CommandFactory.TryRegisterCommandsFromManifest"/>
 ///     and the JasperFx.SourceGenerator-emitted <c>DiscoveredCommands</c> manifest.
 /// </remarks>
 public interface ICommandFactory

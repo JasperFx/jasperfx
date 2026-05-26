@@ -20,8 +20,10 @@ namespace JasperFx.SourceGenerator;
 [Generator]
 public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
 {
-    private const string JasperFxCommandName = "JasperFx.CommandLine.JasperFxCommand`1";
-    private const string JasperFxAsyncCommandName = "JasperFx.CommandLine.JasperFxAsyncCommand`1";
+    // NOTE: these are matched against INamedTypeSymbol.OriginalDefinition.ToDisplayString(),
+    // which renders generics in C# style ("Foo<T>"), NOT the metadata form ("Foo`1").
+    private const string JasperFxCommandName = "JasperFx.CommandLine.JasperFxCommand<T>";
+    private const string JasperFxAsyncCommandName = "JasperFx.CommandLine.JasperFxAsyncCommand<T>";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -51,6 +53,11 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
 
         // Check if it closes JasperFxCommand<T> or JasperFxAsyncCommand<T>
         if (!ClosesCommandBaseType(symbol)) return null;
+
+        // The generated manifest references each command via typeof(...) from an internal class
+        // in the consuming assembly. Skip types it cannot legally name (e.g. private/protected
+        // nested commands such as test fixtures), otherwise the generated code would not compile.
+        if (!IsReferenceable(symbol)) return null;
 
         var fullName = symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         var typeName = symbol.Name;
@@ -101,6 +108,20 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
         }
 
         return false;
+    }
+
+    // The manifest must mirror the reflective fallback (Assembly.GetExportedTypes), which only
+    // sees public types whose containing types are also public. Restricting to public types both
+    // keeps the manifest a faithful drop-in for the scan and avoids emitting typeof(...) for
+    // private/protected nested commands (e.g. test fixtures) that would not compile.
+    private static bool IsReferenceable(INamedTypeSymbol symbol)
+    {
+        for (INamedTypeSymbol? t = symbol; t != null; t = t.ContainingType)
+        {
+            if (t.DeclaredAccessibility != Accessibility.Public) return false;
+        }
+
+        return true;
     }
 
     private static void Execute(SourceProductionContext context, ImmutableArray<CommandInfo?> commands)

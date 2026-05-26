@@ -21,6 +21,23 @@ Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-fr
 
 Reference it as an analyzer/source-generator only — there's no runtime API. For `OptionsDescription`, apply the `[GenerateDescription]` attribute to a `partial` class that implements `IDescribeMyself` and a `ToDescription()` method is generated. The command-discovery and input-parser output is consumed transparently by `JasperFx.CommandLine`.
 
+## Performance
+
+The generators replace runtime reflection with code emitted at compile time. Measured against
+the reflection fallback with BenchmarkDotNet (`src/CommandLineBenchmarks`, Apple M5 Max, .NET 9):
+
+| Workload | Reflection | Generated |
+|---|---|---|
+| Build handlers for a small input model | ~2.8 µs | ~0.43 µs (≈6.5× faster) |
+| Build handlers for a large input model | ~8.5 µs | ~0.48 µs (≈18× faster) |
+| Full `dotnet run -- <command>` parse | baseline | ≈2–4.5× faster, ≈2–3× fewer allocations |
+
+The win is eliminating reflection (`PropertyInfo.SetValue`, converter lookups, assembly scanning),
+not eliminating allocation — the generated parser still allocates its handler list and delegates.
+Earlier "thousands of times faster / zero allocation" figures were a measurement artifact: the
+generators were emitting nothing, so the benchmark compared reflection against a no-op. The numbers
+above reflect the generators actually running.
+
 ## Documentation
 
 Full docs at [https://jasperfx.net](https://jasperfx.net).

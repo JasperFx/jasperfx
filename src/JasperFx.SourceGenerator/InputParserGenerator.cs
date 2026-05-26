@@ -20,8 +20,10 @@ namespace JasperFx.SourceGenerator;
 [Generator]
 public sealed class InputParserGenerator : IIncrementalGenerator
 {
-    private const string JasperFxCommandName = "JasperFx.CommandLine.JasperFxCommand`1";
-    private const string JasperFxAsyncCommandName = "JasperFx.CommandLine.JasperFxAsyncCommand`1";
+    // NOTE: these are matched against INamedTypeSymbol.OriginalDefinition.ToDisplayString(),
+    // which renders generics in C# style ("Foo<T>"), NOT the metadata form ("Foo`1").
+    private const string JasperFxCommandName = "JasperFx.CommandLine.JasperFxCommand<T>";
+    private const string JasperFxAsyncCommandName = "JasperFx.CommandLine.JasperFxAsyncCommand<T>";
     private const string IgnoreAttributeName = "JasperFx.CommandLine.IgnoreOnCommandLineAttribute";
     private const string FlagAliasAttributeName = "JasperFx.CommandLine.FlagAliasAttribute";
     private const string DescriptionAttributeName = "JasperFx.CommandLine.DescriptionAttribute";
@@ -47,7 +49,9 @@ public sealed class InputParserGenerator : IIncrementalGenerator
         if (symbol == null || symbol.IsAbstract) return null;
 
         var inputType = FindInputType(symbol);
-        if (inputType == null) return null;
+        // The generated parser is an internal class that casts to the input type; skip input
+        // types it cannot legally name (e.g. private/protected nested types) so it compiles.
+        if (inputType == null || !IsReferenceable(inputType)) return null;
 
         var members = CollectMembers(inputType);
         if (members.Count == 0) return null;
@@ -76,6 +80,26 @@ public sealed class InputParserGenerator : IIncrementalGenerator
             current = current.BaseType;
         }
         return null;
+    }
+
+    // A type is referenceable from the generated (internal) parser only if it and every
+    // containing type are visible at assembly scope: public, internal, or protected internal.
+    private static bool IsReferenceable(INamedTypeSymbol symbol)
+    {
+        for (INamedTypeSymbol? t = symbol; t != null; t = t.ContainingType)
+        {
+            switch (t.DeclaredAccessibility)
+            {
+                case Accessibility.Public:
+                case Accessibility.Internal:
+                case Accessibility.ProtectedOrInternal:
+                    continue;
+                default:
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     private static string GetSafeTypeName(INamedTypeSymbol type)
@@ -171,9 +195,12 @@ public sealed class InputParserGenerator : IIncrementalGenerator
         var handlerKind = DetermineHandlerKind(isFlag, isBool, isDict, isEnumerable);
 
         // Compute flag aliases
-        var flagName = RemoveFlagSuffix(name);
-        var longForm = SplitPascalCaseAndAddHyphens(flagAliasLong ?? flagName).ToLower();
-        var shortForm = (flagAliasShort ?? longForm[0]).ToString().ToLower();
+        // Mirror InputParser.ToFlagAliases exactly: the long form is always lower-cased, but an
+        // explicit one-letter alias keeps its case (e.g. [FlagAlias('C')] => -C). The default
+        // short form is the lower-cased first letter of the pascal-split member name.
+        var splitName = SplitPascalCaseAndAddHyphens(RemoveFlagSuffix(name));
+        var longForm = (flagAliasLong ?? splitName).ToLower();
+        var shortForm = (flagAliasShort?.ToString() ?? char.ToLower(splitName[0]).ToString());
 
         string? elementTypeFullName = null;
         if (isEnumerable)
@@ -196,6 +223,7 @@ public sealed class InputParserGenerator : IIncrementalGenerator
             IsEnum = isEnum || isNullableEnum,
             IsNullable = type.NullableAnnotation == NullableAnnotation.Annotated || IsNullableValueType(type),
             ElementTypeFullName = elementTypeFullName,
+            IsArray = type is IArrayTypeSymbol,
             IsNumeric = IsNumericType(type),
         };
     }
@@ -494,21 +522,24 @@ public sealed class InputParserGenerator : IIncrementalGenerator
             case HandlerKind.EnumerableArgument:
                 var elemType = member.ElementTypeFullName ?? "object";
                 var elemConverter = GetElementConverterExpression(elemType);
+                // The generated handler hands back a List<T>; arrays need an explicit conversion.
+                var argValue = member.IsArray ? "val.ToArray()" : "val";
                 sb.AppendLine($"            new GeneratedEnumerableArgument<{elemType}>(");
                 sb.AppendLine($"                \"{member.Name}\",");
                 sb.AppendLine($"                \"{escapedDesc}\",");
-                sb.AppendLine($"                (obj, val) => {memberAccess} = val,");
+                sb.AppendLine($"                (obj, val) => {memberAccess} = {argValue},");
                 sb.AppendLine($"                {elemConverter}),");
                 break;
 
             case HandlerKind.EnumerableFlag:
                 var elemType2 = member.ElementTypeFullName ?? "object";
                 var elemConverter2 = GetElementConverterExpression(elemType2);
+                var flagValue = member.IsArray ? "val.ToArray()" : "val";
                 sb.AppendLine($"            new GeneratedEnumerableFlag<{elemType2}>(");
                 sb.AppendLine($"                \"{member.Name}\",");
                 sb.AppendLine($"                \"{escapedDesc}\",");
                 sb.AppendLine($"                new FlagAliases {{ LongForm = \"{member.LongForm}\", ShortForm = \"{member.ShortForm}\", LongFormOnly = {(member.LongFormOnly ? "true" : "false")} }},");
-                sb.AppendLine($"                (obj, val) => {memberAccess} = val,");
+                sb.AppendLine($"                (obj, val) => {memberAccess} = {flagValue},");
                 sb.AppendLine($"                {elemConverter2}),");
                 break;
 
@@ -571,6 +602,7 @@ internal sealed class MemberParseInfo
     public bool IsEnum { get; set; }
     public bool IsNullable { get; set; }
     public string? ElementTypeFullName { get; set; }
+    public bool IsArray { get; set; }
     public bool IsNumeric { get; set; }
 }
 
