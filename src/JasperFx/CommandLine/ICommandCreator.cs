@@ -12,7 +12,7 @@ namespace JasperFx.CommandLine;
 ///     either supply types whose constructors / properties survive trimming, or
 ///     opt in via the published <c>[RequiresUnreferencedCode]</c> annotation.
 ///     AOT/trim-clean apps consume commands through the source-generated manifest
-///     (see <see cref="CommandFactory.TryRegisterFromGeneratedManifest"/>) rather
+///     (see <see cref="CommandFactory.TryRegisterCommandsFromManifest"/>) rather
 ///     than reflective scanning, so this interface's annotations are the precise
 ///     punch-list AOT consumers see when they call into the reflective path.
 /// </remarks>

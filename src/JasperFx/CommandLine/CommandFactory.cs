@@ -124,6 +124,14 @@ public class CommandFactory : ICommandFactory
     [RequiresUnreferencedCode("Scans assembly.GetExportedTypes() for IJasperFxCommand. AOT-publishing apps should rely on the source-generated command manifest emitted by JasperFx.SourceGenerator.")]
     public void RegisterCommands(Assembly assembly)
     {
+        // Prefer the source-generated command manifest for this assembly (trim/AOT clean,
+        // no GetExportedTypes scan). Falls back to reflection per-assembly when the assembly
+        // was not built with JasperFx.SourceGenerator.
+        if (TryRegisterCommandsFromManifest(assembly))
+        {
+            return;
+        }
+
         foreach (var type in assembly
                      .GetExportedTypes()
                      .Where(IsJasperFxCommandType))
@@ -402,12 +410,9 @@ public class CommandFactory : ICommandFactory
     [RequiresUnreferencedCode("Falls back to AssemblyFinder + assembly.GetExportedTypes() scanning if no source-generated command manifest is present. AOT-publishing apps should emit the manifest via JasperFx.SourceGenerator.")]
     public void RegisterCommandsFromExtensionAssemblies()
     {
-        // Check for source-generated command manifest first to avoid assembly scanning
-        if (TryRegisterFromGeneratedManifest())
-        {
-            return;
-        }
-
+        // Each RegisterCommands(assembly) call below prefers that assembly's source-generated
+        // manifest and only falls back to reflective scanning when the manifest is absent, so
+        // the optimization is applied per-assembly rather than all-or-nothing.
         var assemblies = AssemblyFinder
             .FindAssemblies(a => a.HasAttribute<JasperFxAssemblyAttribute>() && !a.IsDynamic)
             .Concat(AppDomain.CurrentDomain.GetAssemblies())
@@ -429,8 +434,10 @@ public class CommandFactory : ICommandFactory
     }
 
     /// <summary>
-    ///     Attempt to use a source-generated command manifest to register commands
-    ///     without runtime assembly scanning. Returns true if a manifest was found and used.
+    ///     Attempt to register the commands of a single assembly from its source-generated
+    ///     <c>JasperFx.Generated.DiscoveredCommands</c> manifest, avoiding a reflective
+    ///     <see cref="Assembly.GetExportedTypes"/> scan. Returns true if the assembly carries a
+    ///     manifest (so the caller should skip its reflective fallback), false otherwise.
     /// </summary>
     /// <remarks>
     ///     The lookup uses well-known string identifiers
@@ -441,7 +448,7 @@ public class CommandFactory : ICommandFactory
     ///     analyzer — when that source generator runs, the type and property are
     ///     produced as ordinary code in the consuming assembly and survive
     ///     trimming naturally. Apps that do not include the generator simply
-    ///     fall through to <see cref="RegisterCommands"/>, which carries its own
+    ///     fall through to <see cref="RegisterCommands(Assembly)"/>, which carries its own
     ///     <c>[RequiresUnreferencedCode]</c>.
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
@@ -450,52 +457,39 @@ public class CommandFactory : ICommandFactory
         Justification = "Same as IL2026 — DiscoveredCommands.CommandTypes is generated source code in the consuming assembly.")]
     [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
         Justification = "Types come from JasperFx.Generated.DiscoveredCommands.CommandTypes which is emitted by the source generator with full interface metadata preserved.")]
-    internal bool TryRegisterFromGeneratedManifest()
+    internal bool TryRegisterCommandsFromManifest(Assembly assembly)
     {
-        // Look for the generated DiscoveredCommands class in all loaded assemblies
-        // and in the entry assembly. The source generator emits this class in the
-        // JasperFx.Generated namespace of the consuming project.
-        var candidateAssemblies = AppDomain.CurrentDomain.GetAssemblies()
-            .Where(a => !a.IsDynamic);
+        if (assembly.IsDynamic) return false;
 
-        foreach (var assembly in candidateAssemblies)
+        // The source generator emits this class in the JasperFx.Generated namespace of the
+        // assembly it runs against.
+        var manifestType = assembly.GetType("JasperFx.Generated.DiscoveredCommands");
+        if (manifestType == null) return false;
+
+        var prop = manifestType.GetProperty("CommandTypes",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        if (prop == null) return false;
+
+        if (prop.GetValue(null) is not IEnumerable<Type> commandTypes) return false;
+
+        foreach (var type in commandTypes)
         {
-            var manifestType = assembly.GetType("JasperFx.Generated.DiscoveredCommands");
-            if (manifestType == null) continue;
-
-            var prop = manifestType.GetProperty("CommandTypes",
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-            if (prop == null) continue;
-
-            if (prop.GetValue(null) is IEnumerable<Type> commandTypes)
+            if (IsJasperFxCommandType(type))
             {
-                foreach (var type in commandTypes)
-                {
-                    if (IsJasperFxCommandType(type))
-                    {
-                        _commandTypes[CommandNameFor(type)] = type;
-                    }
-                }
-
-                // Also register extension types from the assembly
-                if (assembly.TryGetAttribute<JasperFxAssemblyAttribute>(out var attribute))
-                {
-                    if (attribute.ExtensionType != null)
-                    {
-                        _extensionTypes.Add(attribute.ExtensionType);
-                    }
-                }
-
-                if (!_hasAppliedExtensions)
-                {
-                    AnsiConsole.MarkupLine(
-                        "[gray]Using source-generated command manifest, skipping assembly scanning[/]");
-                }
-
-                return true;
+                _commandTypes[CommandNameFor(type)] = type;
             }
         }
 
-        return false;
+        // Mirror RegisterCommands: also register the assembly's extension type, if any.
+        if (assembly.TryGetAttribute<JasperFxAssemblyAttribute>(out var attribute)
+            && attribute.ExtensionType != null)
+        {
+            _extensionTypes.Add(attribute.ExtensionType);
+        }
+
+        // NOTE: deliberately no console output here. RegisterCommands(Assembly) calls this, and
+        // that low-level API must stay side-effect free — writing to the shared AnsiConsole during
+        // command registration perturbs callers that redirect Console.Out (e.g. test harnesses).
+        return true;
     }
 }
