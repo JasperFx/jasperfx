@@ -1,12 +1,14 @@
 # JasperFx.SourceGenerator
 
-Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-free for fast cold start and trim/AOT-friendly builds. This single analyzer package bundles three generators:
+Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-free for fast cold start and trim/AOT-friendly builds. This single analyzer package bundles five generators:
 
 | Generator | What it does |
 |---|---|
 | `DescriptionGenerator` | Generates `IDescribeMyself.ToDescription()` for `OptionsDescription` types, eliminating runtime reflection on options classes that surface in diagnostic snapshots (CritterWatch, etc.). |
 | `CommandDiscoveryGenerator` | Emits a compile-time manifest of `IJasperFxCommand` types so `dotnet run -- <command>` lookups skip runtime assembly scanning. |
 | `InputParserGenerator` | Emits `IGeneratedInputParser` implementations for command input models, parsing CLI arguments/flags without runtime reflection. |
+| `ExtensionDiscoveryGenerator` | Emits a compile-time `JasperFx.Generated.DiscoveredExtensions` type list of `IJasperFxExtension` / `[JasperFxAssembly]`-declared extension types so framework extension loaders skip assembly scanning. |
+| `ServiceRegistrationGenerator` | Emits actual `IServiceCollection` registrations (`JasperFx.Generated.GeneratedServiceRegistrations.Register`) for `[JasperFxService]`-annotated types — see below. |
 
 > **Renamed from `JasperFx.SourceGeneration`.** The command-discovery and input-parser generators previously shipped in the `JasperFx.SourceGeneration` (noun) package, which is now retired. Reference `JasperFx.SourceGenerator` (singular) instead — its version tracks the `JasperFx` package.
 
@@ -20,6 +22,33 @@ Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-fr
 ```
 
 Reference it as an analyzer/source-generator only — there's no runtime API. For `OptionsDescription`, apply the `[GenerateDescription]` attribute to a `partial` class that implements `IDescribeMyself` and a `ToDescription()` method is generated. The command-discovery and input-parser output is consumed transparently by `JasperFx.CommandLine`.
+
+## Service registrations
+
+Annotate a concrete class with `[JasperFxService(typeof(TService), ServiceLifetime)]` to have the
+generator emit a real DI registration for it. The generator produces a per-assembly
+`JasperFx.Generated.GeneratedServiceRegistrations.Register(IServiceCollection)` method of plain
+`services.Add(new ServiceDescriptor(...))` calls — no reflection, trim/AOT-clean.
+
+```csharp
+[JasperFxService(typeof(IWolverineExtension), ServiceLifetime.Singleton)]
+public class MyExtension : IWolverineExtension { }
+
+// Open generic service types are closed from the implemented interface (=> IValidator<Foo>):
+[JasperFxService(typeof(IValidator<>), ServiceLifetime.Scoped)]
+public class FooValidator : IValidator<Foo> { }
+```
+
+Apply the attribute multiple times to register one implementation against several service types.
+At startup, apply everything discovered across the loaded assemblies (reflection-free on the
+generated side; a no-op when the generator wasn't run, so a reflective fallback still applies):
+
+```csharp
+JasperFx.GeneratedExtensionManifest.RegisterAllDiscoveredServices(services);
+```
+
+Only assemblies that are eligible emit a manifest — those carrying a `[JasperFxAssembly]`-derived
+attribute, or executable (entry) assemblies — matching the `ExtensionDiscoveryGenerator` gate.
 
 ## Performance
 
