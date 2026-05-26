@@ -46,7 +46,10 @@ public static class CodeGenerationExtensions
             }
         }
 
-        var parameterInfo = method.GetParameters().FirstOrDefault(x => x.Name == "@event" || x.Name == "event" || x.Name == "e");
+        // When the event argument can't be inferred by type alone (e.g. more than one
+        // candidate parameter), fall back to the conventional event parameter names.
+        var parameterInfo = method.GetParameters()
+            .FirstOrDefault(x => x.Name is "@event" or "event" or "e" or "ev");
         if (parameterInfo == null)
         {
             var candidates = method
