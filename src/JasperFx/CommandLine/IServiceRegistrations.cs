@@ -6,7 +6,7 @@ namespace JasperFx.CommandLine;
 ///     Implementations of this interface can be used to define
 ///     service registrations to be loaded by JasperFx command extensions
 /// </summary>
-public interface IServiceRegistrations
+public interface IServiceRegistrations : IJasperFxExtension
 {
     void Configure(IServiceCollection services);
 }
