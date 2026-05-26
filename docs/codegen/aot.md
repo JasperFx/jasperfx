@@ -166,7 +166,7 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 ### Annotated (RUC / RDC; available in dev, warns at AOT publish)
 
 - All of `JasperFx.CommandLine` — `CommandFactory`, `CommandExecutor`, `CommandLineHostingExtensions`. The CLI is a dev-time tool. AOT consumers route command discovery through the [`JasperFx.SourceGenerator`-emitted `DiscoveredCommands` manifest](#source-generated-command-manifest) instead of reflective assembly scanning.
-- `TypeRepository` / `AssemblyFinder` / `AssemblyTypes` — assembly scanning is fundamentally trim-hostile.
+- `TypeRepository` / `AssemblyFinder` / `AssemblyTypes` — assembly scanning is fundamentally trim-hostile. Command discovery and extension/option discovery route around it via the [`DiscoveredCommands`](#source-generated-command-manifest) and [`DiscoveredExtensions`](#source-generated-extension-manifest) manifests.
 - `JasperFx.Core.IoC` convention-based registration (`AssemblyScanner.Scan`, `IRegistrationConvention` impls). AOT consumers use explicit `services.AddSingleton<TService, TImpl>()` registrations.
 - `JasperFx.Core.Reflection.LambdaBuilder` + `ValueTypeInfo` — expression-tree compilation via FastExpressionCompiler. AOT consumers source-generate accessor delegates.
 - `JasperFx.CodeGeneration.GeneratedType` / `GeneratedAssembly` / `MethodCall` — the codegen builder API. Reached only at codegen-write time, not at production startup in Static mode.
@@ -186,6 +186,31 @@ To enable it, reference the source generator in your csproj:
 ```
 
 The generator runs at compile time, so this reference doesn't end up in your published binary.
+
+### Source-generated extension manifest
+
+The same generator package emits a companion `JasperFx.Generated.DiscoveredExtensions` class that lists the assembly's **extension / option types** at compile time, so consuming frameworks (Wolverine, Marten, …) can register or apply their extensions without the reflective, filesystem-probing assembly scan (`AssemblyFinder.FindAssemblies`).
+
+A type is discovered when, in an **eligible** assembly, it is either:
+
+1. declared by the assembly's `[JasperFxAssembly]`-derived attribute — the generic argument of a `[WolverineModule<T>]`-style attribute, or a `typeof(...)` argument to `[JasperFxAssembly(typeof(T))]`; or
+2. a concrete class implementing the **`JasperFx.IJasperFxExtension`** marker interface (which `IServiceRegistrations`, and framework interfaces such as Wolverine's `IWolverineExtension`, extend).
+
+An assembly is *eligible* if it carries a `[JasperFxAssembly]`-derived attribute **or** is an executable (entry) assembly — matching the assemblies the runtime scanner would otherwise consider. The two sources are de-duplicated.
+
+At runtime, `JasperFx.GeneratedExtensionManifest` aggregates these manifests across the loaded assemblies:
+
+```csharp
+// All compile-time-discovered extension types, then filter by your framework's interface:
+var extensions = GeneratedExtensionManifest
+    .ReadFromLoadedAssemblies()
+    .Where(t => typeof(IWolverineExtension).IsAssignableFrom(t));
+
+// AnyManifestPresent() lets a consumer fall back to reflective scanning
+// when the generator isn't referenced (no behavior change for non-AOT apps).
+```
+
+Enable it with the same `JasperFx.SourceGenerator` package reference shown above; no separate package is required.
 
 ## Cross-stack AOT story
 
