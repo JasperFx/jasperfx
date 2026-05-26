@@ -14,7 +14,15 @@
         <PackageId>JasperFx.Events.SourceGenerator</PackageId>
         <Version>2.1.1</Version>
         <IncludeBuildOutput>false</IncludeBuildOutput>
-        <DevelopmentDependency>true</DevelopmentDependency>
+        <!-- Deliberately NOT a DevelopmentDependency. This analyzer must flow transitively
+             from packages that reference it (notably Marten) to *their* consumers: Marten 9
+             removed the runtime evolver fallback, so any project defining projection types
+             needs this generator, including ones that only reference Marten. A
+             developmentDependency is consumed as PrivateAssets=all and never flows, which is
+             what left plain-Marten consumers without the generator (marten#4557). The package
+             is analyzer-only (IncludeBuildOutput=false, no lib/), so flowing it adds no runtime
+             assembly. Because it is a single package identity, a consumer that also references
+             it directly collapses to one analyzer path (no duplicate generation / CS0111). -->
     </PropertyGroup>
 
     <ItemGroup>
