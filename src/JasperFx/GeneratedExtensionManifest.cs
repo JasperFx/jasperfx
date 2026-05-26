@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx;
 
@@ -14,6 +15,8 @@ public static class GeneratedExtensionManifest
 {
     private const string ManifestTypeName = "JasperFx.Generated.DiscoveredExtensions";
     private const string ManifestPropertyName = "ExtensionTypes";
+    private const string RegistrationsTypeName = "JasperFx.Generated.GeneratedServiceRegistrations";
+    private const string RegistrationsMethodName = "Register";
 
     /// <summary>
     /// All extension types discovered at compile time across the supplied assemblies, deduplicated.
@@ -57,6 +60,57 @@ public static class GeneratedExtensionManifest
         return AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => !a.IsDynamic)
             .Any(a => a.GetType(ManifestTypeName) != null);
+    }
+
+    /// <summary>
+    /// Applies every source-generated DI registration discovered across the currently loaded,
+    /// non-dynamic assemblies by invoking each assembly's generated
+    /// <c>JasperFx.Generated.GeneratedServiceRegistrations.Register(IServiceCollection)</c> method.
+    /// The generated registration code is reflection-free; if no registrations are present this is a
+    /// no-op and the caller should fall back to its own registration path.
+    /// </summary>
+    public static void RegisterAllDiscoveredServices(IServiceCollection services)
+    {
+        RegisterAllDiscoveredServices(services,
+            AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.IsDynamic));
+    }
+
+    /// <summary>
+    /// Applies the source-generated DI registrations contained in the supplied assemblies.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "JasperFx.Generated.GeneratedServiceRegistrations is emitted by JasperFx.SourceGenerator as ordinary code in the consuming assembly and survives trimming; absence is a no-op.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = "GeneratedServiceRegistrations.Register is a source-generated public static method in the consuming assembly.")]
+    public static void RegisterAllDiscoveredServices(IServiceCollection services, IEnumerable<Assembly> assemblies)
+    {
+        foreach (var assembly in assemblies)
+        {
+            if (assembly.IsDynamic)
+            {
+                continue;
+            }
+
+            var method = assembly.GetType(RegistrationsTypeName)?.GetMethod(
+                RegistrationsMethodName,
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { typeof(IServiceCollection) },
+                modifiers: null);
+
+            method?.Invoke(null, new object[] { services });
+        }
+    }
+
+    /// <summary>
+    /// True if any loaded, non-dynamic assembly carries source-generated DI registrations, i.e. the
+    /// generator is active and <see cref="RegisterAllDiscoveredServices(IServiceCollection)"/> will do work.
+    /// </summary>
+    public static bool AnyServiceRegistrationsPresent()
+    {
+        return AppDomain.CurrentDomain.GetAssemblies()
+            .Where(a => !a.IsDynamic)
+            .Any(a => a.GetType(RegistrationsTypeName) != null);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026",
