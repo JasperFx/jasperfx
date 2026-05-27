@@ -140,6 +140,18 @@ public class Variable
         }
     }
 
+    /// <summary>
+    ///     Re-parent this variable to a different creating frame <b>without</b> the creates-list
+    ///     side effect of the <see cref="Creator" /> setter. Used by <c>ScopedContainerCreation</c>
+    ///     to surface a postprocessor-created variable as if the (top-level) scope frame created it,
+    ///     so the arranger orders downstream consumers after the scope frame and never inserts the
+    ///     nested postprocessor as a duplicate top-level frame (which would recurse).
+    /// </summary>
+    internal void OverrideCreator(Frame creator)
+    {
+        _frame = creator;
+    }
+
     public Type VariableType { get; }
     public virtual string Usage { get; protected set; }
 
