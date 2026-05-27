@@ -36,7 +36,18 @@ public interface IEventStore
     
     DatabaseCardinality DatabaseCardinality { get; }
     bool HasMultipleTenants { get; }
-    
+
+    /// <summary>
+    ///     Resolve every <see cref="IEventDatabase" /> backing this event store, store-agnostically.
+    ///     This is the store-neutral counterpart to Marten's <c>IMartenStorage.AllDatabases()</c> — it lets
+    ///     monitoring/tooling code (e.g. CritterWatch) obtain an <see cref="IEventDatabase" /> to call the read
+    ///     abstractions (<c>AllProjectionProgress</c>, <c>FetchDeadLetterCountsAsync</c>, <c>CountDeadLetterEventsAsync</c>)
+    ///     without referencing concrete store types. The default implementation returns an empty array as a
+    ///     stand-in; event stores should override this to return their real databases. See jasperfx#387.
+    /// </summary>
+    ValueTask<IReadOnlyList<IEventDatabase>> AllDatabases()
+        => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>([]);
+
     /// <summary>
     /// Identifies the event store within an application
     /// </summary>
