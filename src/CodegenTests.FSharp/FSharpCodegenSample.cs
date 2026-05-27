@@ -54,8 +54,46 @@ public static class FSharpCodegenSample
         AddConditionalType(assembly);
         AddToggleType(assembly);
         AddResourceType(assembly);
+        AddOrderHandlerType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     A Wolverine-shaped async handler: construct a domain object from the command, <c>do!</c>
+    ///     an async repository save, build a confirmation with a sync factory call, and return it.
+    ///     Exercises mixed sync/async frames inside a single <c>task { }</c> body.
+    /// </summary>
+    private static void AddOrderHandlerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedOrderHandler", typeof(IOrderHandler));
+        var method = type.MethodFor(nameof(IOrderHandler.Handle));
+        var command = method.Arguments[0];
+
+        method.Frames.Add(new CommentFrame("Handle a PlaceOrder command (jasperfx#383)"));
+
+        var orderCtor = typeof(Order).GetConstructors().Single();
+        var ctorFrame = new ConstructorFrame(typeof(Order), orderCtor);
+        ctorFrame.Parameters[0] = command;
+        method.Frames.Add(ctorFrame);
+
+        var repository = new InjectedField(typeof(IOrderRepository), "orderRepository");
+        var save = new MethodCall(typeof(IOrderRepository), nameof(IOrderRepository.SaveAsync))
+        {
+            Target = repository
+        };
+        save.Arguments[0] = ctorFrame.Variable;
+        method.Frames.Add(save);
+
+        var factory = new InjectedField(typeof(ConfirmationFactory), "confirmationFactory");
+        var create = new MethodCall(typeof(ConfirmationFactory), nameof(ConfirmationFactory.Create))
+        {
+            Target = factory
+        };
+        create.Arguments[0] = ctorFrame.Variable;
+        method.Frames.Add(create);
+
+        method.Frames.Add(new ReturnFrame(create.ReturnVariable!));
     }
 
     /// <summary>

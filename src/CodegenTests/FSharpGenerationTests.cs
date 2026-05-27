@@ -48,6 +48,42 @@ public class FSharpAccumulatorService
     }
 }
 
+public class FSharpOrderCommand
+{
+}
+
+public class FSharpOrder
+{
+    public FSharpOrder(FSharpOrderCommand command)
+    {
+    }
+}
+
+public class FSharpOrderResult
+{
+    public FSharpOrderResult(FSharpOrder order)
+    {
+    }
+}
+
+public interface IFSharpOrderRepository
+{
+    Task SaveAsync(FSharpOrder order);
+}
+
+public class FSharpOrderResultFactory
+{
+    public FSharpOrderResult Create(FSharpOrder order)
+    {
+        return new FSharpOrderResult(order);
+    }
+}
+
+public interface IFSharpOrderHandler
+{
+    Task<FSharpOrderResult> Handle(FSharpOrderCommand command);
+}
+
 public class FSharpGenerationTests
 {
     [Fact]
@@ -183,6 +219,49 @@ public class FSharpGenerationTests
         var usage = ctorFrame.Variable.Usage;
         code.ShouldContain($"let mutable {usage} = CodegenTests.FSharpBox()");
         code.ShouldContain($"{usage} <- _service.Advance({usage})");
+    }
+
+    [Fact]
+    public void emits_a_wolverine_shaped_async_handler_with_mixed_sync_and_async_calls()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedOrderHandler", typeof(IFSharpOrderHandler));
+        var method = type.MethodFor(nameof(IFSharpOrderHandler.Handle));
+        var command = method.Arguments[0];
+
+        var orderCtor = typeof(FSharpOrder).GetConstructors().Single();
+        var ctorFrame = new ConstructorFrame(typeof(FSharpOrder), orderCtor);
+        ctorFrame.Parameters[0] = command;
+        method.Frames.Add(ctorFrame);
+
+        var repository = new InjectedField(typeof(IFSharpOrderRepository), "repository");
+        var save = new MethodCall(typeof(IFSharpOrderRepository), nameof(IFSharpOrderRepository.SaveAsync))
+        {
+            Target = repository
+        };
+        save.Arguments[0] = ctorFrame.Variable;
+        method.Frames.Add(save);
+
+        var factory = new InjectedField(typeof(FSharpOrderResultFactory), "factory");
+        var create = new MethodCall(typeof(FSharpOrderResultFactory), nameof(FSharpOrderResultFactory.Create))
+        {
+            Target = factory
+        };
+        create.Arguments[0] = ctorFrame.Variable;
+        method.Frames.Add(create);
+
+        method.Frames.Add(new ReturnFrame(create.ReturnVariable!));
+
+        var code = assembly.GenerateFSharpCode();
+
+        var order = ctorFrame.Variable.Usage;
+        var result = create.ReturnVariable!.Usage;
+
+        code.ShouldContain("task {");
+        code.ShouldContain($"let {order} = CodegenTests.FSharpOrder(command)");
+        code.ShouldContain($"do! _repository.SaveAsync({order})");                 // void async -> do!
+        code.ShouldContain($"let {result} = _factory.Create({order})");            // sync call inside task
+        code.ShouldContain($"return {result}");
     }
 
     [Fact]

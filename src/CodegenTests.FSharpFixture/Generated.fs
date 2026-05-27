@@ -76,3 +76,17 @@ type GeneratedResourceRunner(controlFlowService: FSharpCodegenTarget.ControlFlow
             finally
                 _controlFlowService.End()
 
+type GeneratedOrderHandler(confirmationFactory: FSharpCodegenTarget.ConfirmationFactory, orderRepository: FSharpCodegenTarget.IOrderRepository) =
+    let _confirmationFactory = confirmationFactory
+    let _orderRepository = orderRepository
+
+    interface FSharpCodegenTarget.IOrderHandler with
+        member _.Handle(command: FSharpCodegenTarget.PlaceOrder) : System.Threading.Tasks.Task<FSharpCodegenTarget.OrderConfirmation> =
+            task {
+                // Handle a PlaceOrder command (jasperfx#383)
+                let order = FSharpCodegenTarget.Order(command)
+                do! _orderRepository.SaveAsync(order)
+                let orderConfirmation = _confirmationFactory.Create(order)
+                return orderConfirmation
+            }
+

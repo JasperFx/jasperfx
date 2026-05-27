@@ -92,6 +92,59 @@ public class ControlFlowService
     }
 }
 
+// A Wolverine-shaped message handler: construct a domain object, await a repository
+// save, build a confirmation, return it. Exercises a realistic multi-frame async body.
+
+public class PlaceOrder
+{
+    public PlaceOrder(string productId, int quantity)
+    {
+        ProductId = productId;
+        Quantity = quantity;
+    }
+
+    public string ProductId { get; }
+    public int Quantity { get; }
+}
+
+public class Order
+{
+    public Order(PlaceOrder command)
+    {
+        ProductId = command.ProductId;
+    }
+
+    public string ProductId { get; }
+}
+
+public class OrderConfirmation
+{
+    public OrderConfirmation(Order order)
+    {
+        ProductId = order.ProductId;
+    }
+
+    public string ProductId { get; }
+}
+
+public interface IOrderRepository
+{
+    Task SaveAsync(Order order);
+}
+
+public class ConfirmationFactory
+{
+    public OrderConfirmation Create(Order order)
+    {
+        return new OrderConfirmation(order);
+    }
+}
+
+public interface IOrderHandler
+{
+    Task<OrderConfirmation> Handle(PlaceOrder command);
+}
+
 /// <summary>
 ///     A simple value object the generated method constructs (exercises ConstructorFrame).
 /// </summary>
