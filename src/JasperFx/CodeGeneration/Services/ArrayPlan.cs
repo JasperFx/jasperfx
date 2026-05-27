@@ -20,22 +20,36 @@ internal class ArrayFamily : ServiceFamily
 
     public override ServicePlan? BuildDefaultPlan(ServiceContainer graph, List<ServiceDescriptor> trail)
     {
-        var plans = graph.FindAll(ElementType, trail);
+        // IServiceProvider.GetServices<T>() never returns keyed registrations, so filter them out of
+        // the element set instead of bailing the whole enumerable to runtime service location.
+        var plans = graph.FindAll(ElementType, trail)
+            .Where(x => !x.Descriptor.IsKeyedService)
+            .ToList();
 
-        if (plans.Any(x => x.Descriptor.IsKeyedService)) return new ServiceLocationPlan(Default);
-        
+        // Optimization: an all-singleton enumerable can be built once and shared as a single field.
         if (plans.All(x => x.Lifetime == ServiceLifetime.Singleton))
         {
             return new SingletonPlan(Default);
         }
 
-        if (plans.All(x => x.Lifetime != ServiceLifetime.Singleton))
+        // Otherwise build inline, element by element, with each element honoring its own lifetime:
+        // scoped/transient => inline construction; a genuinely unbuildable element (e.g. opaque lambda
+        // factory) => its own ServiceLocationPlan so only that element is service-located. A singleton
+        // element cannot be injected by its (ambiguous) service type when the type has several
+        // registrations, so route it through a keyed "mirror" (see EnumerableSingletons /
+        // AddJasperFxEnumerableSingletonSupport) and inject it via [FromKeyedServices]. This mirrors
+        // IServiceProvider.GetServices<T>() and avoids the old mixed-lifetime bail that tripped
+        // ServiceLocationPolicy.NotAllowed for the whole IEnumerable<T>.
+        var elementPlans = new List<ServicePlan>(plans.Count);
+        for (var i = 0; i < plans.Count; i++)
         {
-            return new ArrayPlan(ElementType, plans, Default);
+            var plan = plans[i];
+            elementPlans.Add(plan.Lifetime == ServiceLifetime.Singleton
+                ? new SingletonPlan(EnumerableSingletons.KeyedMirror(ElementType, i))
+                : plan);
         }
 
-        // If it's mixed, we have to do this:(
-        return new ServiceLocationPlan(Default);
+        return new ArrayPlan(ElementType, elementPlans, Default);
     }
 }
 
