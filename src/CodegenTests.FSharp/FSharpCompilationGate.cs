@@ -34,6 +34,15 @@ public class FSharpCompilationGate
         var fixtureProject = FSharpCodegenSample.FixtureProjectPath();
         var (exitCode, output) = RunDotnet($"build \"{fixtureProject}\" -c Debug --nologo");
 
+        // A nested `dotnet build` (build-inside-test) can occasionally trip an internal F# compiler
+        // crash (e.g. FS0193 in the auto-generated AssemblyAttributes.fs) that has nothing to do with
+        // the generated source. Retry once on that specific signature only — a genuine F# error in
+        // Generated.fs is deterministic and would persist across the retry, so this can't mask it.
+        if (exitCode != 0 && (output.Contains("FS0193") || output.Contains("internal error")))
+        {
+            (exitCode, output) = RunDotnet($"build \"{fixtureProject}\" -c Debug --nologo");
+        }
+
         _output.WriteLine(output);
         exitCode.ShouldBe(0);
     }

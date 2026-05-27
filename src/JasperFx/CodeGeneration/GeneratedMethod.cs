@@ -228,6 +228,15 @@ public class GeneratedMethod : IGeneratedMethod
             // Synchronous (None) OR a single trailing Task expression (ReturnFromLastNode): both are
             // a bare F# expression body — no state machine. The frames emit the trailing expression.
             _top.GenerateFSharpCode(this, writer);
+
+            // A synchronous method whose signature returns a non-generic Task must still yield a
+            // Task. C# appends `return Task.CompletedTask;`; the F# equivalent is a trailing
+            // `Task.CompletedTask` expression after the (unit) side-effect frames.
+            if (AsyncMode != AsyncMode.ReturnFromLastNode && ReturnVariable == null &&
+                ReturnType == typeof(Task))
+            {
+                writer.Write($"{typeof(Task).FullNameInCode()}.CompletedTask");
+            }
         }
 
         writer.FinishBlock();

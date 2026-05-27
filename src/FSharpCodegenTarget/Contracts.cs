@@ -67,6 +67,15 @@ public interface IResource
     void Run();
 }
 
+/// <summary>
+///     A handler whose signature returns a (non-generic) Task but whose body is synchronous —
+///     exercises the AsyncMode.None + Task return path that must emit <c>Task.CompletedTask</c>.
+/// </summary>
+public interface ISyncTaskHandler
+{
+    Task HandleAsync(string name);
+}
+
 public class ControlFlowService
 {
     public string Fallback()

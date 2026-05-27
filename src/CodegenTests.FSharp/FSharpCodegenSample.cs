@@ -55,8 +55,25 @@ public static class FSharpCodegenSample
         AddToggleType(assembly);
         AddResourceType(assembly);
         AddOrderHandlerType(assembly);
+        AddSyncTaskHandlerType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     A synchronous body behind a non-generic <c>Task</c> signature: the side effect runs, then
+    ///     the method yields <c>Task.CompletedTask</c> (AsyncMode.None + Task return).
+    /// </summary>
+    private static void AddSyncTaskHandlerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedSyncTaskHandler", typeof(ISyncTaskHandler));
+        var method = type.MethodFor(nameof(ISyncTaskHandler.HandleAsync));
+
+        var service = new InjectedField(typeof(ControlFlowService), "controlFlowService");
+        method.Frames.Add(new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Record))
+        {
+            Target = service
+        });
     }
 
     /// <summary>

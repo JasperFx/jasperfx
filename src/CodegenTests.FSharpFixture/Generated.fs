@@ -90,3 +90,11 @@ type GeneratedOrderHandler(confirmationFactory: FSharpCodegenTarget.Confirmation
                 return orderConfirmation
             }
 
+type GeneratedSyncTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
+    let _controlFlowService = controlFlowService
+
+    interface FSharpCodegenTarget.ISyncTaskHandler with
+        member _.HandleAsync(name: string) : System.Threading.Tasks.Task =
+            _controlFlowService.Record()
+            System.Threading.Tasks.Task.CompletedTask
+

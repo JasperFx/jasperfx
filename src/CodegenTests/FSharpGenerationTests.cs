@@ -84,6 +84,11 @@ public interface IFSharpOrderHandler
     Task<FSharpOrderResult> Handle(FSharpOrderCommand command);
 }
 
+public interface IFSharpSyncTaskHandler
+{
+    Task HandleAsync(string name);
+}
+
 public class FSharpGenerationTests
 {
     [Fact]
@@ -262,6 +267,28 @@ public class FSharpGenerationTests
         code.ShouldContain($"do! _repository.SaveAsync({order})");                 // void async -> do!
         code.ShouldContain($"let {result} = _factory.Create({order})");            // sync call inside task
         code.ShouldContain($"return {result}");
+    }
+
+    [Fact]
+    public void emits_task_completed_task_for_a_synchronous_task_returning_method()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedSyncTaskHandler", typeof(IFSharpSyncTaskHandler));
+        var method = type.MethodFor(nameof(IFSharpSyncTaskHandler.HandleAsync));
+
+        var service = new InjectedField(typeof(FSharpControlService), "service");
+        method.Frames.Add(new MethodCall(typeof(FSharpControlService), nameof(FSharpControlService.Record))
+        {
+            Target = service
+        });
+
+        var code = assembly.GenerateFSharpCode();
+
+        code.ShouldContain("member _.HandleAsync(name: string) : System.Threading.Tasks.Task =");
+        code.ShouldContain("_service.Record()");
+        // No state machine for a synchronous body — just yield a completed Task.
+        code.ShouldNotContain("task {");
+        code.ShouldContain("System.Threading.Tasks.Task.CompletedTask");
     }
 
     [Fact]
