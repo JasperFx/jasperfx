@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      F# code-generation integration tests (jasperfx#383).
+
+      This project is intentionally NOT wired into any ./build.sh / Nuke test target:
+      its single test shells out to `dotnet build` against the checked-in F# fixture,
+      which is too slow/heavy for the fast unit run. It is still part of jasperfx.sln so
+      it compiles with the rest of the solution. Run it explicitly with:
+          dotnet test src/CodegenTests.FSharp
+    -->
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="3.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Shouldly" Version="4.3.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\FSharpCodegenTarget\FSharpCodegenTarget.csproj" />
+    </ItemGroup>
+
+</Project>

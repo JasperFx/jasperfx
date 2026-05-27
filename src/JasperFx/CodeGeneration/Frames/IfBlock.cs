@@ -21,4 +21,15 @@ public class IfBlock : CompositeFrame
         inner.GenerateCode(method, writer);
         writer.FinishBlock();
     }
+
+    protected override void generateFSharpCode(GeneratedMethod method, ISourceWriter writer, Frame inner)
+    {
+        // F#: `if <condition> then` with an indented (brace-free) body. The Condition string is a
+        // raw passthrough (like CodeFrame), so the caller supplies F#-valid text; an IfBlock built
+        // from a Variable uses the bare identifier, which is already valid. The inner must be a
+        // unit-typed expression (a side effect) when the if-block is not the trailing expression.
+        writer.Write($"BLOCK:if {Condition} then");
+        inner.GenerateFSharpCode(method, writer);
+        writer.FinishBlock();
+    }
 }

@@ -110,6 +110,14 @@ public class FramesCollection : List<Frame>
     }
 
     /// <summary>
+    ///     EXPERIMENTAL F# counterpart to <see cref="Write" />: emits each frame as F#.
+    /// </summary>
+    public void WriteFSharp(GeneratedMethod method, ISourceWriter writer)
+    {
+        foreach (var frame in this) frame.GenerateFSharpCode(method, writer);
+    }
+
+    /// <summary>
     ///     Add a frame that just writes out "return null;"
     /// </summary>
     public FramesCollection ReturnNull()

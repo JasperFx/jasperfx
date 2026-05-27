@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      Checked-in fixture for F# code generation (jasperfx#383). Generated.fs is produced by the
+      `codegen-fsharp` command / FSharpCodegenSample and committed so the generated output is easy
+      to eyeball and diff. The compile-gate test (src/CodegenTests.FSharp) regenerates Generated.fs
+      and runs `dotnet build` against this project to prove the emitted F# actually compiles.
+    -->
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <!-- Single target keeps the compile gate fast; net10.0 ships the F# compiler in-box. -->
+        <TargetFrameworks>net10.0</TargetFrameworks>
+        <!-- Clear the C#-oriented props inherited from Directory.Build.props (see FSharpTypes.fsproj). -->
+        <LangVersion></LangVersion>
+        <ImplicitUsings>false</ImplicitUsings>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Generated.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\FSharpCodegenTarget\FSharpCodegenTarget.csproj" />
+    </ItemGroup>
+
+</Project>

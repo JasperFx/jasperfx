@@ -183,6 +183,48 @@ public class ConstructorFrame : SyncFrame
     }
 
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        if (Header != null)
+        {
+            writer.WriteLine("");
+            Header.Write(writer);
+        }
+
+        var insideTaskBlock = method.AsyncMode == AsyncMode.AsyncTask;
+
+        switch (Mode)
+        {
+            case ConstructorCallMode.Variable:
+                writer.Write(FSharpDeclaration());
+                ActivatorFrames.WriteFSharp(method, writer);
+                Next?.GenerateFSharpCode(method, writer);
+                break;
+
+            case ConstructorCallMode.ReturnValue:
+                if (ActivatorFrames.Any())
+                {
+                    writer.Write(FSharpDeclaration());
+                    ActivatorFrames.WriteFSharp(method, writer);
+                    writer.Write(insideTaskBlock ? $"return {Variable.Usage}" : Variable.Usage);
+                }
+                else
+                {
+                    writer.Write(insideTaskBlock ? $"return {FSharpInvocation()}" : FSharpInvocation());
+                }
+
+                Next?.GenerateFSharpCode(method, writer);
+                break;
+
+            case ConstructorCallMode.UsingNestedVariable:
+                // F# `use` gives the same deterministic disposal as C# `using`.
+                writer.Write($"use {FSharpDeclaration()}");
+                ActivatorFrames.WriteFSharp(method, writer);
+                Next?.GenerateFSharpCode(method, writer);
+                break;
+        }
+    }
+
     public string Declaration()
     {
         return DeclaredType == null
@@ -199,6 +241,25 @@ public class ConstructorFrame : SyncFrame
         }
 
         return invocation;
+    }
+
+    public string FSharpDeclaration()
+    {
+        return DeclaredType == null
+            ? $"{Variable.FSharpAssignmentUsage} = {FSharpInvocation()}"
+            : $"let {Variable.Usage} : {DeclaredType.FSharpName()} = {FSharpInvocation()}";
+    }
+
+    public string FSharpInvocation()
+    {
+        if (Setters.Any())
+        {
+            throw new NotSupportedException(
+                "F# code generation does not yet support constructor property setters.");
+        }
+
+        // F# omits the `new` keyword for ordinary construction.
+        return $"{BuiltType.FSharpName()}({Parameters.Select(x => x.Usage).Join(", ")})";
     }
 
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)

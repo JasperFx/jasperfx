@@ -223,6 +223,71 @@ public class GeneratedType : IVariableSource, IGeneratedType
         Footer?.Write(writer);
     }
 
+    /// <summary>
+    ///     EXPERIMENTAL F# counterpart to <see cref="Write" />. Emits an F# <c>type</c> with a
+    ///     primary constructor, <c>let</c>-bound private fields for the injected dependencies,
+    ///     base-class <c>inherit</c>, interface members grouped under <c>interface ... with</c>,
+    ///     and any base-class <c>override</c> members at the type level.
+    /// </summary>
+    public void WriteFSharp(ISourceWriter writer)
+    {
+        Header?.Write(writer);
+
+        var ctorArgs = AllInjectedFields
+            .Select(x => $"{x.CtorArg}: {x.ArgType.FSharpName()}")
+            .Join(", ");
+
+        writer.Write($"BLOCK:type {TypeName}({ctorArgs}) =");
+
+        if (BaseType is { IsInterface: false })
+        {
+            var baseArgs = BaseConstructorArguments.Select(x => x.Usage).Join(", ");
+            writer.WriteLine($"inherit {BaseType.FSharpName()}({baseArgs})");
+        }
+
+        foreach (var field in AllInjectedFields)
+        {
+            writer.WriteLine($"let {field.Usage} = {field.CtorArg}");
+        }
+
+        if (AllInjectedFields.Any())
+        {
+            writer.BlankLine();
+        }
+
+        var generatable = Methods.Where(x => x.WillGenerate()).ToArray();
+
+        foreach (var @interface in Interfaces)
+        {
+            var members = generatable
+                .Where(m => m.ParentMethodInfo?.DeclaringType == @interface)
+                .ToArray();
+
+            if (!members.Any())
+            {
+                continue;
+            }
+
+            writer.Write($"BLOCK:interface {@interface.FSharpName()} with");
+            foreach (var member in members)
+            {
+                member.WriteFSharpMethod(writer);
+            }
+
+            writer.FinishBlock();
+        }
+
+        // Base-class overrides and directly-added methods are emitted as plain type members.
+        foreach (var member in generatable.Where(m => m.Overrides || m.ParentMethodInfo == null))
+        {
+            member.WriteFSharpMethod(writer);
+        }
+
+        writer.FinishBlock();
+
+        Footer?.Write(writer);
+    }
+
     private void writeSetters(ISourceWriter writer)
     {
         foreach (var setter in Setters)

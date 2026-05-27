@@ -182,6 +182,12 @@ public class MethodCall : Frame
     {
         ReturnVariable = variable;
         ReturnAction = ReturnAction.Assign;
+
+        // F#: reassigning a binding requires it to have been declared `let mutable`. Marking the
+        // variable here lets its first binding render `let mutable` and this site render `x <- ...`.
+        // No effect on the C# path, and no effect for arguments/injected fields (which are never
+        // rendered through FSharpAssignmentUsage).
+        variable.Mutable = true;
     }
 
     public static MethodCall For<T>(Expression<Action<T>> expression)
@@ -386,6 +392,97 @@ public class MethodCall : Frame
         }
 
         Next?.GenerateCode(method, writer);
+    }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        if (CommentText.IsNotEmpty())
+        {
+            writer.WriteLine("");
+            writer.WriteComment(CommentText);
+        }
+
+        // Activity events use C#-specific object-initializer syntax; they are
+        // intentionally not emitted on the F# path for milestone 1.
+
+        writer.Write($"{fsharpReturnActionCode(method)}{fsharpInvocationCode()}");
+
+        if (CommentText.IsNotEmpty())
+        {
+            writer.BlankLine();
+        }
+
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
+    private string fsharpInvocationCode()
+    {
+        var methodName = Method.Name;
+        if (Method.IsGenericMethod)
+        {
+            methodName += $"<{Method.GetGenericArguments().Select(x => x.FSharpName()).Join(", ")}>";
+        }
+
+        var callingCode = $"{methodName}({Arguments.Select(x => x.Usage).Join(", ")})";
+
+        return $"{fsharpDetermineTarget()}{callingCode}";
+    }
+
+    private string fsharpDetermineTarget()
+    {
+        if (IsLocal)
+        {
+            return string.Empty;
+        }
+
+        var target = Method.IsStatic
+            ? HandlerType.FSharpName()
+            : Target!.Usage;
+
+        return target + ".";
+    }
+
+    private string fsharpReturnActionCode(GeneratedMethod method)
+    {
+        // A `task { }` computation expression is emitted only for AsyncMode.AsyncTask; everything
+        // else (None, ReturnFromLastNode) is a bare F# expression body.
+        var insideTaskBlock = method.AsyncMode == AsyncMode.AsyncTask;
+
+        // The last async node IS the method's return value, emitted directly as the trailing Task
+        // expression (no task block, no `return!`). F# returns the Task without a state machine.
+        if (IsAsync && method.AsyncMode == AsyncMode.ReturnFromLastNode)
+        {
+            return string.Empty;
+        }
+
+        if (ReturnVariable == null)
+        {
+            // A void async call must still be awaited inside the task block.
+            return IsAsync && insideTaskBlock ? "do! " : string.Empty;
+        }
+
+        if (ReturnVariable.VariableType.IsValueTuple())
+        {
+            throw new NotSupportedException(
+                "F# code generation does not yet support value-tuple return variables.");
+        }
+
+        var awaited = IsAsync && insideTaskBlock;
+
+        switch (ReturnAction)
+        {
+            case ReturnAction.Initialize:
+                // `let x =` (sync) or `let! x =` (await inside the task block)
+                return awaited ? $"let! {ReturnVariable.Usage} = " : $"{ReturnVariable.FSharpAssignmentUsage} = ";
+            case ReturnAction.Assign:
+                // F# reassignment of a `let mutable` binding uses the `<-` operator.
+                return awaited ? $"let! {ReturnVariable.Usage} = " : $"{ReturnVariable.Usage} <- ";
+            case ReturnAction.Return:
+                // Synchronous: the invocation IS the trailing expression (no `return`).
+                return insideTaskBlock ? "return! " : string.Empty;
+        }
+
+        throw new ArgumentOutOfRangeException();
     }
 
     private static void writeActivityEvent(ISourceWriter writer, string eventName)

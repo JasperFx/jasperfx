@@ -40,6 +40,31 @@ public class TryFinallyWrapperFrame : Frame
         writer.FinishBlock();
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // F# try/finally is an expression: `try <body> finally <cleanup>`. The body (Next) yields
+        // the value; the finally block is unit. Emitted brace-free via the block protocol.
+        _inner.GenerateFSharpCode(method, writer);
+        writer.Write("BLOCK:try");
+
+        Next?.GenerateFSharpCode(method, writer);
+
+        writer.FinishBlock();
+        writer.Write("BLOCK:finally");
+
+        if (_finallys.Length > 1)
+        {
+            for (var i = 1; i < _finallys.Length; i++)
+            {
+                _finallys[i - 1].Next = _finallys[i];
+            }
+        }
+
+        _finallys[0].GenerateFSharpCode(method, writer);
+
+        writer.FinishBlock();
+    }
+
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
         foreach (var variable in _inner.FindVariables(chain)) yield return variable;

@@ -29,6 +29,17 @@ public class ReturnFrame : SyncFrame
         writer.Write(code);
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // F# is expression-oriented: a synchronous method body ends with a bare
+        // trailing expression (no `return`), while inside a `task { }` computation
+        // expression you DO use `return`. `unit` is written as `()`.
+        var expression = ReturnedVariable == null ? "()" : ReturnedVariable.Usage;
+        var insideTaskBlock = method.AsyncMode == AsyncMode.AsyncTask;
+
+        writer.Write(insideTaskBlock ? $"return {expression}" : expression);
+    }
+
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
         if (ReturnedVariable == null && ReturnType != null)
