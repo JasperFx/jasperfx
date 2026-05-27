@@ -113,6 +113,21 @@ public class CreateArrayFrame : SyncFrame
     
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
+        // Fail fast (jasperfx#381) if a mixed-lifetime singleton element was injected as null because
+        // its keyed mirror is missing. Without this guard the enumerable silently contains a null that
+        // surfaces far away as an NRE; the actionable message points straight at the missing
+        // AddJasperFxEnumerableSingletonSupport() call.
+        foreach (var element in _elements)
+        {
+            if (element is InjectedSingleton { Descriptor: { IsKeyedService: true } descriptor }
+                && EnumerableSingletons.IsMirrorKey(descriptor.ServiceKey))
+            {
+                var message = EnumerableSingletons.MissingMirrorMessage(_elementType, descriptor.ServiceKey);
+                writer.WriteLine(
+                    $"if ({element.Usage} == null) throw new {typeof(InvalidOperationException).FullNameInCode()}({CodeFormatter.Write(message)});");
+            }
+        }
+
         writer.WriteLine($"{_serviceType.FullNameInCode()} {Variable.Usage} = new {_elementType.FullNameInCode()}[]{{{_elements.Select(x => x.Usage).Join(", ")}}};");
         Next?.GenerateCode(method, writer);
     }

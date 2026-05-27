@@ -42,6 +42,14 @@ public class inline_enumerable_with_mixed_lifetimes
 
     private (object built, string code) build(IServiceProvider provider, ServiceContainer graph, Type collectionType)
     {
+        var (builtType, code) = compile(graph, collectionType);
+        var harness = resolve(provider, builtType);
+        var built = builtType.GetMethod("Build")!.Invoke(harness, null)!;
+        return (built, code);
+    }
+
+    private (Type builtType, string code) compile(ServiceContainer graph, Type collectionType)
+    {
         var assembly = new GeneratedAssembly(new GenerationRules());
         var constructedType = typeof(ServiceHarness<>).MakeGenericType(collectionType);
         var type = assembly.AddType("ServiceAssertion", constructedType);
@@ -61,9 +69,29 @@ public class inline_enumerable_with_mixed_lifetimes
         var builtAssembly = compiler.Generate(code);
         var builtType = builtAssembly.ExportedTypes.Single();
 
-        var harness = resolve(provider, builtType);
-        var built = builtType.GetMethod("Build")!.Invoke(harness, null)!;
-        return (built, code);
+        return (builtType, code);
+    }
+
+    // The silent-null path: a keyed mirror that was never registered resolves to null under the
+    // optional GetKeyedService semantics that JasperFx's QuickBuild uses (ServiceContainer.QuickBuild
+    // -> GetKeyedService<T>). Mirrors that behaviour so the generated guard is exercised.
+    private static object resolveWithOptionalKeyed(IServiceProvider provider, Type builtType)
+    {
+        var ctor = builtType.GetConstructors().Single();
+        var args = ctor.GetParameters().Select(p =>
+        {
+            var keyed = p.GetCustomAttribute<FromKeyedServicesAttribute>();
+            if (keyed != null)
+            {
+                return ((IKeyedServiceProvider)provider).GetKeyedService(p.ParameterType, keyed.Key)!;
+            }
+
+            return p.ParameterType == typeof(IServiceProvider)
+                ? provider
+                : provider.GetService(p.ParameterType)!;
+        }).ToArray();
+
+        return Activator.CreateInstance(builtType, args)!;
     }
 
     // Mirrors how MS DI constructs the generated type: honor [FromKeyedServices] on constructor
@@ -202,6 +230,63 @@ public class inline_enumerable_with_mixed_lifetimes
         var (built, code) = build(provider, graph, typeof(IEnumerable<ITestService>));
 
         code.ShouldContain("new CodegenTests.Services.ITestService[]");
+        typesOf(built).ShouldBe(provider.GetServices<ITestService>().Select(x => x.GetType()).ToArray());
+    }
+
+    // Builds a mixed-lifetime family WITHOUT calling AddJasperFxEnumerableSingletonSupport(), so the
+    // keyed mirror is never registered (the jasperfx#381 footgun).
+    private (Type builtType, string code, IServiceProvider provider) compileWithoutSingletonSupport()
+    {
+        var services = new ServiceCollection();
+        registerMixed(services);
+
+        // Deliberately NOT calling services.AddJasperFxEnumerableSingletonSupport().
+        var provider = services.BuildServiceProvider();
+        var graph = new ServiceContainer(services, provider);
+
+        var (builtType, code) = compile(graph, typeof(IEnumerable<ITestService>));
+        return (builtType, code, provider);
+    }
+
+    [Fact]
+    public void missing_mirror_emits_a_failfast_guard_in_the_generated_code()
+    {
+        var (_, code, _) = compileWithoutSingletonSupport();
+
+        // The guard null-checks the mirrored singleton element and throws an actionable message.
+        code.ShouldContain("jasperfx-enumerable-singleton-0");
+        code.ShouldContain("AddJasperFxEnumerableSingletonSupport()");
+        code.ShouldContain("throw new System.InvalidOperationException");
+    }
+
+    [Fact]
+    public void missing_mirror_throws_actionable_error_instead_of_injecting_null()
+    {
+        var (builtType, _, provider) = compileWithoutSingletonSupport();
+
+        // The mirror was never registered, so the optional keyed resolution hands back null — exactly
+        // the silent-null footgun. The generated guard must turn that into a clear error.
+        var harness = resolveWithOptionalKeyed(provider, builtType);
+
+        var ex = Should.Throw<TargetInvocationException>(
+            () => builtType.GetMethod("Build")!.Invoke(harness, null));
+
+        var inner = ex.InnerException.ShouldBeOfType<InvalidOperationException>();
+        inner.Message.ShouldContain("jasperfx-enumerable-singleton-0");
+        inner.Message.ShouldContain("AddJasperFxEnumerableSingletonSupport()");
+        inner.Message.ShouldContain("CodegenTests.Services.ITestService");
+    }
+
+    [Fact]
+    public void registered_mirror_does_not_trip_the_guard()
+    {
+        // Sanity: with support registered, the guard is present but the element is non-null so Build
+        // returns the populated enumerable normally.
+        var (provider, graph) = setup(registerMixed);
+
+        var (built, code) = build(provider, graph, typeof(IEnumerable<ITestService>));
+
+        code.ShouldContain("AddJasperFxEnumerableSingletonSupport()");
         typesOf(built).ShouldBe(provider.GetServices<ITestService>().Select(x => x.GetType()).ToArray());
     }
 }
