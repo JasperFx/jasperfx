@@ -149,6 +149,21 @@ public class Variable
     /// </summary>
     public virtual string AssignmentUsage => $"var {Usage}";
 
+    /// <summary>
+    ///     EXPERIMENTAL (F# code generation). Marks this variable as being reassigned after
+    ///     its initial binding (e.g. <see cref="JasperFx.CodeGeneration.Frames.ReturnAction.Assign" />).
+    ///     F# <c>let</c> bindings are immutable, so a reassigned variable must be declared with
+    ///     <c>let mutable</c> instead. Has no effect on the C# generation path.
+    /// </summary>
+    public bool Mutable { get; set; }
+
+    /// <summary>
+    ///     EXPERIMENTAL (F# code generation). How the variable is declared+assigned in F#. Default
+    ///     is <c>$"let {Usage}"</c>; a reassigned variable (see <see cref="Mutable" />) renders as
+    ///     <c>$"let mutable {Usage}"</c>.
+    /// </summary>
+    public virtual string FSharpAssignmentUsage => Mutable ? $"let mutable {Usage}" : $"let {Usage}";
+
     public virtual string ArgumentDeclaration => Usage;
 
     /// <summary>

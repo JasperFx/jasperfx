@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <!--
+      Plain C# "domain" types that the generated F# code targets: an interface to
+      implement, a dependency to inject, and a value object to construct. Kept in C#
+      on purpose so the fixture mirrors the real Critter Stack scenario (F#-generated
+      code over C#-defined contracts). Referenced by both the F# fixture (so it
+      compiles) and the F# codegen integration test (so it can reflect over the Types).
+    -->
+
+</Project>

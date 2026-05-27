@@ -64,6 +64,13 @@ public class GeneratedMethod : IGeneratedMethod
     public bool Overrides { get; set; }
 
     /// <summary>
+    ///     The interface or base-class <see cref="MethodInfo" /> this generated method derives
+    ///     from, or <c>null</c> for methods added directly (e.g. via <c>AddVoidMethod</c>). Used by
+    ///     the F# emit layer to group interface members under the right <c>interface ... with</c>.
+    /// </summary>
+    internal MethodInfo? ParentMethodInfo => _parentMethod;
+
+    /// <summary>
     ///     Is the method synchronous, returning a Task, or an async method
     /// </summary>
     public AsyncMode AsyncMode
@@ -177,6 +184,49 @@ public class GeneratedMethod : IGeneratedMethod
         _top.GenerateCode(this, writer);
 
         writeReturnStatement(writer);
+
+        writer.FinishBlock();
+    }
+
+    /// <summary>
+    ///     EXPERIMENTAL F# counterpart to <see cref="WriteMethod" />. Emits an F# member (or
+    ///     <c>override</c>) signature and drives the same arranged frame chain through
+    ///     <see cref="Frame.GenerateFSharpCode" />. Synchronous bodies are a sequence of
+    ///     <c>let</c> bindings ending in a trailing expression; asynchronous bodies are wrapped
+    ///     in a <c>task { }</c> computation expression.
+    /// </summary>
+    public void WriteFSharpMethod(ISourceWriter writer)
+    {
+        if (_top == null)
+        {
+            throw new InvalidOperationException(
+                $"You must call {nameof(ArrangeFrames)}() before writing out the source code");
+        }
+
+        Header?.Write(writer);
+
+        var arguments = Arguments.Select(x => $"{x.Usage}: {x.VariableType.FSharpName()}").Join(", ");
+        var returnType = ReturnType.FSharpName();
+        var keyword = Overrides ? "override" : "member";
+
+        // `_` self identifier avoids an unused-`this` warning; instance let-bound
+        // fields are reachable directly by name regardless of the self identifier.
+        writer.Write($"BLOCK:{keyword} _.{MethodName}({arguments}) : {returnType} =");
+
+        if (AsyncMode == AsyncMode.None)
+        {
+            _top.GenerateFSharpCode(this, writer);
+        }
+        else
+        {
+            // The `task { }` braces are genuine F# syntax, so they are written literally
+            // (with manual indentation) rather than through the brace-free block protocol.
+            writer.WriteLine("task {");
+            writer.IndentionLevel++;
+            _top.GenerateFSharpCode(this, writer);
+            writer.IndentionLevel--;
+            writer.WriteLine("}");
+        }
 
         writer.FinishBlock();
     }

@@ -1,5 +1,6 @@
 ﻿using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
+using JasperFx.Core.Reflection;
 
 namespace JasperFx.CodeGeneration.Frames;
 
@@ -28,6 +29,13 @@ public class CommentFrame : SyncFrame
         // It's on you to call through to a possible next
         // frame to let it generate its code
         Next?.GenerateCode(method, writer);
+    }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // "// comment" is identical in C# and F#
+        writer.WriteComment(_commentText);
+        Next?.GenerateFSharpCode(method, writer);
     }
 }
 
@@ -108,6 +116,19 @@ public abstract class Frame
     }
 
     public abstract void GenerateCode(GeneratedMethod method, ISourceWriter writer);
+
+    /// <summary>
+    ///     EXPERIMENTAL alternative to <see cref="GenerateCode" /> that emits F# instead of C#
+    ///     for the pre-generated (static) code model. The default throws so the proven C# path
+    ///     and every frame that has not opted in keep compiling and working untouched; override
+    ///     this per-frame to add F# support. Like <see cref="GenerateCode" />, an implementation
+    ///     is responsible for calling through to <see cref="Next" /> (when it has one).
+    /// </summary>
+    public virtual void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        throw new NotSupportedException(
+            $"F# code generation is not supported for the frame '{GetType().FullNameInCode()}'.");
+    }
 
     public void ResolveVariables(IMethodVariables method)
     {

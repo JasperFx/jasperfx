@@ -60,6 +60,18 @@ public class CodeFrame : Frame, ICodeFrame
         Next?.GenerateCode(method, writer);
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // CodeFrame is a raw passthrough of caller-supplied text, so the only
+        // difference from the C# path is chaining to Next via GenerateFSharpCode.
+        // It is the caller's responsibility to supply F#-valid text.
+        var substitutions = _values.Select(CodeFormatter.Write).ToArray();
+        var code = string.Format(_format, substitutions);
+
+        writer.Write(code);
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
         for (var i = 0; i < _values.Length; i++)

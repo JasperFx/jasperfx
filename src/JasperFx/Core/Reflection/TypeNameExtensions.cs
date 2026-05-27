@@ -67,6 +67,90 @@ public static class TypeNameExtensions
     }
 
     /// <summary>
+    ///     F# keyword aliases for the primitive .NET types, used by <see cref="FSharpName" />.
+    ///     Note the deliberate differences from C#: <c>System.Double</c> is <c>float</c> in F#
+    ///     (and <c>System.Single</c> is <c>float32</c>), and <c>System.Void</c> is <c>unit</c>.
+    /// </summary>
+    public static readonly Dictionary<Type, string> FSharpAliases = new()
+    {
+        { typeof(void), "unit" },
+        { typeof(object), "obj" },
+        { typeof(string), "string" },
+        { typeof(bool), "bool" },
+        { typeof(char), "char" },
+        { typeof(byte), "byte" },
+        { typeof(sbyte), "sbyte" },
+        { typeof(short), "int16" },
+        { typeof(ushort), "uint16" },
+        { typeof(int), "int" },
+        { typeof(uint), "uint32" },
+        { typeof(long), "int64" },
+        { typeof(ulong), "uint64" },
+        { typeof(float), "float32" },
+        { typeof(double), "float" },
+        { typeof(decimal), "decimal" },
+        { typeof(nint), "nativeint" },
+        { typeof(nuint), "unativeint" }
+    };
+
+    /// <summary>
+    ///     EXPERIMENTAL. Derives the full type name *as it would appear in F# code*. Handles the
+    ///     primitive aliases (see <see cref="FSharpAliases" />), arrays, and closed generic types.
+    ///     Throws <see cref="NotSupportedException" /> on cases the F# code generator does not yet
+    ///     handle (open generics, generic parameters, by-ref/pointer types, and tuple types) so
+    ///     unsupported shapes fail loudly rather than emitting invalid F#.
+    /// </summary>
+    public static string FSharpName(this Type type)
+    {
+        if (FSharpAliases.TryGetValue(type, out var alias))
+        {
+            return alias;
+        }
+
+        if (type.IsByRef || type.IsPointer || type.IsGenericParameter)
+        {
+            throw new NotSupportedException(
+                $"F# code generation does not yet support the type '{type}'.");
+        }
+
+        if (type.IsArray)
+        {
+            return $"{type.GetElementType()!.FSharpName()}[]";
+        }
+
+        if (type.IsGenericType)
+        {
+            if (type.IsGenericTypeDefinition)
+            {
+                throw new NotSupportedException(
+                    $"F# code generation does not support the open generic type '{type}'.");
+            }
+
+            var definition = type.GetGenericTypeDefinition();
+            if (definition.FullName != null &&
+                (definition.FullName.StartsWith("System.ValueTuple") ||
+                 definition.FullName.StartsWith("System.Tuple")))
+            {
+                throw new NotSupportedException(
+                    $"F# code generation does not yet support the tuple type '{type}'.");
+            }
+
+            var cleanName = type.Name.Split('`').First();
+            var args = type.GetGenericArguments().Select(x => x.FSharpName()).Join(", ");
+
+            if (type.IsNested)
+            {
+                return $"{type.ReflectedType!.FSharpName()}.{cleanName}<{args}>";
+            }
+
+            return $"{type.Namespace}.{cleanName}<{args}>";
+        }
+
+        // Non-generic, non-primitive: the fully-qualified C# name is also valid F#.
+        return type.FullNameInCode();
+    }
+
+    /// <summary>
     ///     Derives the type name *as it would appear in C# code*
     /// </summary>
     /// <param name="type"></param>

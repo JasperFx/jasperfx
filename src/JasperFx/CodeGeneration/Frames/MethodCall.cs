@@ -388,6 +388,94 @@ public class MethodCall : Frame
         Next?.GenerateCode(method, writer);
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        if (CommentText.IsNotEmpty())
+        {
+            writer.WriteLine("");
+            writer.WriteComment(CommentText);
+        }
+
+        // Activity events use C#-specific object-initializer syntax; they are
+        // intentionally not emitted on the F# path for milestone 1.
+
+        writer.Write($"{fsharpReturnActionCode(method)}{fsharpInvocationCode()}");
+
+        if (CommentText.IsNotEmpty())
+        {
+            writer.BlankLine();
+        }
+
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
+    private string fsharpInvocationCode()
+    {
+        var methodName = Method.Name;
+        if (Method.IsGenericMethod)
+        {
+            methodName += $"<{Method.GetGenericArguments().Select(x => x.FSharpName()).Join(", ")}>";
+        }
+
+        var callingCode = $"{methodName}({Arguments.Select(x => x.Usage).Join(", ")})";
+
+        return $"{fsharpDetermineTarget()}{callingCode}";
+    }
+
+    private string fsharpDetermineTarget()
+    {
+        if (IsLocal)
+        {
+            return string.Empty;
+        }
+
+        var target = Method.IsStatic
+            ? HandlerType.FSharpName()
+            : Target!.Usage;
+
+        return target + ".";
+    }
+
+    private string fsharpReturnActionCode(GeneratedMethod method)
+    {
+        var insideTaskBlock = method.AsyncMode != AsyncMode.None;
+
+        // The last async node returns the awaited result directly: F# `return!`.
+        if (IsAsync && method.AsyncMode == AsyncMode.ReturnFromLastNode)
+        {
+            return "return! ";
+        }
+
+        if (ReturnVariable == null)
+        {
+            // A void async call must still be awaited inside the task block.
+            return IsAsync && insideTaskBlock ? "do! " : string.Empty;
+        }
+
+        if (ReturnVariable.VariableType.IsValueTuple())
+        {
+            throw new NotSupportedException(
+                "F# code generation does not yet support value-tuple return variables.");
+        }
+
+        var awaited = IsAsync && insideTaskBlock;
+
+        switch (ReturnAction)
+        {
+            case ReturnAction.Initialize:
+                // `let x =` (sync) or `let! x =` (await inside the task block)
+                return awaited ? $"let! {ReturnVariable.Usage} = " : $"{ReturnVariable.FSharpAssignmentUsage} = ";
+            case ReturnAction.Assign:
+                // F# reassignment of a `let mutable` binding uses the `<-` operator.
+                return awaited ? $"let! {ReturnVariable.Usage} = " : $"{ReturnVariable.Usage} <- ";
+            case ReturnAction.Return:
+                // Synchronous: the invocation IS the trailing expression (no `return`).
+                return insideTaskBlock ? "return! " : string.Empty;
+        }
+
+        throw new ArgumentOutOfRangeException();
+    }
+
     private static void writeActivityEvent(ISourceWriter writer, string eventName)
     {
         writer.Write(
