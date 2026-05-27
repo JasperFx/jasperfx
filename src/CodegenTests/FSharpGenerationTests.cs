@@ -135,6 +135,29 @@ public class FSharpGenerationTests
     }
 
     [Fact]
+    public void open_statements_cover_return_and_dependency_namespaces()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedAsyncGreeter", typeof(IFSharpAsyncGreeter));
+        var method = type.MethodFor(nameof(IFSharpAsyncGreeter.GreetAsync));
+
+        var service = new InjectedField(typeof(FSharpGreetingService), "service");
+        var call = new MethodCall(typeof(FSharpGreetingService), nameof(FSharpGreetingService.CreateGreetingAsync))
+        {
+            Target = service
+        };
+        method.Frames.Add(call);
+        method.Frames.Add(new ReturnFrame(call.ReturnVariable!));
+
+        var code = assembly.GenerateFSharpCode();
+
+        // From the Task<string> return type (not just the injected-field namespace)...
+        code.ShouldContain("open System.Threading.Tasks");
+        // ...and from the injected service + implemented interface.
+        code.ShouldContain("open CodegenTests");
+    }
+
+    [Fact]
     public void renders_let_mutable_and_reassignment_for_return_action_assign()
     {
         var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));

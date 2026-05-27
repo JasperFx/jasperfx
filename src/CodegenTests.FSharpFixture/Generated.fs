@@ -3,6 +3,8 @@
 namespace FSharpCodegenTarget.Generated
 
 open FSharpCodegenTarget
+open System
+open System.Threading.Tasks
 
 type GeneratedGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
     let _greetingService = greetingService
