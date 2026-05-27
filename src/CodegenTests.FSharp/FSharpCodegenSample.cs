@@ -51,8 +51,80 @@ public static class FSharpCodegenSample
         AddAsyncType(assembly);
         AddDirectAsyncType(assembly);
         AddAccumulatorType(assembly);
+        AddConditionalType(assembly);
+        AddToggleType(assembly);
+        AddResourceType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     A null-guard that returns one of two values — F# <c>if isNull x then ... else ...</c>
+    ///     as the trailing (return) expression (IfElseNullGuardFrame).
+    /// </summary>
+    private static void AddConditionalType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedConditionalGreeter", typeof(IConditionalGreeter));
+        var method = type.MethodFor(nameof(IConditionalGreeter.Describe));
+        var input = method.Arguments[0];
+
+        var service = new InjectedField(typeof(ControlFlowService), "controlFlowService");
+
+        var fallback = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Fallback))
+        {
+            Target = service, ReturnAction = ReturnAction.Return
+        };
+        var echo = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Echo))
+        {
+            Target = service, ReturnAction = ReturnAction.Return
+        };
+        echo.Arguments[0] = input;
+
+        method.Frames.Add(new IfElseNullGuardFrame(input, new Frame[] { fallback }, new Frame[] { echo }));
+    }
+
+    /// <summary>
+    ///     A conditional side effect — F# <c>if flag then ...</c> (IfBlock, a CompositeFrame).
+    /// </summary>
+    private static void AddToggleType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedToggle", typeof(IToggle));
+        var method = type.MethodFor(nameof(IToggle.Toggle));
+        var flag = method.Arguments[0];
+
+        var service = new InjectedField(typeof(ControlFlowService), "controlFlowService");
+        var record = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Record))
+        {
+            Target = service
+        };
+
+        method.Frames.Add(new IfBlock(flag, record));
+    }
+
+    /// <summary>
+    ///     A try/finally — F# <c>try ... finally ...</c> (TryFinallyWrapperFrame).
+    /// </summary>
+    private static void AddResourceType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedResourceRunner", typeof(IResource));
+        var method = type.MethodFor(nameof(IResource.Run));
+
+        var service = new InjectedField(typeof(ControlFlowService), "controlFlowService");
+        var begin = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Begin))
+        {
+            Target = service
+        };
+        var work = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Record))
+        {
+            Target = service
+        };
+        var end = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.End))
+        {
+            Target = service
+        };
+
+        method.Frames.Add(new TryFinallyWrapperFrame(begin, new Frame[] { end }));
+        method.Frames.Add(work);
     }
 
     /// <summary>

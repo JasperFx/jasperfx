@@ -45,3 +45,32 @@ type GeneratedAccumulator(accumulatorService: FSharpCodegenTarget.AccumulatorSer
             mutableBox <- _accumulatorService.Advance(mutableBox)
             mutableBox
 
+type GeneratedConditionalGreeter(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
+    let _controlFlowService = controlFlowService
+
+    interface FSharpCodegenTarget.IConditionalGreeter with
+        member _.Describe(input: string) : string =
+            if isNull input then
+                _controlFlowService.Fallback()
+            else
+                _controlFlowService.Echo(input)
+
+type GeneratedToggle(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
+    let _controlFlowService = controlFlowService
+
+    interface FSharpCodegenTarget.IToggle with
+        member _.Toggle(flag: bool) : unit =
+            if flag then
+                _controlFlowService.Record()
+
+type GeneratedResourceRunner(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
+    let _controlFlowService = controlFlowService
+
+    interface FSharpCodegenTarget.IResource with
+        member _.Run() : unit =
+            _controlFlowService.Begin()
+            try
+                _controlFlowService.Record()
+            finally
+                _controlFlowService.End()
+

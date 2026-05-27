@@ -40,6 +40,22 @@ public class IfElseNullGuardFrame : Frame
         Next?.GenerateCode(method, writer);
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // F# if/then/else is an expression: when it is the trailing position both branches yield
+        // the method's return value; otherwise both branches must be unit. `else` dedents back to
+        // align with `if` (no braces).
+        writer.Write($"BLOCK:if isNull {_subject.Usage} then");
+        foreach (var frame in _nullPath) frame.GenerateFSharpCode(method, writer);
+        writer.FinishBlock();
+
+        writer.Write("BLOCK:else");
+        foreach (var frame in _existsPath) frame.GenerateFSharpCode(method, writer);
+        writer.FinishBlock();
+
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
         foreach (var frame in _existsPath)
@@ -92,6 +108,13 @@ public class IfElseNullGuardFrame : Frame
         {
             writer.Write($"BLOCK:if ({_variable.Usage} != null)");
             inner.GenerateCode(method, writer);
+            writer.FinishBlock();
+        }
+
+        protected override void generateFSharpCode(GeneratedMethod method, ISourceWriter writer, Frame inner)
+        {
+            writer.Write($"BLOCK:if not (isNull {_variable.Usage}) then");
+            inner.GenerateFSharpCode(method, writer);
             writer.FinishBlock();
         }
     }

@@ -50,6 +50,48 @@ public class AccumulatorService
     }
 }
 
+// Control-flow contracts: exercise IfElseNullGuardFrame, IfBlock, and TryFinallyWrapperFrame.
+
+public interface IConditionalGreeter
+{
+    string Describe(string input);
+}
+
+public interface IToggle
+{
+    void Toggle(bool flag);
+}
+
+public interface IResource
+{
+    void Run();
+}
+
+public class ControlFlowService
+{
+    public string Fallback()
+    {
+        return "fallback";
+    }
+
+    public string Echo(string input)
+    {
+        return input;
+    }
+
+    public void Record()
+    {
+    }
+
+    public void Begin()
+    {
+    }
+
+    public void End()
+    {
+    }
+}
+
 /// <summary>
 ///     A simple value object the generated method constructs (exercises ConstructorFrame).
 /// </summary>

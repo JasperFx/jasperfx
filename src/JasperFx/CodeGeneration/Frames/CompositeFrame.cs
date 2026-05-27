@@ -1,4 +1,5 @@
 ﻿using JasperFx.CodeGeneration.Model;
+using JasperFx.Core.Reflection;
 
 namespace JasperFx.CodeGeneration.Frames;
 
@@ -28,7 +29,33 @@ public abstract class CompositeFrame : Frame
         Next?.GenerateCode(method, writer);
     }
 
+    public sealed override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        if (_inner.Length > 1)
+        {
+            for (var i = 1; i < _inner.Length; i++)
+            {
+                _inner[i - 1].Next = _inner[i];
+            }
+        }
+
+        generateFSharpCode(method, writer, _inner[0]);
+
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
     protected abstract void generateCode(GeneratedMethod method, ISourceWriter writer, Frame inner);
+
+    /// <summary>
+    ///     EXPERIMENTAL F# counterpart to <see cref="generateCode" />. Default-throws (naming the
+    ///     frame) so composite frames that have not opted in keep failing loudly rather than
+    ///     emitting invalid F#.
+    /// </summary>
+    protected virtual void generateFSharpCode(GeneratedMethod method, ISourceWriter writer, Frame inner)
+    {
+        throw new NotSupportedException(
+            $"F# code generation is not supported for the frame '{GetType().FullNameInCode()}'.");
+    }
 
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
