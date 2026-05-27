@@ -10,6 +10,15 @@ public interface IGreeter
 }
 
 /// <summary>
+///     The async counterpart of <see cref="IGreeter" />, used to exercise the F# <c>task { }</c>
+///     emit path.
+/// </summary>
+public interface IAsyncGreeter
+{
+    Task<string> GreetAsync(string name);
+}
+
+/// <summary>
 ///     A simple value object the generated method constructs (exercises ConstructorFrame).
 /// </summary>
 public class Salutation
@@ -31,5 +40,10 @@ public class GreetingService
     public string CreateGreeting(Salutation salutation)
     {
         return salutation.Text + "!";
+    }
+
+    public Task<string> CreateGreetingAsync(Salutation salutation)
+    {
+        return Task.FromResult(salutation.Text + "!");
     }
 }

@@ -15,3 +15,15 @@ type GeneratedGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
             let result = result_of_CreateGreeting.ToUpper()
             result
 
+type GeneratedAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
+    let _greetingService = greetingService
+
+    interface FSharpCodegenTarget.IAsyncGreeter with
+        member _.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =
+            task {
+                // Async greeting handler (jasperfx#383)
+                let salutation = FSharpCodegenTarget.Salutation(name)
+                let! result_of_CreateGreetingAsync = _greetingService.CreateGreetingAsync(salutation)
+                return result_of_CreateGreetingAsync
+            }
+

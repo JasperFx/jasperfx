@@ -11,11 +11,21 @@ public interface IFSharpGreeter
     string Greet(string name);
 }
 
+public interface IFSharpAsyncGreeter
+{
+    Task<string> GreetAsync(string name);
+}
+
 public class FSharpGreetingService
 {
     public string CreateGreeting(string name)
     {
         return "Hello " + name;
+    }
+
+    public Task<string> CreateGreetingAsync(string name)
+    {
+        return Task.FromResult("Hello " + name);
     }
 }
 
@@ -53,6 +63,32 @@ public class FSharpGenerationTests
         code.ShouldNotContain("return ");
         code.ShouldNotContain("{");
         code.ShouldNotContain(";");
+    }
+
+    [Fact]
+    public void wraps_an_async_method_body_in_a_task_computation_expression()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedAsyncGreeter", typeof(IFSharpAsyncGreeter));
+        var method = type.MethodFor(nameof(IFSharpAsyncGreeter.GreetAsync));
+
+        var service = new InjectedField(typeof(FSharpGreetingService), "service");
+        var call = new MethodCall(typeof(FSharpGreetingService), nameof(FSharpGreetingService.CreateGreetingAsync))
+        {
+            Target = service
+        };
+        method.Frames.Add(call);
+        method.Frames.Add(new ReturnFrame(call.ReturnVariable!));
+
+        var code = assembly.GenerateFSharpCode();
+
+        code.ShouldContain("member _.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =");
+        code.ShouldContain("task {");
+        // await inside the computation expression binds with let!
+        code.ShouldContain("let! result_of_CreateGreetingAsync = _service.CreateGreetingAsync(name)");
+        // and the trailing expression uses `return` because we are inside the task block
+        code.ShouldContain("return result_of_CreateGreetingAsync");
+        code.ShouldContain("}");
     }
 
     [Fact]

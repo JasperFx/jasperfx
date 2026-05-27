@@ -48,7 +48,33 @@ public static class FSharpCodegenSample
         // 5. Return the result (rendered as a trailing F# expression).
         method.Frames.Add(new ReturnFrame(result));
 
+        AddAsyncType(assembly);
+
         return assembly;
+    }
+
+    /// <summary>
+    ///     A second type whose method is asynchronous, so the body is wrapped in a
+    ///     <c>task { }</c> computation expression with <c>let!</c> (await) and <c>return</c>.
+    /// </summary>
+    private static void AddAsyncType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedAsyncGreeter", typeof(IAsyncGreeter));
+        var method = type.MethodFor(nameof(IAsyncGreeter.GreetAsync));
+
+        method.Frames.Add(new CommentFrame("Async greeting handler (jasperfx#383)"));
+
+        var salutationCtor = typeof(Salutation).GetConstructors().Single();
+        method.Frames.Add(new ConstructorFrame(typeof(Salutation), salutationCtor));
+
+        var service = new InjectedField(typeof(GreetingService), "greetingService");
+        var call = new MethodCall(typeof(GreetingService), nameof(GreetingService.CreateGreetingAsync))
+        {
+            Target = service
+        };
+        method.Frames.Add(call);
+
+        method.Frames.Add(new ReturnFrame(call.ReturnVariable!));
     }
 
     /// <summary>
