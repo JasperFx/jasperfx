@@ -191,7 +191,7 @@ public class ConstructorFrame : SyncFrame
             Header.Write(writer);
         }
 
-        var insideTaskBlock = method.AsyncMode != AsyncMode.None;
+        var insideTaskBlock = method.AsyncMode == AsyncMode.AsyncTask;
 
         switch (Mode)
         {

@@ -49,6 +49,8 @@ public static class FSharpCodegenSample
         method.Frames.Add(new ReturnFrame(result));
 
         AddAsyncType(assembly);
+        AddDirectAsyncType(assembly);
+        AddAccumulatorType(assembly);
 
         return assembly;
     }
@@ -75,6 +77,55 @@ public static class FSharpCodegenSample
         method.Frames.Add(call);
 
         method.Frames.Add(new ReturnFrame(call.ReturnVariable!));
+    }
+
+    /// <summary>
+    ///     A type whose single async call IS the return value, so the body is a bare trailing
+    ///     Task expression (ReturnFromLastNode) — no <c>task { }</c> state machine.
+    /// </summary>
+    private static void AddDirectAsyncType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedDirectAsyncGreeter", typeof(IDirectAsyncGreeter));
+        var method = type.MethodFor(nameof(IDirectAsyncGreeter.GreetDirectAsync));
+
+        method.Frames.Add(new CommentFrame("Returns the service Task directly (jasperfx#383)"));
+
+        var salutationCtor = typeof(Salutation).GetConstructors().Single();
+        method.Frames.Add(new ConstructorFrame(typeof(Salutation), salutationCtor));
+
+        var service = new InjectedField(typeof(GreetingService), "greetingService");
+        var call = new MethodCall(typeof(GreetingService), nameof(GreetingService.CreateGreetingAsync))
+        {
+            Target = service,
+            // The call itself is the method's return value — no ReturnFrame after it.
+            ReturnAction = ReturnAction.Return
+        };
+        method.Frames.Add(call);
+    }
+
+    /// <summary>
+    ///     A type that constructs a local, reassigns it from a service call, and returns it —
+    ///     exercising F# <c>let mutable</c> + the <c>&lt;-</c> reassignment operator.
+    /// </summary>
+    private static void AddAccumulatorType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedAccumulator", typeof(IAccumulator));
+        var method = type.MethodFor(nameof(IAccumulator.Accumulate));
+
+        var boxCtor = typeof(MutableBox).GetConstructors().Single();
+        var ctorFrame = new ConstructorFrame(typeof(MutableBox), boxCtor);
+        method.Frames.Add(ctorFrame);
+
+        var service = new InjectedField(typeof(AccumulatorService), "accumulatorService");
+        var call = new MethodCall(typeof(AccumulatorService), nameof(AccumulatorService.Advance))
+        {
+            Target = service
+        };
+        call.Arguments[0] = ctorFrame.Variable;
+        call.AssignResultTo(ctorFrame.Variable); // box <- service.Advance(box) (marks box mutable)
+        method.Frames.Add(call);
+
+        method.Frames.Add(new ReturnFrame(ctorFrame.Variable));
     }
 
     /// <summary>

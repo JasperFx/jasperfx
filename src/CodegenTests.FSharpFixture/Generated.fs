@@ -27,3 +27,21 @@ type GeneratedAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingService)
                 return result_of_CreateGreetingAsync
             }
 
+type GeneratedDirectAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
+    let _greetingService = greetingService
+
+    interface FSharpCodegenTarget.IDirectAsyncGreeter with
+        member _.GreetDirectAsync(name: string) : System.Threading.Tasks.Task<string> =
+            // Returns the service Task directly (jasperfx#383)
+            let salutation = FSharpCodegenTarget.Salutation(name)
+            _greetingService.CreateGreetingAsync(salutation)
+
+type GeneratedAccumulator(accumulatorService: FSharpCodegenTarget.AccumulatorService) =
+    let _accumulatorService = accumulatorService
+
+    interface FSharpCodegenTarget.IAccumulator with
+        member _.Accumulate() : FSharpCodegenTarget.MutableBox =
+            let mutable mutableBox = FSharpCodegenTarget.MutableBox()
+            mutableBox <- _accumulatorService.Advance(mutableBox)
+            mutableBox
+

@@ -35,7 +35,7 @@ public class ReturnFrame : SyncFrame
         // trailing expression (no `return`), while inside a `task { }` computation
         // expression you DO use `return`. `unit` is written as `()`.
         var expression = ReturnedVariable == null ? "()" : ReturnedVariable.Usage;
-        var insideTaskBlock = method.AsyncMode != AsyncMode.None;
+        var insideTaskBlock = method.AsyncMode == AsyncMode.AsyncTask;
 
         writer.Write(insideTaskBlock ? $"return {expression}" : expression);
     }

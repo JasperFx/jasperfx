@@ -213,11 +213,7 @@ public class GeneratedMethod : IGeneratedMethod
         // fields are reachable directly by name regardless of the self identifier.
         writer.Write($"BLOCK:{keyword} _.{MethodName}({arguments}) : {returnType} =");
 
-        if (AsyncMode == AsyncMode.None)
-        {
-            _top.GenerateFSharpCode(this, writer);
-        }
-        else
+        if (AsyncMode == AsyncMode.AsyncTask)
         {
             // The `task { }` braces are genuine F# syntax, so they are written literally
             // (with manual indentation) rather than through the brace-free block protocol.
@@ -226,6 +222,12 @@ public class GeneratedMethod : IGeneratedMethod
             _top.GenerateFSharpCode(this, writer);
             writer.IndentionLevel--;
             writer.WriteLine("}");
+        }
+        else
+        {
+            // Synchronous (None) OR a single trailing Task expression (ReturnFromLastNode): both are
+            // a bare F# expression body — no state machine. The frames emit the trailing expression.
+            _top.GenerateFSharpCode(this, writer);
         }
 
         writer.FinishBlock();

@@ -29,6 +29,25 @@ public class FSharpGreetingService
     }
 }
 
+public interface IFSharpAccumulator
+{
+    FSharpBox Accumulate();
+}
+
+public class FSharpBox
+{
+    public int Value { get; set; }
+}
+
+public class FSharpAccumulatorService
+{
+    public FSharpBox Advance(FSharpBox box)
+    {
+        box.Value++;
+        return box;
+    }
+}
+
 public class FSharpGenerationTests
 {
     [Fact]
@@ -89,6 +108,58 @@ public class FSharpGenerationTests
         // and the trailing expression uses `return` because we are inside the task block
         code.ShouldContain("return result_of_CreateGreetingAsync");
         code.ShouldContain("}");
+    }
+
+    [Fact]
+    public void emits_a_bare_trailing_task_expression_for_return_from_last_node()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedDirectAsyncGreeter", typeof(IFSharpAsyncGreeter));
+        var method = type.MethodFor(nameof(IFSharpAsyncGreeter.GreetAsync));
+
+        var service = new InjectedField(typeof(FSharpGreetingService), "service");
+        var call = new MethodCall(typeof(FSharpGreetingService), nameof(FSharpGreetingService.CreateGreetingAsync))
+        {
+            Target = service,
+            ReturnAction = ReturnAction.Return
+        };
+        method.Frames.Add(call);
+
+        var code = assembly.GenerateFSharpCode();
+
+        code.ShouldContain("member _.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =");
+        // No state machine: the Task is returned directly, with no task block and no `return!`.
+        code.ShouldNotContain("task {");
+        code.ShouldNotContain("return!");
+        code.ShouldContain("_service.CreateGreetingAsync(name)");
+    }
+
+    [Fact]
+    public void renders_let_mutable_and_reassignment_for_return_action_assign()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedAccumulator", typeof(IFSharpAccumulator));
+        var method = type.MethodFor(nameof(IFSharpAccumulator.Accumulate));
+
+        var boxCtor = typeof(FSharpBox).GetConstructors().Single();
+        var ctorFrame = new ConstructorFrame(typeof(FSharpBox), boxCtor);
+        method.Frames.Add(ctorFrame);
+
+        var service = new InjectedField(typeof(FSharpAccumulatorService), "service");
+        var call = new MethodCall(typeof(FSharpAccumulatorService), nameof(FSharpAccumulatorService.Advance))
+        {
+            Target = service
+        };
+        call.Arguments[0] = ctorFrame.Variable;
+        call.AssignResultTo(ctorFrame.Variable);
+        method.Frames.Add(call);
+        method.Frames.Add(new ReturnFrame(ctorFrame.Variable));
+
+        var code = assembly.GenerateFSharpCode();
+
+        var usage = ctorFrame.Variable.Usage;
+        code.ShouldContain($"let mutable {usage} = CodegenTests.FSharpBox()");
+        code.ShouldContain($"{usage} <- _service.Advance({usage})");
     }
 
     [Fact]

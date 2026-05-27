@@ -182,6 +182,12 @@ public class MethodCall : Frame
     {
         ReturnVariable = variable;
         ReturnAction = ReturnAction.Assign;
+
+        // F#: reassigning a binding requires it to have been declared `let mutable`. Marking the
+        // variable here lets its first binding render `let mutable` and this site render `x <- ...`.
+        // No effect on the C# path, and no effect for arguments/injected fields (which are never
+        // rendered through FSharpAssignmentUsage).
+        variable.Mutable = true;
     }
 
     public static MethodCall For<T>(Expression<Action<T>> expression)
@@ -438,12 +444,15 @@ public class MethodCall : Frame
 
     private string fsharpReturnActionCode(GeneratedMethod method)
     {
-        var insideTaskBlock = method.AsyncMode != AsyncMode.None;
+        // A `task { }` computation expression is emitted only for AsyncMode.AsyncTask; everything
+        // else (None, ReturnFromLastNode) is a bare F# expression body.
+        var insideTaskBlock = method.AsyncMode == AsyncMode.AsyncTask;
 
-        // The last async node returns the awaited result directly: F# `return!`.
+        // The last async node IS the method's return value, emitted directly as the trailing Task
+        // expression (no task block, no `return!`). F# returns the Task without a state machine.
         if (IsAsync && method.AsyncMode == AsyncMode.ReturnFromLastNode)
         {
-            return "return! ";
+            return string.Empty;
         }
 
         if (ReturnVariable == null)
