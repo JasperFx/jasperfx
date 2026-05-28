@@ -56,7 +56,7 @@ public static class EnumerableSingletonRegistrationExtensions
 
                 if (!alreadyRegistered)
                 {
-                    toAdd.Add(EnumerableSingletons.KeyedMirror(family.Key, i));
+                    toAdd.Add(EnumerableSingletons.KeyedMirror(family.Key, i, nonKeyed[i]));
                 }
             }
         }

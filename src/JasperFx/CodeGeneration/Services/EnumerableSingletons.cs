@@ -43,12 +43,38 @@ internal static class EnumerableSingletons
     /// <summary>
     /// A keyed singleton descriptor that forwards to the <paramref name="nonKeyedOrdinal"/>-th
     /// non-keyed registration of <paramref name="elementType"/>, sharing that registration's
-    /// singleton instance (GetServices honors each registration's own lifetime).
+    /// singleton instance.
+    /// <para>
+    /// The factory binds directly to <paramref name="source"/> (its <see cref="ServiceDescriptor.ImplementationInstance"/>,
+    /// <see cref="ServiceDescriptor.ImplementationFactory"/>, or <see cref="ServiceDescriptor.ImplementationType"/>)
+    /// rather than calling <c>sp.GetServices(elementType)</c>. The latter would re-enter the same
+    /// <c>IEnumerable&lt;T&gt;</c> resolution while the container is inlining the singleton element of
+    /// that enumerable, creating infinite recursion in code-gen containers that inline singleton values
+    /// (e.g. Lamar). Binding to the source descriptor short-circuits that cycle.
+    /// </para>
     /// </summary>
-    public static ServiceDescriptor KeyedMirror(Type elementType, int nonKeyedOrdinal)
+    public static ServiceDescriptor KeyedMirror(Type elementType, int nonKeyedOrdinal, ServiceDescriptor source)
     {
-        var ordinal = nonKeyedOrdinal;
-        return new ServiceDescriptor(elementType, KeyFor(ordinal),
-            (sp, _) => sp.GetServices(elementType).ElementAt(ordinal)!, ServiceLifetime.Singleton);
+        if (source.ImplementationInstance is not null)
+        {
+            var instance = source.ImplementationInstance;
+            return new ServiceDescriptor(elementType, KeyFor(nonKeyedOrdinal),
+                (_, _) => instance, ServiceLifetime.Singleton);
+        }
+
+        if (source.ImplementationFactory is not null)
+        {
+            var factory = source.ImplementationFactory;
+            return new ServiceDescriptor(elementType, KeyFor(nonKeyedOrdinal),
+                (sp, _) => factory(sp), ServiceLifetime.Singleton);
+        }
+
+        var implementationType = source.ImplementationType
+            ?? throw new InvalidOperationException(
+                $"Source ServiceDescriptor for {elementType.FullNameInCode()} (ordinal {nonKeyedOrdinal}) " +
+                "has neither an implementation instance, factory, nor type.");
+
+        return new ServiceDescriptor(elementType, KeyFor(nonKeyedOrdinal),
+            (sp, _) => ActivatorUtilities.CreateInstance(sp, implementationType), ServiceLifetime.Singleton);
     }
 }
