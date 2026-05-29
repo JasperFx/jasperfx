@@ -1,8 +1,11 @@
 using System.Runtime.CompilerServices;
 using FSharpCodegenTarget;
+using JasperFx;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
+using JasperFx.CodeGeneration.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CodegenTests.FSharp;
 
@@ -58,8 +61,28 @@ public static class FSharpCodegenSample
         AddSyncTaskHandlerType(assembly);
         AddCalculatorType(assembly);
         AddCastType(assembly);
+        AddScopedConsumerType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     A handler that resolves a service-located <see cref="IScopedThing" /> and awaits it.
+    ///     Exercises the scoped-DI frames: <c>use serviceScope = …CreateAsyncScope(…)</c> +
+    ///     <c>let scopedThing = …GetRequiredService&lt;IScopedThing&gt;(serviceScope.ServiceProvider)</c>
+    ///     (jasperfx#397). Rendered with a ServiceCollectionServerVariableSource whose IScopedThing is
+    ///     an opaque scoped lambda factory (forcing service location).
+    /// </summary>
+    private static void AddScopedConsumerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedScopedConsumer", typeof(IScopedConsumerHandler));
+        var method = type.MethodFor(nameof(IScopedConsumerHandler.Handle));
+
+        // No Target — IScopedThing is resolved by the service-variable source (scoped lambda factory),
+        // which inserts ScopedContainerCreation + GetServiceFromScopedContainerFrame. Two awaits make
+        // the body a task { } (AsyncTask), exercising the `use … CreateAsyncScope()` path.
+        method.Frames.Add(new MethodCall(typeof(IScopedThing), nameof(IScopedThing.DoAsync)));
+        method.Frames.Add(new MethodCall(typeof(IScopedThing), nameof(IScopedThing.DoAsync)));
     }
 
     /// <summary>
@@ -304,7 +327,15 @@ public static class FSharpCodegenSample
     /// </summary>
     public static string GenerateCode()
     {
-        return BuildSampleAssembly().GenerateFSharpCode();
+        // A service-variable source backed by a scoped lambda-factory registration so the
+        // GeneratedScopedConsumer resolves IScopedThing via service location (the scoped-DI frames).
+        // The other sample types use constructor injection and are unaffected by the source.
+        var services = new ServiceCollection();
+        services.AddScoped<IScopedThing>(_ => new ScopedThing());
+        var container = new ServiceContainer(services, services.BuildServiceProvider());
+        var source = new ServiceCollectionServerVariableSource(container);
+
+        return BuildSampleAssembly().GenerateFSharpCode(source);
     }
 
     /// <summary>
