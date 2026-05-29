@@ -57,8 +57,33 @@ public static class FSharpCodegenSample
         AddOrderHandlerType(assembly);
         AddSyncTaskHandlerType(assembly);
         AddCalculatorType(assembly);
+        AddCastType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     Constructs a concrete <see cref="Thing" /> and passes it to a service expecting the
+    ///     <see cref="IThing" /> interface via a <see cref="CastVariable" />. Exercises the F# cast
+    ///     operator: the argument renders as <c>(thing :> IThing)</c> rather than a C-style cast
+    ///     (jasperfx#395).
+    /// </summary>
+    private static void AddCastType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedThingHandler", typeof(IThingHandler));
+        var method = type.MethodFor(nameof(IThingHandler.Handle));
+
+        var ctor = new ConstructorFrame(typeof(Thing), typeof(Thing).GetConstructors().Single());
+        method.Frames.Add(ctor);
+
+        var service = new InjectedField(typeof(ThingDescriber), "thingDescriber");
+        var call = new MethodCall(typeof(ThingDescriber), nameof(ThingDescriber.Describe))
+        {
+            Target = service,
+            ReturnAction = ReturnAction.Return
+        };
+        call.Arguments[0] = new CastVariable(ctor.Variable, typeof(IThing));
+        method.Frames.Add(call);
     }
 
     /// <summary>

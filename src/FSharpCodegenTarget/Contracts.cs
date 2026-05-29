@@ -92,6 +92,28 @@ public abstract class CalculatorBase
     public abstract int Compute(int seed);
 }
 
+/// <summary>
+///     A concrete type, its interface, and a service taking the interface. The generated handler
+///     constructs the concrete type and passes it to the service through a <c>CastVariable</c> (upcast
+///     to the interface) — exercises the F# cast operator (<c>:&gt;</c>) for CastVariable (jasperfx#395).
+/// </summary>
+public interface IThing;
+
+public class Thing : IThing;
+
+public class ThingDescriber
+{
+    public string Describe(IThing thing)
+    {
+        return thing.GetType().Name;
+    }
+}
+
+public interface IThingHandler
+{
+    string Handle();
+}
+
 public class ControlFlowService
 {
     public string Fallback()

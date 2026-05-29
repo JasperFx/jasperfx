@@ -45,7 +45,7 @@ public class IfElseNullGuardFrame : Frame
         // F# if/then/else is an expression: when it is the trailing position both branches yield
         // the method's return value; otherwise both branches must be unit. `else` dedents back to
         // align with `if` (no braces).
-        writer.Write($"BLOCK:if isNull {_subject.Usage} then");
+        writer.Write($"BLOCK:if isNull {_subject.FSharpUsage} then");
         foreach (var frame in _nullPath) frame.GenerateFSharpCode(method, writer);
         writer.FinishBlock();
 
@@ -113,7 +113,7 @@ public class IfElseNullGuardFrame : Frame
 
         protected override void generateFSharpCode(GeneratedMethod method, ISourceWriter writer, Frame inner)
         {
-            writer.Write($"BLOCK:if not (isNull {_variable.Usage}) then");
+            writer.Write($"BLOCK:if not (isNull {_variable.FSharpUsage}) then");
             inner.GenerateFSharpCode(method, writer);
             writer.FinishBlock();
         }

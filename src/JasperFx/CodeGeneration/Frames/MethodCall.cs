@@ -423,7 +423,7 @@ public class MethodCall : Frame
             methodName += $"<{Method.GetGenericArguments().Select(x => x.FSharpName()).Join(", ")}>";
         }
 
-        var callingCode = $"{methodName}({Arguments.Select(x => x.Usage).Join(", ")})";
+        var callingCode = $"{methodName}({Arguments.Select(x => x.FSharpUsage).Join(", ")})";
 
         return $"{fsharpDetermineTarget()}{callingCode}";
     }
@@ -440,7 +440,7 @@ public class MethodCall : Frame
 
         var target = Method.IsStatic
             ? HandlerType.FSharpName()
-            : Target!.Usage;
+            : Target!.FSharpUsage;
 
         return target + ".";
     }
