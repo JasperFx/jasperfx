@@ -77,4 +77,22 @@ public class GetServiceFromScopedContainerFrame : SyncFrame
 
         Next?.GenerateCode(method, writer);
     }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // NOTE: the optional Header is a C#-style code fragment (/* */ comments) and is intentionally
+        // not emitted on the F# path — those comment delimiters are invalid F#.
+        if (_serviceKey != null)
+        {
+            writer.Write(
+                $"{Variable.FSharpAssignmentUsage} = {typeof(ServiceProviderKeyedServiceExtensions).FSharpName()}.{nameof(ServiceProviderKeyedServiceExtensions.GetRequiredKeyedService)}<{Variable.VariableType.FSharpName()}>({_scoped.FSharpUsage}, {CodeFormatter.Write(_serviceKey)})");
+        }
+        else
+        {
+            writer.Write(
+                $"{Variable.FSharpAssignmentUsage} = {typeof(ServiceProviderServiceExtensions).FSharpName()}.{nameof(ServiceProviderServiceExtensions.GetRequiredService)}<{Variable.VariableType.FSharpName()}>({_scoped.FSharpUsage})");
+        }
+
+        Next?.GenerateFSharpCode(method, writer);
+    }
 }

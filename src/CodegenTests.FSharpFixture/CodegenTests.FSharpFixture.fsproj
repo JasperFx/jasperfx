@@ -25,4 +25,10 @@
         <ProjectReference Include="..\FSharpCodegenTarget\FSharpCodegenTarget.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- The scoped-DI sample's generated code references IServiceScopeFactory / GetRequiredService /
+             CreateAsyncScope (jasperfx#397). -->
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    </ItemGroup>
+
 </Project>

@@ -1,5 +1,6 @@
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
+using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace JasperFx.CodeGeneration.Services;
@@ -103,5 +104,34 @@ internal class ScopedContainerCreation : SyncFrame, IScopedContainerCreation
         }
 
         Next?.GenerateCode(method, writer);
+    }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // F# `use` disposes the scope at the end of the enclosing scope, like `using var`. In a
+        // `task { }` body it binds an AsyncServiceScope (IAsyncDisposable) and the task CE's `use`
+        // awaits DisposeAsync. CreateAsyncScope is an extension method, so emit it as a static call to
+        // avoid relying on an `open`; CreateScope is a direct interface method. See jasperfx#397.
+        if (method.AsyncMode == AsyncMode.AsyncTask)
+        {
+            writer.Write(
+                $"use {Scope.Usage} = {typeof(ServiceProviderServiceExtensions).FSharpName()}.{nameof(ServiceProviderServiceExtensions.CreateAsyncScope)}({Factory.FSharpUsage})");
+        }
+        else
+        {
+            writer.Write($"use {Scope.Usage} = {Factory.FSharpUsage}.{nameof(IServiceScopeFactory.CreateScope)}()");
+        }
+
+        if (_postprocessors.Count > 0)
+        {
+            for (var i = 1; i < _postprocessors.Count; i++)
+            {
+                _postprocessors[i - 1].Next = _postprocessors[i];
+            }
+
+            _postprocessors[0].GenerateFSharpCode(method, writer);
+        }
+
+        Next?.GenerateFSharpCode(method, writer);
     }
 }

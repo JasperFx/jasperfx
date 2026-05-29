@@ -77,6 +77,32 @@ public interface ISyncTaskHandler
 }
 
 /// <summary>
+///     A scoped dependency + its consumer. Registering <see cref="IScopedThing" /> as an opaque
+///     <c>AddScoped&lt;T&gt;(_ =&gt; …)</c> lambda factory forces JasperFx to resolve it via service
+///     location, so the generated <see cref="IScopedConsumerHandler" /> implementation emits the
+///     scoped-DI frames (ScopedContainerCreation + GetServiceFromScopedContainerFrame). The async
+///     <c>DoAsync</c> makes the handler a <c>task { }</c> body, exercising the
+///     <c>use … CreateAsyncScope()</c> path. See jasperfx#397.
+/// </summary>
+public interface IScopedThing
+{
+    Task DoAsync();
+}
+
+public class ScopedThing : IScopedThing
+{
+    public Task DoAsync()
+    {
+        return Task.CompletedTask;
+    }
+}
+
+public interface IScopedConsumerHandler
+{
+    Task Handle();
+}
+
+/// <summary>
 ///     A base class with a public instance method (<see cref="Bump" />) and an abstract method to
 ///     override (<see cref="Compute" />). The generated subclass overrides <c>Compute</c> and calls the
 ///     inherited instance <c>Bump</c> via a local (this-qualified) MethodCall — exercises the named-self

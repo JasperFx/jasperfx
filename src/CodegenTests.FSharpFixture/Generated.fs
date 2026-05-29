@@ -3,6 +3,7 @@
 namespace FSharpCodegenTarget.Generated
 
 open FSharpCodegenTarget
+open Microsoft.Extensions.DependencyInjection
 open System
 open System.Threading.Tasks
 
@@ -111,4 +112,16 @@ type GeneratedThingHandler(thingDescriber: FSharpCodegenTarget.ThingDescriber) =
         member this.Handle() : string =
             let thing = FSharpCodegenTarget.Thing()
             _thingDescriber.Describe((thing :> FSharpCodegenTarget.IThing))
+
+type GeneratedScopedConsumer(serviceScopeFactory: Microsoft.Extensions.DependencyInjection.IServiceScopeFactory) =
+    let _serviceScopeFactory = serviceScopeFactory
+
+    interface FSharpCodegenTarget.IScopedConsumerHandler with
+        member this.Handle() : System.Threading.Tasks.Task =
+            task {
+                use serviceScope = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateAsyncScope(_serviceScopeFactory)
+                let scopedThing = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FSharpCodegenTarget.IScopedThing>(serviceScope.ServiceProvider)
+                do! scopedThing.DoAsync()
+                do! scopedThing.DoAsync()
+            }
 
