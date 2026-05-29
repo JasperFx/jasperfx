@@ -408,7 +408,7 @@ public sealed class InputParserGenerator : IIncrementalGenerator
             "global::System.Guid" => "s => global::System.Guid.Parse(s)",
             "global::System.DateTime" => "s => global::JasperFx.CommandLine.Internal.Conversion.DateTimeConverter.GetDateTime(s)",
             "global::System.TimeSpan" => "s => global::JasperFx.CommandLine.Internal.Conversion.TimeSpanConverter.GetTimeSpan(s)",
-            _ => $"new global::JasperFx.CommandLine.Internal.Conversion.Conversions().FindConverter(typeof({type}))!",
+            _ => $"s => ({type})new global::JasperFx.CommandLine.Internal.Conversion.Conversions().FindConverter(typeof({type}))!(s)",
         };
     }
 
