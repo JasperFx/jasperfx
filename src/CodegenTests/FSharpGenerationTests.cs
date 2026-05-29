@@ -114,7 +114,7 @@ public class FSharpGenerationTests
         code.ShouldContain("type GeneratedGreeter(service: CodegenTests.FSharpGreetingService) =");
         code.ShouldContain("let _service = service");
         code.ShouldContain("interface CodegenTests.IFSharpGreeter with");
-        code.ShouldContain("member _.Greet(name: string) : string =");
+        code.ShouldContain("member this.Greet(name: string) : string =");
         code.ShouldContain("// a comment");
         code.ShouldContain("let result_of_CreateGreeting = _service.CreateGreeting(name)");
 
@@ -142,7 +142,7 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("member _.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =");
+        code.ShouldContain("member this.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =");
         code.ShouldContain("task {");
         // await inside the computation expression binds with let!
         code.ShouldContain("let! result_of_CreateGreetingAsync = _service.CreateGreetingAsync(name)");
@@ -168,7 +168,7 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("member _.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =");
+        code.ShouldContain("member this.GreetAsync(name: string) : System.Threading.Tasks.Task<string> =");
         // No state machine: the Task is returned directly, with no task block and no `return!`.
         code.ShouldNotContain("task {");
         code.ShouldNotContain("return!");
@@ -284,7 +284,7 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("member _.HandleAsync(name: string) : System.Threading.Tasks.Task =");
+        code.ShouldContain("member this.HandleAsync(name: string) : System.Threading.Tasks.Task =");
         code.ShouldContain("_service.Record()");
         // No state machine for a synchronous body — just yield a completed Task.
         code.ShouldNotContain("task {");

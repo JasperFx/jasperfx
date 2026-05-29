@@ -209,9 +209,11 @@ public class GeneratedMethod : IGeneratedMethod
         var returnType = ReturnType.FSharpName();
         var keyword = Overrides ? "override" : "member";
 
-        // `_` self identifier avoids an unused-`this` warning; instance let-bound
-        // fields are reachable directly by name regardless of the self identifier.
-        writer.Write($"BLOCK:{keyword} _.{MethodName}({arguments}) : {returnType} =");
+        // A named `this` self identifier is required so emitted frames can call inherited instance
+        // members (e.g. a base class's `WriteJsonAsync`/`ReadJsonAsync`) — F# has no implicit `this`,
+        // and `member _.` would discard the instance. F# does not warn on an unused member self
+        // identifier (unlike an unused `let` binding), so this is safe. See jasperfx#393.
+        writer.Write($"BLOCK:{keyword} this.{MethodName}({arguments}) : {returnType} =");
 
         if (AsyncMode == AsyncMode.AsyncTask)
         {
