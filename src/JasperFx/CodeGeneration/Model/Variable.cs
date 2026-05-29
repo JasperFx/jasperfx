@@ -176,6 +176,14 @@ public class Variable
     /// </summary>
     public virtual string FSharpAssignmentUsage => Mutable ? $"let mutable {Usage}" : $"let {Usage}";
 
+    /// <summary>
+    ///     EXPERIMENTAL (F# code generation). How the variable is referenced (read) in F#. Defaults to
+    ///     <see cref="Usage" />; overridden by variables whose C# <see cref="Usage" /> is not valid F#
+    ///     (e.g. <see cref="CastVariable" />, whose C-style cast becomes an F# <c>:&gt;</c>/<c>:?&gt;</c>).
+    ///     F# emit paths should consume this rather than <see cref="Usage" /> for argument/value reads.
+    /// </summary>
+    public virtual string FSharpUsage => Usage;
+
     public virtual string ArgumentDeclaration => Usage;
 
     /// <summary>

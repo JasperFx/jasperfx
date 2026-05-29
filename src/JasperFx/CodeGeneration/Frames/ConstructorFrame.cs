@@ -259,7 +259,7 @@ public class ConstructorFrame : SyncFrame
         }
 
         // F# omits the `new` keyword for ordinary construction.
-        return $"{BuiltType.FSharpName()}({Parameters.Select(x => x.Usage).Join(", ")})";
+        return $"{BuiltType.FSharpName()}({Parameters.Select(x => x.FSharpUsage).Join(", ")})";
     }
 
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)

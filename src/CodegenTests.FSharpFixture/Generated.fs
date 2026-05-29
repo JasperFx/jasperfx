@@ -104,3 +104,11 @@ type GeneratedCalculator() =
         let result_of_Bump = this.Bump(seed)
         result_of_Bump
 
+type GeneratedThingHandler(thingDescriber: FSharpCodegenTarget.ThingDescriber) =
+    let _thingDescriber = thingDescriber
+
+    interface FSharpCodegenTarget.IThingHandler with
+        member this.Handle() : string =
+            let thing = FSharpCodegenTarget.Thing()
+            _thingDescriber.Describe((thing :> FSharpCodegenTarget.IThing))
+
