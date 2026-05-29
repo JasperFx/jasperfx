@@ -56,8 +56,27 @@ public static class FSharpCodegenSample
         AddResourceType(assembly);
         AddOrderHandlerType(assembly);
         AddSyncTaskHandlerType(assembly);
+        AddCalculatorType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     A subclass that overrides a base abstract method and calls an inherited instance method via a
+    ///     local (this-qualified) <see cref="MethodCall" />. Exercises the named-self F# emit: the member
+    ///     renders as <c>override this.Compute</c> and the call as <c>this.Bump(seed)</c> (jasperfx#393).
+    /// </summary>
+    private static void AddCalculatorType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedCalculator", typeof(CalculatorBase));
+        var method = type.MethodFor(nameof(CalculatorBase.Compute));
+        var seed = method.Arguments[0];
+
+        var bump = new MethodCall(typeof(CalculatorBase), nameof(CalculatorBase.Bump)) { IsLocal = true };
+        bump.Arguments[0] = seed;
+        method.Frames.Add(bump);
+
+        method.Frames.Add(new ReturnFrame(bump.ReturnVariable!));
     }
 
     /// <summary>

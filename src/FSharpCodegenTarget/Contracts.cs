@@ -76,6 +76,22 @@ public interface ISyncTaskHandler
     Task HandleAsync(string name);
 }
 
+/// <summary>
+///     A base class with a public instance method (<see cref="Bump" />) and an abstract method to
+///     override (<see cref="Compute" />). The generated subclass overrides <c>Compute</c> and calls the
+///     inherited instance <c>Bump</c> via a local (this-qualified) MethodCall — exercises the named-self
+///     F# emit so inherited instance members resolve (jasperfx#393).
+/// </summary>
+public abstract class CalculatorBase
+{
+    public int Bump(int value)
+    {
+        return value + 1;
+    }
+
+    public abstract int Compute(int seed);
+}
+
 public class ControlFlowService
 {
     public string Fallback()

@@ -432,7 +432,10 @@ public class MethodCall : Frame
     {
         if (IsLocal)
         {
-            return string.Empty;
+            // A local call targets a method on the generated type itself. C# relies on an implicit
+            // `this`; F# has none, so qualify with the named self identifier emitted by
+            // GeneratedMethod.WriteFSharpMethod. See jasperfx#393.
+            return "this.";
         }
 
         var target = Method.IsStatic
