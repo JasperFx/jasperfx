@@ -45,7 +45,7 @@ internal class ArrayFamily : ServiceFamily
         {
             var plan = plans[i];
             elementPlans.Add(plan.Lifetime == ServiceLifetime.Singleton
-                ? new SingletonPlan(EnumerableSingletons.KeyedMirror(ElementType, i, plan.Descriptor))
+                ? new SingletonPlan(EnumerableSingletons.KeyedMirror(ElementType, i))
                 : plan);
         }
 
