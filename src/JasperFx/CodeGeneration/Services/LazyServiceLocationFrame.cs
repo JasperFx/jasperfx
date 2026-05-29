@@ -53,4 +53,12 @@ public class LazyServiceLocationFrame : SyncFrame
             $"var {Variable.Usage} = {typeof(ServiceProviderServiceExtensions).FullNameInCode()}.{nameof(ServiceProviderServiceExtensions.GetRequiredService)}<{Variable.VariableType.FullNameInCode()}>({_scoped.Usage});");
         Next?.GenerateCode(method, writer);
     }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.WriteComment("This service has been marked as requiring service location independent of Wolverine's ability to use constructor injection of everything else");
+        writer.Write(
+            $"{Variable.FSharpAssignmentUsage} = {typeof(ServiceProviderServiceExtensions).FSharpName()}.{nameof(ServiceProviderServiceExtensions.GetRequiredService)}<{Variable.VariableType.FSharpName()}>({_scoped.FSharpUsage})");
+        Next?.GenerateFSharpCode(method, writer);
+    }
 }

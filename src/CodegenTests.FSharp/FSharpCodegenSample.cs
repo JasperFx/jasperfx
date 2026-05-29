@@ -62,8 +62,123 @@ public static class FSharpCodegenSample
         AddCalculatorType(assembly);
         AddCastType(assembly);
         AddScopedConsumerType(assembly);
+        AddActivityEmitterType(assembly);
+        AddNowHandlerType(assembly);
+        AddValueTaskHandlerType(assembly);
+        AddMemberAccessType(assembly);
+        AddArrayHandlerType(assembly);
+        AddLazyHandlerType(assembly);
 
         return assembly;
+    }
+
+    /// <summary>
+    ///     Appends an activity event — exercises <see cref="AppendActivityEventFrame" />. F# has no
+    ///     null-conditional operator, so the body emits an explicit <c>if not (isNull Activity.Current)</c>
+    ///     guard and pipes the chained <c>AddEvent</c> result to <c>ignore</c>.
+    /// </summary>
+    private static void AddActivityEmitterType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedActivityEmitter", typeof(IActivityEmitter));
+        var method = type.MethodFor(nameof(IActivityEmitter.Emit));
+        method.Frames.Add(new AppendActivityEventFrame("sample.activity.event"));
+    }
+
+    /// <summary>
+    ///     Resolves the current time through <see cref="NowTimeVariableSource" /> and passes it to a
+    ///     service — exercises <see cref="NowFetchFrame" /> (<c>let now = System.DateTime.UtcNow</c>).
+    /// </summary>
+    private static void AddNowHandlerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedNowHandler", typeof(INowHandler));
+        var method = type.MethodFor(nameof(INowHandler.Stamp));
+        method.Sources.Add(new NowTimeVariableSource());
+
+        var service = new InjectedField(typeof(ClockService), "clockService");
+        var call = new MethodCall(typeof(ClockService), nameof(ClockService.Stamp))
+        {
+            Target = service,
+            ReturnAction = ReturnAction.Return
+        };
+        method.Frames.Add(call);
+    }
+
+    /// <summary>
+    ///     A synchronous body behind a <see cref="ValueTask{T}" /> signature — exercises
+    ///     <see cref="ReturnValueTask" />: the trailing F# expression is <c>ValueTask&lt;string&gt;(result)</c>.
+    /// </summary>
+    private static void AddValueTaskHandlerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedValueTaskHandler", typeof(IValueTaskHandler));
+        var method = type.MethodFor(nameof(IValueTaskHandler.HandleAsync));
+
+        var service = new InjectedField(typeof(ControlFlowService), "controlFlowService");
+        var call = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Fallback))
+        {
+            Target = service
+        };
+        method.Frames.Add(call);
+        method.Frames.Add(new ReturnValueTask(typeof(string)));
+    }
+
+    /// <summary>
+    ///     Reads a member off a constructed object — exercises <see cref="MemberAccessFrame" />
+    ///     (<c>let value = mutableBox.Value</c>).
+    /// </summary>
+    private static void AddMemberAccessType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedMemberAccessHandler", typeof(IMemberAccessHandler));
+        var method = type.MethodFor(nameof(IMemberAccessHandler.Read));
+
+        var ctor = new ConstructorFrame(typeof(MutableBox), typeof(MutableBox).GetConstructors().Single());
+        method.Frames.Add(ctor);
+
+        var member = typeof(MutableBox).GetProperty(nameof(MutableBox.Value))!;
+        var access = new MemberAccessFrame(typeof(MutableBox), member, "value");
+        method.Frames.Add(access);
+
+        method.Frames.Add(new ReturnFrame(access.Variable));
+    }
+
+    /// <summary>
+    ///     Builds an array literal from two injected elements — exercises <see cref="CreateArrayFrame" />
+    ///     (<c>let things = [| thingA; thingB |]</c>).
+    /// </summary>
+    private static void AddArrayHandlerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedArrayHandler", typeof(IArrayHandler));
+        var method = type.MethodFor(nameof(IArrayHandler.Build));
+
+        var thingA = new InjectedField(typeof(Thing), "thingA");
+        var thingB = new InjectedField(typeof(Thing), "thingB");
+        var array = new CreateArrayFrame(typeof(Thing[]), typeof(Thing), new Variable[] { thingA, thingB });
+        method.Frames.Add(array);
+
+        method.Frames.Add(new ReturnFrame(array.Variable));
+    }
+
+    /// <summary>
+    ///     Resolves a service flagged for service location off an injected <see cref="IServiceProvider" />
+    ///     — exercises <see cref="LazyServiceLocationFrame" />
+    ///     (<c>let controlFlowService = …GetRequiredService&lt;ControlFlowService&gt;(provider)</c>).
+    /// </summary>
+    private static void AddLazyHandlerType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedLazyHandler", typeof(ILazyHandler));
+        var method = type.MethodFor(nameof(ILazyHandler.Handle));
+
+        // The injected IServiceProvider is the scope the LazyServiceLocationFrame resolves against;
+        // register it as a constructor field so FindVariable(IServiceProvider) resolves.
+        type.AllInjectedFields.Add(new InjectedField(typeof(IServiceProvider), "provider"));
+        var lazy = new LazyServiceLocationFrame(typeof(ControlFlowService));
+        method.Frames.Add(lazy);
+
+        var call = new MethodCall(typeof(ControlFlowService), nameof(ControlFlowService.Fallback))
+        {
+            Target = lazy.Variable,
+            ReturnAction = ReturnAction.Return
+        };
+        method.Frames.Add(call);
     }
 
     /// <summary>

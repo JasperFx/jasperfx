@@ -38,5 +38,15 @@ public class AppendActivityEventFrame : Frame
         Next?.GenerateCode(method, writer);
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // F# has no null-conditional operator; guard Activity.Current explicitly. AddEvent returns the
+        // Activity for chaining, so pipe the result to ignore.
+        writer.Write(
+            $"if not (isNull {typeof(Activity).FSharpName()}.{nameof(Activity.Current)}) then {typeof(Activity).FSharpName()}.{nameof(Activity.Current)}.AddEvent({typeof(ActivityEvent).FSharpName()}(\"{_eventName}\")) |> ignore");
+
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain) => [];
 }
