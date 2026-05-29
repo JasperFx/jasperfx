@@ -102,6 +102,71 @@ public interface IScopedConsumerHandler
     Task Handle();
 }
 
+// --- Contracts for the remaining JasperFx F# frame surface (jasperfx#399) ---
+
+/// <summary>
+///     A sync void handler used to exercise <c>AppendActivityEventFrame</c>: the generated body emits a
+///     guarded <c>Activity.Current.AddEvent(...)</c> (F# has no <c>?.</c>, so an explicit isNull guard).
+/// </summary>
+public interface IActivityEmitter
+{
+    void Emit();
+}
+
+/// <summary>
+///     A handler that stamps the current time. The injected <see cref="DateTime" /> resolves through
+///     <c>NowTimeVariableSource</c> → <c>NowFetchFrame</c> (<c>let now = System.DateTime.UtcNow</c>).
+/// </summary>
+public interface INowHandler
+{
+    string Stamp();
+}
+
+public class ClockService
+{
+    public string Stamp(DateTime now)
+    {
+        return now.ToString("O");
+    }
+}
+
+/// <summary>
+///     A handler whose signature returns <see cref="ValueTask{T}" /> with a synchronous body — exercises
+///     <c>ReturnValueTask</c>: the trailing F# expression constructs a <c>ValueTask&lt;string&gt;(result)</c>.
+/// </summary>
+public interface IValueTaskHandler
+{
+    ValueTask<string> HandleAsync();
+}
+
+/// <summary>
+///     A handler that reads a member off a constructed object — exercises <c>MemberAccessFrame</c>
+///     (<c>let value = mutableBox.Value</c>).
+/// </summary>
+public interface IMemberAccessHandler
+{
+    int Read();
+}
+
+/// <summary>
+///     A handler that builds an array of injected elements — exercises <c>CreateArrayFrame</c>'s F# array
+///     literal (<c>let things = [| thingA; thingB |]</c>).
+/// </summary>
+public interface IArrayHandler
+{
+    Thing[] Build();
+}
+
+/// <summary>
+///     A handler that resolves a service flagged <c>AlwaysUseServiceLocationFor</c> off an injected
+///     <see cref="IServiceProvider" /> — exercises <c>LazyServiceLocationFrame</c>
+///     (<c>let controlFlowService = ServiceProviderServiceExtensions.GetRequiredService&lt;…&gt;(provider)</c>).
+/// </summary>
+public interface ILazyHandler
+{
+    string Handle();
+}
+
 /// <summary>
 ///     A base class with a public instance method (<see cref="Bump" />) and an abstract method to
 ///     override (<see cref="Compute" />). The generated subclass overrides <c>Compute</c> and calls the

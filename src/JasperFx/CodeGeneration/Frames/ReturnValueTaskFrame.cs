@@ -27,4 +27,12 @@ public class ReturnValueTask : SyncFrame
         writer.WriteLine(
             $"return new {typeof(ValueTask).FullNameInCode()}<{_variableType.FullNameInCode()}>({_returnValue.Usage});");
     }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // Terminal frame: in F# the trailing expression IS the return value (no `return` keyword).
+        // ValueTask<T> is a struct, so it is constructed without `new`.
+        writer.WriteLine(
+            $"{typeof(ValueTask).FSharpName()}<{_variableType.FSharpName()}>({_returnValue.FSharpUsage})");
+    }
 }

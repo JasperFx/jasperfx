@@ -1,4 +1,5 @@
 ﻿using JasperFx.CodeGeneration.Frames;
+using JasperFx.Core.Reflection;
 
 namespace JasperFx.CodeGeneration.Model;
 
@@ -46,6 +47,12 @@ public class NowFetchFrame : SyncFrame
     {
         writer.WriteLine($"var {Variable.Usage} = {Variable.VariableType.FullName}.{nameof(DateTime.UtcNow)};");
         Next?.GenerateCode(method, writer);
+    }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.WriteLine($"{Variable.FSharpAssignmentUsage} = {Variable.VariableType.FSharpName()}.{nameof(DateTime.UtcNow)}");
+        Next?.GenerateFSharpCode(method, writer);
     }
 }
 

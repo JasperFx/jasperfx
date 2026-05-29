@@ -131,4 +131,23 @@ public class CreateArrayFrame : SyncFrame
         writer.WriteLine($"{_serviceType.FullNameInCode()} {Variable.Usage} = new {_elementType.FullNameInCode()}[]{{{_elements.Select(x => x.Usage).Join(", ")}}};");
         Next?.GenerateCode(method, writer);
     }
+
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        // Mirror the C# fail-fast null guard for a missing keyed singleton mirror (jasperfx#381).
+        foreach (var element in _elements)
+        {
+            if (element is InjectedSingleton { Descriptor: { IsKeyedService: true } descriptor }
+                && EnumerableSingletons.IsMirrorKey(descriptor.ServiceKey))
+            {
+                var message = EnumerableSingletons.MissingMirrorMessage(_elementType, descriptor.ServiceKey);
+                writer.WriteLine(
+                    $"if isNull {element.FSharpUsage} then raise({typeof(InvalidOperationException).FSharpName()}({CodeFormatter.Write(message)}))");
+            }
+        }
+
+        // F# array literal: [| e1; e2 |]. The element type is inferred, so no explicit annotation.
+        writer.WriteLine($"{Variable.FSharpAssignmentUsage} = [| {_elements.Select(x => x.FSharpUsage).Join("; ")} |]");
+        Next?.GenerateFSharpCode(method, writer);
+    }
 }

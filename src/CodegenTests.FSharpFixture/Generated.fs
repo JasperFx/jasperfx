@@ -125,3 +125,49 @@ type GeneratedScopedConsumer(serviceScopeFactory: Microsoft.Extensions.Dependenc
                 do! scopedThing.DoAsync()
             }
 
+type GeneratedActivityEmitter() =
+    interface FSharpCodegenTarget.IActivityEmitter with
+        member this.Emit() : unit =
+            if not (isNull System.Diagnostics.Activity.Current) then System.Diagnostics.Activity.Current.AddEvent(System.Diagnostics.ActivityEvent("sample.activity.event")) |> ignore
+
+type GeneratedNowHandler(clockService: FSharpCodegenTarget.ClockService) =
+    let _clockService = clockService
+
+    interface FSharpCodegenTarget.INowHandler with
+        member this.Stamp() : string =
+            let now = System.DateTime.UtcNow
+            _clockService.Stamp(now)
+
+type GeneratedValueTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
+    let _controlFlowService = controlFlowService
+
+    interface FSharpCodegenTarget.IValueTaskHandler with
+        member this.HandleAsync() : System.Threading.Tasks.ValueTask<string> =
+            let result_of_Fallback = _controlFlowService.Fallback()
+            System.Threading.Tasks.ValueTask<string>(result_of_Fallback)
+
+type GeneratedMemberAccessHandler() =
+    interface FSharpCodegenTarget.IMemberAccessHandler with
+        member this.Read() : int =
+            let mutableBox = FSharpCodegenTarget.MutableBox()
+            let value = mutableBox.Value
+            value
+
+type GeneratedArrayHandler(thingA: FSharpCodegenTarget.Thing, thingB: FSharpCodegenTarget.Thing) =
+    let _thingA = thingA
+    let _thingB = thingB
+
+    interface FSharpCodegenTarget.IArrayHandler with
+        member this.Build() : FSharpCodegenTarget.Thing[] =
+            let thingArray = [| _thingA; _thingB |]
+            thingArray
+
+type GeneratedLazyHandler(provider: System.IServiceProvider) =
+    let _provider = provider
+
+    interface FSharpCodegenTarget.ILazyHandler with
+        member this.Handle() : string =
+            // This service has been marked as requiring service location independent of Wolverine's ability to use constructor injection of everything else
+            let controlFlowService = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<FSharpCodegenTarget.ControlFlowService>(_provider)
+            controlFlowService.Fallback()
+

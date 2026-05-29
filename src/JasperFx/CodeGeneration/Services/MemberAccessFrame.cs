@@ -29,6 +29,12 @@ public class MemberAccessFrame : SyncFrame
         Next?.GenerateCode(method, writer);
     }
 
+    public override void GenerateFSharpCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.Write($"{Variable.FSharpAssignmentUsage} = {_parent.FSharpUsage}.{_member.Name}");
+        Next?.GenerateFSharpCode(method, writer);
+    }
+
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
         _parent = chain.FindVariable(_targetType);
