@@ -227,7 +227,7 @@ internal class MethodFrameArranger : IMethodVariables
             return argument;
         }
 
-        var created = _method.Frames.SelectMany(x => x.Creates).FirstOrDefault(x => x.VariableType == type);
+        var created = knownCreatedVariables().FirstOrDefault(x => x.VariableType == type);
         if (created != null)
         {
             return created;
@@ -235,5 +235,33 @@ internal class MethodFrameArranger : IMethodVariables
 
         var source = allVariableSources(variableSource).FirstOrDefault(x => x.Matches(type));
         return source?.Create(type);
+    }
+
+    private IEnumerable<Variable> knownCreatedVariables()
+    {
+        // Variable sources can return a concrete variable for an interface request. Reuse that
+        // creator and its cast siblings before asking the source to build another frame.
+        foreach (var variable in _variables.Values)
+        {
+            yield return variable;
+
+            if (variable.Creator == null)
+            {
+                continue;
+            }
+
+            foreach (var sibling in variable.Creator.Creates)
+            {
+                yield return sibling;
+            }
+        }
+
+        foreach (var frame in _method.Frames)
+        {
+            foreach (var variable in frame.Creates)
+            {
+                yield return variable;
+            }
+        }
     }
 }
