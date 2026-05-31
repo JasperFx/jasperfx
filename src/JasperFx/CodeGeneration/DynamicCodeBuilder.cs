@@ -122,6 +122,11 @@ public class DynamicCodeBuilder
                     var generatedAssembly = collection.StartAssembly(collection.Rules);
                     file.AssembleTypes(generatedAssembly);
 
+                    // #2991: apply any per-file service-provider override (e.g. HTTP's
+                    // httpContext.RequestServices), matching the runtime DynamicTypeLoader path.
+                    // `services` is shared across every file here, so reset the prior override first.
+                    applyServiceProviderOverride(file, services);
+
                     var code = generatedAssembly.GenerateCode(services);
 
                     // #227: enforce ServiceLocationPolicy per-file, matching the
@@ -176,6 +181,10 @@ public class DynamicCodeBuilder
                 throw new CodeGenerationException(file, e);
             }
 
+            // #2991: see WriteGeneratedCode — honor a per-file service-provider override on the
+            // shared source.
+            applyServiceProviderOverride(file, services);
+
             var code = generatedAssembly.GenerateCode(services);
             assertServiceLocationsAllowed(file, services);
 
@@ -208,6 +217,9 @@ public class DynamicCodeBuilder
                 var generatedAssembly = collection.StartAssembly(collection.Rules);
                 file.AssembleTypes(generatedAssembly);
 
+                // #2991: see WriteGeneratedCode.
+                applyServiceProviderOverride(file, services);
+
                 try
                 {
                     withAssembly(generatedAssembly, services);
@@ -219,6 +231,21 @@ public class DynamicCodeBuilder
 
                 assertServiceLocationsAllowed(file, services);
             }
+        }
+    }
+
+    // GH-2991: honor a per-file ServiceProviderSource override (e.g. HTTP's httpContext.RequestServices)
+    // in the CLI codegen paths, matching DynamicTypeLoader.Initialize/CompileAndAttach. Because the CLI
+    // reuses a single shared IServiceVariableSource across every file, reset any prior override first so
+    // it cannot leak into a following file that should keep the default isolated-and-scoped provider.
+    private static void applyServiceProviderOverride(ICodeFile file, IServiceVariableSource? services)
+    {
+        if (services == null) return;
+
+        services.ResetServiceProvider();
+        if (file.TryReplaceServiceProvider(out var serviceProvider))
+        {
+            services.ReplaceServiceProvider(serviceProvider);
         }
     }
 

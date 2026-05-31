@@ -83,6 +83,31 @@ public class DynamicCodeBuilderTests
         recorder.AssertionCalls.ShouldBe(0);
     }
 
+    // #2991: across files sharing one IServiceVariableSource (the CLI codegen path), a per-file
+    // ServiceProviderSource override (TryReplaceServiceProvider -> true, e.g. HTTP's
+    // httpContext.RequestServices) must be applied for that file and RESET before the next file so it
+    // cannot leak into a file that should keep the default isolated-and-scoped provider.
+    [Fact]
+    public void per_file_service_provider_override_is_isolated_to_its_own_file()
+    {
+        var httpStyle = new RecordingFile("HttpStyle") { ReplacesProvider = true };
+        var plain = new RecordingFile("Plain");
+        var source = new FakeServiceVariableSource(reportName: null);
+
+        var builder = new DynamicCodeBuilder(
+            new ServiceCollection().BuildServiceProvider(),
+            new ICodeFileCollection[] { new RecordingCollection(httpStyle, plain) })
+        {
+            ServiceVariableSource = source
+        };
+
+        builder.GenerateAllCode();
+
+        // Reset runs once per file; ReplaceServiceProvider runs only for the file that opts in — and the
+        // reset between files prevents the override from leaking into the plain file.
+        source.Calls.ShouldBe(new[] { "reset", "replace:httpContext.RequestServices", "reset" });
+    }
+
     private static DynamicCodeBuilder BuildWithCollection(RecordingFile file, IServiceVariableSource source)
     {
         return new DynamicCodeBuilder(
@@ -100,6 +125,18 @@ public class DynamicCodeBuilderTests
         public string FileName { get; }
         public int AssertionCalls { get; private set; }
         public ServiceLocationReport[]? LastReports { get; private set; }
+
+        // When true, mimics an HTTP endpoint configured with ServiceProviderSource.FromHttpContextRequestServices.
+        public bool ReplacesProvider { get; init; }
+
+        public bool TryReplaceServiceProvider(out JasperFx.CodeGeneration.Model.Variable serviceProvider)
+        {
+            serviceProvider = default!;
+            if (!ReplacesProvider) return false;
+
+            serviceProvider = new JasperFx.CodeGeneration.Model.Variable(typeof(IServiceProvider), "httpContext.RequestServices");
+            return true;
+        }
 
         public void AssembleTypes(GeneratedAssembly assembly)
         {
@@ -121,11 +158,11 @@ public class DynamicCodeBuilderTests
 
     private sealed class RecordingCollection : ICodeFileCollectionWithServices
     {
-        private readonly ICodeFile _file;
-        public RecordingCollection(ICodeFile file) { _file = file; }
+        private readonly ICodeFile[] _files;
+        public RecordingCollection(params ICodeFile[] files) { _files = files; }
         public string ChildNamespace => "RecordedNamespace";
         public GenerationRules Rules { get; } = new("RecordedNamespace");
-        public IReadOnlyList<ICodeFile> BuildFiles() => new[] { _file };
+        public IReadOnlyList<ICodeFile> BuildFiles() => _files;
     }
 
     private sealed class ServicelessCollection : ICodeFileCollection
@@ -150,6 +187,14 @@ public class DynamicCodeBuilderTests
         public void ReplaceVariables(IMethodVariables method) { }
         public void StartNewType() { }
         public void StartNewMethod() { }
+
+        // #2991: record the per-file override lifecycle so the test can assert isolation.
+        public List<string> Calls { get; } = new();
+
+        public void ReplaceServiceProvider(JasperFx.CodeGeneration.Model.Variable serviceProvider)
+            => Calls.Add($"replace:{serviceProvider.Usage}");
+
+        public void ResetServiceProvider() => Calls.Add("reset");
 
         public ServiceLocationReport[] ServiceLocations()
         {

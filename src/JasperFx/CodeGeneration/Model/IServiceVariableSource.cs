@@ -36,6 +36,13 @@ public interface IServiceVariableSource : IVariableSource
         // Nothing, but implement for realsies!
     }
 
+    // GH-2991: undo a prior per-file ReplaceServiceProvider so a shared source instance (the CLI
+    // codegen path reuses one across all files) can isolate the override per ICodeFile.
+    void ResetServiceProvider()
+    {
+        // Nothing by default.
+    }
+
     ServiceLocationReport[] ServiceLocations() => [];
 
 
