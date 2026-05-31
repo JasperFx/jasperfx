@@ -96,6 +96,30 @@ builder.AddProject<Projects.Api>("api")
 Unknown verbs are treated as mutating (safe-by-default) and get a confirmation prompt unless you
 override it.
 
+## Dynamic command discovery
+
+By default the buttons come from a curated list of the standard JasperFx verbs. To instead render a
+button for **every** verb the target actually exposes — including product-specific commands (Marten's
+`projections`, etc.) and your own [custom commands](/cli/writing-commands) — opt into discovery:
+
+```cs
+builder.AddProject<Projects.Api>("api")
+    .WithJasperFxCommands(opts => opts.DiscoverCommands = true);
+```
+
+At AppHost build time this runs `help --json` against the already-built project to read its command
+catalog, then renders one button per verb (known verbs keep their curated icon/confirmation; unknown
+verbs are treated as mutating). The same `IncludeMutatingCommands` / `IncludeVerbs` / `ExcludeVerbs`
+gating applies, and `run`/`help` are never shown.
+
+Discovery is **best-effort**: if the project isn't built yet, the call times out, or the output can't
+be parsed, it silently falls back to the curated catalog. Because it uses `--no-build`, build the
+target first (a normal `dotnet build` of your solution) for discovery to succeed.
+
+> `help --json` is a general-purpose, machine-readable command catalog — it lists each verb's name and
+> description as JSON and runs without starting the host (no database/broker connections), so it's
+> cheap to call from tooling.
+
 ## How it works
 
 The dashboard command callback runs **inside the AppHost process**, not the target application. To

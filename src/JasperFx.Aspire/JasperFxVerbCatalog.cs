@@ -92,6 +92,40 @@ internal static class JasperFxVerbCatalog
     }
 
     /// <summary>
+    /// Verbs that are never rendered as dashboard buttons (the long-running service itself / help).
+    /// </summary>
+    private static readonly HashSet<string> NonButtonVerbs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "run", "help"
+    };
+
+    /// <summary>
+    /// Map a set of verbs discovered from the target app (via <c>help --json</c>) to command templates —
+    /// one button per verb. Known verbs get their catalog metadata (correct mutating flag, icon); unknown
+    /// product-specific verbs are treated as mutating. Honors the same include/exclude/mutating gating as
+    /// <see cref="Resolve"/>; <c>run</c> and <c>help</c> are never included.
+    /// </summary>
+    public static IEnumerable<JasperFxCommandTemplate> ResolveDiscovered(
+        IEnumerable<string> verbs, JasperFxCommandOptions options)
+    {
+        var templates = verbs
+            .Where(v => !NonButtonVerbs.Contains(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(v => TemplateFor(v, null));
+
+        if (options.IncludeVerbs.Count > 0)
+        {
+            templates = templates.Where(t => options.IncludeVerbs.Contains(t.Verb));
+        }
+        else if (!options.IncludeMutatingCommands)
+        {
+            templates = templates.Where(t => !t.Mutating);
+        }
+
+        return templates.Where(t => !options.ExcludeVerbs.Contains(t.Verb)).ToArray();
+    }
+
+    /// <summary>
     /// Find the catalog template for a verb (optionally matching fixed arguments), or synthesize a
     /// generic one for an unknown/product-specific verb so <c>WithJasperFxCommand</c> still works.
     /// </summary>
