@@ -14,7 +14,10 @@ Postgres hosting), so the core build/CI doesn't carry it. Build and run it on de
   value reached the process — so a successful `check-env` proves the JasperFx.Aspire env-resolution
   mechanic worked end to end.
 - **AspireSample.AppHost** — the Aspire AppHost. Adds a Postgres container + `appdb` database, runs
-  the API project, and calls `.WithJasperFxCommands(opts => opts.IncludeMutatingCommands = true)`.
+  the API project, and demonstrates both features:
+  - **A1** — `.WithJasperFxCommands(opts => opts.IncludeMutatingCommands = true)` (on-demand buttons).
+  - **A2** — `.WithJasperFxStartup(...)` startup gates (`resources setup` then a blocking `check-env`)
+    that run to completion before the `api` resource starts.
 
 ## Run it (manual dashboard verification)
 

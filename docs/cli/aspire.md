@@ -12,6 +12,13 @@ AppHost can click a button on the running service and watch the output stream in
 Because Marten, Wolverine, and Polecat all build on the same JasperFx command infrastructure, a
 single package lights this up for the entire Critter Stack.
 
+The package offers two complementary features:
+
+- **On-demand commands** — `WithJasperFxCommands()` adds buttons you click against the *running*
+  service.
+- **Startup gates** — `WithJasperFxStartup()` runs provisioning verbs to completion *before* the
+  service starts (see [Startup gates](#startup-gates) below).
+
 ## Installation
 
 Add the package to your Aspire **AppHost** project (not the service itself):
@@ -134,6 +141,74 @@ changes beyond the `RunJasperFxCommands(args)` it already calls.
   `IncludeMutatingCommands` and prompt for confirmation before running.
 - The buttons are disabled unless the resource is running, so the child process always has something
   to run against. Override per verb with `JasperFxCommandRegistration.UpdateState`.
+
+## Startup gates
+
+The on-demand buttons above run against a service that is *already running*. The complementary need
+is to run a provisioning verb **before** the service starts — apply database schema / event store /
+transports, or pre-generate runtime code so there's no first-request codegen latency. .NET Aspire
+models this with run-to-completion resources and `WaitForCompletion` (the canonical "run migrations
+before the app" pattern), and `WithJasperFxStartup` makes it a one-liner against the existing project:
+
+```cs
+var db = builder.AddPostgres("pg").AddDatabase("appdb");
+
+builder.AddProject<Projects.Api>("api")
+    .WithReference(db)
+    .WaitFor(db)
+    .WithJasperFxStartup("resources", "setup"); // runs to completion before "api" starts
+```
+
+Each gate is a **first-class Aspire resource** pointing at the same project with the verb as
+arguments. Because it is a real resource (not an AppHost callback), Aspire injects connection strings
+and environment into it natively — there is no child-process spawn or environment trick here. The gate
+inherits the parent's references, so you declare `WithReference`/`WaitFor` **once on the service,
+before** `WithJasperFxStartup`.
+
+When `arguments` is omitted, the provisioning verbs default sensibly: `resources` → `setup`,
+`codegen` → `write`.
+
+### Fail fast
+
+A gate that exits non-zero leaves the service **blocked** and the failure visible in the dashboard
+with the gate's streamed logs — you never start a service against un-provisioned infrastructure. This
+is the default and the whole point.
+
+### Several gates and ordering
+
+Use the fluent form to declare multiple gates. They run **sequentially in declaration order** (each
+waiting for the previous) unless a gate opts into `Parallel`:
+
+```cs
+api.WithJasperFxStartup(c =>
+{
+    c.Run("resources", "setup");                       // gate 1
+    c.Run("codegen", "write", g => g.Parallel = true); // independent — runs concurrently
+    c.Check();                                         // check-env, blocking (opt-in)
+});
+```
+
+### `check-env` as an opt-in gate
+
+`check-env` is **not** a startup gate unless you ask for it — many teams treat environment checks as
+advisory and silently blocking startup would be surprising. Opt in with `c.Check()` (fluent form) or
+`WithJasperFxStartup("check-env")`; a failed check then blocks startup like any other gate. Make a gate
+advisory (runs but never blocks) with `BlockOnFailure = false`.
+
+### Published / deploy-time behavior
+
+Gates run in all environments by default, since "provision/migrate on deploy" is a common, valid use.
+Because migrating in production is a deliberate policy for some teams, make a gate
+environment-conditional with `RunWhen`:
+
+```cs
+api.WithJasperFxStartup("resources", "setup",
+    gate: g => g.RunWhen = ctx => ctx.IsRunMode); // local only, not in a published deployment
+```
+
+> Each gate runs the target project with verb arguments, which relies on the standard JasperFx
+> bootstrap (`RunJasperFxCommands(args)`) so the process executes the verb and exits instead of
+> starting the long-running host. This is already the default for Marten/Wolverine/Polecat apps.
 
 ## Requirements
 
