@@ -61,6 +61,44 @@ success/failure toast.
 - **Mutating verbs** (`codegen write`, `resources`, `projections`) require explicit opt-in
   (`IncludeMutatingCommands = true`) and prompt for confirmation before running.
 
+## Startup gates
+
+The companion to the on-demand buttons: run a JasperFx provisioning verb as a **run-to-completion
+resource that finishes _before_ the service starts**, wired via Aspire's `WaitForCompletion`. This is
+the canonical "apply schema / pre-generate code before the app boots" pattern, as a one-liner against
+the existing project:
+
+```csharp
+var db = builder.AddPostgres("pg").AddDatabase("appdb");
+
+builder.AddProject<Projects.Api>("api")
+    .WithReference(db)
+    .WaitFor(db)
+    .WithJasperFxStartup("resources", "setup"); // gate finishes before "api" starts
+```
+
+Each gate is a first-class Aspire resource pointing at the **same project** with the verb as args, so
+Aspire injects connection strings/environment natively — no callback or child-process trick. The gate
+inherits the parent's references (declare them *before* `WithJasperFxStartup`). A gate that exits
+non-zero blocks the service from starting (fail fast).
+
+Declare several gates with ordering control (they run sequentially in declaration order unless marked
+`Parallel`):
+
+```csharp
+api.WithJasperFxStartup(c =>
+{
+    c.Run("resources", "setup");                        // gate 1
+    c.Run("codegen", "write", g => g.Parallel = true);  // runs independently
+    c.Check();                                          // check-env, blocking, opt-in
+});
+```
+
+- `check-env` is only a gate when you opt in (via `Check()` or `WithJasperFxStartup("check-env")`); a
+  failed check then blocks startup.
+- Gates run in all environments by default. Make one environment-conditional with `RunWhen`, e.g.
+  `g.RunWhen = ctx => ctx.IsRunMode` to run it locally but not in a published deployment.
+
 ## Requirements
 
 - .NET Aspire 9.2+ (built and tested against Aspire 13.x).
