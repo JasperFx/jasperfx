@@ -7,7 +7,7 @@
              JasperFx.Events, JasperFx.Events.SourceGenerator) set
              <Version>$(JasperFxVersion)</Version> so they always release together. Bump this one
              value to release the whole set. -->
-        <JasperFxVersion>2.3.0</JasperFxVersion>
+        <JasperFxVersion>2.4.0</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
