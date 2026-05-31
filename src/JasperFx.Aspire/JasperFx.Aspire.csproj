@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Description>Surfaces a JasperFx application's command-line verbs (check-env, describe, codegen, resources, projections) as clickable custom commands on the resource in the .NET Aspire dashboard.</Description>
+        <AssemblyName>JasperFx.Aspire</AssemblyName>
+        <PackageId>JasperFx.Aspire</PackageId>
+        <Version>$(JasperFxVersion)</Version>
+        <PackageTags>jasperfx;aspire;dashboard;cli;critter-stack</PackageTags>
+
+        <!-- Aspire 13.x is net10-first; AppHost projects (where this package is referenced)
+             target net10.0. Single-target to keep the Aspire dependency clean. -->
+        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks></TargetFrameworks>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Aspire.Hosting" Version="13.3.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="JasperFx.Aspire.Tests" />
+    </ItemGroup>
+</Project>
