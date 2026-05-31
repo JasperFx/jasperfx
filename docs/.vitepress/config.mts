@@ -65,7 +65,8 @@ export default withMermaid(
             { text: 'Writing Commands', link: '/cli/writing-commands' },
             { text: 'Arguments & Flags', link: '/cli/arguments-flags' },
             { text: 'Environment Checks', link: '/cli/environment-checks' },
-            { text: 'Describe Command', link: '/cli/describe' }
+            { text: 'Describe Command', link: '/cli/describe' },
+            { text: 'Aspire Dashboard Integration', link: '/cli/aspire' }
           ]
         },
         {
