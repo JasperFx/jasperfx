@@ -102,6 +102,19 @@ because at least one dependency is directly using IServiceProvider or has an opa
         _scoped = serviceProvider;
     }
 
+    // GH-2991: the runtime (DynamicTypeLoader) resolves a fresh transient IServiceVariableSource per
+    // ICodeFile, so a ReplaceServiceProvider() call there is naturally isolated to one file. The CLI
+    // codegen paths (DynamicCodeBuilder write/preview/test) reuse a SINGLE shared instance across every
+    // file, and ReplaceServiceProvider latches _replacedServiceProvider = true permanently (StartNewMethod
+    // only re-creates the default scope when it is false). Reset between files so a per-file
+    // ServiceProviderSource override (e.g. HTTP's httpContext.RequestServices) does not leak into the
+    // following files.
+    public void ResetServiceProvider()
+    {
+        _replacedServiceProvider = false;
+        _scoped = new ScopedContainerCreation().Scoped;
+    }
+
     public ServiceLocationReport[] ServiceLocations()
     {
         return _serviceLocations.ToArray();
