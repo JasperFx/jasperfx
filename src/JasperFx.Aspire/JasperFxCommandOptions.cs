@@ -26,6 +26,18 @@ public sealed class JasperFxCommandOptions
     public bool IncludeMutatingCommands { get; set; }
 
     /// <summary>
+    /// Discover the target's actual verbs at AppHost build time by running <c>help --json</c> against
+    /// the already-built project, instead of using the built-in curated list. Picks up product-specific
+    /// and user-defined commands automatically. If discovery fails for any reason (the project isn't
+    /// built, a timeout, a parse error), it silently falls back to the curated catalog. Defaults to
+    /// <c>false</c>.
+    /// </summary>
+    public bool DiscoverCommands { get; set; }
+
+    /// <summary>How long to wait for the <c>help --json</c> discovery process. Defaults to 30 seconds.</summary>
+    public TimeSpan DiscoveryTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// Get (creating on first use) the presentation overrides for a verb so you can tweak its
     /// label, icon, or confirmation message, e.g.
     /// <c>opts.For("projections").ConfirmationMessage = "…"</c>.

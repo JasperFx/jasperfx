@@ -25,12 +25,29 @@ public static class JasperFxAspireExtensions
         var options = new JasperFxCommandOptions();
         configure?.Invoke(options);
 
-        foreach (var template in JasperFxVerbCatalog.Resolve(options))
+        foreach (var template in ResolveTemplates(builder.Resource, options))
         {
             RegisterCommand(builder, template, options.OverrideFor(template.Verb));
         }
 
         return builder;
+    }
+
+    private static IEnumerable<JasperFxCommandTemplate> ResolveTemplates(
+        IResource resource, JasperFxCommandOptions options)
+    {
+        // Opt-in dynamic discovery: ask the target what verbs it actually has (picks up product-specific
+        // and custom commands). Best-effort — any failure falls back to the curated catalog below.
+        if (options.DiscoverCommands && resource.TryGetLastAnnotation<IProjectMetadata>(out var projectMetadata))
+        {
+            var discovered = JasperFxCommandDiscovery.Discover(projectMetadata.ProjectPath, options.DiscoveryTimeout);
+            if (discovered != null)
+            {
+                return JasperFxVerbCatalog.ResolveDiscovered(discovered, options);
+            }
+        }
+
+        return JasperFxVerbCatalog.Resolve(options);
     }
 
     /// <summary>

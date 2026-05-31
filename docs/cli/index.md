@@ -74,6 +74,26 @@ JasperFx ships with several commands out of the box:
 
 Commands are discovered automatically from referenced assemblies that carry the `[JasperFxTool]` attribute. Your own commands are found through assembly scanning.
 
+## Machine-readable command catalog
+
+`help --json` writes the command catalog to stdout as JSON — each verb's `name` and `description` —
+for tooling that needs to introspect an app's commands:
+
+```bash
+dotnet run -- help --json
+```
+
+```json
+[
+  { "name": "check-env", "description": "Execute all environment checks against the application" },
+  { "name": "describe", "description": "Writes out a description of your running application ..." }
+]
+```
+
+Like `help` itself, this runs without starting the host (no database/broker connections), so it is
+cheap to call. The [Aspire dashboard integration](/cli/aspire#dynamic-command-discovery) uses it to
+discover a service's verbs.
+
 ## Topics
 
 - [Writing Commands](/cli/writing-commands) -- Create synchronous and async commands
