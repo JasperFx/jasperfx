@@ -294,6 +294,16 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering,
         AsyncOptions shardOptions);
 
+    /// <summary>
+    /// Build an event loader for a specific shard. Stores that opt into per-tenant partitioning should
+    /// consume <paramref name="shardName" />.TenantId to scope event loading to a single tenant's
+    /// partition when non-null. Default behavior stays partition-agnostic and ignores it, delegating to
+    /// the shard-less overload — so out-of-tree stores keep compiling. jasperfx#407 Phase 2c.
+    /// </summary>
+    IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering,
+        AsyncOptions shardOptions, ShardName shardName)
+        => BuildEventLoader(database, loggerFactory, filtering, shardOptions);
+
     TOperations OpenSession(IEventDatabase database);
     TOperations OpenSession(IEventDatabase database, string tenantId);
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);

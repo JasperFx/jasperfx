@@ -234,7 +234,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private SubscriptionAgent buildAgentForShard(AsyncShard<TOperations, TQuerySession> shard)
     {
         var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_store, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_store, Database, _loggerFactory, shard.Name);
-        var loader = _store.BuildEventLoader(Database, Logger, shard.Filters, shard.Options);
+        var loader = _store.BuildEventLoader(Database, Logger, shard.Filters, shard.Options, shard.Name);
 
         var metrics = new SubscriptionMetrics(_store, shard.Name, Database);
         

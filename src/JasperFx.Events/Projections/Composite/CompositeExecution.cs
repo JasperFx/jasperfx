@@ -29,7 +29,7 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
             return false;
         }
 
-        var loader = _store.BuildEventLoader(_database, _logger, _filtering, _options);
+        var loader = _store.BuildEventLoader(_database, _logger, _filtering, _options, _shardName);
         executor = new CompositeReplayExecutor(_shardName, loader, this, _database, _options, _logger);
         return true;
     }
