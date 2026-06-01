@@ -16,6 +16,13 @@ public class HighWaterStatistics
     public bool IncludesSkipping { get; set; }
     public DateTimeOffset Timestamp { get; set; } = default;
 
+    /// <summary>
+    /// Tenant partition this high water reading belongs to. Null means store-global, which is
+    /// the only behavior that existed before per-tenant partitioning. A vectorized high-water
+    /// agent emits one reading per assigned tenant; existing single-reading consumers leave this null.
+    /// </summary>
+    public string? TenantId { get; set; }
+
     public HighWaterStatus InterpretStatus(HighWaterStatistics previous)
     {
         // Postgres sequences start w/ 1 by default. So the initial state is "HighestSequence = 1".

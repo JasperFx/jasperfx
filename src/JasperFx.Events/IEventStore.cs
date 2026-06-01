@@ -175,6 +175,20 @@ public interface IEventStore
             "GetProjectionStatusesAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for the projections page.");
 
     /// <summary>
+    /// Return a snapshot of every projection's status scoped to a single tenant partition.
+    /// A null <paramref name="tenantId"/> is store-global and delegates to the tenant-less
+    /// overload (today's behavior). Event stores that implement per-tenant partitioning
+    /// override this; the default throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    /// <param name="tenantId">Tenant partition to scope statuses to. Null means store-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<IReadOnlyList<ProjectionStatus>> GetProjectionStatusesAsync(string? tenantId, CancellationToken ct)
+        => tenantId == null
+            ? GetProjectionStatusesAsync(ct)
+            : throw new NotSupportedException(
+                "Per-tenant GetProjectionStatusesAsync is not implemented on this IEventStore. Use an event store that implements per-tenant partitioning.");
+
+    /// <summary>
     /// Replay a projection over a fixed in-memory event list, returning
     /// the per-step before/after state. Stateless — nothing is persisted
     /// and no server-side session is created. Powers the explorer's
@@ -260,6 +274,19 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     /// <returns></returns>
     Task DeleteProjectionProgressAsync(IEventDatabase database, string subscriptionName,
         CancellationToken token);
+
+    /// <summary>
+    /// Delete *only* any persisted projection progress data for a single tenant partition.
+    /// A null <paramref name="tenantId"/> is store-global and delegates to the tenant-less
+    /// overload (today's behavior). Event stores that implement per-tenant partitioning
+    /// override this; the default throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    Task DeleteProjectionProgressAsync(IEventDatabase database, string subscriptionName, string? tenantId,
+        CancellationToken token)
+        => tenantId == null
+            ? DeleteProjectionProgressAsync(database, subscriptionName, token)
+            : throw new NotSupportedException(
+                "Per-tenant DeleteProjectionProgressAsync is not implemented on this IEventStore. Use an event store that implements per-tenant partitioning.");
 
     ValueTask<IProjectionBatch<TOperations, TQuerySession>> StartProjectionBatchAsync(EventRange range,
         IEventDatabase database, ShardExecutionMode mode, AsyncOptions projectionOptions, CancellationToken token);

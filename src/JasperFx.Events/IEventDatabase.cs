@@ -52,7 +52,19 @@ public interface IEventDatabase
     /// <param name="token"></param>
     /// <returns></returns>
     Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, CancellationToken token);
-    
+
+    /// <summary>
+    /// Find the position of the event store sequence just below the supplied timestamp for a single
+    /// tenant partition. A null <paramref name="tenantId" /> is store-global and delegates to the
+    /// tenant-less overload (today's behavior). Event stores that implement per-tenant partitioning
+    /// override this; the default throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, string? tenantId, CancellationToken token)
+        => tenantId == null
+            ? FindEventStoreFloorAtTimeAsync(timestamp, token)
+            : throw new NotSupportedException(
+                "Per-tenant FindEventStoreFloorAtTimeAsync is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
+
     string StorageIdentifier { get; }
     Task<long> FetchHighestEventSequenceNumber(CancellationToken token);
     
@@ -67,6 +79,20 @@ public interface IEventDatabase
     /// <returns></returns>
     Task<IReadOnlyList<ShardState>> AllProjectionProgress(
         CancellationToken token = default);
+
+    /// <summary>
+    ///     Check the current progress of all asynchronous projections for a single tenant partition.
+    ///     A null <paramref name="tenantId" /> is store-global and delegates to the tenant-less overload
+    ///     (today's behavior). Event stores that implement per-tenant partitioning override this; the
+    ///     default throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    /// <param name="tenantId">Tenant partition to scope progress to. Null means store-global.</param>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<ShardState>> AllProjectionProgress(string? tenantId, CancellationToken token = default)
+        => tenantId == null
+            ? AllProjectionProgress(token)
+            : throw new NotSupportedException(
+                "Per-tenant AllProjectionProgress is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
 
     /// <summary>
     ///     Count the stored dead letter events for a single projection/subscription shard. With
@@ -84,7 +110,7 @@ public interface IEventDatabase
     /// <summary>
     ///     Fetch the stored dead letter event counts for this database, one row per shard
     ///     (<see cref="DeadLetterShardCount.ProjectionName" /> + <see cref="DeadLetterShardCount.ShardKey" />).
-    ///     Mirrors the "give me every row" shape of <see cref="AllProjectionProgress" />.
+    ///     Mirrors the "give me every row" shape of <see cref="AllProjectionProgress(CancellationToken)" />.
     ///     The default implementation returns an empty list as a stand-in; event stores that
     ///     persist dead letters should override this. See jasperfx#356.
     /// </summary>

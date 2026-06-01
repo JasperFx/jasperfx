@@ -26,7 +26,15 @@ public class ShardState
 
     public ShardState(ShardName shardName, long sequence): this(shardName.Identity, sequence)
     {
+        TenantId = shardName.TenantId;
     }
+
+    /// <summary>
+    /// Tenant partition this shard state belongs to. Null means store-global, which is the
+    /// only behavior that existed before per-tenant partitioning. Serializes as null for
+    /// existing consumers that never set it.
+    /// </summary>
+    public string? TenantId { get; set; }
 
     public long RebuildThreshold { get; set; }
 

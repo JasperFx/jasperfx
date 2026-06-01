@@ -35,6 +35,18 @@ public interface IProjectionDaemon: IDisposable
     /// <returns></returns>
     Task RebuildProjectionAsync(string projectionName, CancellationToken token);
 
+    /// <summary>
+    ///     Rebuilds a single projection by projection name for a single tenant partition inline.
+    ///     A null <paramref name="tenantId" /> is store-global and delegates to the tenant-less overload
+    ///     (today's behavior). Daemons that implement per-tenant partitioning override this; the default
+    ///     throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    Task RebuildProjectionAsync(string projectionName, string? tenantId, CancellationToken token)
+        => tenantId == null
+            ? RebuildProjectionAsync(projectionName, token)
+            : throw new NotSupportedException(
+                "Per-tenant RebuildProjectionAsync is not implemented on this IProjectionDaemon. Use an event store that implements per-tenant partitioning.");
+
 
     /// <summary>
     ///     Rebuilds a single projection by projection type inline.
@@ -71,6 +83,18 @@ public interface IProjectionDaemon: IDisposable
     /// <param name="token"></param>
     /// <returns></returns>
     Task RebuildProjectionAsync(string projectionName, TimeSpan shardTimeout, CancellationToken token);
+
+    /// <summary>
+    ///     Rebuilds a single projection by projection name for a single tenant partition inline.
+    ///     A null <paramref name="tenantId" /> is store-global and delegates to the tenant-less overload
+    ///     (today's behavior). Daemons that implement per-tenant partitioning override this; the default
+    ///     throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    Task RebuildProjectionAsync(string projectionName, string? tenantId, TimeSpan shardTimeout, CancellationToken token)
+        => tenantId == null
+            ? RebuildProjectionAsync(projectionName, shardTimeout, token)
+            : throw new NotSupportedException(
+                "Per-tenant RebuildProjectionAsync is not implemented on this IProjectionDaemon. Use an event store that implements per-tenant partitioning.");
 
 
     /// <summary>
@@ -202,4 +226,22 @@ public interface IProjectionDaemon: IDisposable
     /// <returns></returns>
     Task RewindSubscriptionAsync(string subscriptionName, CancellationToken token, long? sequenceFloor = 0,
         DateTimeOffset? timestamp = null);
+
+    /// <summary>
+    /// Rewinds a subscription (or projection) for a single tenant partition to a certain point and
+    /// allows it to restart at that point. A null <paramref name="tenantId" /> is store-global and
+    /// delegates to the tenant-less overload (today's behavior). Daemons that implement per-tenant
+    /// partitioning override this; the default throws for a non-null tenant. See jasperfx#407.
+    /// </summary>
+    /// <param name="subscriptionName">Name of the subscription</param>
+    /// <param name="tenantId">Tenant partition to scope the rewind to. Null means store-global.</param>
+    /// <param name="token"></param>
+    /// <param name="sequenceFloor">The point at which to rewind the subscription. The default is zero</param>
+    /// <param name="timestamp">Optional parameter to rewind the subscription to rerun any events that were posted on or after this time. If the system cannot determine the sequence, it will do nothing</param>
+    Task RewindSubscriptionAsync(string subscriptionName, string? tenantId, CancellationToken token,
+        long? sequenceFloor = 0, DateTimeOffset? timestamp = null)
+        => tenantId == null
+            ? RewindSubscriptionAsync(subscriptionName, token, sequenceFloor, timestamp)
+            : throw new NotSupportedException(
+                "Per-tenant RewindSubscriptionAsync is not implemented on this IProjectionDaemon. Use an event store that implements per-tenant partitioning.");
 }
