@@ -30,7 +30,22 @@ public class DynamicCodeBuilder
 
     public IServiceVariableSource? ServiceVariableSource { get; set; }
 
+    /// <summary>
+    ///     Target language for the generated source. F# (<see cref="CodegenLanguage.fsharp" />) emits the
+    ///     pre-generated/static code model with the .fs extension; C# is the default.
+    /// </summary>
+    public CodegenLanguage Language { get; set; } = CodegenLanguage.csharp;
+
     public string[] ChildNamespaces => Collections.Select(x => x.ChildNamespace).ToArray();
+
+    private string renderCode(GeneratedAssembly generatedAssembly, IServiceVariableSource? services)
+    {
+        return Language == CodegenLanguage.fsharp
+            ? generatedAssembly.GenerateFSharpCode(services)
+            : generatedAssembly.GenerateCode(services);
+    }
+
+    private string fileExtension => Language == CodegenLanguage.fsharp ? ".fs" : ".cs";
 
     public IServiceProvider Services { get; }
 
@@ -127,7 +142,7 @@ public class DynamicCodeBuilder
                     // `services` is shared across every file here, so reset the prior override first.
                     applyServiceProviderOverride(file, services);
 
-                    var code = generatedAssembly.GenerateCode(services);
+                    var code = renderCode(generatedAssembly, services);
 
                     // #227: enforce ServiceLocationPolicy per-file, matching the
                     // runtime compile path in DynamicTypeLoader.Initialize. The
@@ -138,7 +153,7 @@ public class DynamicCodeBuilder
                     // "all generated" result from the CLI.
                     assertServiceLocationsAllowed(file, services);
 
-                    var fileName = Path.Combine(exportDirectory, file.FileName.Replace(" ", "_") + ".cs");
+                    var fileName = Path.Combine(exportDirectory, file.FileName.Replace(" ", "_") + fileExtension);
                     File.WriteAllText(fileName, code);
                     onFileWritten(fileName);
                 }
@@ -185,7 +200,7 @@ public class DynamicCodeBuilder
             // shared source.
             applyServiceProviderOverride(file, services);
 
-            var code = generatedAssembly.GenerateCode(services);
+            var code = renderCode(generatedAssembly, services);
             assertServiceLocationsAllowed(file, services);
 
             writer.WriteLine(code);

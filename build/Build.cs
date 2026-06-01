@@ -105,6 +105,10 @@ partial class Build : NukeBuild
             DotNet("run --framework net9.0 -- describe --environment Testing --applicationName Different --contentRoot /bin", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- describe --environment=Testing --applicationName=Different --contentRoot=/bin", Solution.TestHarnesses.CommandLineRunner.Directory);
             DotNet("run --framework net9.0 -- codegen preview --start", Solution.TestHarnesses.GeneratorTarget.Directory);
+
+            // Validate the `--language fsharp` codegen flag is wired through the CLI and emits F#.
+            // (Compilable/runnable pre-generated F# is proven downstream against real handler chains.)
+            DotNet("run --framework net9.0 -- codegen preview --language fsharp --start", Solution.TestHarnesses.GeneratorTarget.Directory);
         });
 
     /// <summary>

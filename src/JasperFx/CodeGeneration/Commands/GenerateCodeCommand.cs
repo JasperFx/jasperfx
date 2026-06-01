@@ -42,8 +42,16 @@ public class GenerateCodeCommand : JasperFxCommand<GenerateCodeInput>
 
         var builder = new DynamicCodeBuilder(host.Services, collections)
         {
-            ServiceVariableSource = host.Services.GetService<IServiceVariableSource>()
+            ServiceVariableSource = host.Services.GetService<IServiceVariableSource>(),
+            Language = input.LanguageFlag
         };
+
+        if (input.LanguageFlag == CodegenLanguage.fsharp && input.Action == CodeAction.test)
+        {
+            AnsiConsole.MarkupLine(
+                "[red]'codegen test' does not support --language fsharp; the test action uses in-memory C# compilation. Use 'write' or 'preview' for F#.[/]");
+            return false;
+        }
 
         switch (input.Action)
         {
