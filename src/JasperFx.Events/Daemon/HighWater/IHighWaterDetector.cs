@@ -7,6 +7,15 @@ public interface IHighWaterDetector
     Uri DatabaseUri { get; }
 
     /// <summary>
+    /// Does the backing event store partition events per tenant, such that this detector can emit a
+    /// meaningful per-tenant high-water vector via <see cref="DetectForTenantsAsync" />? When false (the
+    /// default) the daemon stays on the single store-global high-water mark — today's behavior, byte for
+    /// byte. A partitioned store (Marten/Polecat with per-tenant sequences) overrides this to true to opt
+    /// the running daemon into vectorized per-tenant high-water + per-tenant rebuilds. jasperfx#407 Phase 2b.
+    /// </summary>
+    bool SupportsTenantPartitioning => false;
+
+    /// <summary>
     /// Detect the high-water statistics for a set of tenants in a single round-trip (the "vectorized"
     /// high-water contract). One detector per database emits a per-tenant high-water vector rather than
     /// the daemon running one detector per tenant. The default implementation has no tenant dimension:

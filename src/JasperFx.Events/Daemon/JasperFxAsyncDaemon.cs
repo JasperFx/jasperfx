@@ -28,6 +28,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
+    // Only non-null when the backing store partitions events per tenant; null keeps the daemon on the
+    // single store-global high-water mark (today's behavior, byte for byte). jasperfx#407 Phase 2b.
+    private readonly TenantedHighWaterCoordinator? _tenantHighWater;
+
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
@@ -38,11 +42,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         Tracker = Database.Tracker;
         _highWater = new HighWaterAgent(store.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), projections, _cancellation.Token);
 
+        if (detector.SupportsTenantPartitioning)
+        {
+            _tenantHighWater = new TenantedHighWaterCoordinator(detector, loggerFactory.CreateLogger<TenantedHighWaterCoordinator>());
+        }
+
         _breakSubscription = database.Tracker.Subscribe(this);
 
         _deadLetterBlock = buildDeadLetterBlock();
     }
-    
+
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
@@ -52,6 +61,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         Logger = logger;
         Tracker = Database.Tracker;
         _highWater = new HighWaterAgent(store.Meter, detector, Tracker, logger, _projections, _cancellation.Token);
+
+        if (detector.SupportsTenantPartitioning)
+        {
+            _tenantHighWater = new TenantedHighWaterCoordinator(detector, logger);
+        }
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
@@ -124,6 +138,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             agent.MarkHighWater(highWaterMark);
 
             _agents = _agents.AddOrUpdate(agent.Name.Identity, agent);
+            syncTenantPolling();
         }
         catch (Exception ex)
         {
@@ -249,6 +264,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             finally
             {
                 _agents = _agents.Remove(shardIdentity);
+                syncTenantPolling();
             }
         }
     }
@@ -276,6 +292,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 finally
                 {
                     _agents = _agents.Remove(shardName);
+                    syncTenantPolling();
 
                     if (!_agents.Enumerate().Any() && _highWater.IsRunning)
                     {
@@ -347,6 +364,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             }
 
             _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
+            syncTenantPolling();
 
             _cancellation.TryReset();
             _deadLetterBlock = buildDeadLetterBlock();
@@ -465,11 +483,49 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             foreach (var agent in CurrentAgents())
             {
+                // When the store partitions per tenant, tenant-scoped agents advance against their own
+                // tenant's high-water mark (routed by the coordinator), not the store-global mark. With no
+                // coordinator this is exactly the original behavior — every agent gets the global mark.
+                if (_tenantHighWater != null && agent.Name.TenantId != null)
+                {
+                    continue;
+                }
+
                 agent.MarkHighWater(value.Sequence);
             }
+
+            if (_tenantHighWater != null)
+            {
+                // Reuse the global high-water cadence to drive one vectorized per-tenant poll.
+                _ = pollTenantHighWaterAsync();
+            }
         }
-        
+
         _shardStateTracker?.Add(value);
+    }
+
+    private async Task pollTenantHighWaterAsync()
+    {
+        if (_tenantHighWater == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _tenantHighWater.PollAndRouteAsync(CurrentAgents(), _cancellation.Token).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e, "Error polling per-tenant high water for database {Name}", Database.Identifier);
+        }
+    }
+
+    // Keep the vectorized monitor's polled-tenant set in step with the shards currently assigned to this
+    // node. No-op for non-partitioned stores. jasperfx#407 Phase 2b.
+    private void syncTenantPolling()
+    {
+        _tenantHighWater?.SyncAssignedTenants(CurrentAgents().Select(x => x.Name));
     }
 
     public Task RecordDeadLetterEventAsync(DeadLetterEvent @event)
@@ -531,6 +587,31 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         var projectionType = typeof(TView);
         return RebuildProjectionAsync(projectionType, shardTimeout, token);
+    }
+
+    public Task RebuildProjectionAsync(string projectionName, string? tenantId, CancellationToken token)
+    {
+        return RebuildProjectionAsync(projectionName, tenantId, 5.Minutes(), token);
+    }
+
+    // jasperfx#407 Phase 2b: a real per-tenant rebuild. A null tenant is the store-global rebuild
+    // (today's behavior). A non-null tenant rebuilds ONLY that tenant's shard up to that tenant's
+    // high-water ceiling, pausing only that shard so other tenants keep running.
+    public Task RebuildProjectionAsync(string projectionName, string? tenantId, TimeSpan shardTimeout,
+        CancellationToken token)
+    {
+        if (tenantId == null)
+        {
+            return RebuildProjectionAsync(projectionName, shardTimeout, token);
+        }
+
+        if (_projections.TryFindProjection(projectionName, out var source))
+        {
+            return rebuildProjectionForTenant(source, tenantId, shardTimeout, token);
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(projectionName),
+            $"No registered projection matches the name '{projectionName}'. Available names are {_projections.AllProjectionNames().Join(", ")}");
     }
 
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
@@ -607,6 +688,128 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         {
             // Tear down the current state
             await _store.DeleteProjectionProgressAsync(Database, subscriptionName, token).ConfigureAwait(false);
+        }
+    }
+
+    // jasperfx#407 Phase 2b: rebuild a single tenant's shard(s) for one projection, in isolation. Reuses
+    // the existing buildAgentForShard / rebuildAgent paths, scoped to ShardName.ForTenant(tenantId).
+    private async Task rebuildProjectionForTenant(IProjectionSource<TOperations, TQuerySession> source,
+        string tenantId, TimeSpan shardTimeout, CancellationToken token)
+    {
+        await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
+
+        var subscriptionName = source.Name;
+        Logger.LogInformation("Starting to rebuild Projection {ProjectionName} for tenant {TenantId}@{DatabaseIdentifier}",
+            subscriptionName, tenantId, Database.Identifier);
+
+        // Stop ONLY this tenant's shards for this projection; every other tenant keeps running.
+        await stopRunningAgentsForTenant(subscriptionName, tenantId).ConfigureAwait(false);
+
+        if (token.IsCancellationRequested) return;
+
+        // Per-tenant rebuild ceiling = that tenant's high-water mark, looked up from the vectorized
+        // monitor. Falls back to the store-global mark until the monitor has a reading for the tenant.
+        long ceiling;
+        if (_tenantHighWater != null)
+        {
+            _tenantHighWater.PolledTenants.Activate(tenantId);
+            await pollTenantHighWaterAsync().ConfigureAwait(false);
+            ceiling = _tenantHighWater.CeilingFor(tenantId) ?? Tracker.HighWaterMark;
+        }
+        else
+        {
+            await _highWater.CheckNowAsync().ConfigureAwait(false);
+            ceiling = Tracker.HighWaterMark;
+        }
+
+        if (ceiling == 0)
+        {
+            Logger.LogInformation(
+                "Aborting tenant rebuild of {ProjectionName}/{TenantId} because the high water mark is 0 (no event data)",
+                subscriptionName, tenantId);
+            return;
+        }
+
+        if (token.IsCancellationRequested) return;
+
+        var agents = buildTenantAgentsForSubscription(source, tenantId);
+        if (agents.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"No agents were built for subscription {subscriptionName} and tenant {tenantId}");
+        }
+
+        foreach (var agent in agents)
+        {
+            Tracker.MarkAsRestarted(agent.Name);
+        }
+
+        // Reset ONLY this tenant's progression rows. The tenant-scoped document teardown is performed by
+        // the store's tenant-aware rebuild execution (keyed on ShardName.TenantId). We intentionally do
+        // NOT call the store-global TeardownExistingProjectionStateAsync here — that would wipe every
+        // other tenant's data.
+        await _store.DeleteProjectionProgressAsync(Database, subscriptionName, tenantId, token).ConfigureAwait(false);
+
+        if (token.IsCancellationRequested) return;
+
+        await Parallel.ForEachAsync(agents,
+            new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = agents.Count },
+            async (agent, _) =>
+            {
+                Tracker.MarkAsRestarted(agent.Name);
+                await rebuildAgent(agent, ceiling, shardTimeout).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+        foreach (var agent in agents)
+        {
+            using var cancellation = new CancellationTokenSource();
+            cancellation.CancelAfter(shardTimeout);
+
+            try
+            {
+                await agent.StopAndDrainAsync(cancellation.Token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e, "Error trying to stop and drain tenant rebuild agent {Name}", agent.Name.Identity);
+            }
+        }
+    }
+
+    private IReadOnlyList<SubscriptionAgent> buildTenantAgentsForSubscription(
+        ISubscriptionSource<TOperations, TQuerySession> source, string tenantId)
+    {
+        var agents = new List<SubscriptionAgent>();
+
+        foreach (var shard in source.Shards())
+        {
+            // Rebind the shard identity to the tenant slot so the store builds a tenant-scoped execution
+            // and progression key.
+            var tenantShard = shard with { Name = shard.Name.ForTenant(tenantId) };
+            agents.Add(buildAgentForShard(tenantShard));
+        }
+
+        return agents;
+    }
+
+    private async Task stopRunningAgentsForTenant(string subscriptionName, string tenantId)
+    {
+        var running = CurrentAgents()
+            .Where(x => x.Name.Name == subscriptionName && x.Name.TenantId == tenantId)
+            .ToArray();
+
+        await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+
+        try
+        {
+            foreach (var agent in running)
+            {
+                await agent.HardStopAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _semaphore.Release();
         }
     }
 

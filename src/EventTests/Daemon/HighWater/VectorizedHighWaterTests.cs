@@ -147,6 +147,9 @@ internal class FakeVectorDetector : IHighWaterDetector
     public IReadOnlyCollection<string>? LastPolled { get; private set; }
     public int PollCount { get; private set; }
 
+    // Represents a partitioned store
+    public bool SupportsTenantPartitioning => true;
+
     public void Enqueue(HighWaterVector vector) => _queued.Enqueue(vector);
     public void EnqueueFactory(Func<IReadOnlyCollection<string>, HighWaterVector> factory) => _factory = factory;
 
