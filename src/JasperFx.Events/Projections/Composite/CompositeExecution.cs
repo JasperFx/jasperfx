@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using JasperFx.Events.Daemon;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections.Composite;
@@ -6,10 +8,30 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly IReadOnlyList<ExecutionStage> _inners;
+    private readonly EventFilterable _filtering;
+    private readonly bool _replayEligible;
 
-    public CompositeExecution(ShardName shardName, AsyncOptions options, IEventStore<TOperations, TQuerySession> store, IEventDatabase database, IJasperFxProjection<TOperations> projection, ILogger logger, IReadOnlyList<ExecutionStage> inners) : base(shardName, options, store, database, projection, logger)
+    public CompositeExecution(ShardName shardName, AsyncOptions options, IEventStore<TOperations, TQuerySession> store, IEventDatabase database, IJasperFxProjection<TOperations> projection, ILogger logger, IReadOnlyList<ExecutionStage> inners, bool replayEligible = true) : base(shardName, options, store, database, projection, logger)
     {
         _inners = inners;
+        _replayEligible = replayEligible;
+
+        // The composite projection is itself an EventFilterable; the replay loader uses it to scope the
+        // single pass the same way the continuous shard does.
+        _filtering = projection as EventFilterable ?? new EventFilterable();
+    }
+
+    public override bool TryBuildReplayExecutor([NotNullWhen(true)] out IReplayExecutor? executor)
+    {
+        executor = null;
+        if (!_replayEligible)
+        {
+            return false;
+        }
+
+        var loader = _store.BuildEventLoader(_database, _logger, _filtering, _options);
+        executor = new CompositeReplayExecutor(_shardName, loader, this, _database, _options, _logger);
+        return true;
     }
 
     protected override async Task<IProjectionBatch> buildBatchWithNoSkippingAsync(EventRange range, CancellationToken cancellationToken)

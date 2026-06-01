@@ -1,8 +1,10 @@
 using System.Diagnostics.CodeAnalysis;
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.Events.Projections.Composite;
 
@@ -42,7 +44,26 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     bool IProjectionSource<TOperations, TQuerySession>.TryBuildReplayExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, [NotNullWhen(true)] out IReplayExecutor? executor)
     {
         executor = null;
-        return false;
+        if (!IsEligibleForReplay())
+        {
+            return false;
+        }
+
+        var shardName = new ShardName(Name, ShardName.All, Version);
+        var execution = this.As<ISubscriptionFactory<TOperations, TQuerySession>>()
+            .BuildExecution(store, database, Logger ?? NullLogger.Instance, shardName);
+
+        return execution.TryBuildReplayExecutor(out executor);
+    }
+
+    /// <summary>
+    /// A composite supports a single-pass rebuild only when it has at least one member and every member
+    /// fans cleanly into one ordered pass (no custom-grouped/sliced members). See jasperfx#407 Phase A.
+    /// </summary>
+    internal bool IsEligibleForReplay()
+    {
+        var members = AllChildren().ToList();
+        return members.Count > 0 && members.All(x => x.CanParticipateInCompositeReplay);
     }
 
     IInlineProjection<TOperations> IProjectionSource<TOperations, TQuerySession>.BuildForInline()
@@ -81,14 +102,14 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     {
         var executionStages = Stages.Select(x => x.BuildExecution(store, database, loggerFactory)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
-            loggerFactory.CreateLogger(GetType()), executionStages);
+            loggerFactory.CreateLogger(GetType()), executionStages, IsEligibleForReplay());
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName shardName)
     {
         var executionStages = Stages.Select(x => x.BuildExecution(store, database, logger)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
-            logger, executionStages);
+            logger, executionStages, IsEligibleForReplay());
     }
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()

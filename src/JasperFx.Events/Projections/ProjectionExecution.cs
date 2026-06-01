@@ -81,9 +81,9 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
     public ShardExecutionMode Mode { get; set; }
 
-    public bool TryBuildReplayExecutor(out IReplayExecutor executor)
+    public virtual bool TryBuildReplayExecutor([NotNullWhen(true)] out IReplayExecutor? executor)
     {
-        executor = default!;
+        executor = default;
         return false;
     }
 

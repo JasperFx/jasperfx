@@ -24,6 +24,14 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
 
     public TenancyGrouping TenancyGrouping { get; set; } = TenancyGrouping.RespectTenant;
 
+    /// <summary>
+    /// A multi-stream projection can join a composite single-pass rebuild only when it uses the default
+    /// id-based slicing and standard per-tenant grouping. A custom slicer or tenant-rollup grouping does
+    /// not fan cleanly into one ordered pass, so such projections opt out initially (jasperfx#407 Phase A).
+    /// </summary>
+    public override bool CanParticipateInCompositeReplay
+        => _customSlicer == null && TenancyGrouping != TenancyGrouping.RollUpByTenant;
+
     public sealed override void AssembleAndAssertValidity()
     {
         base.AssembleAndAssertValidity();

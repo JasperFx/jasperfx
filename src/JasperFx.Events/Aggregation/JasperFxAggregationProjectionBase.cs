@@ -380,6 +380,12 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return false;
     }
 
+    /// <summary>
+    /// Single/multi-stream aggregations fan cleanly into a composite single-pass rebuild by default.
+    /// Custom-grouped multi-stream projections override this to opt out (jasperfx#407 Phase A).
+    /// </summary>
+    public virtual bool CanParticipateInCompositeReplay => true;
+
     IInlineProjection<TOperations> IProjectionSource<TOperations, TQuerySession>.BuildForInline() => buildForInline();
 
     protected abstract IInlineProjection<TOperations> buildForInline();
