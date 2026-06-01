@@ -13,10 +13,12 @@
              dynamic polled-tenant set, per-tenant rebuild ceiling, cross-tenant rebuild fan-out.
              2.5.0-pt209.4: Phase 2b tenant-aware daemon wiring (#407) — capability-gated vectorized
              high-water in the running daemon, polled set from assigned shards, real per-tenant rebuild.
+             2.5.0-pt209.5: Phase 2c (#407) — ShardName overload on IEventStore.BuildEventLoader so a
+             partitioned store can scope per-tenant event loading (closes the per-tenant rebuild gap).
              Monotonic alpha-suffix pack consumed downstream by Marten via local nuget feed
              (JasperFx.Events → Marten → Wolverine.CritterWatch → CritterWatch).
              See CritterWatch#209. NOT for nuget.org publication. -->
-        <JasperFxVersion>2.5.0-pt209.4</JasperFxVersion>
+        <JasperFxVersion>2.5.0-pt209.5</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
