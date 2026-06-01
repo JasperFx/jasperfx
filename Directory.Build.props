@@ -11,10 +11,12 @@
              2.5.0-pt209.2: Phase A composite single-pass rebuild executor (#407) — tenancy-free.
              2.5.0-pt209.3: Phase 2 daemon abstractions (#407) — vectorized per-tenant high-water,
              dynamic polled-tenant set, per-tenant rebuild ceiling, cross-tenant rebuild fan-out.
+             2.5.0-pt209.4: Phase 2b tenant-aware daemon wiring (#407) — capability-gated vectorized
+             high-water in the running daemon, polled set from assigned shards, real per-tenant rebuild.
              Monotonic alpha-suffix pack consumed downstream by Marten via local nuget feed
              (JasperFx.Events → Marten → Wolverine.CritterWatch → CritterWatch).
              See CritterWatch#209. NOT for nuget.org publication. -->
-        <JasperFxVersion>2.5.0-pt209.3</JasperFxVersion>
+        <JasperFxVersion>2.5.0-pt209.4</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
