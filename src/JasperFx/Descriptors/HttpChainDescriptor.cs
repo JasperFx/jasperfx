@@ -109,11 +109,10 @@ public class HttpChainDescriptor : OptionsDescription
     /// <summary>OpenAPI tags applied to this chain.</summary>
     public new List<string> Tags { get; set; } = new();
 
-    /// <summary>Middleware steps in apply order.</summary>
-    public List<MiddlewareStepDescriptor> Middleware { get; set; } = new();
-
-    /// <summary>Postprocessor steps in apply order.</summary>
-    public List<MiddlewareStepDescriptor> Postprocessors { get; set; } = new();
+    // jasperfx#411: the Middleware / Postprocessors / ServiceDependencies pipeline-introspection fields
+    // were removed. The same operator-facing information is available on demand via the chain's generated
+    // source code (RequestHandlerSourceCode in Wolverine.CritterWatch) — the generated C# IS the compiled
+    // pipeline — so the descriptor copies were redundant payload.
 
     /// <summary>
     /// Cascading message types this chain may publish — the
@@ -121,9 +120,6 @@ public class HttpChainDescriptor : OptionsDescription
     /// renders these as clickable chips into the messaging detail page.
     /// </summary>
     public List<TypeDescriptor> CascadingMessageTypes { get; set; } = new();
-
-    /// <summary>Service dependencies the chain resolves at runtime.</summary>
-    public List<TypeDescriptor> ServiceDependencies { get; set; } = new();
 
     /// <summary>Full OpenAPI shape of the operation, when discoverable.</summary>
     public OpenApiOperationDescriptor? OpenApi { get; set; }
