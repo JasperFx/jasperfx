@@ -315,6 +315,11 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                         _logger.LogInformation(
                             "Finished with optimized rebuild for projection/subscription {ShardName}, proceeding to normal, continuous operation",
                             Name.Identity);
+
+                        // The executor has caught the shard up to the ceiling and persisted progression
+                        // (MarkSuccessAsync on its final page). Reconcile the agent's in-memory marks so the
+                        // post-switch fall-through doesn't redundantly re-load 0→HighWater into the block.
+                        LastEnqueued = LastCommitted = HighWaterMark;
                     }
                     catch (Exception e)
                     {
