@@ -15,10 +15,13 @@
              high-water in the running daemon, polled set from assigned shards, real per-tenant rebuild.
              2.5.0-pt209.5: Phase 2c (#407) — ShardName overload on IEventStore.BuildEventLoader so a
              partitioned store can scope per-tenant event loading (closes the per-tenant rebuild gap).
+             2.5.0-pt209.6: fix Command.Start optimized-rebuild double-load (#407) — reconcile the agent's
+             in-memory marks after the catch-up executor so the post-switch fall-through doesn't re-load
+             0→HighWater and duplicate the progression INSERT (pk_mt_event_progression 23505).
              Monotonic alpha-suffix pack consumed downstream by Marten via local nuget feed
              (JasperFx.Events → Marten → Wolverine.CritterWatch → CritterWatch).
              See CritterWatch#209. NOT for nuget.org publication. -->
-        <JasperFxVersion>2.5.0-pt209.5</JasperFxVersion>
+        <JasperFxVersion>2.5.0-pt209.6</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
