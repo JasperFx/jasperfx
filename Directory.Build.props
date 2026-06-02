@@ -7,21 +7,15 @@
              JasperFx.Events, JasperFx.Events.SourceGenerator) set
              <Version>$(JasperFxVersion)</Version> so they always release together. Bump this one
              value to release the whole set. -->
-        <!-- 2.5.0-pt209.1: per-tenant partitioning Phase 0 surface (#407).
-             2.5.0-pt209.2: Phase A composite single-pass rebuild executor (#407) — tenancy-free.
-             2.5.0-pt209.3: Phase 2 daemon abstractions (#407) — vectorized per-tenant high-water,
-             dynamic polled-tenant set, per-tenant rebuild ceiling, cross-tenant rebuild fan-out.
-             2.5.0-pt209.4: Phase 2b tenant-aware daemon wiring (#407) — capability-gated vectorized
-             high-water in the running daemon, polled set from assigned shards, real per-tenant rebuild.
-             2.5.0-pt209.5: Phase 2c (#407) — ShardName overload on IEventStore.BuildEventLoader so a
-             partitioned store can scope per-tenant event loading (closes the per-tenant rebuild gap).
-             2.5.0-pt209.6: fix Command.Start optimized-rebuild double-load (#407) — reconcile the agent's
-             in-memory marks after the catch-up executor so the post-switch fall-through doesn't re-load
-             0→HighWater and duplicate the progression INSERT (pk_mt_event_progression 23505).
-             Monotonic alpha-suffix pack consumed downstream by Marten via local nuget feed
-             (JasperFx.Events → Marten → Wolverine.CritterWatch → CritterWatch).
-             See CritterWatch#209. NOT for nuget.org publication. -->
-        <JasperFxVersion>2.5.0-pt209.6</JasperFxVersion>
+        <!-- 2.5.0: per-tenant event partitioning + tenant-aware async daemon (#407, CritterWatch#209).
+             Surfaces the Phase 0 partitioning hooks, the composite single-pass rebuild executor,
+             vectorized per-tenant high-water detection with a dynamic polled-tenant set, per-tenant
+             rebuild ceilings + cross-tenant rebuild fan-out, and a ShardName overload on
+             IEventStore.BuildEventLoader so a partitioned store can scope per-tenant event loading.
+             Also fixes a Command.Start optimized-rebuild double-load that could duplicate the
+             progression INSERT (pk_mt_event_progression 23505). Released from the pt209.1–pt209.6
+             local-feed prerelease line consumed downstream by Marten/Polecat/Wolverine.CritterWatch. -->
+        <JasperFxVersion>2.5.0</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
