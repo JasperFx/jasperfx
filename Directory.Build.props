@@ -26,7 +26,12 @@
              type, and graph-level HttpGraphUsage.MiddlewareTypes — the same operator-facing pipeline
              information is available on demand via the chain's generated source code, so the descriptor
              copies were redundant payload (~30-50 KB compressed per ~163-endpoint topology). -->
-        <JasperFxVersion>2.6.1</JasperFxVersion>
+        <!-- 2.7.0: auto-assign dynamic-tenant abstraction (#413, split from #409). The auto-assign
+             IDynamicTenantSource<T>.AddTenantAsync(tenantId, CancellationToken) overload now returns
+             Task<string> — the resolved database id / partition suffix — so pooled/sharded tenancy models
+             (Marten ShardedTenancy, marten#4598) report where an auto-assigned tenant landed. Default still
+             throws NotSupportedException (additive). DynamicTenancyAdminExtensions surfaces the resolved id. -->
+        <JasperFxVersion>2.7.0</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>

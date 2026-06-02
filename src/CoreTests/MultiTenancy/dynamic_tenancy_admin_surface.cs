@@ -20,8 +20,9 @@ public class dynamic_tenancy_admin_surface
     public async Task auto_assign_overload_is_used_when_a_source_supports_it()
     {
         var source = new AutoAssignTenantSource();
-        await ((IDynamicTenantSource<string>)source).AddTenantAsync("acme");
+        var resolved = await ((IDynamicTenantSource<string>)source).AddTenantAsync("acme");
         source.AutoAssigned.ShouldBe(["acme"]);
+        resolved.ShouldBe("shard-acme"); // resolved database id / partition suffix
     }
 
     [Fact]
@@ -41,9 +42,10 @@ public class dynamic_tenancy_admin_surface
         var source = new AutoAssignTenantSource();
         var services = provider(source);
 
-        await services.AddTenantAsync("acme");
+        var resolved = await services.AddTenantAsync("acme");
 
         source.AutoAssigned.ShouldBe(["acme"]);
+        resolved.ShouldBe("shard-acme");
     }
 
     [Fact]
@@ -87,7 +89,7 @@ public class dynamic_tenancy_admin_surface
 
         // None of these should throw with no source registered
         await services.AddTenantAsync("acme", "Host=db1");
-        await services.AddTenantAsync("acme");
+        (await services.AddTenantAsync("acme")).ShouldBeNull(); // no source -> no resolved assignment
         await services.DisableTenantAsync("acme");
         await services.EnableTenantAsync("acme");
         await services.RemoveTenantAsync("acme");
@@ -167,10 +169,11 @@ internal class AutoAssignTenantSource : ValueOnlyTenantSource, IDynamicTenantSou
 {
     public List<string> AutoAssigned { get; } = new();
 
-    public Task AddTenantAsync(string tenantId, CancellationToken token = default)
+    public Task<string> AddTenantAsync(string tenantId, CancellationToken token = default)
     {
         AutoAssigned.Add(tenantId);
-        return Task.CompletedTask;
+        // Simulate the assignment strategy resolving the tenant onto a shard / partition.
+        return Task.FromResult($"shard-{tenantId}");
     }
 }
 

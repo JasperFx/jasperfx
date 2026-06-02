@@ -14,15 +14,16 @@ public interface IDynamicTenantSource<T> : ITenantedSource<T>
     /// <summary>
     /// Provision a new tenant whose connection/partition is auto-assigned by the source's configured
     /// strategy — e.g. sharded-database pooling or per-tenant event partitions — rather than a
-    /// caller-supplied connection value. The default implementation throws
-    /// <see cref="NotSupportedException" />; sources that auto-assign (e.g. Marten's sharded tenancy)
-    /// override it. This is the uniform "add a tenant" entrypoint for provisioning models that own the
-    /// physical assignment, so a tool such as CritterWatch never has to sniff the concrete tenancy type.
-    /// See jasperfx#409.
+    /// caller-supplied connection value. Returns the resolved assignment: the database id (sharded pool)
+    /// or partition suffix (managed partitions) the tenant landed on, so the caller (e.g. CritterWatch)
+    /// learns where it was placed without sniffing the concrete tenancy type. The default implementation
+    /// throws <see cref="NotSupportedException" />; auto-assign sources (e.g. Marten's sharded tenancy)
+    /// override it, while caller-supplies-value sources keep
+    /// <see cref="AddTenantAsync(string,T)" />. See jasperfx#413 (split from #409).
     /// </summary>
-    Task AddTenantAsync(string tenantId, CancellationToken token = default)
+    Task<string> AddTenantAsync(string tenantId, CancellationToken token = default)
         => throw new NotSupportedException(
-            $"This tenant source ({GetType().FullName}) requires a caller-supplied connection value; call AddTenantAsync(tenantId, connectionValue) instead, or use a source that supports auto-assignment.");
+            $"This tenant source ({GetType().FullName}) does not support auto-assignment; call AddTenantAsync(tenantId, connectionValue) with a caller-supplied connection value instead.");
 
     /// <summary>
     /// Disable a tenant (soft delete). The tenant data is preserved but
