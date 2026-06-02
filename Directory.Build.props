@@ -15,7 +15,13 @@
              Also fixes a Command.Start optimized-rebuild double-load that could duplicate the
              progression INSERT (pk_mt_event_progression 23505). Released from the pt209.1–pt209.6
              local-feed prerelease line consumed downstream by Marten/Polecat/Wolverine.CritterWatch. -->
-        <JasperFxVersion>2.5.0</JasperFxVersion>
+        <!-- 2.6.0: consistent dynamic-tenancy management surface (#409, CritterWatch#209). Adds an
+             auto-assign AddTenantAsync(tenantId, CancellationToken) overload on IDynamicTenantSource<T>
+             (default throws; sharded/partitioned sources override) and a uniform IServiceProvider/IHost
+             admin entrypoint (DynamicTenancyAdminExtensions) that dispatches add/disable/enable/remove
+             to every registered dynamic tenant source — graceful no-op when none — so CritterWatch never
+             sniffs the concrete tenancy type. -->
+        <JasperFxVersion>2.6.0</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
