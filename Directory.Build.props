@@ -21,7 +21,12 @@
              admin entrypoint (DynamicTenancyAdminExtensions) that dispatches add/disable/enable/remove
              to every registered dynamic tenant source — graceful no-op when none — so CritterWatch never
              sniffs the concrete tenancy type. -->
-        <JasperFxVersion>2.6.0</JasperFxVersion>
+        <!-- 2.6.1: remove redundant HttpChainDescriptor pipeline-introspection fields (#411). Drops
+             HttpChainDescriptor.Middleware/Postprocessors/ServiceDependencies, the MiddlewareStepDescriptor
+             type, and graph-level HttpGraphUsage.MiddlewareTypes — the same operator-facing pipeline
+             information is available on demand via the chain's generated source code, so the descriptor
+             copies were redundant payload (~30-50 KB compressed per ~163-endpoint topology). -->
+        <JasperFxVersion>2.6.1</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
