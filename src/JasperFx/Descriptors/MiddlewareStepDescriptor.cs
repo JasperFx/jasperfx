@@ -1,29 +1,8 @@
 namespace JasperFx.Descriptors;
 
-/// <summary>
-/// One ordered step in a chain's middleware / postprocessor pipeline.
-/// </summary>
-public class MiddlewareStepDescriptor
-{
-    /// <summary>Type that owns the step (handler / middleware / policy).</summary>
-    public string TypeFullName { get; set; } = "";
-
-    /// <summary>Method name within the owning type.</summary>
-    public string MethodName { get; set; } = "";
-
-    /// <summary>
-    /// Step kind — <c>"Middleware"</c>, <c>"Postprocessor"</c>,
-    /// <c>"Validation"</c>, <c>"Audit"</c>, etc. Used for visual
-    /// grouping in the Pipeline tab.
-    /// </summary>
-    public string Kind { get; set; } = "";
-
-    /// <summary>
-    /// Compact display string for the row (e.g.
-    /// <c>"OrderHandler.Before(Order)"</c>).
-    /// </summary>
-    public string Description { get; set; } = "";
-}
+// jasperfx#411: MiddlewareStepDescriptor (one step in a chain's middleware/postprocessor pipeline) was
+// removed along with HttpChainDescriptor.Middleware/Postprocessors. Pipeline information is available on
+// demand via the chain's generated source code rather than mirrored into the descriptor payload.
 
 /// <summary>
 /// Narrow per-namespace prefix applied via Wolverine's

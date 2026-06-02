@@ -32,11 +32,22 @@ public static class DynamicTenancyAdminExtensions
     /// Add a tenant whose connection/partition is auto-assigned by the source (sharded/partitioned style;
     /// no caller-supplied value). Dispatched to every registered dynamic tenant source — a source that
     /// requires a connection value will surface <see cref="NotSupportedException" /> from its default
-    /// <see cref="IDynamicTenantSource{T}.AddTenantAsync(string,CancellationToken)" />.
+    /// <see cref="IDynamicTenantSource{T}.AddTenantAsync(string,CancellationToken)" />. Returns the
+    /// resolved assignment (database id / partition suffix) from the first source that provisioned the
+    /// tenant, or <see langword="null" /> when no dynamic source is registered.
     /// </summary>
-    public static Task AddTenantAsync(this IServiceProvider services, string tenantId,
+    public static async Task<string?> AddTenantAsync(this IServiceProvider services, string tenantId,
         CancellationToken token = default)
-        => forEachSource(services, source => source.AddTenantAsync(tenantId, token));
+    {
+        string? resolved = null;
+        foreach (var source in services.DynamicTenantSources())
+        {
+            var assignment = await source.AddTenantAsync(tenantId, token).ConfigureAwait(false);
+            resolved ??= assignment;
+        }
+
+        return resolved;
+    }
 
     /// <summary>
     /// Disable (soft delete) a tenant across every registered dynamic tenant source.
@@ -91,7 +102,7 @@ public static class DynamicTenancyAdminExtensions
         => host.Services.AddTenantAsync(tenantId, connectionValue);
 
     /// <summary><inheritdoc cref="AddTenantAsync(IServiceProvider,string,CancellationToken)" /></summary>
-    public static Task AddTenantAsync(this IHost host, string tenantId, CancellationToken token = default)
+    public static Task<string?> AddTenantAsync(this IHost host, string tenantId, CancellationToken token = default)
         => host.Services.AddTenantAsync(tenantId, token);
 
     /// <summary><inheritdoc cref="DisableTenantAsync(IServiceProvider,string)" /></summary>

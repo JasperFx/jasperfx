@@ -80,11 +80,8 @@ public class HttpGraphUsage : OptionsDescription
     /// </summary>
     public List<string> PolicyNames { get; set; } = new();
 
-    /// <summary>
-    /// Type names of middleware that may apply across the graph (the
-    /// <c>WolverineHttpOptions.Middleware</c> registry).
-    /// </summary>
-    public List<string> MiddlewareTypes { get; set; } = new();
+    // jasperfx#411: graph-level MiddlewareTypes (the WolverineHttpOptions.Middleware registry) was removed
+    // for API consistency with the per-chain pipeline-introspection removal.
 
     /// <summary>
     /// Names of tenant-detection strategies registered on the graph.

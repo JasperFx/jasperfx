@@ -21,7 +21,15 @@
              admin entrypoint (DynamicTenancyAdminExtensions) that dispatches add/disable/enable/remove
              to every registered dynamic tenant source — graceful no-op when none — so CritterWatch never
              sniffs the concrete tenancy type. -->
-        <JasperFxVersion>2.6.1</JasperFxVersion>
+        <!-- 2.8.0: consolidated release. Folds in #411 (remove redundant HttpChainDescriptor
+             pipeline-introspection fields — Middleware/Postprocessors/ServiceDependencies, the
+             MiddlewareStepDescriptor type, and graph-level HttpGraphUsage.MiddlewareTypes; the same
+             pipeline info is available on demand via generated source code) and #413 (the auto-assign
+             IDynamicTenantSource<T>.AddTenantAsync(tenantId, CancellationToken) overload now returns
+             Task<string> — the resolved database id / partition suffix — for pooled/sharded models).
+             #411 and #413 had merged into stacked PR bases rather than main; this brings their content
+             onto main. Single published version supersedes the interim 2.6.0/2.6.1/2.7.0 bumps. -->
+        <JasperFxVersion>2.8.0</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
