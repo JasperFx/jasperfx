@@ -1,35 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
     <PropertyGroup>
-        <!-- Single shared version for EVERY packable project in this repo EXCEPT
-             JasperFx.RuntimeCompiler, which versions independently and keeps its own <Version>
-             in its csproj. All other leaf csprojs (JasperFx, JasperFx.SourceGenerator,
-             JasperFx.Events, JasperFx.Events.SourceGenerator) set
-             <Version>$(JasperFxVersion)</Version> so they always release together. Bump this one
-             value to release the whole set. -->
-        <!-- 2.5.0: per-tenant event partitioning + tenant-aware async daemon (#407, CritterWatch#209).
-             Surfaces the Phase 0 partitioning hooks, the composite single-pass rebuild executor,
-             vectorized per-tenant high-water detection with a dynamic polled-tenant set, per-tenant
-             rebuild ceilings + cross-tenant rebuild fan-out, and a ShardName overload on
-             IEventStore.BuildEventLoader so a partitioned store can scope per-tenant event loading.
-             Also fixes a Command.Start optimized-rebuild double-load that could duplicate the
-             progression INSERT (pk_mt_event_progression 23505). Released from the pt209.1–pt209.6
-             local-feed prerelease line consumed downstream by Marten/Polecat/Wolverine.CritterWatch. -->
-        <!-- 2.6.0: consistent dynamic-tenancy management surface (#409, CritterWatch#209). Adds an
-             auto-assign AddTenantAsync(tenantId, CancellationToken) overload on IDynamicTenantSource<T>
-             (default throws; sharded/partitioned sources override) and a uniform IServiceProvider/IHost
-             admin entrypoint (DynamicTenancyAdminExtensions) that dispatches add/disable/enable/remove
-             to every registered dynamic tenant source — graceful no-op when none — so CritterWatch never
-             sniffs the concrete tenancy type. -->
-        <!-- 2.8.0: consolidated release. Folds in #411 (remove redundant HttpChainDescriptor
-             pipeline-introspection fields — Middleware/Postprocessors/ServiceDependencies, the
-             MiddlewareStepDescriptor type, and graph-level HttpGraphUsage.MiddlewareTypes; the same
-             pipeline info is available on demand via generated source code) and #413 (the auto-assign
-             IDynamicTenantSource<T>.AddTenantAsync(tenantId, CancellationToken) overload now returns
-             Task<string> — the resolved database id / partition suffix — for pooled/sharded models).
-             #411 and #413 had merged into stacked PR bases rather than main; this brings their content
-             onto main. Single published version supersedes the interim 2.6.0/2.6.1/2.7.0 bumps. -->
-        <JasperFxVersion>2.8.0</JasperFxVersion>
+        <JasperFxVersion>2.8.1</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
