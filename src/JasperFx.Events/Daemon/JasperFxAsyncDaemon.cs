@@ -899,29 +899,108 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     public async Task CatchUpAsync(CancellationToken cancellation)
     {
         await StopAllAsync();
-        await _highWater.CheckNowAsync();
-
-        var progress = await Database.AllProjectionProgress(cancellation);
 
         var recorder = new Recorder();
         using var subscription = Database.Tracker.Subscribe(recorder);
+
+        if (_tenantHighWater != null && Database is ICrossTenantRebuildSource crossTenantSource)
+        {
+            // marten#4665 — under per-tenant event partitioning the store-global
+            // mt_events_sequence is never advanced (per-tenant mt_events_sequence_{suffix}
+            // values power mt_events.seq_id), so _highWater.CheckNowAsync() leaves the
+            // global high-water pinned at the unused sequence's last_value. Driving
+            // catch-up off HighWaterMark() in that mode leaves every catch-up loop
+            // stuck at zero — the test-automation helper
+            // ForceAllMartenDaemonActivityToCatchUpAsync would return "success" with
+            // every async projection still behind. Fan out per tenant exactly the way
+            // rebuildProjectionForTenant already does: activate every known tenant in
+            // the polled set, drive one vectorized poll to fetch ceilings, and catch
+            // up a tenant-scoped agent per (shard, tenant) pair to that tenant's
+            // ceiling. Falls back to the global path below when no cross-tenant
+            // source is available so single-tenant stores stay byte-for-byte.
+            await catchUpPerTenantAsync(crossTenantSource, recorder, cancellation).ConfigureAwait(false);
+            return;
+        }
+
+        await _highWater.CheckNowAsync();
+
+        var progress = await Database.AllProjectionProgress(cancellation);
 
         foreach (var asyncShard in _store.AllShards())
         {
             var state = progress.FirstOrDefault(x => x.ShardName == asyncShard.Name.Identity)
                         ?? new ShardState(asyncShard.Name, 0);
             var agent = buildAgentForShard(asyncShard);
-            
+
             await agent.CatchUpAsync(HighWaterMark(), state, cancellation);
-            var exceptions = recorder.States
-                .Select(x => x.Exception)
-                .Where(x => x != null)
-                .Where(x => cancellation.IsCancellationRequested || !isCancellationNoise(x!))
-                .ToArray();
-            if (exceptions.Length != 0)
+            throwIfRecordedExceptions(recorder, cancellation);
+        }
+    }
+
+    // marten#4665 — per-tenant fan-out for the test-automation catch-up path.
+    // Mirrors the rebuildProjectionForTenant ceiling-lookup pattern: activate the
+    // tenant in the polled set, drive one vectorized poll, read CeilingFor(tenant).
+    // We batch all activations + a single poll per shard so the cost is one
+    // round-trip-per-shard against pg_sequences, not one per tenant.
+    private async Task catchUpPerTenantAsync(
+        ICrossTenantRebuildSource crossTenantSource,
+        Recorder recorder,
+        CancellationToken cancellation)
+    {
+        var progress = await Database.AllProjectionProgress(cancellation).ConfigureAwait(false);
+
+        foreach (var asyncShard in _store.AllShards())
+        {
+            if (cancellation.IsCancellationRequested) return;
+
+            var tenants = await crossTenantSource
+                .FindRebuildTenantsAsync(asyncShard.Name.Name, cancellation)
+                .ConfigureAwait(false);
+
+            if (tenants.Count == 0)
             {
-                throw new AggregateException(exceptions!);
+                // No registered tenants for this projection — nothing to catch up.
+                continue;
             }
+
+            foreach (var tenantId in tenants)
+            {
+                _tenantHighWater!.PolledTenants.Activate(tenantId);
+            }
+            await pollTenantHighWaterAsync().ConfigureAwait(false);
+
+            foreach (var tenantId in tenants)
+            {
+                if (cancellation.IsCancellationRequested) return;
+
+                var ceiling = _tenantHighWater!.CeilingFor(tenantId) ?? 0L;
+                if (ceiling == 0L)
+                {
+                    // Tenant exists but has no events for this projection yet.
+                    continue;
+                }
+
+                var tenantShard = asyncShard with { Name = asyncShard.Name.ForTenant(tenantId) };
+                var state = progress.FirstOrDefault(x => x.ShardName == tenantShard.Name.Identity)
+                            ?? new ShardState(tenantShard.Name, 0);
+                var agent = buildAgentForShard(tenantShard);
+
+                await agent.CatchUpAsync(ceiling, state, cancellation).ConfigureAwait(false);
+                throwIfRecordedExceptions(recorder, cancellation);
+            }
+        }
+    }
+
+    private void throwIfRecordedExceptions(Recorder recorder, CancellationToken cancellation)
+    {
+        var exceptions = recorder.States
+            .Select(x => x.Exception)
+            .Where(x => x != null)
+            .Where(x => cancellation.IsCancellationRequested || !isCancellationNoise(x!))
+            .ToArray();
+        if (exceptions.Length != 0)
+        {
+            throw new AggregateException(exceptions!);
         }
     }
 
