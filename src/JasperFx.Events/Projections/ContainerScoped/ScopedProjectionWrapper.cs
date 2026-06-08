@@ -74,7 +74,7 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
     }
 
     public SubscriptionType Type { get; }
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];
     public Type ImplementationType => typeof(TProjection);
 
     public Task ApplyAsync(TOperations operations, IEnumerable<StreamAction> streams, CancellationToken cancellation)
@@ -99,7 +99,7 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
         return
         [
             new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection,
-                new ShardName(base.Name, ShardName.All, base.Version), this, this)
+                ShardName.Compose(base.Name, version: base.Version), this, this)
         ];
     }
 

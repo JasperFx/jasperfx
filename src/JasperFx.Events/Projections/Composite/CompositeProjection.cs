@@ -49,7 +49,7 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
             return false;
         }
 
-        var shardName = new ShardName(Name, ShardName.All, Version);
+        var shardName = ShardName.Compose(Name, version: Version);
         var execution = this.As<ISubscriptionFactory<TOperations, TQuerySession>>()
             .BuildExecution(store, database, Logger ?? NullLogger.Instance, shardName);
 
@@ -80,7 +80,7 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
 
     ShardName[] ISubscriptionSource.ShardNames()
     {
-        return [new(Name, ShardName.All, Version)];
+        return [ShardName.Compose(Name, version: Version)];
     }
 
     Type ISubscriptionSource.ImplementationType => GetType();
@@ -100,21 +100,21 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
-        var executionStages = Stages.Select(x => x.BuildExecution(store, database, loggerFactory)).ToArray();
+        var executionStages = Stages.Select(x => x.BuildExecution(store, database, loggerFactory, shardName)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
             loggerFactory.CreateLogger(GetType()), executionStages, IsEligibleForReplay());
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName shardName)
     {
-        var executionStages = Stages.Select(x => x.BuildExecution(store, database, logger)).ToArray();
+        var executionStages = Stages.Select(x => x.BuildExecution(store, database, logger, shardName)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
             logger, executionStages, IsEligibleForReplay());
     }
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
     {
-        var shardName = new ShardName(Name, ShardName.All, Version);
+        var shardName = ShardName.Compose(Name, version: Version);
         return
         [
             new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, shardName, this, this)

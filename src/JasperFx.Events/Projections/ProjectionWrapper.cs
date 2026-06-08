@@ -76,7 +76,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
 
     public ShardName[] ShardNames()
     {
-        return [new ShardName(Name, ShardName.All, Version)];
+        return [ShardName.Compose(Name, version: Version)];
     }
 
     public Type ImplementationType => _projection.GetType();
@@ -91,7 +91,7 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
         return
         [
             new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection,
-                new ShardName(Name, "All", Version), this, this)
+                ShardName.Compose(Name, version: Version), this, this)
         ];
     }
 

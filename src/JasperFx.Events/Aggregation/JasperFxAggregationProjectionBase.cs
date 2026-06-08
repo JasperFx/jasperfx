@@ -74,7 +74,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     public Type ImplementationType => GetType();
     public SubscriptionType Type { get; }
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];
 
     private static readonly string[] methodNames = [nameof(DetermineAction), nameof(DetermineActionAsync), nameof(Evolve), nameof(EvolveAsync)];
     
@@ -369,7 +369,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         return
         [
-            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name, ShardName.All, Version), this, this)
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, ShardName.Compose(Name, version: Version), this, this)
         ];
     }
 
