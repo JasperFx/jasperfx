@@ -95,7 +95,22 @@ internal class ProjectionHost: IProjectionHost
 
         var list = new List<Exception>();
 
-        await Parallel.ForEachAsync(projectionNames, _cancellation.Token,
+        // jasperfx#420: cap the per-database rebuild fan-out so a wide store
+        // (many projections, especially under per-tenant partitioning) cannot
+        // blow the connection pool / thrash the buffer cache. A non-positive or
+        // unset flag preserves the previous unbounded behavior.
+        var maxConcurrent = input.ResolveMaxDegreeOfParallelism();
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = _cancellation.Token,
+            MaxDegreeOfParallelism = maxConcurrent
+        };
+
+        AnsiConsole.MarkupLine(maxConcurrent > 0
+            ? $"[grey]Rebuilding with a maximum of {maxConcurrent} concurrent projection(s) per database[/]"
+            : "[grey]Rebuilding with unbounded concurrency per database[/]");
+
+        await Parallel.ForEachAsync(projectionNames, parallelOptions,
                 async (projectionName, token) =>
                 {
                     shardTimeout ??= 5.Minutes();

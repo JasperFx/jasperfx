@@ -35,4 +35,15 @@ public class ProjectionInput: NetCoreInput
 
     [Description("If specified, advances the projection high water mark to the latest event sequence")]
     public bool AdvanceFlag { get; set; }
+
+    [Description("Maximum number of projections to rebuild concurrently within a single database. Caps the per-database rebuild fan-out for one-off operational rebuilds. Default is unbounded.")]
+    [FlagAlias("max-concurrent", longAliasOnly: true)]
+    public int? MaxConcurrentFlag { get; set; }
+
+    /// <summary>
+    /// jasperfx#420: resolve the effective <see cref="ParallelOptions.MaxDegreeOfParallelism"/> for the
+    /// per-database rebuild fan-out. A null or non-positive <see cref="MaxConcurrentFlag"/> yields -1
+    /// (unbounded), preserving the historical behavior.
+    /// </summary>
+    public int ResolveMaxDegreeOfParallelism() => MaxConcurrentFlag is > 0 ? MaxConcurrentFlag.Value : -1;
 }
