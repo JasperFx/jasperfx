@@ -48,11 +48,13 @@ public class AsyncOptions
     public bool TeardownDataOnRebuild { get; set; } = true;
 
     /// <summary>
-    /// If more than 0 (the default), this is the maximum number of aggregates
-    /// that will be cached in a 2nd level, most recently used cache during async
-    /// projection. Use this to potentially improve async projection throughput
+    /// The maximum number of aggregates that will be cached per tenant in a 2nd level,
+    /// most recently used cache during async projection. Defaults to 1000 to give most
+    /// projections a meaningful cache for typical batch working sets and improve async
+    /// projection throughput. Increase for rebuild-heavy/cache-friendly workloads; set to
+    /// 0 to disable the aggregate cache entirely (e.g. memory-constrained processes).
     /// </summary>
-    public int CacheLimitPerTenant { get; set; } = 0;
+    public int CacheLimitPerTenant { get; set; } = 1000;
 
     /// <summary>
     ///     Add explicit teardown rule to delete all documents of type T

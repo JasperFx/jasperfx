@@ -13,6 +13,14 @@ public class AsyncOptionsTests
     private readonly CancellationToken theToken = CancellationToken.None;
 
     [Fact]
+    public void cache_limit_per_tenant_defaults_to_a_meaningful_value()
+    {
+        // jasperfx#422: the aggregate cache is on by default now (was 0 == disabled), so most
+        // projections get a 2nd-level cache without explicit opt-in.
+        new AsyncOptions().CacheLimitPerTenant.ShouldBe(1000);
+    }
+
+    [Fact]
     public async Task determine_starting_position_if_rebuild()
     {
         var options = new AsyncOptions();
