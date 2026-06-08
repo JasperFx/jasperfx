@@ -44,7 +44,7 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
 
     public SubscriptionType Type => SubscriptionType.Subscription;
     public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];
 
     public Type ImplementationType => GetType();
 
@@ -62,7 +62,7 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
     {
         return
         [
-            new(Options, ShardRole.Subscription, new ShardName(Name, ShardName.All, Version), this, this)
+            new(Options, ShardRole.Subscription, ShardName.Compose(Name, version: Version), this, this)
         ];
     }
 

@@ -42,7 +42,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     }
 
     public SubscriptionType Type => SubscriptionType.EventProjection;
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];
     public Type ImplementationType => GetType();
 
     public virtual SubscriptionDescriptor Describe(IEventStore store)
@@ -54,7 +54,7 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     {
         return
         [
-            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(Name, ShardName.All, Version), this, this)
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, ShardName.Compose(Name, version: Version), this, this)
         ];
     }
 

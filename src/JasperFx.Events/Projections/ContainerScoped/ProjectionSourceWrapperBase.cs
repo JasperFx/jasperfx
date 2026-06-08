@@ -58,7 +58,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     }
 
     public SubscriptionType Type { get; private set; }
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];
     public Type ImplementationType => typeof(TSource);
 
     public Type ProjectionType { get; }
@@ -67,7 +67,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
     {
         return
         [
-            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, new ShardName(base.Name, ShardName.All, Version), this, this)
+            new AsyncShard<TOperations, TQuerySession>(Options, ShardRole.Projection, ShardName.Compose(base.Name, version: Version), this, this)
         ];
     }
 

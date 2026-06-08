@@ -93,13 +93,13 @@ internal class ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, T
     public string Name { get; set; }
     public SubscriptionType Type => SubscriptionType.Subscription;
     public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
-    public ShardName[] ShardNames() => [new ShardName(Name, ShardName.All, Version)];
+    public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];
 
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> Shards()
     {
         return
         [
-            new(Options, ShardRole.Subscription, new ShardName(Name, "All", Version), this, this)
+            new(Options, ShardRole.Subscription, ShardName.Compose(Name, version: Version), this, this)
         ];
     }
 

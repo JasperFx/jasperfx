@@ -32,11 +32,15 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
 
     public IReadOnlyList<IProjectionSource<TOperations, TQuerySession>> Projections => _projections;
 
-    public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory)
+    public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, ShardName parent)
     {
         var executions = Projections.Select(projection =>
         {
-            var shardName = new ShardName(projection.Name, ShardName.All, projection.Version);
+            // jasperfx#419: propagate the parent composite's tenant binding to every member stage.
+            // When the composite is caught up/rebuilt for a single tenant the parent ShardName carries
+            // that tenant id; dropping it here (a bare store-global constructor) was the marten#4679
+            // root cause -- every per-tenant member wrote the same store-global progression row.
+            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version);
             return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
                 .BuildExecution(store, database, loggerFactory, shardName);
         }).ToArray();
@@ -44,11 +48,13 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
         return new ExecutionStage(executions);
     }
 
-    public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger) 
+    public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName parent)
     {
         var executions = Projections.Select(projection =>
         {
-            var shardName = new ShardName(projection.Name, ShardName.All, projection.Version);
+            // jasperfx#419: see the loggerFactory overload above -- the parent tenant binding must reach
+            // every member stage's ShardName so per-tenant progression rows stay distinct.
+            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version);
             return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
                 .BuildExecution(store, database, logger, shardName);
         }).ToArray();

@@ -142,6 +142,42 @@ public class CompositeProjectionReplayTests
         await batch.Received(1).ExecuteAsync(Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public void member_stages_inherit_a_store_global_parent_binding()
+    {
+        // jasperfx#419: with no tenant on the parent composite shard, member stages stay store-global,
+        // byte-for-byte with the pre-refactor behavior.
+        var stage = new ProjectionStage<FakeOperations, FakeSession>(1);
+        stage.Add(new FakeReplayMember("A", canParticipate: true));
+        stage.Add(new FakeReplayMember("B", canParticipate: true));
+
+        var parent = ShardName.Compose("Composite", version: 2);
+        var executionStage = stage.BuildExecution(theStore, theDatabase, NullLogger.Instance, parent);
+
+        foreach (var execution in executionStage.Executions)
+        {
+            execution.ShardName.TenantId.ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public void member_stages_inherit_the_parent_tenant_binding()
+    {
+        // jasperfx#419 root cause of marten#4679: when the composite is caught up/rebuilt for a single
+        // tenant, the parent ShardName carries that tenant id. Each member stage's ShardName MUST inherit
+        // it -- otherwise every per-tenant member writes the same store-global mt_event_progression row
+        // and the second tenant's INSERT trips 23505.
+        var stage = new ProjectionStage<FakeOperations, FakeSession>(1);
+        stage.Add(new FakeReplayMember("A", canParticipate: true));
+        stage.Add(new FakeReplayMember("B", canParticipate: true));
+
+        var parent = ShardName.Compose("Composite", tenantId: "tenant1", version: 2);
+        var executionStage = stage.BuildExecution(theStore, theDatabase, NullLogger.Instance, parent);
+
+        executionStage.Executions.Select(x => x.ShardName.Identity)
+            .ShouldBe(["A:All:tenant1", "B:All:tenant1"]);
+    }
+
     private CompositeExecution<FakeOperations, FakeSession> buildExecution(bool replayEligible)
         => new(new ShardName("Composite", ShardName.All, 0), new AsyncOptions(), theStore, theDatabase,
             Substitute.For<IJasperFxProjection<FakeOperations>>(), NullLogger.Instance,
