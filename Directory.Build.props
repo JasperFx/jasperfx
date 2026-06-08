@@ -47,7 +47,21 @@
              ceiling. Mirrors rebuildProjectionForTenant's existing per-tenant ceiling-lookup pattern.
              Single-tenant stores and non-partitioned multi-tenant stores keep the byte-for-byte global
              path. -->
-        <JasperFxVersion>2.8.2</JasperFxVersion>
+        <!-- 2.9.0: batch of projection/daemon fixes + monitoring abstraction.
+             #419 routes all ShardName / progression-row identity construction through
+             ShardName.Compose and propagates the parent composite's tenant binding to every member
+             stage (root-cause fix for marten#4679's pk_mt_event_progression 23505 under per-tenant
+             partitioning); also preserves the tenant on AsyncShard.OverrideProjectionName.
+             #420 caps the per-database projection rebuild fan-out via a new "max-concurrent" flag on
+             "projections rebuild" (ProjectionInput.ResolveMaxDegreeOfParallelism), logging the effective
+             cap, so a wide/partitioned store can't blow the connection pool.
+             #422 changes AsyncOptions.CacheLimitPerTenant default from 0 to 1000 so projections get a
+             meaningful 2nd-level aggregate cache by default (behavior change: more memory per tenant;
+             set 0 to opt out).
+             #424 adds the storage-agnostic IEventStoreInstrumentation abstraction
+             (ExtendedProgressionEnabled) so CritterWatch can flip extended progression tracking without
+             referencing Marten/Polecat concrete types. -->
+        <JasperFxVersion>2.9.0</JasperFxVersion>
         <LangVersion>13</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
