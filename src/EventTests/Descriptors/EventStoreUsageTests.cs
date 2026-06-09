@@ -224,6 +224,53 @@ public class EventStoreUsageTests
 
         usage.MaxEventSequence.ShouldBe(123_456L);
     }
+
+    [Fact]
+    public void projection_error_handling_descriptors_default_to_null()
+    {
+        // JasperFx/ProductSupport#3: null means "not populated by this
+        // implementation" so CritterWatch can fall back to a policy-agnostic
+        // copy rather than imply skip-and-DLQ behavior on older monitored
+        // services.
+        new EventStoreUsage().ProjectionErrors.ShouldBeNull();
+        new EventStoreUsage().ProjectionRebuildErrors.ShouldBeNull();
+        new EventStoreUsage(new Uri("marten://main"), new MyThing()).ProjectionErrors.ShouldBeNull();
+        new EventStoreUsage(new Uri("marten://main"), new MyThing()).ProjectionRebuildErrors.ShouldBeNull();
+    }
+
+    [Fact]
+    public void projection_error_handling_descriptors_round_trip()
+    {
+        var usage = new EventStoreUsage
+        {
+            // Normal-run: JasperFx.Events 2.0 default — skip-and-DLQ on Apply,
+            // skip serialization errors, stop on unknown events.
+            ProjectionErrors = new ProjectionErrorHandlingDescriptor
+            {
+                SkipApplyErrors = true,
+                SkipUnknownEvents = false,
+                SkipSerializationErrors = true
+            },
+            // Rebuild-mode: tighter — every class of error stops the rebuild,
+            // matching the JasperFx.Events 2.0 RebuildErrors defaults.
+            ProjectionRebuildErrors = new ProjectionErrorHandlingDescriptor
+            {
+                SkipApplyErrors = false,
+                SkipUnknownEvents = false,
+                SkipSerializationErrors = false
+            }
+        };
+
+        usage.ProjectionErrors.ShouldNotBeNull();
+        usage.ProjectionErrors.SkipApplyErrors.ShouldBeTrue();
+        usage.ProjectionErrors.SkipUnknownEvents.ShouldBeFalse();
+        usage.ProjectionErrors.SkipSerializationErrors.ShouldBeTrue();
+
+        usage.ProjectionRebuildErrors.ShouldNotBeNull();
+        usage.ProjectionRebuildErrors.SkipApplyErrors.ShouldBeFalse();
+        usage.ProjectionRebuildErrors.SkipUnknownEvents.ShouldBeFalse();
+        usage.ProjectionRebuildErrors.SkipSerializationErrors.ShouldBeFalse();
+    }
 }
 
 public class MyThing
