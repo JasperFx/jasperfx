@@ -295,10 +295,19 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     {
         var seen = new HashSet<string>();
 
-        // Pipeline 1 candidates have priority
+        // Pipeline 1 candidates have priority.
+        //
+        // A self-aggregating type (or projection subclass) whose Apply/Create/etc. methods are
+        // split across multiple `partial` declarations surfaces one candidate PER declaration that
+        // carries a conventional method (jasperfx#432). Method collection is symbol-based
+        // (classSymbol.GetMembers()), so every candidate for the same type already holds the full,
+        // identical method set — emitting more than one would re-add the same hintName and trip the
+        // driver's "hintName must be unique" guard (CS8785). Dedupe by symbol so each aggregate type
+        // emits exactly one evolver regardless of how many partial declarations contribute methods.
         foreach (var info in direct)
         {
             if (info == null) continue;
+            if (!seen.Add(SymbolKey(info.ClassSymbol))) continue;
             MarkSeen(seen, info);
             Execute(spc, info);
         }

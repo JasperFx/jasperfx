@@ -1014,4 +1014,47 @@ public record MyTypeIncremented(int Amount);
         allGenerated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.MyType)");
         diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error).ShouldBeFalse();
     }
+
+    // jasperfx#432: a self-aggregating `record` (or class) whose Create and Apply methods are split
+    // across SEPARATE partial declarations triggered Pipeline 1 once per declaration. Each candidate
+    // carries the full (symbol-based) method set, so emitting both produced the same hintName twice and
+    // the driver raised CS8785 "the hintName '...Evolver.g.cs' ... must be unique". One evolver per
+    // aggregate type must be emitted regardless of how many partial declarations contribute methods.
+    [Fact]
+    public void self_aggregating_record_split_across_partials_emits_single_evolver()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Test;
+
+public partial record MyEntity(Guid Id, string Value);
+
+public record Creation(string InitialValue);
+
+public record Mutation(string NewValue);
+
+public partial record MyEntity
+{
+    public static MyEntity Create(IEvent<Creation> evt) => new(evt.StreamId, evt.Data.InitialValue);
+}
+
+public partial record MyEntity
+{
+    public static MyEntity Apply(Mutation evt, MyEntity entity) => entity with { Value = evt.NewValue };
+}
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        // No CS8785 (generator-failed) and no duplicate-hintName fallout
+        diagnostics.ShouldNotContain(d => d.Id == "CS8785");
+        diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error).ShouldBeFalse();
+
+        // Exactly one evolver for MyEntity, and it dispatches BOTH the Create and the Apply events
+        var evolvers = generatedSources.Where(s => s.Contains("MyEntityEvolver")).ToArray();
+        evolvers.Length.ShouldBe(1);
+        evolvers[0].ShouldContain("global::Test.Creation");
+        evolvers[0].ShouldContain("global::Test.Mutation");
+    }
 }
