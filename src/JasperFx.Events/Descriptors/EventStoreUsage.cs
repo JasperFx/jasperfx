@@ -98,6 +98,31 @@ public class EventStoreUsage : OptionsDescription
     public long? MaxEventSequence { get; set; }
 
     /// <summary>
+    /// Async-daemon error-handling configuration for normal projection runs —
+    /// mirror of <c>StoreOptions.Projections.Errors</c>. Drives whether
+    /// monitoring tools surface per-event dead-letter affordances (when
+    /// <see cref="ProjectionErrorHandlingDescriptor.SkipApplyErrors"/> is true)
+    /// or a "shard halts on error" indicator (when false). Null when the
+    /// implementation hasn't populated it; tools should fall back to a
+    /// policy-agnostic copy in that case.
+    /// </summary>
+    /// <remarks>
+    /// See JasperFx/ProductSupport#3 for the operator-side motivation:
+    /// stop-on-error apps were being shown a "view related dead letters"
+    /// button that would never return data.
+    /// </remarks>
+    public ProjectionErrorHandlingDescriptor? ProjectionErrors { get; set; }
+
+    /// <summary>
+    /// Async-daemon error-handling configuration for projection rebuilds —
+    /// mirror of <c>StoreOptions.Projections.RebuildErrors</c>. Separate from
+    /// <see cref="ProjectionErrors"/> because rebuilds default to stop-on-error
+    /// even when normal runs skip — operators rebuilding need to know whether
+    /// a poison-pill event will halt the rebuild.
+    /// </summary>
+    public ProjectionErrorHandlingDescriptor? ProjectionRebuildErrors { get; set; }
+
+    /// <summary>
     /// Populates AgentUris on each async SubscriptionDescriptor based on the
     /// agent URI pattern: {agentScheme}://{identity.Type}/{identity.Name}/{databaseId}/{shardName.RelativeUrl}
     /// </summary>
