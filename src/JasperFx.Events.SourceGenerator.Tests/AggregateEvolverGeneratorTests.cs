@@ -214,6 +214,90 @@ public class Registration
     }
 
     [Fact]
+    public void required_member_overridden_from_base_is_not_initialized_twice()
+    {
+        // Regression: when an aggregate overrides a base `virtual required` property,
+        // the inheritance walk in BuildAggregateConstructorExpression collected the
+        // member once for the base declaration AND once for the override, emitting
+        // `new T { DisplayName = default!, DisplayName = default! }` -> CS1912
+        // "Duplicate initialization of member 'DisplayName'".
+        var source = @"
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Daemon;
+using JasperFx.Events.Projections;
+
+namespace Test
+{
+
+public class DisplayItemBase
+{
+    public virtual required string DisplayName { get; set; }
+}
+
+public class InheritingDisplayItem : DisplayItemBase
+{
+    public string Id { get; set; } = """";
+    public override required string DisplayName { get; set; }
+}
+
+public class DisplayItemCreated
+{
+    public string Id { get; set; } = """";
+    public string DisplayName { get; set; } = """";
+}
+
+public class DisplayItemTouched
+{
+    public string Id { get; set; } = """";
+}
+
+public class StubOperations : IStorageOperations
+{
+    public bool EnableSideEffectsOnInlineProjections => false;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(
+        string tenantId,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
+
+    public ValueTask<IMessageSink> GetOrStartMessageSink() => throw new NotSupportedException();
+}
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, StubOperations, StubOperations>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() { }
+}
+
+public partial class InheritingDisplayItemProjection : SingleStreamProjection<InheritingDisplayItem, string>
+{
+    public static InheritingDisplayItem Create(DisplayItemCreated e) => new() { Id = e.Id, DisplayName = e.DisplayName };
+
+    // Apply-only event forces the generator's rebuild-from-null snapshot branch,
+    // which is where the duplicated initializer was emitted.
+    public void Apply(DisplayItemTouched e, InheritingDisplayItem a) { }
+}
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.GetMessage())
+            .ShouldBeEmpty();
+
+        var (_, generatedSources) = RunGenerator(source);
+        var allGenerated = string.Join("\n", generatedSources);
+
+        allGenerated.ShouldNotContain("DisplayName = default!, DisplayName = default!");
+    }
+
+    [Fact]
     public void generates_evolver_for_self_aggregating_type()
     {
         var source = @"
