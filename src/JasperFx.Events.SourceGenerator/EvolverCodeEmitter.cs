@@ -734,6 +734,11 @@ internal static class EvolverCodeEmitter
     {
         var fqn = Fqn(type);
         var requiredMembers = new List<string>();
+        // Dedup by name: an `override required` (or `new`-shadowed required) member
+        // appears in both the derived type's and the base type's GetMembers(), which
+        // would otherwise emit `new T { Prop = default!, Prop = default! }` -> CS1912.
+        // The walk runs most-derived -> base, so the first sighting wins.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         for (INamedTypeSymbol? current = type;
              current is not null && current.SpecialType != SpecialType.System_Object;
              current = current.BaseType)
@@ -741,9 +746,13 @@ internal static class EvolverCodeEmitter
             foreach (var member in current.GetMembers())
             {
                 if (member is IPropertySymbol prop && prop.IsRequired)
-                    requiredMembers.Add(prop.Name);
+                {
+                    if (seen.Add(prop.Name)) requiredMembers.Add(prop.Name);
+                }
                 else if (member is IFieldSymbol field && field.IsRequired)
-                    requiredMembers.Add(field.Name);
+                {
+                    if (seen.Add(field.Name)) requiredMembers.Add(field.Name);
+                }
             }
         }
 
