@@ -302,12 +302,24 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         // carries a conventional method (jasperfx#432). Method collection is symbol-based
         // (classSymbol.GetMembers()), so every candidate for the same type already holds the full,
         // identical method set — emitting more than one would re-add the same hintName and trip the
-        // driver's "hintName must be unique" guard (CS8785). Dedupe by symbol so each aggregate type
+        // driver's "hintName must be unique" guard (CS8785). Dedupe so each (aggregate type, identity)
         // emits exactly one evolver regardless of how many partial declarations contribute methods.
+        //
+        // The dedupe MUST use a set distinct from `seen`: `seen` is the cross-pipeline coordination set
+        // and MarkSeen seeds it with BOTH the class symbol AND (for partial projections) the aggregate
+        // type. jasperfx#432's original `seen.Add(SymbolKey(ClassSymbol))` guard therefore falsely
+        // skipped a self-aggregating type whose key had already been added to `seen` by an earlier
+        // candidate's MarkSeen (e.g. a projection subclass aggregating that same type) — dropping its
+        // dispatcher entirely and surfacing at runtime as "No source-generated dispatcher found" for a
+        // self-aggregating SingleStreamProjection<T, TId>. Keyed by (type, identity) to match the
+        // emitted hintName granularity so distinct identities each still emit.
+        var directEmitted = new HashSet<string>();
         foreach (var info in direct)
         {
             if (info == null) continue;
-            if (!seen.Add(SymbolKey(info.ClassSymbol))) continue;
+            var emitKey = SymbolKey(info.ClassSymbol) + "::" +
+                          (info.IdentityType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "");
+            if (!directEmitted.Add(emitKey)) continue;
             MarkSeen(seen, info);
             Execute(spc, info);
         }
