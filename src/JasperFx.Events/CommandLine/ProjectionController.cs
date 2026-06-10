@@ -82,7 +82,14 @@ public class ProjectionController
 
             try
             {
-                var subscriptionNames = selection.Subscriptions.Select(x => x.Name).ToArray();
+                // #4711: a Live-lifecycle projection has no persisted state, so there is nothing to
+                // rebuild — and replaying it across the whole event store runs its aggregation over
+                // unrelated streams (which lack its events) and throws. Exclude Live here so both
+                // rebuild-all and an explicitly named Live projection are skipped. Inline and Async
+                // both have stored state and remain rebuildable.
+                var subscriptionNames = selection.Subscriptions
+                    .Where(x => x.Lifecycle != ProjectionLifecycle.Live)
+                    .Select(x => x.Name).ToArray();
                 var databaseIdentifier = new EventStoreDatabaseIdentifier(selection.Storage.SubjectUri, database);
                 var status = await _host.TryRebuildShardsAsync(databaseIdentifier, input, subscriptionNames ,shardTimeout).ConfigureAwait(false);
 
