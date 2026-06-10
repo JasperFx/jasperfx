@@ -41,4 +41,13 @@ public interface IHighWaterDetector
         var global = await DetectInSafeZone(token).ConfigureAwait(false);
         return HighWaterVector.ForGlobal(global);
     }
+
+    /// <summary>
+    /// Persist a per-tenant high-water mark so each tenant's progress is durable across daemon restarts
+    /// (marten#4717). Under per-tenant event partitioning each tenant's seq_id comes from its own
+    /// sequence, so a single store-global high-water row cannot represent multiple tenants. The default
+    /// implementation is a no-op, so non-partitioned detectors keep compiling and behaving unchanged.
+    /// Partitioned stores override this to write a per-tenant high-water row keyed on the tenant.
+    /// </summary>
+    Task MarkHighWaterForTenantAsync(string tenantId, long sequence, CancellationToken token) => Task.CompletedTask;
 }

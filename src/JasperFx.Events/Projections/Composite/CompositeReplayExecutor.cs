@@ -49,7 +49,12 @@ internal class CompositeReplayExecutor : IReplayExecutor
 
         _execution.Mode = request.Mode;
 
-        var ceiling = await _database.FetchHighestEventSequenceNumber(cancellation).ConfigureAwait(false);
+        // marten#4717: a tenant-scoped composite must replay only up to ITS tenant's high-water, supplied
+        // via StartingHighWater. A store-global composite (StartingHighWater == null) keeps reading the
+        // store-wide max(seq_id) from mt_events — the marten#4705 fix that made single-tenant partitioned
+        // composites replay past the never-advanced global mt_events_sequence.
+        var ceiling = request.StartingHighWater
+            ?? await _database.FetchHighestEventSequenceNumber(cancellation).ConfigureAwait(false);
         var floor = request.Floor;
 
         if (ceiling <= floor)
