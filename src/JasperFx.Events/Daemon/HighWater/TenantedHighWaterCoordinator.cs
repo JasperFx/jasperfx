@@ -16,11 +16,13 @@ namespace JasperFx.Events.Daemon.HighWater;
 public class TenantedHighWaterCoordinator
 {
     private readonly VectorizedHighWaterMonitor _monitor;
+    private readonly IHighWaterDetector _detector;
     private readonly ILogger _logger;
 
     public TenantedHighWaterCoordinator(IHighWaterDetector detector, ILogger? logger = null)
     {
         _monitor = new VectorizedHighWaterMonitor(detector, logger);
+        _detector = detector;
         _logger = logger ?? NullLogger.Instance;
     }
 
@@ -65,6 +67,24 @@ public class TenantedHighWaterCoordinator
                 if (agent.Name.TenantId == reading.TenantId)
                 {
                     agent.MarkHighWater(reading.Statistics.CurrentMark);
+                }
+            }
+
+            // marten#4717: persist a durable per-tenant high-water row so each tenant's mark survives
+            // a daemon restart (the store-global HighWaterMark row cannot represent multiple tenants).
+            // No-op for detectors that don't override the write.
+            if (reading.TenantId != null && reading.Statistics.CurrentMark > 0)
+            {
+                try
+                {
+                    await _detector
+                        .MarkHighWaterForTenantAsync(reading.TenantId, reading.Statistics.CurrentMark, token)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Error persisting per-tenant high-water mark for tenant {TenantId}",
+                        reading.TenantId);
                 }
             }
         }

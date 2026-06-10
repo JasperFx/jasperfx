@@ -119,6 +119,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             }
 
             var highWaterMark = HighWaterMark();
+
+            // marten#4717: a tenant-scoped continuous agent must advance against its OWN tenant's
+            // high-water, not the store-global mark — each tenant's seq_id is independent, so seeding a
+            // tenant agent with the global mark makes it over-run to the max tenant's height. StartAllAsync
+            // primes the per-tenant ceilings before starting agents; fall back to 0 until first polled.
+            if (_tenantHighWater != null && agent.Name.TenantId != null)
+            {
+                highWaterMark = _tenantHighWater.CeilingFor(agent.Name.TenantId) ?? 0L;
+            }
+
             var position = await agent
                 .Options
                 .DetermineStartingPositionAsync(highWaterMark, agent.Name, mode, Database, _cancellation.Token)
@@ -133,8 +143,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 ? _store.ContinuousErrors
                 : _store.RebuildErrors;
 
-            await agent.StartAsync(new SubscriptionExecutionRequest(position.Floor, mode, errorOptions, this))
-                .ConfigureAwait(false);
+            var request = new SubscriptionExecutionRequest(position.Floor, mode, errorOptions, this);
+            if (_tenantHighWater != null && agent.Name.TenantId != null)
+            {
+                // marten#4717: seed the tenant agent's ceiling from its own high-water. The agent's
+                // high-water can only be raised after start (a lower MarkHighWater is ignored), so this
+                // must be passed at start or the agent over-runs to the store-global mark.
+                request = request with { StartingHighWater = highWaterMark };
+            }
+
+            await agent.StartAsync(request).ConfigureAwait(false);
             agent.MarkHighWater(highWaterMark);
 
             _agents = _agents.AddOrUpdate(agent.Name.Identity, agent);
@@ -317,14 +335,60 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         var agents = new List<ISubscriptionAgent>();
 
-        foreach (var shard in _store.AllShards())
+        if (_tenantHighWater != null && Database is ICrossTenantRebuildSource crossTenantSource)
         {
-            agents.Add(buildAgentForShard(shard));
+            // marten#4717: under per-tenant event partitioning each tenant's events draw seq_id from its
+            // own mt_events_sequence_{suffix} starting at 1, so a single store-global <Projection>:All
+            // shard cannot track multiple tenants. Fan out one continuous agent per (shard, tenant) —
+            // exactly the shape catchUpPerTenantAsync / rebuildProjectionForTenant already use — so each
+            // tenant's projection advances against its own high-water and persists its own
+            // <Projection>:All:<tenant> progression row. OnNext + pollTenantHighWaterAsync already route
+            // each tenant's mark to its TenantId-bearing agents.
+            await buildPerTenantContinuousAgents(crossTenantSource, agents).ConfigureAwait(false);
+
+            // Prime the per-tenant ceilings BEFORE starting the agents so each tenant agent seeds from
+            // its own high-water (tryStartAgentAsync reads CeilingFor) rather than the store-global mark.
+            // PollAsync populates the monitor's ceilings directly from pg_sequences, independent of the
+            // store-global high-water agent, so the readings are available even pre-start.
+            await pollTenantHighWaterAsync().ConfigureAwait(false);
         }
-        
+        else
+        {
+            foreach (var shard in _store.AllShards())
+            {
+                agents.Add(buildAgentForShard(shard));
+            }
+        }
+
         foreach (var agent in agents)
         {
             await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+        }
+    }
+
+    // marten#4717: build one continuous agent per (shard, tenant), enumerating tenants from the store's
+    // ICrossTenantRebuildSource (mt_tenant_partitions). A projection with no registered tenants yet keeps
+    // its store-global agent so it still runs (there are no events to process until a tenant exists).
+    private async Task buildPerTenantContinuousAgents(
+        ICrossTenantRebuildSource crossTenantSource, List<ISubscriptionAgent> agents)
+    {
+        foreach (var shard in _store.AllShards())
+        {
+            var tenants = await crossTenantSource
+                .FindRebuildTenantsAsync(shard.Name.Name, _cancellation.Token).ConfigureAwait(false);
+
+            if (tenants.Count == 0)
+            {
+                agents.Add(buildAgentForShard(shard));
+                continue;
+            }
+
+            foreach (var tenantId in tenants)
+            {
+                _tenantHighWater!.PolledTenants.Activate(tenantId);
+                var tenantShard = shard with { Name = shard.Name.ForTenant(tenantId) };
+                agents.Add(buildAgentForShard(tenantShard));
+            }
         }
     }
 

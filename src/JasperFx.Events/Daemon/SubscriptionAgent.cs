@@ -180,7 +180,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
 
-        await _commandBlock.PostAsync(Command.Started(_tracker.HighWaterMark, request.Floor));
+        await _commandBlock.PostAsync(Command.Started(request.StartingHighWater ?? _tracker.HighWaterMark, request.Floor));
         await _tracker.PublishAsync(new ShardState(Name, request.Floor)
         {
             Action = ShardAction.Started,
@@ -308,10 +308,17 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     {
                         _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
                             Name.Identity);
+                        var replayRequest =
+                            new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime);
+                        if (Name.TenantId != null)
+                        {
+                            // marten#4717: a tenant-scoped composite replays only to its own tenant's
+                            // high-water (this agent's seeded HighWaterMark), not the store-wide max.
+                            replayRequest = replayRequest with { StartingHighWater = HighWaterMark };
+                        }
+
                         await executor
-                            .StartAsync(
-                                new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime),
-                                this, _cancellation.Token).ConfigureAwait(false);
+                            .StartAsync(replayRequest, this, _cancellation.Token).ConfigureAwait(false);
                         _logger.LogInformation(
                             "Finished with optimized rebuild for projection/subscription {ShardName}, proceeding to normal, continuous operation",
                             Name.Identity);
