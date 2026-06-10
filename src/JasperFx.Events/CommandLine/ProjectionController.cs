@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using JasperFx.Core;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using Spectre.Console;
 
@@ -87,8 +88,17 @@ public class ProjectionController
                 // unrelated streams (which lack its events) and throws. Exclude Live here so both
                 // rebuild-all and an explicitly named Live projection are skipped. Inline and Async
                 // both have stored state and remain rebuildable.
+                //
+                // Also exclude pure subscriptions (SubscriptionType.Subscription, e.g. Wolverine's
+                // PublishEventsToWolverine): a subscription has no persisted projected state to rebuild,
+                // it is a forward-only event relay, and the daemon's RebuildProjectionAsync only resolves
+                // PROJECTION names (TryFindProjection searches the projection list, not subscriptions), so
+                // feeding a subscription name into a rebuild throws "No registered projection matches...".
+                // Rebuilding a subscription would also re-publish every historical event — never desired,
+                // and directly contrary to a SubscribeFromPresent() registration.
                 var subscriptionNames = selection.Subscriptions
                     .Where(x => x.Lifecycle != ProjectionLifecycle.Live)
+                    .Where(x => x.SubscriptionType != SubscriptionType.Subscription)
                     .Select(x => x.Name).ToArray();
                 var databaseIdentifier = new EventStoreDatabaseIdentifier(selection.Storage.SubjectUri, database);
                 var status = await _host.TryRebuildShardsAsync(databaseIdentifier, input, subscriptionNames ,shardTimeout).ConfigureAwait(false);
