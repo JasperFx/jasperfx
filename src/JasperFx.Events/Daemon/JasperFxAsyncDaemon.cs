@@ -96,6 +96,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     }
 
     public ShardStateTracker Tracker { get; }
+
+    /// <summary>
+    /// JasperFx/ProductSupport#5 — Subject URI of the
+    /// <see cref="IEventStore"/> this daemon was built against. Consumed by
+    /// <see cref="ProjectionDaemonExtensions.SubscribeWithStoreUriStamp"/>
+    /// to stamp <see cref="ShardState.StoreUri"/> on every state the daemon
+    /// publishes through the shared <see cref="Tracker"/>.
+    /// </summary>
+    public string? StoreUri => _store.Subject?.ToString();
+
     public bool IsRunning => _highWater.IsRunning;
 
 

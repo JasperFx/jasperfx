@@ -22,6 +22,21 @@ public interface IProjectionDaemon: IDisposable
     ShardStateTracker Tracker { get; }
 
     /// <summary>
+    /// Subject URI of the <see cref="IEventStore"/> this daemon serves (e.g.
+    /// <c>marten://main</c>). Returned by the <see cref="IEventStore.Subject"/>
+    /// the daemon was built against. Used by
+    /// <see cref="ProjectionDaemonExtensions.SubscribeWithStoreUriStamp"/> to
+    /// stamp <see cref="Projections.ShardState.StoreUri"/> on every state the
+    /// daemon publishes, so a singleton observer attached to multiple stores'
+    /// daemons can attribute callbacks to the right store.
+    ///
+    /// Null only if the daemon was constructed without a store (test
+    /// scaffolding); production paths always have it. See
+    /// JasperFx/ProductSupport#5.
+    /// </summary>
+    string? StoreUri => null;
+
+    /// <summary>
     /// Indicates if this daemon is currently running any subscriptions
     /// </summary>
     bool IsRunning { get; }
