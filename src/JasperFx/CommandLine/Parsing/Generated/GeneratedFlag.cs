@@ -49,7 +49,12 @@ public sealed class GeneratedFlag<T> : ITokenHandler
     {
         if (_isEnum)
         {
-            var enumValues = Enum.GetNames(typeof(T)).Join("|");
+            // _isEnum is computed from the underlying type, so a nullable-enum flag (T = SomeEnum?)
+            // lands here with typeof(T) == Nullable<SomeEnum>, which is not itself an enum.
+            // Enum.GetNames would throw "Type provided must be an Enum". Resolve the underlying
+            // enum type first. See jasperfx#441 (NetCoreInput.LogLevelFlag is LogLevel?).
+            var enumType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
+            var enumValues = Enum.GetNames(enumType).Join("|");
             return $"[{_aliases} {enumValues}]";
         }
 
