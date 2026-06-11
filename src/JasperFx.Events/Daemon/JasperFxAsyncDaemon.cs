@@ -548,6 +548,22 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     void IObserver<ShardState>.OnNext(ShardState value)
     {
+        // PS#5 addendum — stamp the daemon's StoreUri so observers that
+        // subscribed directly via `daemon.Tracker.Subscribe(observer)`,
+        // bypassing the `SubscribeWithStoreUriStamp` extension, still
+        // attribute the state to the owning store.
+        //
+        // Mechanics: the daemon subscribes itself to its Tracker in the
+        // constructor (`database.Tracker.Subscribe(this)`). Every published
+        // `ShardState` instance is broadcast to all listeners in subscription
+        // order, sharing the same object. Mutating `value.StoreUri` here
+        // means every subsequent listener in the broadcast loop sees the
+        // stamped value. The helper preserves any upstream-set value so a
+        // chained `StoreUriStampingObserver` (the extension path) wins over
+        // this daemon-level default and so multi-daemon scenarios attached
+        // to a shared per-database Tracker don't fight.
+        StoreUriStampingObserver.StampIfMissing(value, StoreUri);
+
         if (value.ShardName == ShardState.HighWaterMark)
         {
             if (Logger.IsEnabled(LogLevel.Debug))

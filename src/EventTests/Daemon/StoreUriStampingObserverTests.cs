@@ -121,3 +121,69 @@ public class StoreUriStampingObserverTests
         public void OnCompleted() => CompletionCount++;
     }
 }
+
+/// <summary>
+/// Coverage for the shared <see cref="StoreUriStampingObserver.StampIfMissing"/>
+/// helper. This is the same logic both the decorator observer and
+/// <c>JasperFxAsyncDaemon</c>'s own <see cref="IObserver{ShardState}.OnNext"/>
+/// stamp through (PS#5 addendum), so locking the semantics here gives
+/// downstream consumers a single point of truth regardless of which
+/// stamping path produced the state.
+/// </summary>
+public class StoreUriStampIfMissingTests
+{
+    [Fact]
+    public void stamps_when_state_uri_is_null()
+    {
+        var state = new ShardState("Trip:V1:All", 42);
+
+        StoreUriStampingObserver.StampIfMissing(state, "marten://main");
+
+        state.StoreUri.ShouldBe("marten://main");
+    }
+
+    [Fact]
+    public void stamps_when_state_uri_is_empty_string()
+    {
+        var state = new ShardState("Trip:V1:All", 42) { StoreUri = string.Empty };
+
+        StoreUriStampingObserver.StampIfMissing(state, "marten://main");
+
+        state.StoreUri.ShouldBe("marten://main");
+    }
+
+    [Fact]
+    public void preserves_existing_state_uri_when_upstream_already_stamped()
+    {
+        var state = new ShardState("Trip:V1:All", 42) { StoreUri = "marten://outer-decorator" };
+
+        StoreUriStampingObserver.StampIfMissing(state, "marten://main");
+
+        state.StoreUri.ShouldBe("marten://outer-decorator",
+            "Multi-store-shared-database daemons must not fight over an already-stamped value.");
+    }
+
+    [Fact]
+    public void no_op_when_store_uri_is_null()
+    {
+        var state = new ShardState("Trip:V1:All", 42);
+
+        StoreUriStampingObserver.StampIfMissing(state, null);
+
+        state.StoreUri.ShouldBeNull();
+    }
+
+    [Fact]
+    public void no_op_when_store_uri_is_empty_string()
+    {
+        // Test-scaffolding daemons can return string.Empty; the helper
+        // treats it the same as null so we don't end up with empty-string
+        // attributions sneaking onto the wire.
+        var state = new ShardState("Trip:V1:All", 42);
+
+        StoreUriStampingObserver.StampIfMissing(state, string.Empty);
+
+        state.StoreUri.ShouldBeNull();
+    }
+}
+

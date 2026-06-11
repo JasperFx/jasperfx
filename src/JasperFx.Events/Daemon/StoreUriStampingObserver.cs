@@ -45,14 +45,27 @@ public sealed class StoreUriStampingObserver : IObserver<ShardState>
 
     public void OnNext(ShardState value)
     {
-        // Only stamp when the upstream hasn't already populated it. Defensive
-        // for a future where the daemon itself starts emitting pre-stamped
-        // states, or for chained decorators.
-        if (string.IsNullOrEmpty(value.StoreUri))
-        {
-            value.StoreUri = _storeUri;
-        }
+        StampIfMissing(value, _storeUri);
         _inner.OnNext(value);
+    }
+
+    /// <summary>
+    /// Mutate <paramref name="state"/>.<see cref="ShardState.StoreUri"/> to
+    /// <paramref name="storeUri"/> if-and-only-if the existing value is null
+    /// or empty AND <paramref name="storeUri"/> is non-empty. Shared between
+    /// this observer (the SubscribeWithStoreUriStamp extension's per-store
+    /// wrapping path) and the daemon's own OnNext path
+    /// (<c>JasperFxAsyncDaemon</c>, for direct
+    /// <c>daemon.Tracker.Subscribe</c> consumers that bypass the extension)
+    /// so both stamping locations follow the same preserve-upstream
+    /// semantics — neither clobbers a value an outer decorator has already
+    /// written.
+    /// </summary>
+    public static void StampIfMissing(ShardState state, string? storeUri)
+    {
+        if (string.IsNullOrEmpty(storeUri)) return;
+        if (!string.IsNullOrEmpty(state.StoreUri)) return;
+        state.StoreUri = storeUri;
     }
 
     public void OnCompleted() => _inner.OnCompleted();
