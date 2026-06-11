@@ -19,6 +19,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     private IDaemonRuntime _runtime = new NulloDaemonRuntime();
     private Timer? _heartbeatTimer;
 
+    // #4721: true while a continuous-startup optimized rebuild runs OFF the command-loop consumer.
+    // Only ever read/written on the command-loop thread (Apply), so it needs no synchronization.
+    // While set, the command loop keeps draining RangeCompleted/HighWater bookkeeping but does NOT
+    // start continuous loading, so the rebuild's MarkSuccessAsync posts cannot deadlock the bounded
+    // command channel and continuous loading cannot race the rebuild over the same events.
+    private bool _replaying;
+    private Task? _replayTask;
+
     public SubscriptionAgent(ShardName name, AsyncOptions options, TimeProvider timeProvider, IEventLoader loader,
         ISubscriptionExecution execution, ShardStateTracker tracker, ISubscriptionMetrics metrics, ILogger logger)
     {
@@ -304,39 +312,39 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
                 if (LastCommitted == 0 && HighWaterMark > 0 && _execution.TryBuildReplayExecutor(out var executor))
                 {
-                    try
+                    _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
+                        Name.Identity);
+                    var replayRequest =
+                        new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime);
+                    if (Name.TenantId != null)
                     {
-                        _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
-                            Name.Identity);
-                        var replayRequest =
-                            new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime);
-                        if (Name.TenantId != null)
-                        {
-                            // marten#4717: a tenant-scoped composite replays only to its own tenant's
-                            // high-water (this agent's seeded HighWaterMark), not the store-wide max.
-                            replayRequest = replayRequest with { StartingHighWater = HighWaterMark };
-                        }
-
-                        await executor
-                            .StartAsync(replayRequest, this, _cancellation.Token).ConfigureAwait(false);
-                        _logger.LogInformation(
-                            "Finished with optimized rebuild for projection/subscription {ShardName}, proceeding to normal, continuous operation",
-                            Name.Identity);
-
-                        // The executor has caught the shard up to the ceiling and persisted progression
-                        // (MarkSuccessAsync on its final page). Reconcile the agent's in-memory marks so the
-                        // post-switch fall-through doesn't redundantly re-load 0→HighWater into the block.
-                        LastEnqueued = LastCommitted = HighWaterMark;
+                        // marten#4717: a tenant-scoped composite replays only to its own tenant's
+                        // high-water (this agent's seeded HighWaterMark), not the store-wide max.
+                        replayRequest = replayRequest with { StartingHighWater = HighWaterMark };
                     }
-                    catch (Exception e)
-                    {
-                        _logger.LogError(e,
-                            "Error trying to perform an optimized rebuild/replay of subscription {ShardName}",
-                            Name.Identity);
-                    }
+
+                    // #4721: run the optimized rebuild OFF this command-loop consumer. The replay executor
+                    // posts a RangeCompleted command per page via MarkSuccessAsync; if we awaited it inline
+                    // here, those posts would pile up in the bounded command channel whose only reader is
+                    // THIS handler — once the channel fills (10k) the post blocks, the reader is blocked
+                    // awaiting it, and the shard silently wedges at a batch boundary. Running it on a
+                    // separate task frees this reader to drain those posts. The _replaying flag suppresses
+                    // continuous loading until the rebuild signals completion with Command.ReplayCompleted.
+                    _replaying = true;
+                    _replayTask = Task.Run(() => runOptimizedRebuildAsync(executor, replayRequest));
+                    return;
                 }
 
 
+                break;
+
+            case CommandType.ReplayCompleted:
+                // #4721: the off-consumer optimized rebuild finished. The trailing RangeCompleted posts it
+                // emitted have already advanced LastCommitted to the replay ceiling (FIFO, single reader),
+                // so align LastEnqueued and fall through to resume normal continuous operation — picking up
+                // any events that arrived past the replay ceiling while the rebuild was running.
+                _replaying = false;
+                LastEnqueued = LastCommitted;
                 break;
 
             case CommandType.RangeCompleted:
@@ -354,6 +362,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
         // Mind the gap!
         Metrics.UpdateGap(HighWaterMark, LastCommitted);
+
+        // #4721: while the off-consumer optimized rebuild is running we keep draining bookkeeping
+        // (above) but must NOT kick off continuous loading — otherwise the normal loader would race
+        // the rebuild over the same events. Command.ReplayCompleted clears the flag and falls through.
+        if (_replaying)
+        {
+            return;
+        }
 
         var inflight = LastEnqueued - LastCommitted;
 
@@ -390,6 +406,42 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             {
                 await loadNextAsync().ConfigureAwait(false);
             }
+        }
+    }
+
+    // #4721: drives a continuous-startup optimized rebuild on a task SEPARATE from the command-loop
+    // consumer (see the CommandType.Start branch). Because this runs off the consumer, the replay
+    // executor's per-page MarkSuccessAsync posts are free to be drained by Apply, so the bounded
+    // command channel never deadlocks. On success it posts Command.ReplayCompleted so the agent
+    // resumes continuous operation on the command-loop thread; on failure it routes through the normal
+    // critical-failure path (which pauses/stops the shard and cancels), leaving _replaying moot.
+    private async Task runOptimizedRebuildAsync(IReplayExecutor executor, SubscriptionExecutionRequest replayRequest)
+    {
+        try
+        {
+            await executor.StartAsync(replayRequest, this, _cancellation.Token).ConfigureAwait(false);
+
+            // The replay executor swallows member failures and pauses/stops the agent rather than
+            // throwing. Only resume continuous operation if the shard is still healthy.
+            if (Status == AgentStatus.Running && !_cancellation.IsCancellationRequested)
+            {
+                _logger.LogInformation(
+                    "Finished with optimized rebuild for projection/subscription {ShardName}, proceeding to normal, continuous operation",
+                    Name.Identity);
+
+                await _commandBlock.PostAsync(Command.ReplayCompleted()).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Shutting down -- nothing to do.
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e,
+                "Error trying to perform an optimized rebuild/replay of subscription {ShardName}",
+                Name.Identity);
+            await ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
     }
 
