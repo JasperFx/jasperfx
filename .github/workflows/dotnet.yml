@@ -63,6 +63,16 @@ jobs:
         run: ./build.sh test-command-line
         shell: bash
 
+      # Smoke test the usage/help renderer end-to-end. `help describe` renders a
+      # NetCoreInput-derived command, which exercises the nullable-enum --log-level
+      # flag that crashed usage rendering in jasperfx#441. A non-zero exit fails CI.
+      - name: smoke-test-help
+        if: ${{ success() || failure() }}
+        run: |
+          dotnet run --project src/CommandLineRunner --framework net9.0 -- help
+          dotnet run --project src/CommandLineRunner --framework net9.0 -- help describe
+        shell: bash
+
       - name: smoke-test-aot
         if: ${{ success() || failure() }}
         run: ./build.sh smoke-test-aot
