@@ -123,6 +123,27 @@ public class ShardState
     /// </summary>
     public long? SkippedEventsCount { get; set; }
 
+    /// <summary>
+    /// Subject URI of the <see cref="IEventStore"/> this shard state belongs
+    /// to (e.g. <c>marten://main</c>, <c>marten://itarievenstore</c>). Set
+    /// by the publisher — either the daemon itself when it constructs the
+    /// state or, more commonly, a per-store decorator observer that stamps
+    /// the URI before forwarding to the registered observer chain (see
+    /// Wolverine's <c>EventStoreAgents</c>). Null on legacy paths or when
+    /// the publisher hasn't been updated yet — consumers that need to
+    /// attribute the state to a specific store should fall back to a
+    /// store-by-shard-name lookup (see CritterWatch's
+    /// <c>ServiceSummaryProjection.ResolveStoreUri</c>).
+    ///
+    /// Surfaces JasperFx/ProductSupport#5: live shard states and
+    /// HighWaterMark snapshots on multi-store hosts collapsed into a single
+    /// bucket on the CritterWatch side because nothing in the daemon chain
+    /// stamped the owning store. This field is the abstraction the per-store
+    /// decorator stamps onto so downstream consumers don't need a side
+    /// channel.
+    /// </summary>
+    public string? StoreUri { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";
