@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
 using ImTools;
 using JasperFx.Blocks;
@@ -17,6 +18,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     private readonly ILogger _logger;
     private readonly IEventStore<TOperations, TQuerySession> _store;
     private ImHashMap<string, IAggregateCache<TId, TDoc>> _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
+
+    // #4730: cache mutations from the current build, applied to the cache only AFTER the batch
+    // commits (ApplyPendingCacheUpdates). Reassigned per build, so a failed/uncommitted build
+    // leaves no mutations behind for a retry to read. Composite batches bypass this and write the
+    // cache during build (see _populateCacheImmediately) because downstream stages read upstream
+    // in-flight aggregates from the cache within the same batch (marten#4329).
+    private ConcurrentQueue<(IAggregateCache<TId, TDoc> Cache, TId Id, TDoc? Snapshot, bool Remove)> _pendingCacheUpdates = new();
+    private bool _populateCacheImmediately;
 
     public AggregationRunner(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         IAggregationProjection<TDoc, TId, TOperations, TQuerySession> projection,
@@ -46,6 +55,15 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     {
         Projection.StartBatch();
 
+        // #4730: discard any cache mutations from a prior build that did not commit (e.g. a build
+        // that threw, or a skip-and-rebuild attempt) before accumulating this build's mutations.
+        _pendingCacheUpdates = new();
+
+        // Composite member batches must populate the cache during build so a downstream stage can
+        // read an upstream stage's in-flight aggregate (marten#4329). Standalone (Individual)
+        // batches defer cache population until the batch commits.
+        _populateCacheImmediately = range.BatchBehavior == BatchBehavior.Composite;
+
         var batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
@@ -69,11 +87,10 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         builder.OnError = (_, e) => exceptions.Add(e);
 
-        var caches = new List<IAggregateCache<TId, TDoc>>();
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>().ToArray();
         foreach (var group in groups)
         {
-            await processBatchAsync(cancellation, batch, group, caches, builder);
+            await processBatchAsync(cancellation, batch, group, builder);
         }
 
         await builder.WaitForCompletionAsync().ConfigureAwait(false);
@@ -95,21 +112,12 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             throw new AggregateException(exceptions);
         }
 
-        // Composite projections defer compaction until every stage has run so a downstream
-        // stage can read the upstream stage's in-flight entities without them being evicted
-        // out from under it. CompositeExecution calls CompactCachesAsync after all stages
-        // complete. See JasperFx/marten#4329.
-        if (range.BatchBehavior != BatchBehavior.Composite)
-        {
-            try
-            {
-                foreach (var cache in caches) cache.CompactIfNecessary();
-            }
-            catch (Exception e)
-            {
-                _logger.LogError(e, "Error trying to compact aggregate caches for {ProjectionName}", Projection.Name);
-            }
-        }
+        // #4730: for standalone (Individual) batches, both cache population and compaction are
+        // deferred to ApplyPendingCacheUpdates, which the execution calls only after the batch
+        // commits. Composite member batches populated the cache during build above and defer
+        // compaction until every stage has run (CompositeExecution calls CompactCachesAsync after
+        // all stages complete) so a downstream stage can read the upstream stage's in-flight
+        // entities without them being evicted out from under it. See JasperFx/marten#4329.
 
         await Projection.EndBatchAsync();
 
@@ -133,12 +141,66 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return Task.CompletedTask;
     }
 
+    // #4730: flush the cache mutations built up during the just-committed batch. Only called by the
+    // execution AFTER the batch commits, so the cache reflects committed state only — a failed or
+    // retried build never reaches here and its mutations are discarded at the next BuildBatchAsync.
+    // (No-op for composite member batches, which wrote the cache during build and left this empty.)
+    public void ApplyPendingCacheUpdates()
+    {
+        while (_pendingCacheUpdates.TryDequeue(out var update))
+        {
+            if (update.Remove)
+            {
+                update.Cache.TryRemove(update.Id);
+            }
+            else
+            {
+                update.Cache.Store(update.Id, update.Snapshot!);
+            }
+        }
+
+        try
+        {
+            foreach (var pair in _caches.Enumerate())
+            {
+                pair.Value.CompactIfNecessary();
+            }
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error trying to compact aggregate caches for {ProjectionName}", Projection.Name);
+        }
+    }
+
+    private void storeInCache(IAggregateCache<TId, TDoc> cache, TId id, TDoc snapshot)
+    {
+        if (_populateCacheImmediately)
+        {
+            cache.Store(id, snapshot);
+        }
+        else
+        {
+            _pendingCacheUpdates.Enqueue((cache, id, snapshot, false));
+        }
+    }
+
+    private void removeFromCache(IAggregateCache<TId, TDoc> cache, TId id)
+    {
+        if (_populateCacheImmediately)
+        {
+            cache.TryRemove(id);
+        }
+        else
+        {
+            _pendingCacheUpdates.Enqueue((cache, id, default, true));
+        }
+    }
+
     private async Task processBatchAsync(CancellationToken cancellation, IProjectionBatch<TOperations, TQuerySession> batch, SliceGroup<TDoc, TId> group,
-        List<IAggregateCache<TId, TDoc>> caches, Block<EventSliceExecution> builder)
+        Block<EventSliceExecution> builder)
     {
         var operations = batch.SessionForTenant(group.TenantId);
         var cache = CacheFor(group.TenantId);
-        caches.Add(cache);
 
         var needToBeFetched = new List<EventSlice<TDoc, TId>>();
         var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
@@ -243,28 +305,30 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
         }
 
+        // #4730: cache mutations route through storeInCache/removeFromCache so that for standalone
+        // (Individual) batches they are deferred until ApplyPendingCacheUpdates runs after commit.
         switch (action)
         {
             case ActionType.Delete:
-                cache.TryRemove(slice.Id);
+                removeFromCache(cache, slice.Id);
                 storage.Delete(slice.Id);
                 break;
             case ActionType.Store:
-                cache.Store(slice.Id, snapshot!);
+                storeInCache(cache, slice.Id, snapshot!);
                 storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
                 break;
             case ActionType.HardDelete:
-                cache.TryRemove(slice.Id);
+                removeFromCache(cache, slice.Id);
                 storage.HardDelete(snapshot!);
                 break;
             case ActionType.UnDeleteAndStore:
                 storage.UnDelete(snapshot!);
-                cache.Store(slice.Id, snapshot!);
+                storeInCache(cache, slice.Id, snapshot!);
                 storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
                 break;
             case ActionType.StoreThenSoftDelete:
                 storage.StoreProjection(snapshot!, lastEvent, Projection.Scope);
-                cache.TryRemove(slice.Id);
+                removeFromCache(cache, slice.Id);
                 storage.Delete(slice.Id);
                 break;
         }

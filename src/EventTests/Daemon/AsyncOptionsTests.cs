@@ -13,11 +13,13 @@ public class AsyncOptionsTests
     private readonly CancellationToken theToken = CancellationToken.None;
 
     [Fact]
-    public void cache_limit_per_tenant_defaults_to_a_meaningful_value()
+    public void cache_limit_per_tenant_is_disabled_by_default()
     {
-        // jasperfx#422: the aggregate cache is on by default now (was 0 == disabled), so most
-        // projections get a 2nd-level cache without explicit opt-in.
-        new AsyncOptions().CacheLimitPerTenant.ShouldBe(1000);
+        // marten#4730: the aggregate cache is OFF by default (reverted from the #422 default of
+        // 1000). With the cache enabled, a batch that failed and was retried/skipped could
+        // re-apply events on top of an already-mutated cached aggregate (double-apply). Caching is
+        // now opt-in, and when enabled it only populates after a successful commit.
+        new AsyncOptions().CacheLimitPerTenant.ShouldBe(0);
     }
 
     [Fact]
