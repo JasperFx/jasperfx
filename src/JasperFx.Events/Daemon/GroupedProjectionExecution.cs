@@ -226,6 +226,11 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             // probably deserves a full circuit break
             await batch.ExecuteAsync(_cancellation.Token).ConfigureAwait(false);
 
+            // #4730: the batch committed, so it is now safe to publish this build's aggregate-cache
+            // mutations. A build/commit that failed never reaches here, so its mutations are
+            // discarded and a retry rebuilds from committed state instead of double-applying.
+            _runner.ApplyPendingCacheUpdates();
+
             await range.Agent.MarkSuccessAsync(range.SequenceCeiling);
 
             if (Mode == ShardExecutionMode.Continuous)

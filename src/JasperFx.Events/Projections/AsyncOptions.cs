@@ -49,12 +49,14 @@ public class AsyncOptions
 
     /// <summary>
     /// The maximum number of aggregates that will be cached per tenant in a 2nd level,
-    /// most recently used cache during async projection. Defaults to 1000 to give most
-    /// projections a meaningful cache for typical batch working sets and improve async
-    /// projection throughput. Increase for rebuild-heavy/cache-friendly workloads; set to
-    /// 0 to disable the aggregate cache entirely (e.g. memory-constrained processes).
+    /// most recently used cache during async projection. Defaults to 0 (the aggregate cache
+    /// is disabled) so async projection behavior matches re-fetching committed state from the
+    /// database on every batch. Set to a positive number to opt into the cache for
+    /// cache-friendly/rebuild-heavy workloads; with the cache on, entries are only populated
+    /// after the owning batch commits, so a failed/retried batch cannot double-apply
+    /// (see marten#4730).
     /// </summary>
-    public int CacheLimitPerTenant { get; set; } = 1000;
+    public int CacheLimitPerTenant { get; set; } = 0;
 
     /// <summary>
     ///     Add explicit teardown rule to delete all documents of type T
