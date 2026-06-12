@@ -270,7 +270,10 @@ public class ConstructorFrame : SyncFrame
             if (Parameters[i] == null)
             {
                 var parameter = parameters[i];
-                Parameters[i] = chain.FindVariable(parameter.ParameterType);
+                // Resolve by the full ParameterInfo (not just the type) so attribute-driven
+                // resolution — notably [FromKeyedServices] — is honored for constructor
+                // parameters, mirroring MethodCall.FindVariables. See wolverine#3081.
+                Parameters[i] = chain.FindVariable(parameter);
             }
         }
 
