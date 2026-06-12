@@ -40,7 +40,10 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
             // When the composite is caught up/rebuilt for a single tenant the parent ShardName carries
             // that tenant id; dropping it here (a bare store-global constructor) was the marten#4679
             // root cause -- every per-tenant member wrote the same store-global progression row.
-            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version);
+            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version)
+                // Tag the member with its composite parent name + stage ordinal so monitors can
+                // group a composite drill-in by stage. Metadata only — Identity is unchanged.
+                .ForCompositeStage((uint)Order, parent.Name);
             return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
                 .BuildExecution(store, database, loggerFactory, shardName);
         }).ToArray();
@@ -54,7 +57,10 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
         {
             // jasperfx#419: see the loggerFactory overload above -- the parent tenant binding must reach
             // every member stage's ShardName so per-tenant progression rows stay distinct.
-            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version);
+            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version)
+                // Tag the member with its composite parent name + stage ordinal so monitors can
+                // group a composite drill-in by stage. Metadata only — Identity is unchanged.
+                .ForCompositeStage((uint)Order, parent.Name);
             return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
                 .BuildExecution(store, database, logger, shardName);
         }).ToArray();

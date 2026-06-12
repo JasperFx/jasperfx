@@ -147,4 +147,31 @@ public class ShardNameTests
         scoped.Identity.ShouldBe("Foo:All:tenant1");
         scoped.ForTenant(null).TenantId.ShouldBeNull();
     }
+
+    [Fact]
+    public void composite_stage_metadata_is_null_by_default()
+    {
+        var name = ShardName.Compose("Member", "All");
+        name.StageNumber.ShouldBeNull();
+        name.CompositeParentName.ShouldBeNull();
+    }
+
+    [Fact]
+    public void for_composite_stage_attaches_metadata_without_touching_identity()
+    {
+        var name = ShardName.Compose("Member", "All", version: 2);
+        var identityBefore = name.Identity;
+        var urlBefore = name.RelativeUrl;
+
+        var tagged = name.ForCompositeStage(3, "OrderComposite");
+
+        // Fluent: returns the same instance.
+        tagged.ShouldBeSameAs(name);
+        tagged.StageNumber.ShouldBe((uint)3);
+        tagged.CompositeParentName.ShouldBe("OrderComposite");
+
+        // Metadata only — the progression-row key (Identity) and URL are unchanged.
+        tagged.Identity.ShouldBe(identityBefore);
+        tagged.RelativeUrl.ShouldBe(urlBefore);
+    }
 }
