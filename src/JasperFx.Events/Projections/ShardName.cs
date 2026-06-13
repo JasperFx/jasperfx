@@ -9,6 +9,33 @@ public class ShardName
 {
     public const string All = "All";
 
+    /// <summary>
+    ///     When this shard is a member of a composite projection, the 1-based ordinal of the
+    ///     <c>ProjectionStage</c> it runs in (stages run sequentially; members within a stage run
+    ///     in parallel). Null for non-composite shards. Set via <see cref="ForCompositeStage" />
+    ///     when the composite machinery composes each member's shard — metadata only, it does NOT
+    ///     participate in <see cref="Identity" /> so progression-row keys are unchanged.
+    /// </summary>
+    public uint? StageNumber { get; private set; }
+
+    /// <summary>
+    ///     When this shard is a member of a composite projection, the name of the parent composite.
+    ///     Null for non-composite shards. See <see cref="StageNumber" />.
+    /// </summary>
+    public string? CompositeParentName { get; private set; }
+
+    /// <summary>
+    ///     Attach composite-membership metadata (parent composite name + stage ordinal) to this
+    ///     shard. Additive + fluent so it doesn't disturb <see cref="Compose" />/the constructors
+    ///     or <see cref="Identity" />. Returns the same instance for call-site chaining.
+    /// </summary>
+    public ShardName ForCompositeStage(uint stageNumber, string compositeParentName)
+    {
+        StageNumber = stageNumber;
+        CompositeParentName = compositeParentName;
+        return this;
+    }
+
 
     [JsonConstructor]
     public ShardName(string name, string shardKey, uint version, string? tenantId)
