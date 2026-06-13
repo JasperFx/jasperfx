@@ -298,10 +298,17 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         // See issue JasperFx/marten#4093.
         maybeArchiveStream(storage, slice, ownsStream: slice.Snapshot != null || snapshot != null);
 
+        // Set the resulting aggregate on the slice in EVERY mode. A composite stage fans an
+        // Updated<TDoc> event to its downstream stages via MarkSliceAction, which only emits when
+        // slice.Snapshot is non-null. Gating this on Continuous (as the side effects below are)
+        // meant a composite rebuild/catch-up produced no upstream snapshot, so downstream stages
+        // lost the synthetic Updated<TDoc>/References<T> events and threw NREs. The side effects
+        // themselves (RaiseSideEffects -> raised events / published messages) stay Continuous-only
+        // so a rebuild does not re-emit them. See marten#4729.
+        slice.Snapshot = snapshot;
+
         if (mode == ShardExecutionMode.Continuous)
         {
-            // Need to set the aggregate in case it didn't exist upfront
-            slice.Snapshot = snapshot;
             await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
         }
 
