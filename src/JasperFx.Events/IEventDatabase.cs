@@ -117,4 +117,22 @@ public interface IEventDatabase
     /// <param name="token"></param>
     Task<IReadOnlyList<DeadLetterShardCount>> FetchDeadLetterCountsAsync(CancellationToken token = default)
         => Task.FromResult<IReadOnlyList<DeadLetterShardCount>>([]);
+
+    /// <summary>
+    ///     Fetch the stored dead letter event counts for a single tenant partition, one row per shard.
+    ///     A null <paramref name="tenantId" /> is store-global and delegates to the tenant-less overload
+    ///     (today's behavior). Under <c>UseTenantPartitionedEvents</c> the same shard accumulates dead
+    ///     letters per tenant; event stores that implement per-tenant partitioning override this to group
+    ///     by tenant and stamp <see cref="DeadLetterShardCount.TenantId" /> so a consumer keying by
+    ///     <c>{ProjectionName}:{ShardKey}</c> no longer collapses the counts across tenants. The default
+    ///     throws for a non-null tenant. See jasperfx#450.
+    /// </summary>
+    /// <param name="tenantId">Tenant partition to scope counts to. Null means store-global.</param>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<DeadLetterShardCount>> FetchDeadLetterCountsAsync(string? tenantId,
+        CancellationToken token = default)
+        => tenantId == null
+            ? FetchDeadLetterCountsAsync(token)
+            : throw new NotSupportedException(
+                "Per-tenant FetchDeadLetterCountsAsync is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
 }

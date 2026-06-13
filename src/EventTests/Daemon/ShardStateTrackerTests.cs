@@ -94,6 +94,52 @@ public class ShardStateTrackerTests : IDisposable
     }
 
     [Fact]
+    public async Task mark_high_water_stamps_last_advanced_timestamp()
+    {
+        // jasperfx#449: the published HighWaterMark ShardState must carry "when the mark last advanced"
+        // so a monitor can compute seconds-since-advance server-side instead of a reconnect-resetting heuristic.
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        var advancedAt = new DateTimeOffset(2026, 6, 13, 1, 2, 3, TimeSpan.Zero);
+        await theTracker.MarkHighWaterAsync(1500, advancedAt);
+
+        await theTracker.Complete();
+
+        var state = observer.States.Last();
+        state.ShardName.ShouldBe("HighWaterMark");
+        state.Sequence.ShouldBe(1500);
+        state.LastAdvanced.ShouldBe(advancedAt);
+    }
+
+    [Fact]
+    public async Task mark_high_water_without_timestamp_leaves_last_advanced_null()
+    {
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        await theTracker.MarkHighWaterAsync(1500);
+
+        await theTracker.Complete();
+
+        observer.States.Last().LastAdvanced.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task mark_skipping_stamps_last_advanced_timestamp()
+    {
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        var advancedAt = new DateTimeOffset(2026, 6, 13, 4, 5, 6, TimeSpan.Zero);
+        await theTracker.MarkSkippingAsync(1000, 1100, advancedAt);
+
+        await theTracker.Complete();
+
+        observer.States.Last().LastAdvanced.ShouldBe(advancedAt);
+    }
+
+    [Fact]
     public void default_state_action_is_update()
     {
         new ShardState("foo", 22L)

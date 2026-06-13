@@ -79,17 +79,34 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     public ValueTask MarkHighWaterAsync(long sequence)
     {
-        return PublishAsync(new ShardState(ShardState.HighWaterMark, sequence));
+        return MarkHighWaterAsync(sequence, null);
     }
-    
-    public ValueTask MarkSkippingAsync(long lastKnownGoodHighWaterMark, long newHighWaterMark)
+
+    /// <summary>
+    /// Publish a new high water mark and stamp the moment that mark was observed so a daemon
+    /// consumer / ShardState reader can compute "seconds since the high water mark last advanced"
+    /// authoritatively, rather than falling back to a client-side heuristic that resets on reconnect.
+    /// A null <paramref name="lastAdvanced" /> leaves <see cref="ShardState.LastAdvanced" /> unset
+    /// (the pre-jasperfx#449 behavior). See jasperfx#449.
+    /// </summary>
+    public ValueTask MarkHighWaterAsync(long sequence, DateTimeOffset? lastAdvanced)
+    {
+        return PublishAsync(new ShardState(ShardState.HighWaterMark, sequence)
+        {
+            LastAdvanced = lastAdvanced
+        });
+    }
+
+    public ValueTask MarkSkippingAsync(long lastKnownGoodHighWaterMark, long newHighWaterMark,
+        DateTimeOffset? lastAdvanced = null)
     {
         var skipped = newHighWaterMark - lastKnownGoodHighWaterMark;
         return PublishAsync(new ShardState(ShardState.HighWaterMark, newHighWaterMark)
         {
             PreviousGoodMark = lastKnownGoodHighWaterMark,
             Action = ShardAction.Skipped,
-            SkippedEventsCount = skipped > 0 ? skipped : null
+            SkippedEventsCount = skipped > 0 ? skipped : null,
+            LastAdvanced = lastAdvanced
         });
     }
 

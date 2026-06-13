@@ -59,4 +59,33 @@ public class DeadLetterCountDefaultsTests
         var counts = await theDatabase.FetchDeadLetterCountsAsync();
         counts.ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task fetch_dead_letter_counts_for_null_tenant_delegates_to_store_global()
+    {
+        // jasperfx#450: the tenant overload with a null tenant is store-global and reuses today's behavior.
+        var counts = await theDatabase.FetchDeadLetterCountsAsync(tenantId: null);
+        counts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task fetch_dead_letter_counts_for_a_tenant_throws_when_not_partitioned()
+    {
+        // jasperfx#450: a non-partitioned store has no per-tenant dead-letter dimension, so the default throws.
+        await Should.ThrowAsync<NotSupportedException>(() => theDatabase.FetchDeadLetterCountsAsync("tenant-1"));
+    }
+
+    [Fact]
+    public void dead_letter_shard_count_tenant_id_defaults_to_null()
+    {
+        // jasperfx#450: null TenantId == store-global / not partitioned, the only behavior before partitioning.
+        new DeadLetterShardCount("Orders", "All", 3).TenantId.ShouldBeNull();
+    }
+
+    [Fact]
+    public void dead_letter_shard_count_carries_tenant_id()
+    {
+        var count = new DeadLetterShardCount("Orders", "All", 3, "tenant-1");
+        count.TenantId.ShouldBe("tenant-1");
+    }
 }
