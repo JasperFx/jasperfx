@@ -50,4 +50,17 @@ public interface IHighWaterDetector
     /// Partitioned stores override this to write a per-tenant high-water row keyed on the tenant.
     /// </summary>
     Task MarkHighWaterForTenantAsync(string tenantId, long sequence, CancellationToken token) => Task.CompletedTask;
+
+    /// <summary>
+    /// Persist a per-tenant high-water mark together with the timestamp at which that mark was observed
+    /// (jasperfx#449), so a monitor reading <c>AllProjectionProgress</c> can compute per-tenant
+    /// "seconds since the high water mark last advanced" authoritatively under
+    /// <c>UseTenantPartitionedEvents</c>. The default implementation delegates to the timestamp-less
+    /// <see cref="MarkHighWaterForTenantAsync(string,long,CancellationToken)" />, so a store that only
+    /// overrode the original overload keeps persisting marks exactly as before; partitioned stores
+    /// override this to also write the per-tenant timestamp onto the progression row.
+    /// </summary>
+    Task MarkHighWaterForTenantAsync(string tenantId, long sequence, DateTimeOffset timestamp,
+        CancellationToken token)
+        => MarkHighWaterForTenantAsync(tenantId, sequence, token);
 }

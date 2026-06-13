@@ -72,13 +72,15 @@ public class TenantedHighWaterCoordinator
 
             // marten#4717: persist a durable per-tenant high-water row so each tenant's mark survives
             // a daemon restart (the store-global HighWaterMark row cannot represent multiple tenants).
-            // No-op for detectors that don't override the write.
+            // jasperfx#449: carry the per-tenant timestamp through so the persisted row exposes
+            // per-tenant staleness. No-op for detectors that don't override the write.
             if (reading.TenantId != null && reading.Statistics.CurrentMark > 0)
             {
                 try
                 {
                     await _detector
-                        .MarkHighWaterForTenantAsync(reading.TenantId, reading.Statistics.CurrentMark, token)
+                        .MarkHighWaterForTenantAsync(reading.TenantId, reading.Statistics.CurrentMark,
+                            reading.Statistics.Timestamp, token)
                         .ConfigureAwait(false);
                 }
                 catch (Exception e)

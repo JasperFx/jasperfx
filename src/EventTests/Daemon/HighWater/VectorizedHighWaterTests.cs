@@ -147,8 +147,18 @@ internal class FakeVectorDetector : IHighWaterDetector
     public IReadOnlyCollection<string>? LastPolled { get; private set; }
     public int PollCount { get; private set; }
 
+    // jasperfx#449: per-tenant high-water marks persisted by the coordinator, with the timestamp it carried.
+    public List<(string TenantId, long Sequence, DateTimeOffset Timestamp)> PersistedTenantMarks { get; } = new();
+
     // Represents a partitioned store
     public bool SupportsTenantPartitioning => true;
+
+    public Task MarkHighWaterForTenantAsync(string tenantId, long sequence, DateTimeOffset timestamp,
+        CancellationToken token)
+    {
+        PersistedTenantMarks.Add((tenantId, sequence, timestamp));
+        return Task.CompletedTask;
+    }
 
     public void Enqueue(HighWaterVector vector) => _queued.Enqueue(vector);
     public void EnqueueFactory(Func<IReadOnlyCollection<string>, HighWaterVector> factory) => _factory = factory;

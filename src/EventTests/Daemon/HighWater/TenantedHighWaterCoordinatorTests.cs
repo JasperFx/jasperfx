@@ -12,8 +12,12 @@ namespace EventTests.Daemon.HighWater;
 // downstream against a concrete store (marten#4596).
 public class TenantedHighWaterCoordinatorTests
 {
-    private static HighWaterStatistics stat(string tenantId, long current, long highest)
-        => new() { TenantId = tenantId, CurrentMark = current, HighestSequence = highest, LastMark = current };
+    private static HighWaterStatistics stat(string tenantId, long current, long highest, DateTimeOffset? timestamp = null)
+        => new()
+        {
+            TenantId = tenantId, CurrentMark = current, HighestSequence = highest, LastMark = current,
+            Timestamp = timestamp ?? default
+        };
 
     private static ISubscriptionAgent agentFor(ShardName name)
     {
@@ -96,6 +100,28 @@ public class TenantedHighWaterCoordinatorTests
 
         // The advancing tenant's agent still got its own mark even though another tenant went stale
         agents[2].Received().MarkHighWater(8);
+    }
+
+    [Fact]
+    public async Task poll_and_route_persists_each_tenants_mark_with_its_timestamp()
+    {
+        // jasperfx#449: the per-tenant high-water row must carry the per-tenant timestamp so a monitor
+        // reading AllProjectionProgress gets per-tenant staleness, not a store-global heuristic.
+        var t1At = new DateTimeOffset(2026, 6, 13, 1, 0, 0, TimeSpan.Zero);
+        var t2At = new DateTimeOffset(2026, 6, 13, 2, 0, 0, TimeSpan.Zero);
+
+        var detector = new FakeVectorDetector();
+        detector.Enqueue(new HighWaterVector([stat("t1", 10, 10, t1At), stat("t2", 20, 20, t2At)]));
+
+        var coordinator = new TenantedHighWaterCoordinator(detector);
+        coordinator.PolledTenants.SetTenants(["t1", "t2"]);
+
+        await coordinator.PollAndRouteAsync(
+            [agentFor(ShardName.Compose("Orders", "All", "t1")), agentFor(ShardName.Compose("Orders", "All", "t2"))],
+            CancellationToken.None);
+
+        detector.PersistedTenantMarks.ShouldBe(
+            [("t1", 10L, t1At), ("t2", 20L, t2At)], ignoreOrder: true);
     }
 
     [Fact]

@@ -60,7 +60,10 @@ public class HighWaterAgent: IDisposable
         _current = await _detector.Detect(_token).ConfigureAwait(false);
 
         await _tracker.PublishAsync(
-            new ShardState(ShardState.HighWaterMark, _current.CurrentMark) { Action = ShardAction.Started });
+            new ShardState(ShardState.HighWaterMark, _current.CurrentMark)
+            {
+                Action = ShardAction.Started, LastAdvanced = lastAdvancedFrom(_current)
+            });
 
         _loop = Task.Factory.StartNew(detectChanges, _token,
             TaskCreationOptions.LongRunning | TaskCreationOptions.AttachedToParent, TaskScheduler.Default);
@@ -85,7 +88,7 @@ public class HighWaterAgent: IDisposable
             if (_current == null || next.CurrentMark > _current.CurrentMark)
             {
                 _current = next;
-                await _tracker.MarkHighWaterAsync(_current.CurrentMark);
+                await _tracker.MarkHighWaterAsync(_current.CurrentMark, lastAdvancedFrom(_current));
             }
         }
         catch (Exception e)
@@ -172,7 +175,7 @@ public class HighWaterAgent: IDisposable
 
                     if (statistics.IncludesSkipping)
                     {
-                        await _tracker.MarkSkippingAsync(lastKnown, statistics.CurrentMark);
+                        await _tracker.MarkSkippingAsync(lastKnown, statistics.CurrentMark, lastAdvancedFrom(statistics));
                     }
                     
                     _skipping.Add(1);
@@ -226,10 +229,16 @@ public class HighWaterAgent: IDisposable
 
         _current = statistics;
 
-        await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
+        await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
 
         await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
     }
+
+    // Surface "when the current mark was observed" (jasperfx#449) so a monitor can compute
+    // seconds-since-advance server-side. A default(DateTimeOffset) means the detector didn't
+    // supply a timestamp, so publish null rather than a misleading 0001-01-01.
+    private static DateTimeOffset? lastAdvancedFrom(HighWaterStatistics statistics)
+        => statistics.Timestamp == default ? null : statistics.Timestamp;
 
     private void TimerOnElapsed(object? sender, ElapsedEventArgs e)
     {
@@ -272,7 +281,7 @@ public class HighWaterAgent: IDisposable
         // Get out of here if you're at the initial, empty state
         if (initialHighMark == 1 && statistics.CurrentMark == 0)
         {
-            await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
+            await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
             return;
         }
 
@@ -282,7 +291,7 @@ public class HighWaterAgent: IDisposable
             statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);
         }
 
-        await _tracker.MarkHighWaterAsync(statistics.CurrentMark);
+        await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
     }
 
     public async Task StopAsync()
