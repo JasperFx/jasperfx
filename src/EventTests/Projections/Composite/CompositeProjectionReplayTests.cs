@@ -143,6 +143,57 @@ public class CompositeProjectionReplayTests
     }
 
     [Fact]
+    public async Task members_inherit_the_composite_mode_so_rebuilds_suppress_side_effects()
+    {
+        // marten#4729: member executions default to ShardExecutionMode.Continuous and are never set by
+        // CompositeReplayExecutor (which only assigns the parent's Mode). The optimized composite rebuild
+        // therefore ran members in Continuous and fired their side effects (RaiseSideEffects ->
+        // PublishMessage/AppendEvent), unlike the classic single-stream rebuild. CompositeExecution must
+        // propagate its Mode down to every member as part of building the batch.
+        var batch = Substitute.For<IProjectionBatch<FakeOperations, FakeSession>>();
+        batch.ExecuteAsync(Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        batch.RecordProgress(Arg.Any<EventRange>()).Returns(ValueTask.CompletedTask);
+
+        theStore.StartProjectionBatchAsync(Arg.Any<EventRange>(), Arg.Any<IEventDatabase>(),
+                Arg.Any<ShardExecutionMode>(), Arg.Any<AsyncOptions>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<IProjectionBatch<FakeOperations, FakeSession>>(batch));
+        theStore.ErrorHandlingOptions(Arg.Any<ShardExecutionMode>())
+            .Returns(new ErrorHandlingOptions { SkipApplyErrors = false });
+
+        var member1 = buildMemberExecution("Member1");
+        var member2 = buildMemberExecution("Member2");
+        var member3 = buildMemberExecution("Member3");
+
+        var stages = new[]
+        {
+            new ExecutionStage([member1, member2]),
+            new ExecutionStage([member3])
+        };
+
+        var execution = new CompositeExecution<FakeOperations, FakeSession>(
+            new ShardName("Composite", ShardName.All, 0), new AsyncOptions(), theStore, theDatabase,
+            Substitute.For<IJasperFxProjection<FakeOperations>>(), NullLogger.Instance, stages)
+        {
+            Mode = ShardExecutionMode.Rebuild
+        };
+
+        var agent = Substitute.For<ISubscriptionAgent>();
+        agent.Metrics.Returns(Substitute.For<ISubscriptionMetrics>());
+
+        var range = new EventRange(agent, 0, 5)
+        {
+            Events = "ab".ToLetterEventsWithWrapper().ToList()
+        };
+
+        await execution.ProcessRangeAsync(range);
+
+        // Every member ran in the composite's mode, so AggregationRunner suppresses side effects in a rebuild
+        member1.Mode.ShouldBe(ShardExecutionMode.Rebuild);
+        member2.Mode.ShouldBe(ShardExecutionMode.Rebuild);
+        member3.Mode.ShouldBe(ShardExecutionMode.Rebuild);
+    }
+
+    [Fact]
     public void member_stages_inherit_a_store_global_parent_binding()
     {
         // jasperfx#419: with no tenant on the parent composite shard, member stages stay store-global,

@@ -45,6 +45,17 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
 
             foreach (var stage in _inners)
             {
+                // marten#4729: member executions default to ShardExecutionMode.Continuous and are never
+                // touched by CompositeReplayExecutor (which only sets the parent's Mode). Without this the
+                // optimized composite rebuild would run members in Continuous and fire their side effects
+                // (RaiseSideEffects -> PublishMessage/AppendEvent), unlike the classic single-stream rebuild.
+                // Propagating the composite's Mode keeps members in CatchUp/Rebuild during a rebuild
+                // (side effects suppressed) and in Continuous during genuine continuous operation.
+                foreach (var execution in stage.Executions)
+                {
+                    execution.Mode = Mode;
+                }
+
                 await stage.ExecuteDownstreamAsync(range);
             }
 
