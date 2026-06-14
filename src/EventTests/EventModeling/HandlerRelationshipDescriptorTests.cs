@@ -59,9 +59,103 @@ public class HandlerRelationshipDescriptorTests
         descriptor.EmittedEvents.ShouldBeEmpty();
     }
 
+    [Fact]
+    public void kind_defaults_to_handler_and_origin_is_null()
+    {
+        // The historical positional-constructor shape must keep meaning
+        // "a handler triggered by MessageType" so existing emitted manifests
+        // round-trip unchanged after the 2.11 broadening.
+        var descriptor = new HandlerRelationshipDescriptor(
+            Handler,
+            Command,
+            new[] { PlacedEvent },
+            Aggregate);
+
+        descriptor.Kind.ShouldBe(PublisherKind.Handler);
+        descriptor.Origin.ShouldBeNull();
+    }
+
+    [Fact]
+    public void handler_is_the_default_enum_member()
+    {
+        // Handler must be the zero value so default-initialized / deserialized
+        // descriptors land on the historical behavior.
+        ((int)PublisherKind.Handler).ShouldBe(0);
+    }
+
+    [Fact]
+    public void can_describe_an_http_endpoint_publisher()
+    {
+        var descriptor = new HandlerRelationshipDescriptor(
+            Handler,
+            Command,
+            new[] { PlacedEvent },
+            TargetAggregate: null)
+        {
+            Kind = PublisherKind.HttpEndpoint,
+            Origin = new PublisherOrigin
+            {
+                HttpRoute = "/orders/{id}",
+                HttpMethod = "POST",
+                Label = "POST /orders/{id}"
+            }
+        };
+
+        descriptor.Kind.ShouldBe(PublisherKind.HttpEndpoint);
+        descriptor.Origin.ShouldNotBeNull();
+        descriptor.Origin!.HttpRoute.ShouldBe("/orders/{id}");
+        descriptor.Origin.HttpMethod.ShouldBe("POST");
+        descriptor.Origin.Label.ShouldBe("POST /orders/{id}");
+        // The positional inputs are still intact alongside the new metadata.
+        descriptor.HandlerType.ShouldBe(Handler);
+        descriptor.EmittedEvents.Single().ShouldBe(PlacedEvent);
+    }
+
+    [Fact]
+    public void can_describe_a_projection_side_effect_publisher()
+    {
+        var projection = TypeDescriptor.For(typeof(OrderProjection));
+
+        var descriptor = new HandlerRelationshipDescriptor(
+            Handler,
+            Command,
+            new[] { ShippedEvent },
+            TargetAggregate: null)
+        {
+            Kind = PublisherKind.ProjectionSideEffect,
+            Origin = new PublisherOrigin { ProjectionType = projection }
+        };
+
+        descriptor.Kind.ShouldBe(PublisherKind.ProjectionSideEffect);
+        descriptor.Origin!.ProjectionType.ShouldBe(projection);
+    }
+
+    [Fact]
+    public void with_expression_preserves_new_metadata()
+    {
+        // record `with` copies must carry Kind/Origin so consumers that
+        // rewrite a descriptor don't silently drop the publisher classification.
+        var original = new HandlerRelationshipDescriptor(
+            Handler,
+            Command,
+            new[] { PlacedEvent },
+            Aggregate)
+        {
+            Kind = PublisherKind.DirectBusCall,
+            Origin = new PublisherOrigin { Label = "IMessageBus.PublishAsync" }
+        };
+
+        var copy = original with { TargetAggregate = null };
+
+        copy.Kind.ShouldBe(PublisherKind.DirectBusCall);
+        copy.Origin!.Label.ShouldBe("IMessageBus.PublishAsync");
+        copy.TargetAggregate.ShouldBeNull();
+    }
+
     private record Order;
     private record PlaceOrder;
     private record OrderPlaced;
     private record OrderShipped;
     private record PlaceOrderHandler;
+    private record OrderProjection;
 }

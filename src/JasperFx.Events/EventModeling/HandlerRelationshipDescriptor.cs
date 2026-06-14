@@ -37,4 +37,28 @@ public sealed record HandlerRelationshipDescriptor(
     TypeDescriptor HandlerType,
     TypeDescriptor MessageType,
     IReadOnlyList<TypeDescriptor> EmittedEvents,
-    TypeDescriptor? TargetAggregate);
+    TypeDescriptor? TargetAggregate)
+{
+    /// <summary>
+    /// How the emitting code is triggered. Defaults to <see cref="PublisherKind.Handler"/>
+    /// — the historical behavior where the trigger is the incoming <see cref="MessageType"/>.
+    /// Non-<c>Handler</c> kinds (HTTP/gRPC endpoints, projection side-effects, scheduled work)
+    /// carry their trigger detail in <see cref="Origin"/>.
+    /// </summary>
+    /// <remarks>
+    /// Added in JasperFx 2.11 as an additive <c>init</c> property so existing precompiled
+    /// callers that use the positional constructor keep working unchanged
+    /// (the descriptor remains binary-compatible). Lets the CritterWatch event-model
+    /// graph distinguish a message-driven handler from a route-driven endpoint or a
+    /// projection side-effect that publishes without an inbound message.
+    /// </remarks>
+    public PublisherKind Kind { get; init; } = PublisherKind.Handler;
+
+    /// <summary>
+    /// Polymorphic trigger origin for non-message publishers — the HTTP route + verb,
+    /// gRPC service + method, or projection that initiates the emission. Null when
+    /// <see cref="Kind"/> is <see cref="PublisherKind.Handler"/>, in which case the
+    /// trigger is the <see cref="MessageType"/>.
+    /// </summary>
+    public PublisherOrigin? Origin { get; init; }
+}
