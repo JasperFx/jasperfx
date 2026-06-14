@@ -108,6 +108,25 @@ public interface IEventDatabase
         => Task.FromResult(0L);
 
     /// <summary>
+    ///     Fetch the stored dead letter event rows for a single projection/subscription shard — the
+    ///     drill-in companion to <see cref="CountDeadLetterEventsAsync" />. Returns the most recent
+    ///     failures first (by event sequence), paged via <paramref name="offset" /> /
+    ///     <paramref name="limit" />. A null <paramref name="tenantId" /> spans every tenant sharing the
+    ///     database; under <c>UseTenantPartitionedEvents</c> pass a tenant to scope to one partition (the
+    ///     dead-letter table stays store-global but each row records the failing event's tenant).
+    ///     The default implementation returns an empty list as a stand-in; event stores that persist
+    ///     dead letters should override this. See CritterWatch#369.
+    /// </summary>
+    /// <param name="shard">The projection/subscription shard whose dead-letter rows to fetch.</param>
+    /// <param name="tenantId">Tenant partition to scope to. Null spans the whole database.</param>
+    /// <param name="offset">Number of rows to skip (paging).</param>
+    /// <param name="limit">Maximum number of rows to return (paging).</param>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<DeadLetterEvent>> QueryDeadLetterEventsAsync(ShardName shard, string? tenantId,
+        int offset, int limit, CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<DeadLetterEvent>>([]);
+
+    /// <summary>
     ///     Fetch the stored dead letter event counts for this database, one row per shard
     ///     (<see cref="DeadLetterShardCount.ProjectionName" /> + <see cref="DeadLetterShardCount.ShardKey" />).
     ///     Mirrors the "give me every row" shape of <see cref="AllProjectionProgress(CancellationToken)" />.

@@ -19,6 +19,7 @@ public class DeadLetterEvent
         ExceptionMessage = ex.Message;
 
         EventSequence = e.Sequence;
+        TenantId = e.TenantId;
 
         ExceptionType = ex.InnerException?.GetType()!.NameInCode()!;
     }
@@ -30,6 +31,16 @@ public class DeadLetterEvent
     public string ExceptionMessage { get; set; }
     public string ExceptionType { get; set; }
     public long EventSequence { get; set; }
+
+    /// <summary>
+    /// The tenant of the failing event (jasperfx#450 / CritterWatch#381). Under
+    /// <c>UseTenantPartitionedEvents</c> the same projection shard accumulates dead letters per
+    /// tenant; this records which tenant each dead letter belongs to so per-tenant counts don't
+    /// collide on <c>{ProjectionName}:{ShardName}</c>. A plain data column — the dead-letter table
+    /// stays store-global / <c>TenancyStyle.Single</c> (it is not a tenant boundary). On a
+    /// non-partitioned store this is simply the failing event's default tenant id.
+    /// </summary>
+    public string? TenantId { get; set; }
 
     public override string ToString()
     {
