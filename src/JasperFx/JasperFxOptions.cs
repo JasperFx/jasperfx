@@ -40,6 +40,12 @@ public class JasperFxOptions : SystemPartBase
     {
         ActiveProfile = Development;
     }
+    
+    /// <summary>
+    /// Tells all Critter Stack tools to opt into using their advanced tracking
+    /// Really meant for CritterWatch configuration
+    /// </summary>
+    public bool EnableAdvancedTracking { get; set; }
 
 
     private readonly List<string> _requiredFiles = new();
