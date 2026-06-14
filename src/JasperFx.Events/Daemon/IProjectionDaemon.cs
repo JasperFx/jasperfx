@@ -153,6 +153,23 @@ public interface IProjectionDaemon: IDisposable
     Task StopAgentAsync(ShardName shardName, Exception? ex = null);
 
     /// <summary>
+    ///     Pauses (hard-stops) the running shard(s) of a single projection for a single tenant
+    ///     partition, leaving every other tenant's shard running. A null <paramref name="tenantId" />
+    ///     pauses the projection store-globally (all of its shards). Daemons that implement per-tenant
+    ///     event partitioning override this; the default throws for a non-null tenant. Resume with
+    ///     <see cref="StartAgentAsync(ShardName, CancellationToken)" /> or <see cref="StartAllAsync" />.
+    ///     Unlike <see cref="StopAgentAsync(ShardName, Exception)" />, the caller does not need to know
+    ///     the exact shard identity (shard key / version) — the shards are matched by projection name and
+    ///     tenant. See CritterWatch#303.
+    /// </summary>
+    Task PauseShardAsync(string projectionName, string? tenantId, CancellationToken token)
+        => tenantId == null
+            ? throw new NotImplementedException(
+                "Store-global PauseShardAsync is not implemented on this IProjectionDaemon.")
+            : throw new NotSupportedException(
+                "Per-tenant PauseShardAsync is not implemented on this IProjectionDaemon. Use an event store that implements per-tenant partitioning.");
+
+    /// <summary>
     ///     Starts all known projections shards
     /// </summary>
     /// <returns></returns>

@@ -690,18 +690,82 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     public Task RebuildProjectionAsync(string projectionName, string? tenantId, TimeSpan shardTimeout,
         CancellationToken token)
     {
-        if (tenantId == null)
+        if (tenantId != null)
         {
-            return RebuildProjectionAsync(projectionName, shardTimeout, token);
+            if (_projections.TryFindProjection(projectionName, out var perTenantSource))
+            {
+                return rebuildProjectionForTenant(perTenantSource, tenantId, shardTimeout, token);
+            }
+
+            throw new ArgumentOutOfRangeException(nameof(projectionName),
+                $"No registered projection matches the name '{projectionName}'. Available names are {_projections.AllProjectionNames().Join(", ")}");
         }
 
-        if (_projections.TryFindProjection(projectionName, out var source))
+        // CritterWatch#303 / #371: store-global rebuild (null tenant). Under per-tenant event
+        // partitioning the store-global mt_events_sequence is stale, so the plain store-global rebuild
+        // gates on Tracker.HighWaterMark==0 and aborts — it would visit NO tenant's shard. Fan out and
+        // rebuild every registered tenant's shard instead, exactly as CatchUpAsync does. Non-partitioned
+        // stores (no ICrossTenantRebuildSource / no tenant high-water) fall through to the unchanged
+        // store-global rebuild, so single-tenant behavior is byte-for-byte.
+        if (_tenantHighWater != null && Database is ICrossTenantRebuildSource crossTenantSource
+            && _projections.TryFindProjection(projectionName, out var source))
         {
-            return rebuildProjectionForTenant(source, tenantId, shardTimeout, token);
+            return rebuildProjectionAllTenants(crossTenantSource, source, shardTimeout, token);
         }
 
-        throw new ArgumentOutOfRangeException(nameof(projectionName),
-            $"No registered projection matches the name '{projectionName}'. Available names are {_projections.AllProjectionNames().Join(", ")}");
+        return RebuildProjectionAsync(projectionName, shardTimeout, token);
+    }
+
+    // CritterWatch#303 / #371: visit EVERY registered tenant's shard for a store-global rebuild under
+    // partitioning, reusing the per-tenant rebuild that scopes teardown + ceiling to (shard, tenant).
+    // Tenant enumeration mirrors catchUpPerTenantAsync. With no tenants registered yet, fall back to the
+    // store-global rebuild (a no-op when the high-water is 0).
+    private async Task rebuildProjectionAllTenants(
+        ICrossTenantRebuildSource crossTenantSource,
+        IProjectionSource<TOperations, TQuerySession> source,
+        TimeSpan shardTimeout,
+        CancellationToken token)
+    {
+        var tenants = await crossTenantSource
+            .FindRebuildTenantsAsync(source.Name, token).ConfigureAwait(false);
+
+        if (tenants.Count == 0)
+        {
+            await RebuildProjectionAsync(source.Name, shardTimeout, token).ConfigureAwait(false);
+            return;
+        }
+
+        foreach (var tenantId in tenants)
+        {
+            if (token.IsCancellationRequested) return;
+            await rebuildProjectionForTenant(source, tenantId, shardTimeout, token).ConfigureAwait(false);
+        }
+    }
+
+    // CritterWatch#303: per-tenant (or store-global) shard pause. A null tenant stops every shard of the
+    // projection; a non-null tenant stops only that tenant's shard(s). The running agents are matched by
+    // (projection name [, tenant]) — exactly the filter the per-tenant rebuild uses — so the caller never
+    // has to reconstruct the shard identity/version. Each match is routed through StopAgentAsync, which
+    // stops, drains, and REMOVES the agent from the running set (so CurrentAgents()/StatusFor reflect the
+    // pause immediately), unlike the rebuild-internal hard-stop that leaves the agent in place for the
+    // rebuild to replace. Resume via StartAllAsync.
+    public async Task PauseShardAsync(string projectionName, string? tenantId, CancellationToken token)
+    {
+        if (!_projections.TryFindProjection(projectionName, out _))
+        {
+            throw new ArgumentOutOfRangeException(nameof(projectionName),
+                $"No registered projection matches the name '{projectionName}'. Available names are {_projections.AllProjectionNames().Join(", ")}");
+        }
+
+        var targets = CurrentAgents()
+            .Where(x => x.Name.Name == projectionName && (tenantId == null || x.Name.TenantId == tenantId))
+            .Select(x => x.Name.Identity)
+            .ToArray();
+
+        foreach (var identity in targets)
+        {
+            await StopAgentAsync(identity).ConfigureAwait(false);
+        }
     }
 
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
