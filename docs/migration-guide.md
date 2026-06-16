@@ -113,7 +113,9 @@ JasperFx.Events.SourceGenerator; there is no runtime fallback.
 Two escape hatches if the generated dispatcher is not what you want:
 
 1. **Override the evolver directly.** Implementing `Evolve` / `EvolveAsync` / `DetermineAction` / `DetermineActionAsync` bypasses the generated dispatcher — no `partial` required.
-2. **Verify the generator actually ran.** It ships inside the Marten and Polecat NuGet packages, so confirm the project reference does not exclude the `analyzers` asset, then do a clean build. See [Publishing AOT with JasperFx](./codegen/aot.md) for the troubleshooting entry.
+2. **Confirm the generator ran.** It is delivered as a Roslyn analyzer and must run in the assembly that *defines the aggregate type*; make sure that reference does not strip the `analyzers` asset, then do a clean build.
+
+**How the analyzer reaches your build is product-specific** — each product's own migration guide carries the consumer-facing detail, and they do not deliver it identically. Marten ships `JasperFx.Events.SourceGenerator` inside the `Marten` NuGet package, so a plain `Marten` reference is enough; Marten's migration guide documents the full consumer story — the _No runtime reflection fallback_ admonition, the `public`-method requirement, and the exact `InvalidProjectionException` site — at [martendb.io/migration-guide.html#inline-lambda-projection-removal](https://martendb.io/migration-guide.html#inline-lambda-projection-removal). Other consumers may deliver the generator through a different package (or require an explicit analyzer reference) — consult that product's guide. The cross-stack AOT walkthrough is [Publishing AOT with JasperFx](./codegen/aot.md).
 
 #### `UnknownTenantIdException.TenantId` exposed as a property
 
