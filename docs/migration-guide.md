@@ -77,6 +77,44 @@ public Task ApplyAsync(TOperations operations,
 
 [#220](https://github.com/JasperFx/jasperfx/issues/220). The enum (`Inline` / `Async`) is canonical in `JasperFx.Events.Projections` now; pre-2.0 each consuming product carried its own copy. If your code references `Polecat.Projections.SnapshotLifecycle` or `Marten.Events.Projections.SnapshotLifecycle` (the product-side aliases), update to `JasperFx.Events.Projections.SnapshotLifecycle`. The product-side wrappers are aliased for transitional source-compat where possible.
 
+> `ProjectionLifecycle` (the `Inline` / `Async` / `Live` enum passed to `Projections.Add<T>(...)`) moved to the same `JasperFx.Events.Projections` namespace for the same reason. `using JasperFx.Events.Projections;` covers both.
+
+#### Convention-based projection subclasses must be declared `partial`
+
+Conventional `Apply` / `Create` / `ShouldDelete` methods on a **projection subclass** — one that derives from `SingleStreamProjection<TDoc, TId>`, `MultiStreamProjection<TDoc, TId>`, or `EventProjection` — are now dispatched by the compile-time `JasperFx.Events.SourceGenerator`. Pre-2.0 they were dispatched by runtime reflection; **in 2.0 there is no runtime reflection fallback.** For the generator to emit its `[GeneratedEvolver]` dispatcher, the projection class must be declared `partial`, and its convention methods must be `public`.
+
+```csharp
+// before (JasperFx.Events 1.x) — reflection dispatched the conventional methods
+public class TripProjection : SingleStreamProjection<Trip, Guid>
+{
+    public Trip Create(IEvent<TripStarted> e) => new() { Id = e.StreamId };
+    public void Apply(Travel e, Trip trip) => trip.Traveled += e.TotalDistance();
+}
+
+// after (JasperFx.Events 2.0) — `partial` lets the source generator emit the dispatcher
+public partial class TripProjection : SingleStreamProjection<Trip, Guid>
+{
+    public Trip Create(IEvent<TripStarted> e) => new() { Id = e.StreamId };
+    public void Apply(Travel e, Trip trip) => trip.Traveled += e.TotalDistance();
+}
+```
+
+A non-`partial` subclass with conventional methods fails fast at projection registration (e.g. inside `AddMarten(opts => opts.Projections.Add<TripProjection>(...))`) rather than on first event dispatch:
+
+```
+JasperFx.Events.Projections.InvalidProjectionException:
+No source-generated dispatcher found for TripProjection. Conventional
+Apply/Create/ShouldDelete methods are dispatched by the compile-time
+JasperFx.Events.SourceGenerator; there is no runtime fallback.
+```
+
+**Self-aggregating snapshot types do _not_ need `partial`.** A type that carries its own `Apply`/`Create` methods and is registered via `Snapshot<T>` (or the single-arg `SingleStreamProjection<T>` / `AggregateStream<T>` self-aggregation forms) is handled without a projection subclass and needs no `partial` keyword.
+
+Two escape hatches if the generated dispatcher is not what you want:
+
+1. **Override the evolver directly.** Implementing `Evolve` / `EvolveAsync` / `DetermineAction` / `DetermineActionAsync` bypasses the generated dispatcher — no `partial` required.
+2. **Verify the generator actually ran.** It ships inside the Marten and Polecat NuGet packages, so confirm the project reference does not exclude the `analyzers` asset, then do a clean build. See [Publishing AOT with JasperFx](./codegen/aot.md) for the troubleshooting entry.
+
 #### `UnknownTenantIdException.TenantId` exposed as a property
 
 [#224](https://github.com/JasperFx/jasperfx/issues/224) / [#240](https://github.com/JasperFx/jasperfx/pull/240). The exception now carries a public read-only `TenantId` property so consumers can `catch (UnknownTenantIdException ex) { ex.TenantId }` without parsing the message string. The single-argument constructor signature is unchanged; the new property is populated automatically. Purely additive — no caller-side migration needed unless you were custom-deriving from the type.
