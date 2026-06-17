@@ -33,6 +33,42 @@ public static void ConfigureOptions(IServiceCollection services)
 | `RequiredFiles` | `string[]` | `[]` | Files that must exist at startup |
 | `RememberedApplicationAssembly` | `Assembly?` | `null` | Override the detected application assembly |
 
+## Profiles
+
+Settings that should differ between development and production live on a `Profile`. `JasperFxOptions`
+exposes a `Development` and a `Production` profile, and selects one as the `ActiveProfile` at startup
+based on the hosting environment (`Development` when `IHostEnvironment.IsDevelopment()`, otherwise
+`Production`).
+
+```csharp
+services.AddJasperFx(opts =>
+{
+    // Fail fast locally so developers see migration problems immediately (this is the default)
+    opts.Development.ResourceMigrationFailureMode = ResourceMigrationFailureMode.FailFast;
+
+    // In production, don't let a transient startup migration failure crash the process
+    opts.Production.ResourceMigrationFailureMode = ResourceMigrationFailureMode.ContinueOnFailures;
+});
+```
+
+### ResourceMigrationFailureMode
+
+Controls what happens when a resource (database schema/migration, message broker objects, etc.) fails to
+set up or migrate during application startup through the resource setup hosted service
+(`AddResourceSetupOnStartup`, or `ApplyAllDatabaseChangesOnStartup` in the Critter Stack tools).
+
+| Value | Behavior |
+|-------|----------|
+| `FailFast` (default) | A startup resource/migration failure throws and aborts application startup. |
+| `ContinueOnFailures` | Startup resource/migration failures are logged but do not stop the application from starting. |
+
+`ContinueOnFailures` is intended for production multi-replica deployments. During a rolling deploy,
+several replicas can race for the migration advisory lock; a replica that loses the race would otherwise
+fail with "Unable to attain a global lock in time order to apply database changes" and crash-loop, even
+though the winning replica's committed migration has already made the schema current. With
+`ContinueOnFailures` that replica logs the failure and starts up against the now-current schema instead
+of crash-looping.
+
 ## RequireFile
 
 Tell JasperFx that a file path is required. This adds a file-exists check to environment tests:

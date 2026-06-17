@@ -15,13 +15,21 @@ public class ResourceSetupHostService : IHostedService
     private readonly IResourceCreator[] _creators;
     private readonly ResourceSetupOptions _options;
     private readonly ISystemPart[] _parts;
+    private readonly JasperFxOptions? _jasperFxOptions;
 
-    public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<ISystemPart> parts, ILogger<ResourceSetupHostService> logger, IEnumerable<IResourceCreator> creators)
+    public ResourceSetupHostService(ResourceSetupOptions options, IEnumerable<ISystemPart> parts,
+        ILogger<ResourceSetupHostService> logger, IEnumerable<IResourceCreator> creators,
+        IEnumerable<JasperFxOptions> jasperFxOptions)
     {
         _parts = parts.ToArray();
         _options = options;
         _logger = logger;
         _creators = creators.ToArray();
+
+        // Optional: JasperFxOptions is registered whenever the JasperFx host integration is used (the
+        // normal case). Resolving it via IEnumerable keeps standalone AddResourceSetupOnStartup usage
+        // working even when JasperFxOptions was never registered — in which case we fall back to FailFast.
+        _jasperFxOptions = jasperFxOptions.FirstOrDefault();
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -64,7 +72,22 @@ public class ResourceSetupHostService : IHostedService
 
         if (exceptions.Any())
         {
-            throw new AggregateException(exceptions);
+            var aggregate = new AggregateException(exceptions);
+
+            // The active profile may opt to keep the application starting up despite resource/migration
+            // failures (e.g. a replica that loses the migration lock during a rolling deploy). The default
+            // is FailFast, which throws and aborts startup as before.
+            var failureMode = _jasperFxOptions?.ActiveProfile.ResourceMigrationFailureMode
+                              ?? ResourceMigrationFailureMode.FailFast;
+
+            if (failureMode == ResourceMigrationFailureMode.ContinueOnFailures)
+            {
+                _logger.LogError(aggregate,
+                    "One or more resources failed to set up or migrate during startup. Continuing startup anyway because the active profile's ResourceMigrationFailureMode is ContinueOnFailures.");
+                return;
+            }
+
+            throw aggregate;
         }
     }
 

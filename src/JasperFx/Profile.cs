@@ -23,6 +23,15 @@ public class Profile
     public AutoCreate ResourceAutoCreate { get; set; } = AutoCreate.CreateOrUpdate;
 
     /// <summary>
+    ///     Controls whether a resource setup or migration failure during application startup (via the
+    ///     resource setup hosted service) aborts startup. Defaults to <see cref="JasperFx.ResourceMigrationFailureMode.FailFast"/>.
+    ///     Set to <see cref="JasperFx.ResourceMigrationFailureMode.ContinueOnFailures"/> — typically only on the
+    ///     <c>Production</c> profile — so that, e.g., a replica that loses the migration lock during a
+    ///     rolling deploy logs the failure and continues starting up rather than crash-looping.
+    /// </summary>
+    public ResourceMigrationFailureMode ResourceMigrationFailureMode { get; set; } = ResourceMigrationFailureMode.FailFast;
+
+    /// <summary>
     /// Add an assertion at bootstrapping time to assert that all expected pre-generated
     /// types from code generation already exist in the application assembly. Default is false.
     /// </summary>
