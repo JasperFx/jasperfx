@@ -1057,4 +1057,71 @@ public partial record MyEntity
         evolvers[0].ShouldContain("global::Test.Creation");
         evolvers[0].ShouldContain("global::Test.Mutation");
     }
+
+    // Regression for marten#4755: an [Obsolete] event referenced by the generated evolver must not
+    // surface CS0618/CS0612 from the generated tree, or consumers building with TreatWarningsAsErrors
+    // break on code they can't edit or suppress.
+    [Fact]
+    public void generated_evolver_suppresses_obsolete_warnings_for_obsolete_events()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[Obsolete(""Use NewEvent instead"")]
+public class OldEvent { }
+public class NewEvent { }
+
+public class MyAggregate
+{
+    public Guid Id { get; set; }
+    public int Count { get; set; }
+
+#pragma warning disable CS0618
+    public void Apply(OldEvent e) { Count++; }
+#pragma warning restore CS0618
+    public void Apply(NewEvent e) { Count++; }
+}
+";
+        var syntaxTree = CSharpSyntaxTree.ParseText(source);
+
+        var references = new List<MetadataReference>
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(IEvent).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Guid).Assembly.Location),
+        };
+        var runtimeDir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(runtimeDir, "System.Runtime.dll")));
+        references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(runtimeDir, "System.Collections.dll")));
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName: "TestAssembly",
+            syntaxTrees: [syntaxTree],
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var generator = new AggregateEvolverGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        // Generated trees are everything in the output compilation except the input source
+        var generatedTrees = outputCompilation.SyntaxTrees.Where(t => t != syntaxTree).ToHashSet();
+        generatedTrees.ShouldNotBeEmpty();
+
+        // The evolver references OldEvent, so the suppression pragma must be present
+        generatedTrees.Any(t => t.GetText().ToString().Contains("#pragma warning disable CS0612, CS0618"))
+            .ShouldBeTrue();
+
+        // And no obsolete-usage diagnostic may originate from the generated code
+        var obsoleteFromGenerated = outputCompilation.GetDiagnostics()
+            .Where(d => d.Id is "CS0618" or "CS0612")
+            .Where(d => d.Location.SourceTree != null && generatedTrees.Contains(d.Location.SourceTree!))
+            .ToList();
+
+        obsoleteFromGenerated.ShouldBeEmpty();
+    }
 }
