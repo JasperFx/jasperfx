@@ -82,7 +82,11 @@ public class ProjectionController
 
             try
             {
-                var subscriptionNames = selection.Subscriptions.Select(x => x.Name).ToArray();
+                // marten#4718: skip event subscriptions + Live projections — see
+                // ProjectionSelection.RebuildableSubscriptions. Without this, a
+                // registered subscription's name reaches RebuildProjectionAsync and
+                // throws "No registered projection matches the name '...'".
+                var subscriptionNames = selection.RebuildableSubscriptions().Select(x => x.Name).ToArray();
                 var databaseIdentifier = new EventStoreDatabaseIdentifier(selection.Storage.SubjectUri, database);
                 var status = await _host.TryRebuildShardsAsync(databaseIdentifier, input, subscriptionNames ,shardTimeout).ConfigureAwait(false);
 
