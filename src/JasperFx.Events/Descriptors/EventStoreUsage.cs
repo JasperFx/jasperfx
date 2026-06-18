@@ -40,11 +40,54 @@ public class EventStoreUsage : OptionsDescription
 
         Subject = subject.GetType().FullNameInCode();
         SubjectUri = subjectUri;
+        DisplayName = DeriveDisplayName(subjectUri);
         Version = subject.GetType().Assembly.GetName().Version?.ToString();
+    }
+
+    /// <summary>
+    /// Derive a human-facing store label from the clean <see cref="SubjectUri"/>
+    /// — the URI's host segment, with the default store's <c>main</c> rendered
+    /// as <c>"Main"</c>. Returns <c>"Main"</c> when there is no host.
+    /// </summary>
+    private static string DeriveDisplayName(Uri subjectUri)
+    {
+        var host = subjectUri?.Host;
+        if (string.IsNullOrEmpty(host))
+        {
+            return "Main";
+        }
+
+        return string.Equals(host, "main", StringComparison.OrdinalIgnoreCase) ? "Main" : host;
     }
 
     public string Version { get; set; }
     public Uri SubjectUri { get; set; }
+
+    /// <summary>
+    /// Human-facing label for this event store, distinct from the type-name
+    /// <see cref="OptionsDescription.Subject"/>. For the default store this is
+    /// <c>"Main"</c>; for ancillary stores it is the store's clean identifier
+    /// (the interface/marker name, e.g. <c>ITarievenStore</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="OptionsDescription.Subject"/> follows the OptionsDescription
+    /// convention of being the subject's CLR type name
+    /// (<c>Marten.DocumentStore</c>, or <c>Marten.DynamicStores.I{T}Implementation</c>
+    /// for ancillary stores) — correct as an identity but not something a
+    /// monitoring tool should render as a store label. <see cref="DisplayName"/>
+    /// gives consumers (e.g. CritterWatch's projection "Store" column) a clean
+    /// label without having to scheme-strip <see cref="SubjectUri"/> themselves.
+    /// See jasperfx#458.
+    /// </para>
+    /// <para>
+    /// Auto-derived from <see cref="SubjectUri"/> in the constructor, but
+    /// settable so an event store can supply richer casing (the URI host is
+    /// always lower-cased, so <c>marten://ITarievenStore</c> arrives as
+    /// <c>itarievenstore</c>). Mirrors <c>DocumentStoreUsage.StoreName</c>.
+    /// </para>
+    /// </remarks>
+    public string DisplayName { get; set; } = "Main";
     public DatabaseUsage Database { get; set; }
     public List<EventDescriptor> Events { get; set; } = new();
     public List<SubscriptionDescriptor> Subscriptions { get; set; } = new();

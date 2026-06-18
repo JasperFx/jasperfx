@@ -66,6 +66,45 @@ public class EventStoreUsageTests
     }
 
     [Fact]
+    public void display_name_for_default_store_is_main()
+    {
+        // jasperfx#458: the default store's SubjectUri host is "main" — render
+        // it as the title-cased "Main" rather than leaning on Subject (the impl
+        // type name).
+        new EventStoreUsage(new Uri("marten://main"), new MyThing())
+            .DisplayName.ShouldBe("Main");
+    }
+
+    [Fact]
+    public void display_name_for_ancillary_store_is_the_clean_identifier()
+    {
+        // jasperfx#458: ancillary stores get the clean identifier from the URI
+        // host (the marker/interface name, lower-cased by Uri) instead of
+        // Marten.DynamicStores.I{T}Implementation that Subject carries.
+        new EventStoreUsage(new Uri("marten://itarievenstore"), new MyThing())
+            .DisplayName.ShouldBe("itarievenstore");
+    }
+
+    [Fact]
+    public void display_name_is_settable_for_richer_casing()
+    {
+        // Uri lower-cases the host, so stores can override DisplayName to supply
+        // the original casing of the marker interface.
+        var usage = new EventStoreUsage(new Uri("marten://itarievenstore"), new MyThing())
+        {
+            DisplayName = "ITarievenStore"
+        };
+
+        usage.DisplayName.ShouldBe("ITarievenStore");
+    }
+
+    [Fact]
+    public void display_name_defaults_to_main_on_parameterless_ctor()
+    {
+        new EventStoreUsage().DisplayName.ShouldBe("Main");
+    }
+
+    [Fact]
     public void populate_agent_uris_for_async_subscriptions()
     {
         var store = new FakeEventStore();
