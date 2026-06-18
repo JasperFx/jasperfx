@@ -99,4 +99,21 @@ public class ProjectionSelection(EventStoreUsage storage)
 
         return selections.Where(x => x.Subscriptions.Any()).ToArray();
     }
+
+    // marten#4718 backport of the 9.x/2.x fix (jasperfx#438 / marten#4711): the
+    // `projections rebuild` path must skip event subscriptions and Live-lifecycle
+    // projections. A subscription (SubscriptionType.Subscription) is Async, so its
+    // name would otherwise be fed to the rebuild path -> RebuildProjectionAsync ->
+    // TryFindProjection, which only searches projections and throws
+    // "No registered projection matches the name '...'". Live projections likewise
+    // can't be rebuilt by the async daemon. They still run continuously and still
+    // appear in `projections list`; only rebuild skips them. A subscription name
+    // passed explicitly to rebuild becomes a clean no-op instead of a throw.
+    public IReadOnlyList<SubscriptionDescriptor> RebuildableSubscriptions()
+    {
+        return Subscriptions
+            .Where(x => x.SubscriptionType != SubscriptionType.Subscription
+                        && x.Lifecycle != ProjectionLifecycle.Live)
+            .ToArray();
+    }
 }
