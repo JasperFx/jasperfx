@@ -42,8 +42,19 @@ public class ProjectionInput: NetCoreInput
 
     /// <summary>
     /// jasperfx#420: resolve the effective <see cref="ParallelOptions.MaxDegreeOfParallelism"/> for the
-    /// per-database rebuild fan-out. A null or non-positive <see cref="MaxConcurrentFlag"/> yields -1
-    /// (unbounded), preserving the historical behavior.
+    /// per-database rebuild fan-out. Precedence: the <c>--max-concurrent</c> CLI flag wins for one-off
+    /// operational rebuilds; otherwise the store's configured
+    /// <see cref="IEventStore.MaxConcurrentRebuildsPerDatabase"/> default applies; otherwise the historical
+    /// unbounded behavior (<c>-1</c>). A non-positive value at any level is treated as unset/unbounded —
+    /// <see cref="ParallelOptions.MaxDegreeOfParallelism"/> of 0 throws, so we must never pass it through.
     /// </summary>
-    public int ResolveMaxDegreeOfParallelism() => MaxConcurrentFlag is > 0 ? MaxConcurrentFlag.Value : -1;
+    /// <param name="configuredDefault">
+    /// The store-supplied default cap (<see cref="IEventStore.MaxConcurrentRebuildsPerDatabase"/>), or null.
+    /// </param>
+    public int ResolveMaxDegreeOfParallelism(int? configuredDefault = null)
+    {
+        if (MaxConcurrentFlag is > 0) return MaxConcurrentFlag.Value;
+        if (configuredDefault is > 0) return configuredDefault.Value;
+        return -1;
+    }
 }
