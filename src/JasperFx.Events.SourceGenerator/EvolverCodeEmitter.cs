@@ -36,10 +36,36 @@ internal static class EvolverCodeEmitter
         sb.AppendLine();
     }
 
+    /// <summary>
+    /// Emits the dispatcher for an aggregation projection subclass (e.g. a
+    /// <c>SingleStreamProjection&lt;TDoc, TId&gt;</c> subclass) as a standalone, file-scoped evolver
+    /// type registered via <see cref="GeneratedEvolverAttribute"/> — NOT as overridden members injected
+    /// into the user's projection class.
+    ///
+    /// The member-injection approach is unsafe when this generator is bundled as a built-in analyzer in
+    /// two referenced packages (e.g. Marten + Polecat) and therefore loads twice: each instance emits the
+    /// same partial members and the consumer build fails with CS0111. A <c>file</c>-scoped type is local
+    /// to its own generated file, so two instances emit two independent (and harmless) copies that never
+    /// collide. The runtime binds the projection to the evolver by scanning the assembly for the
+    /// registration attribute. See https://github.com/JasperFx/jasperfx/issues/462.
+    /// </summary>
     public static string EmitPartialProjection(CandidateInfo info)
     {
         var sb = new StringBuilder();
         AppendGeneratedFileHeader(sb);
+
+        var aggregateFullName = Fqn(info.AggregateType!);
+        var idFullName = Fqn(info.IdentityType!);
+        var projectionFullName = Fqn(info.ClassSymbol);
+        var evolverName = BuildUniqueEvolverName(info, "Evolver");
+
+        // Assembly attribute (must precede the namespace declaration). typeof the file-scoped evolver is
+        // legal here because the attribute lives in the same generated file as the type it references.
+        // The projection type is included so this evolver binds ONLY to this projection — another
+        // projection (or a no-op projection) over the same aggregate must not borrow it. See #462.
+        sb.AppendLine(
+            $"[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof({aggregateFullName}), typeof({GetFullyQualifiedEvolverName(info, evolverName)}), typeof({projectionFullName}))]");
+        sb.AppendLine();
 
         var ns = info.ClassSymbol.ContainingNamespace;
         if (!ns.IsGlobalNamespace)
@@ -48,54 +74,87 @@ internal static class EvolverCodeEmitter
             sb.AppendLine();
         }
 
-        // If the projection is declared inside another type (common in xUnit test
-        // files where the projection lives next to test methods), emit a matching
-        // chain of `partial class Container { ... }` wrappers so the generated
-        // partial merges with the user's source partial. See #292.
-        var containingTypes = GetContainingTypes(info.ClassSymbol);
-        foreach (var container in containingTypes)
+        string interfaceName;
+        if (info.HasShouldDelete)
         {
-            sb.AppendLine($"partial {ContainerKeyword(container)} {container.Name}{ContainerTypeParams(container)}");
-            sb.AppendLine("{");
+            interfaceName =
+                $"global::JasperFx.Events.Aggregation.IGeneratedAsyncDetermineAction<{aggregateFullName}, {idFullName}>";
+        }
+        else if (info.HasAnyAsync)
+        {
+            interfaceName =
+                $"global::JasperFx.Events.Aggregation.IGeneratedAsyncEvolver<{aggregateFullName}, {idFullName}>";
+        }
+        else
+        {
+            interfaceName =
+                $"global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<{aggregateFullName}, {idFullName}>";
         }
 
-        var className = info.ClassSymbol.Name;
-
-        // Include type parameters if the class is generic
-        var typeParams = "";
-        if (info.ClassSymbol.TypeParameters.Length > 0)
-        {
-            typeParams = "<" + string.Join(", ", info.ClassSymbol.TypeParameters.Select(t => t.Name)) + ">";
-        }
-
-        sb.AppendLine($"partial class {className}{typeParams}");
+        sb.AppendLine($"file sealed class {evolverName} : {interfaceName}");
         sb.AppendLine("{");
 
-        // Generate constructor that calls IncludeType<T>() for every event type
-        EmitConstructorWithIncludeTypes(sb, info, className);
+        // The dispatcher invokes the projection's own instance Apply/Create/ShouldDelete methods through
+        // a private projection instance. Aggregate-side and static methods are invoked directly, so the
+        // instance is only needed (and only emitted) when at least one method lives on the projection
+        // instance — avoiding a CS0169 "field never used" warning in warnings-as-errors consumer builds.
+        //
+        // The instance is created lazily, NOT in a field initializer: the projection's own constructor
+        // resolves this very evolver (via tryUseAssemblyRegisteredEvolver), so eagerly constructing the
+        // projection here would recurse projection -> evolver -> projection -> ... and StackOverflow. By
+        // the time a handler actually runs, the evolver's own construction has long completed, so the
+        // lazy create is safe and happens once.
+        if (NeedsProjectionInstance(info))
+        {
+            sb.AppendLine($"    private {projectionFullName}? _projectionInstance;");
+            sb.AppendLine($"    private {projectionFullName} _projection => _projectionInstance ??= new {projectionFullName}();");
+            sb.AppendLine();
+        }
+
+        EmitEventTypesProperty(sb, info);
         sb.AppendLine();
 
         if (info.HasShouldDelete)
         {
-            EmitDetermineActionAsyncOverride(sb, info);
+            EmitDetermineActionEvolverMethod(sb, info);
         }
         else if (info.HasAnyAsync)
         {
-            EmitEvolveAsyncOverride(sb, info);
+            EmitEvolveAsyncEvolverMethod(sb, info);
         }
         else
         {
-            EmitEvolveOverride(sb, info);
+            EmitEvolveEvolverMethod(sb, info);
         }
 
         sb.AppendLine("}");
 
-        foreach (var _ in containingTypes)
-        {
-            sb.AppendLine("}");
-        }
-
         return sb.ToString();
+    }
+
+    private static bool NeedsProjectionInstance(CandidateInfo info)
+    {
+        return info.Methods.Any(m => !m.IsStatic && !m.IsOnAggregate);
+    }
+
+    /// <summary>
+    /// The IGeneratedAsyncEvolver / IGeneratedAsyncDetermineAction contracts type the session as
+    /// <c>object</c> so the runtime stays free of the session generic parameter. The dispatch body
+    /// references a strongly-typed <c>session</c> local when (and only when) a handler actually takes an
+    /// IQuerySession — emitting an unused local otherwise would trip CS0219 in warnings-as-error consumer
+    /// builds. Mirrors the self-aggregating async path.
+    /// </summary>
+    private static void EmitSessionLocalIfNeeded(StringBuilder sb, CandidateInfo info)
+    {
+        var sessionParamType = info.Methods
+            .Where(m => m.HasSession)
+            .Select(m => m.Symbol.Parameters.FirstOrDefault(p => IsQuerySession(p.Type))?.Type)
+            .FirstOrDefault(t => t != null);
+
+        if (sessionParamType != null)
+        {
+            sb.AppendLine($"        var session = ({Fqn(sessionParamType)})sessionInput;");
+        }
     }
 
     private static string ContainerTypeParams(INamedTypeSymbol container)
@@ -119,23 +178,6 @@ internal static class EvolverCodeEmitter
         }
 
         return container.TypeKind == TypeKind.Struct ? "struct" : "class";
-    }
-
-    private static void EmitConstructorWithIncludeTypes(StringBuilder sb, CandidateInfo info, string className)
-    {
-        var eventTypes = info.Methods.Select(m => Fqn(m.EventType)).Distinct().ToList();
-        if (eventTypes.Count == 0) return;
-
-        // Skip if the class already has an explicit parameterless constructor
-        if (info.HasExistingParameterlessConstructor) return;
-
-        sb.AppendLine($"    public {className}()");
-        sb.AppendLine("    {");
-        foreach (var eventType in eventTypes)
-        {
-            sb.AppendLine($"        IncludeType<{eventType}>();");
-        }
-        sb.AppendLine("    }");
     }
 
     public static string EmitEventProjectionPartial(CandidateInfo info)
@@ -519,7 +561,7 @@ internal static class EvolverCodeEmitter
 
         if (info.HasShouldDelete)
         {
-            sb.AppendLine($"internal sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedSyncDetermineAction<{aggregateFullName}, {idFullName}>");
+            sb.AppendLine($"file sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedSyncDetermineAction<{aggregateFullName}, {idFullName}>");
             sb.AppendLine("{");
             EmitEventTypesProperty(sb, info);
             sb.AppendLine();
@@ -531,7 +573,7 @@ internal static class EvolverCodeEmitter
             // Task<T> Create(SomeEvent, IQuerySession)` that does a DB lookup
             // during creation). Emit IGeneratedAsyncEvolver so the runtime
             // can await each handler invocation. See #297.
-            sb.AppendLine($"internal sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedAsyncEvolver<{aggregateFullName}, {idFullName}>");
+            sb.AppendLine($"file sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedAsyncEvolver<{aggregateFullName}, {idFullName}>");
             sb.AppendLine("{");
             EmitEventTypesProperty(sb, info);
             sb.AppendLine();
@@ -539,7 +581,7 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            sb.AppendLine($"internal sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<{aggregateFullName}, {idFullName}>");
+            sb.AppendLine($"file sealed class {evolverName} : global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<{aggregateFullName}, {idFullName}>");
             sb.AppendLine("{");
             EmitEventTypesProperty(sb, info);
             sb.AppendLine();
@@ -592,7 +634,7 @@ internal static class EvolverCodeEmitter
             interfaceName = $"global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<{aggregateFullName}, {idFullName}>";
         }
 
-        sb.AppendLine($"internal sealed class {evolverName} : {interfaceName}");
+        sb.AppendLine($"file sealed class {evolverName} : {interfaceName}");
         sb.AppendLine("{");
 
         // Emit EventTypes property
@@ -866,13 +908,12 @@ internal static class EvolverCodeEmitter
 
     // --- Partial projection: Evolve (all sync, no ShouldDelete) ---
 
-    private static void EmitEvolveOverride(StringBuilder sb, CandidateInfo info)
+    private static void EmitEvolveEvolverMethod(StringBuilder sb, CandidateInfo info)
     {
         var docType = Fqn(info.AggregateType!);
         var idType = Fqn(info.IdentityType!);
 
-        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public override {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
+        sb.AppendLine($"    public {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
         sb.AppendLine("    {");
 
         var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
@@ -901,17 +942,17 @@ internal static class EvolverCodeEmitter
 
     // --- Partial projection: EvolveAsync (mixed sync/async, no ShouldDelete) ---
 
-    private static void EmitEvolveAsyncOverride(StringBuilder sb, CandidateInfo info)
+    private static void EmitEvolveAsyncEvolverMethod(StringBuilder sb, CandidateInfo info)
     {
         var docType = Fqn(info.AggregateType!);
         var idType = Fqn(info.IdentityType!);
-        var sessionType = info.QuerySessionType is { } qs ? Fqn(qs) : "object";
 
-        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public override async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync(");
-        sb.AppendLine($"        {docType}? snapshot, {idType} id, {sessionType} session,");
-        sb.AppendLine($"        global::JasperFx.Events.IEvent e, global::System.Threading.CancellationToken cancellation)");
+        sb.AppendLine($"    public async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync(");
+        sb.AppendLine($"        {docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e,");
+        sb.AppendLine($"        object sessionInput, global::System.Threading.CancellationToken cancellation)");
         sb.AppendLine("    {");
+
+        EmitSessionLocalIfNeeded(sb, info);
 
         var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
         var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
@@ -937,24 +978,22 @@ internal static class EvolverCodeEmitter
 
     // --- Partial projection: DetermineActionAsync (has ShouldDelete) ---
 
-    private static void EmitDetermineActionAsyncOverride(StringBuilder sb, CandidateInfo info)
+    private static void EmitDetermineActionEvolverMethod(StringBuilder sb, CandidateInfo info)
     {
         var docType = Fqn(info.AggregateType!);
         var idType = Fqn(info.IdentityType!);
-        var sessionType = info.QuerySessionType is { } qs ? Fqn(qs) : "object";
 
         var isAsync = info.HasAnyAsync;
         var asyncKeyword = isAsync ? "async " : "";
 
-        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public override {asyncKeyword}global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)> DetermineActionAsync(");
-        sb.AppendLine($"        {sessionType} session,");
+        sb.AppendLine($"    public {asyncKeyword}global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)> DetermineActionAsync(");
         sb.AppendLine($"        {docType}? snapshot,");
-        sb.AppendLine($"        {idType} identity,");
-        sb.AppendLine($"        global::JasperFx.Events.Aggregation.IIdentitySetter<{docType}, {idType}> identitySetter,");
+        sb.AppendLine($"        {idType} id,");
         sb.AppendLine($"        global::System.Collections.Generic.IReadOnlyList<global::JasperFx.Events.IEvent> events,");
+        sb.AppendLine("        object sessionInput,");
         sb.AppendLine("        global::System.Threading.CancellationToken cancellation)");
         sb.AppendLine("    {");
+        EmitSessionLocalIfNeeded(sb, info);
         sb.AppendLine("        var exists = snapshot != null;");
         sb.AppendLine("        foreach (var e in events)");
         sb.AppendLine("        {");
@@ -1687,9 +1726,17 @@ internal static class EvolverCodeEmitter
         {
             sb.Append($"{aggregateVar}.{method.MethodName}({args})");
         }
+        else if (method.IsStatic)
+        {
+            // Static Apply declared on the projection itself — invoke via the projection type.
+            sb.Append($"{Fqn(method.Symbol.ContainingType)}.{method.MethodName}({args})");
+        }
         else
         {
-            sb.Append($"{method.MethodName}({args})");
+            // Instance Apply on the projection — dispatched through the evolver's held
+            // projection instance now that the dispatcher is a standalone file-scoped type
+            // rather than an override injected into the projection class. See #462.
+            sb.Append($"_projection.{method.MethodName}({args})");
         }
     }
 
@@ -1711,7 +1758,7 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            sb.Append($"{method.MethodName}({args})");
+            sb.Append($"_projection.{method.MethodName}({args})");
         }
     }
 
@@ -1733,7 +1780,7 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            sb.Append($"{awaitPrefix}{method.MethodName}({args})");
+            sb.Append($"{awaitPrefix}_projection.{method.MethodName}({args})");
         }
     }
 
@@ -1772,9 +1819,13 @@ internal static class EvolverCodeEmitter
         {
             sb.Append($"{awaitKeyword}snapshot.{method.MethodName}({args})");
         }
+        else if (method.IsStatic)
+        {
+            sb.Append($"{awaitKeyword}{Fqn(method.Symbol.ContainingType)}.{method.MethodName}({args})");
+        }
         else
         {
-            sb.Append($"{awaitKeyword}{method.MethodName}({args})");
+            sb.Append($"{awaitKeyword}_projection.{method.MethodName}({args})");
         }
     }
 

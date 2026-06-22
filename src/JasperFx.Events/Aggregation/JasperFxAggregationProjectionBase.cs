@@ -132,13 +132,46 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         var hasShouldDelete = _application.HasShouldDeleteMethods();
         var docType = typeof(TDoc);
 
-        // Scan the aggregate's assembly for GeneratedEvolverAttribute registrations
-        var attrs = docType.Assembly.GetCustomAttributes<GeneratedEvolverAttribute>();
-        foreach (var attr in attrs)
+        // Scan both the aggregate's assembly AND the projection's own assembly for
+        // GeneratedEvolverAttribute registrations. For a self-aggregating type these are the
+        // same assembly. For a partial projection whose aggregate lives in a different assembly
+        // than the projection subclass (the common domain-library + composition-root split), the
+        // generator emits the registration into the *projection's* assembly, so the aggregate's
+        // assembly alone is not enough. The file-scoped evolver the generator now emits replaced
+        // the old "inject an override into the user's class" approach, which travelled with the
+        // projection instance regardless of assembly; scanning the projection assembly preserves
+        // that reach. See https://github.com/JasperFx/jasperfx/issues/462.
+        // Select the single best-matching registration before dispatching. An evolver emitted for a
+        // specific projection subclass (ProjectionType set) must bind ONLY to that projection — several
+        // projections can target the same aggregate with different dispatch logic, and a no-op projection
+        // sharing the aggregate must NOT borrow another projection's evolver (that would skip validation
+        // and mis-dispatch). A projection-specific match wins; a self-aggregating (ProjectionType null)
+        // registration is the fallback. See #462.
+        GeneratedEvolverAttribute? selected = null;
+        foreach (var attr in collectGeneratedEvolverAttributes(docType))
         {
             if (attr.AggregateType != docType) continue;
 
-            var evolverType = attr.EvolverType;
+            if (attr.ProjectionType != null)
+            {
+                if (attr.ProjectionType == GetType())
+                {
+                    selected = attr;
+                    break;
+                }
+
+                // A projection-specific evolver for a DIFFERENT projection — never ours.
+                continue;
+            }
+
+            // Aggregate-only (self-aggregating) evolver: acceptable fallback, but keep scanning in case
+            // a projection-specific registration for this exact projection appears later.
+            selected ??= attr;
+        }
+
+        if (selected != null)
+        {
+            var evolverType = selected.EvolverType;
 
             // Check for IGeneratedSyncEvolver<TDoc, TId>. Skip this branch when
             // the projection has ShouldDelete methods — a plain SyncEvolver
@@ -221,6 +254,22 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 return true;
             }
 
+            // Check for IGeneratedAsyncDetermineAction<TDoc, TId> — ShouldDelete projections whose
+            // Apply/Create/ShouldDelete handlers are async and/or need an IQuerySession. The generated
+            // DetermineActionAsync iterates the whole slice and already wraps each failing event in an
+            // ApplyEventException (preserving the per-event seam the daemon's SkipApplyErrors handler
+            // relies on), so the runtime calls it once with the full list. See #462.
+            var asyncDetermineActionInterface = typeof(IGeneratedAsyncDetermineAction<TDoc, TId>);
+            if (asyncDetermineActionInterface.IsAssignableFrom(evolverType))
+            {
+                var evolver = (IGeneratedAsyncDetermineAction<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                _generatedEvolverEventTypes = evolver.EventTypes;
+                _buildAction = (session, snapshot, id, _, events, ct) =>
+                    evolver.DetermineActionAsync(snapshot, id, events, session!, ct);
+                _evolve = evolveDefaultAsync; // not used when _buildAction is set, but must be non-null
+                return true;
+            }
+
             // Check for IGeneratedAsyncEvolver<TDoc, TId> — Evolve/EvolveAsync on self-aggregating types, no ShouldDelete arm
             var asyncEvolverInterface = typeof(IGeneratedAsyncEvolver<TDoc, TId>);
             if (!hasShouldDelete && asyncEvolverInterface.IsAssignableFrom(evolverType))
@@ -256,6 +305,29 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Gathers <see cref="GeneratedEvolverAttribute"/> registrations from the aggregate's assembly and,
+    /// when different, the concrete projection's own assembly. A partial projection whose aggregate is
+    /// declared in another assembly has its generated evolver registered alongside the projection, not
+    /// the aggregate, so both must be consulted. See #462.
+    /// </summary>
+    private IEnumerable<GeneratedEvolverAttribute> collectGeneratedEvolverAttributes(Type docType)
+    {
+        foreach (var attr in docType.Assembly.GetCustomAttributes<GeneratedEvolverAttribute>())
+        {
+            yield return attr;
+        }
+
+        var projectionAssembly = GetType().Assembly;
+        if (projectionAssembly != docType.Assembly)
+        {
+            foreach (var attr in projectionAssembly.GetCustomAttributes<GeneratedEvolverAttribute>())
+            {
+                yield return attr;
+            }
+        }
     }
 
 
