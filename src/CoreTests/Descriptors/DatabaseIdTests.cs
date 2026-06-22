@@ -32,11 +32,31 @@ public class DatabaseIdTests
     [Theory]
     [InlineData("one")]
     [InlineData("one,two")]
-    [InlineData("one.")]
     [InlineData(".one")]
     public void try_parse_sad_path(string text)
     {
         DatabaseId.TryParse(text, out var id).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void try_parse_empty_database_name()
+    {
+        // A connection string with no Database= yields a DatabaseId with an empty Name; its
+        // serialized form ("localhost.") must round-trip rather than be rejected. See wolverine#3170.
+        DatabaseId.TryParse("localhost.", out var id).ShouldBeTrue();
+        id.Server.ShouldBe("localhost");
+        id.Name.ShouldBe("");
+    }
+
+    [Fact]
+    public void ctor_with_empty_name_round_trips_through_parse()
+    {
+        var id = new DatabaseId("localhost", "");
+
+        DatabaseId.TryParse(id.Identity, out var fromIdentity).ShouldBeTrue();
+        fromIdentity.ShouldBe(id);
+
+        DatabaseId.Parse(id.ToString()).ShouldBe(id);
     }
 
     [Fact]
