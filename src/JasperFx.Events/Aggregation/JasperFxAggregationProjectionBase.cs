@@ -164,14 +164,26 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 continue;
             }
 
-            // Aggregate-only (self-aggregating) evolver: acceptable fallback, but keep scanning in case
-            // a projection-specific registration for this exact projection appears later.
-            selected ??= attr;
+            // Aggregate-only (self-aggregating) evolver: acceptable fallback, but ONLY when its evolver
+            // implements a <TDoc, TId> generated contract for THIS identity type. When the same aggregate
+            // is registered against multiple identity types (#297 — e.g. AggregateStream<CountOfLetters>
+            // with both Guid and string ids) the generator emits one evolver per TId, all keyed on the
+            // aggregate type with a null ProjectionType. Selecting purely by aggregate type could pick the
+            // wrong-TId evolver, whose strongly-typed interface checks below would all fail, leaving _evolve
+            // unwired and tripping the "no source-generated dispatcher" backstop. Keep scanning in case a
+            // projection-specific registration for this exact projection appears later.
+            if (evolverImplementsIdentityContract(attr.EvolverType))
+            {
+                selected ??= attr;
+            }
         }
 
         if (selected != null)
         {
             var evolverType = selected.EvolverType;
+
+            // (selection above already guaranteed this for aggregate-only matches; a
+            // projection-specific match is bound to a single TId by construction.)
 
             // Check for IGeneratedSyncEvolver<TDoc, TId>. Skip this branch when
             // the projection has ShouldDelete methods — a plain SyncEvolver
@@ -305,6 +317,20 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="evolverType"/> implements one of the generated <c>&lt;TDoc, TId&gt;</c>
+    /// dispatcher contracts for THIS projection's identity type. Used to disambiguate the self-aggregating
+    /// fallback when one aggregate is registered against multiple identity types (#297) — only the evolver
+    /// emitted for the matching TId can actually be wired below.
+    /// </summary>
+    private static bool evolverImplementsIdentityContract(Type evolverType)
+    {
+        return typeof(IGeneratedSyncEvolver<TDoc, TId>).IsAssignableFrom(evolverType)
+               || typeof(IGeneratedSyncDetermineAction<TDoc, TId>).IsAssignableFrom(evolverType)
+               || typeof(IGeneratedAsyncDetermineAction<TDoc, TId>).IsAssignableFrom(evolverType)
+               || typeof(IGeneratedAsyncEvolver<TDoc, TId>).IsAssignableFrom(evolverType);
     }
 
     /// <summary>

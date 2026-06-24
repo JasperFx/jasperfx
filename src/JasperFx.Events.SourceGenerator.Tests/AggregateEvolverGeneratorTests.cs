@@ -117,6 +117,53 @@ public partial class AllSync : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
+    public void di_activated_projection_without_parameterless_ctor_compiles()
+    {
+        // #4185 / CS7036 regression: a projection registered via AddProjectionWithServices has only a
+        // constructor with injected dependencies (no parameterless ctor). The evolver's private shadow
+        // instance must not be created with `new T()` — that won't compile. It is instantiated without
+        // running the constructor instead (RuntimeHelpers.GetUninitializedObject).
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public class MyAggregate { public int Count { get; set; } }
+public class MyEvent { }
+public class CreateEvent { }
+public interface ISecondaryStore { }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public partial class DiActivated : SingleStreamProjection<MyAggregate, Guid>
+{
+    private readonly ISecondaryStore _secondaryStore;
+    public DiActivated(ISecondaryStore secondaryStore) { _secondaryStore = secondaryStore; }
+
+    public MyAggregate Create(CreateEvent e) => new MyAggregate();
+    public void Apply(MyEvent e, MyAggregate agg) { agg.Count++; }
+}
+";
+        var (_, generatedSources) = RunGenerator(source);
+        var generated = string.Join("\n", generatedSources);
+
+        // Shadow instance is created without invoking the (parameterized) constructor.
+        generated.ShouldContain("GetUninitializedObject(typeof(global::Test.DiActivated))");
+        generated.ShouldNotContain("new global::Test.DiActivated()");
+
+        // The generated evolver must compile — no CS7036 "no argument for required parameter".
+        var diagnostics = CompileWithGenerator(source);
+        diagnostics.ShouldNotContain(d => d.Id == "CS7036");
+    }
+
+    [Fact]
     public void partial_projection_for_required_member_aggregate_suppresses_snapshot_fallback()
     {
         var source = @"

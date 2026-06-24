@@ -107,7 +107,7 @@ internal static class EvolverCodeEmitter
         if (NeedsProjectionInstance(info))
         {
             sb.AppendLine($"    private {projectionFullName}? _projectionInstance;");
-            sb.AppendLine($"    private {projectionFullName} _projection => _projectionInstance ??= new {projectionFullName}();");
+            sb.AppendLine($"    private {projectionFullName} _projection => _projectionInstance ??= {BuildProjectionInstanceExpression(info.ClassSymbol, projectionFullName)};");
             sb.AppendLine();
         }
 
@@ -135,6 +135,31 @@ internal static class EvolverCodeEmitter
     private static bool NeedsProjectionInstance(CandidateInfo info)
     {
         return info.Methods.Any(m => !m.IsStatic && !m.IsOnAggregate);
+    }
+
+    /// <summary>
+    /// Builds the expression that creates the evolver's private "shadow" projection instance
+    /// (used only to invoke the projection's stateless instance Apply/Create/ShouldDelete event
+    /// methods). When the projection has a public parameterless constructor we just <c>new</c> it.
+    /// A DI-activated projection (registered via <c>AddProjectionWithServices</c>) has only a
+    /// constructor with injected dependencies and therefore no parameterless ctor — <c>new T()</c>
+    /// would not compile (#4185 / CS7036). In that case instantiate without running the constructor
+    /// (mirrors the aggregate no-parameterless-ctor fallback in
+    /// <see cref="BuildAggregateConstructorExpression"/>). Injected services are null on this shadow
+    /// instance, which is correct for the inline evolve path: event Apply/Create methods that
+    /// dereference injected services are not supported there.
+    /// </summary>
+    private static string BuildProjectionInstanceExpression(INamedTypeSymbol projectionType, string projectionFullName)
+    {
+        var hasPublicParameterless = projectionType.InstanceConstructors.Any(c =>
+            c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+
+        if (hasPublicParameterless)
+        {
+            return $"new {projectionFullName}()";
+        }
+
+        return $"({projectionFullName})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({projectionFullName}))";
     }
 
     /// <summary>
