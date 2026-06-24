@@ -142,12 +142,16 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         // projection instance regardless of assembly; scanning the projection assembly preserves
         // that reach. See https://github.com/JasperFx/jasperfx/issues/462.
         // Select the single best-matching registration before dispatching. An evolver emitted for a
-        // specific projection subclass (ProjectionType set) must bind ONLY to that projection — several
-        // projections can target the same aggregate with different dispatch logic, and a no-op projection
-        // sharing the aggregate must NOT borrow another projection's evolver (that would skip validation
-        // and mis-dispatch). A projection-specific match wins; a self-aggregating (ProjectionType null)
-        // registration is the fallback. See #462.
-        GeneratedEvolverAttribute? selected = null;
+        // specific projection subclass (ProjectionType set) must bind ONLY to that projection (or a
+        // subclass of it) — several projections can target the same aggregate with different dispatch
+        // logic, and a no-op projection sharing the aggregate must NOT borrow another projection's evolver
+        // (that would skip validation and mis-dispatch). Priority: an exact projection match wins; then a
+        // BASE-class projection match (a derived projection that only customizes Name/Options inherits its
+        // base's convention methods, hence its generated evolver); then a self-aggregating (ProjectionType
+        // null) registration is the fallback. See #462.
+        GeneratedEvolverAttribute? exactMatch = null;
+        GeneratedEvolverAttribute? baseMatch = null;
+        GeneratedEvolverAttribute? aggregateOnly = null;
         foreach (var attr in collectGeneratedEvolverAttributes(docType))
         {
             if (attr.AggregateType != docType) continue;
@@ -156,11 +160,23 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             {
                 if (attr.ProjectionType == GetType())
                 {
-                    selected = attr;
+                    exactMatch = attr;
                     break;
                 }
 
-                // A projection-specific evolver for a DIFFERENT projection — never ours.
+                // A derived projection class (e.g. a subclass that only customizes Name/Options — the
+                // common "custom projection name" pattern) inherits the convention methods, and therefore
+                // the generated evolver, of its base projection. Accept an evolver whose ProjectionType is
+                // a base class of this projection, preferring the most-derived such base. Sibling
+                // projections are not assignable to one another, so this never lets unrelated projections
+                // borrow each other's dispatch logic.
+                if (attr.ProjectionType.IsAssignableFrom(GetType())
+                    && evolverImplementsIdentityContract(attr.EvolverType)
+                    && (baseMatch == null || baseMatch.ProjectionType!.IsAssignableFrom(attr.ProjectionType)))
+                {
+                    baseMatch = attr;
+                }
+
                 continue;
             }
 
@@ -170,13 +186,14 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             // with both Guid and string ids) the generator emits one evolver per TId, all keyed on the
             // aggregate type with a null ProjectionType. Selecting purely by aggregate type could pick the
             // wrong-TId evolver, whose strongly-typed interface checks below would all fail, leaving _evolve
-            // unwired and tripping the "no source-generated dispatcher" backstop. Keep scanning in case a
-            // projection-specific registration for this exact projection appears later.
+            // unwired and tripping the "no source-generated dispatcher" backstop.
             if (evolverImplementsIdentityContract(attr.EvolverType))
             {
-                selected ??= attr;
+                aggregateOnly ??= attr;
             }
         }
+
+        var selected = exactMatch ?? baseMatch ?? aggregateOnly;
 
         if (selected != null)
         {
