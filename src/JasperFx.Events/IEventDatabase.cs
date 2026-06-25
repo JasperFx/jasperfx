@@ -95,6 +95,26 @@ public interface IEventDatabase
                 "Per-tenant AllProjectionProgress is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
 
     /// <summary>
+    ///     Delete a single projection-progression row by its raw shard-name
+    ///     <see cref="ShardName.Identity" /> (e.g. <c>claim_lines:V9:All</c>), independent of whether a
+    ///     matching projection is still registered in the running application. This is the store-agnostic,
+    ///     DI-reachable companion to the read side (<see cref="AllProjectionProgress(CancellationToken)" />,
+    ///     <see cref="ProjectionProgressFor" />) and is the eject path for an <em>orphaned</em> shard — a
+    ///     renamed/versioned/removed projection, or a shard left behind by a topology change — whose row can
+    ///     no longer be dropped through the registered-projection-keyed
+    ///     <c>IEventStore&lt;,&gt;.DeleteProjectionProgressAsync</c> (which resolves its argument against the
+    ///     registered projections and so cannot target an unregistered identity).
+    ///     The match is on the exact shard identity, <em>not</em> a projection name or prefix. The default
+    ///     implementation throws <see cref="NotSupportedException" />; event stores (Marten, Polecat) override
+    ///     this to delete the row directly, bypassing any registered-projection lookup. See jasperfx#473.
+    /// </summary>
+    /// <param name="shardIdentity">The raw <see cref="ShardName.Identity" /> of the progression row to delete.</param>
+    /// <param name="token"></param>
+    Task DeleteProjectionProgressByShardNameAsync(string shardIdentity, CancellationToken token = default)
+        => throw new NotSupportedException(
+            "DeleteProjectionProgressByShardNameAsync is not implemented on this IEventDatabase. Use an event store (Marten or Polecat) that supports deleting a projection-progression row by its raw shard identity.");
+
+    /// <summary>
     ///     Count the stored dead letter events for a single projection/subscription shard. With
     ///     <c>SkipApplyErrors</c> on (the JasperFx.Events 2.0 default), a failed <c>Apply()</c> is
     ///     recorded as a <see cref="DeadLetterEvent" /> and the shard keeps advancing, so the
