@@ -166,6 +166,15 @@ public class EventStoreUsage : OptionsDescription
     public ProjectionErrorHandlingDescriptor? ProjectionRebuildErrors { get; set; }
 
     /// <summary>
+    /// Which event/stream metadata this store actually captures — drives
+    /// store-aware event/stream query facets in consumers (e.g. CritterWatch)
+    /// without sniffing engine-specific config. Null when the implementation
+    /// hasn't populated it; tools should treat that as "capabilities unknown".
+    /// See jasperfx#475.
+    /// </summary>
+    public EventMetadataCapabilities? EventMetadata { get; set; }
+
+    /// <summary>
     /// Populates AgentUris on each async SubscriptionDescriptor based on the
     /// agent URI pattern: {agentScheme}://{identity.Type}/{identity.Name}/{databaseId}/{shardName.RelativeUrl}
     /// </summary>
