@@ -131,4 +131,15 @@ public class DocumentStoreUsage : OptionsDescription
     /// <c>Storage.AllDocumentMappings</c>.
     /// </summary>
     public List<DocumentMappingDescriptor> Documents { get; set; } = new();
+
+    /// <summary>
+    /// Which document metadata this store actually captures — drives store-aware
+    /// document query facets in consumers (e.g. CritterWatch) without sniffing
+    /// engine-specific config. Separate from the event-store's
+    /// <c>EventMetadataCapabilities</c> because per-document metadata can differ
+    /// from per-event metadata within the same engine. Null when the
+    /// implementation hasn't populated it; tools should treat that as
+    /// "capabilities unknown". See jasperfx#475.
+    /// </summary>
+    public DocumentMetadataCapabilities? DocumentMetadata { get; set; }
 }

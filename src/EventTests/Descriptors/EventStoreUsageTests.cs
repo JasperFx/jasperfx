@@ -310,6 +310,68 @@ public class EventStoreUsageTests
         usage.ProjectionRebuildErrors.SkipUnknownEvents.ShouldBeFalse();
         usage.ProjectionRebuildErrors.SkipSerializationErrors.ShouldBeFalse();
     }
+
+    [Fact]
+    public void event_metadata_capabilities_default_to_null()
+    {
+        // jasperfx#475: until the implementing store populates it, consumers
+        // must be able to tell "capabilities unknown" apart from "everything off".
+        new EventStoreUsage(new Uri("marten://main"), new MyThing())
+            .EventMetadata.ShouldBeNull();
+    }
+
+    [Fact]
+    public void event_metadata_capabilities_round_trip_through_json()
+    {
+        var usage = new EventStoreUsage(new Uri("marten://main"), new MyThing())
+        {
+            EventMetadata = new EventMetadataCapabilities
+            {
+                StoreType = "Marten",
+                CorrelationId = true,
+                CausationId = true,
+                Headers = true,
+                UserName = true,
+                // Flip a couple of the otherwise-universal stream flags off to
+                // prove they serialize as set, not as their defaults.
+                Archived = false,
+                TenantId = false
+            }
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(usage);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<EventStoreUsage>(json)!;
+
+        roundTripped.EventMetadata.ShouldNotBeNull();
+        roundTripped.EventMetadata.StoreType.ShouldBe("Marten");
+        roundTripped.EventMetadata.CorrelationId.ShouldBeTrue();
+        roundTripped.EventMetadata.CausationId.ShouldBeTrue();
+        roundTripped.EventMetadata.Headers.ShouldBeTrue();
+        roundTripped.EventMetadata.UserName.ShouldBeTrue();
+        roundTripped.EventMetadata.Archived.ShouldBeFalse();
+        roundTripped.EventMetadata.TenantId.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void event_metadata_capabilities_default_flags()
+    {
+        // Event metadata flags are opt-in columns -> default false; stream
+        // metadata flags are effectively universal -> default true.
+        var capabilities = new EventMetadataCapabilities();
+
+        capabilities.StoreType.ShouldBe("");
+
+        capabilities.CorrelationId.ShouldBeFalse();
+        capabilities.CausationId.ShouldBeFalse();
+        capabilities.Headers.ShouldBeFalse();
+        capabilities.UserName.ShouldBeFalse();
+
+        capabilities.StreamAggregateType.ShouldBeTrue();
+        capabilities.StreamVersion.ShouldBeTrue();
+        capabilities.StreamTimestamps.ShouldBeTrue();
+        capabilities.TenantId.ShouldBeTrue();
+        capabilities.Archived.ShouldBeTrue();
+    }
 }
 
 public class MyThing
