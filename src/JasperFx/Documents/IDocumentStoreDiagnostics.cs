@@ -48,6 +48,28 @@ public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEqual
     /// record stays binary-compatible. See JasperFx/CritterWatch EVENT_STORE_EXPLORER_PLAN §3.1.
     /// </summary>
     public string? TenantId { get; init; }
+
+    /// <summary>
+    /// Optional exact-match filter on the document's correlation id metadata. Null applies no filter. Only
+    /// honored when the store advertises and captures the correlation id metadata column; otherwise ignored.
+    /// Added as an init-only member so the record stays binary-compatible. See JasperFx/CritterWatch #629.
+    /// </summary>
+    public string? CorrelationId { get; init; }
+
+    /// <summary>
+    /// Optional exact-match filter on the document's causation id metadata. Null applies no filter. Only
+    /// honored when the store advertises and captures the causation id metadata column; otherwise ignored.
+    /// Added as an init-only member so the record stays binary-compatible. See JasperFx/CritterWatch #629.
+    /// </summary>
+    public string? CausationId { get; init; }
+
+    /// <summary>
+    /// Optional exact-match filter on the document's "last modified by" user metadata. Null applies no
+    /// filter. Only honored when the store advertises and captures the last-modified-by metadata column;
+    /// otherwise ignored. Added as an init-only member so the record stays binary-compatible. See
+    /// JasperFx/CritterWatch #629.
+    /// </summary>
+    public string? LastModifiedBy { get; init; }
 }
 
 /// <summary>A page of stored documents as raw JSON, with the total matching count for pager UIs.</summary>
