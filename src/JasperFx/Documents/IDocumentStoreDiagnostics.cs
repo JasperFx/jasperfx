@@ -39,7 +39,16 @@ public record DocumentTypeRef(string TypeName, string Alias, string SchemaName);
 /// optional <see cref="IdEquals"/> narrows to a single id. Room to grow simple criteria later without a
 /// signature break.
 /// </summary>
-public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEquals = null);
+public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEquals = null)
+{
+    /// <summary>
+    /// Optional tenant id to scope the query to. For conjoined tenancy the implementation filters by the
+    /// store's tenant column; for database-per-tenant it targets that tenant's physical database. Null
+    /// queries the default/main tenant. Added as an init-only member (not a positional parameter) so the
+    /// record stays binary-compatible. See JasperFx/CritterWatch EVENT_STORE_EXPLORER_PLAN §3.1.
+    /// </summary>
+    public string? TenantId { get; init; }
+}
 
 /// <summary>A page of stored documents as raw JSON, with the total matching count for pager UIs.</summary>
 public record DocumentQueryResult(IReadOnlyList<string> DocumentsJson, long TotalCount, int PageNumber, int PageSize);
