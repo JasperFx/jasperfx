@@ -117,12 +117,17 @@ public partial class AllSync : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
-    public void di_activated_projection_without_parameterless_ctor_compiles()
+    public void di_activated_projection_without_parameterless_ctor_dispatches_through_partial_override()
     {
-        // #4185 / CS7036 regression: a projection registered via AddProjectionWithServices has only a
-        // constructor with injected dependencies (no parameterless ctor). The evolver's private shadow
-        // instance must not be created with `new T()` — that won't compile. It is instantiated without
-        // running the constructor instead (RuntimeHelpers.GetUninitializedObject).
+        // marten#4787: a projection registered via AddProjectionWithServices has only a constructor
+        // with injected dependencies (no parameterless ctor). The pre-fix emission built the
+        // evolver's private shadow projection via RuntimeHelpers.GetUninitializedObject — which
+        // compiled (closing the original #4185 CS7036 hole) but left injected fields null at runtime,
+        // NREing the first time a convention method dereferenced one.
+        // The fix emits a [GeneratedCode]-attributed override (Evolve / EvolveAsync /
+        // DetermineActionAsync) directly into the user's partial class. Dispatch binds to `this`
+        // (the DI-built instance), so injected fields are populated. The file-scoped Evolver and the
+        // [assembly: GeneratedEvolver(...)] attribute are NOT emitted for this case.
         var source = @"
 using System;
 using JasperFx.Events;
@@ -154,11 +159,27 @@ public partial class DiActivated : SingleStreamProjection<MyAggregate, Guid>
         var (_, generatedSources) = RunGenerator(source);
         var generated = string.Join("\n", generatedSources);
 
-        // Shadow instance is created without invoking the (parameterized) constructor.
-        generated.ShouldContain("GetUninitializedObject(typeof(global::Test.DiActivated))");
+        // No shadow-instance escape hatch — the override dispatches on `this`.
+        generated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.DiActivated))");
         generated.ShouldNotContain("new global::Test.DiActivated()");
+        generated.ShouldNotContain("_projection.Create");
+        generated.ShouldNotContain("_projection.Apply");
 
-        // The generated evolver must compile — no CS7036 "no argument for required parameter".
+        // No file-scoped Evolver class and no GeneratedEvolver assembly attribute — the runtime
+        // selects the partial-class override via isOverridden() before tryUseAssemblyRegisteredEvolver
+        // ever runs, so the file-scoped path is unreachable for this case.
+        generated.ShouldNotContain("file sealed class");
+        generated.ShouldNotContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver");
+
+        // Partial-class override on the user's class, marked [GeneratedCode] so
+        // AssembleAndAssertValidity's isSourceGeneratedOverride() accepts it.
+        generated.ShouldContain("partial class DiActivated");
+        generated.ShouldContain("[global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
+        // Either Evolve (sync, no session/ShouldDelete) or EvolveAsync would do — the projection
+        // here is sync with no ShouldDelete, so expect the sync Evolve override.
+        generated.ShouldContain("public override global::Test.MyAggregate? Evolve(");
+
+        // The generated override must compile — no CS7036 "no argument for required parameter".
         var diagnostics = CompileWithGenerator(source);
         diagnostics.ShouldNotContain(d => d.Id == "CS7036");
     }
