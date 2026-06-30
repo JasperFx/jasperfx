@@ -38,6 +38,18 @@ public interface IEventStore
     bool HasMultipleTenants { get; }
 
     /// <summary>
+    ///     When true, a node-distributed async daemon (e.g. Wolverine-managed event-subscription
+    ///     distribution) must fan out one subscription agent per (shard, tenant) rather than a single
+    ///     store-global agent per (shard, database). Required for stores where multiple tenants are
+    ///     co-located in one database and each tenant draws its own event sequence (sharded databases +
+    ///     per-tenant event partitioning): a single store-global high-water cannot track tenants whose
+    ///     independent sequences overlap, so a lagging tenant's later appends would fall below it and be
+    ///     skipped. Default false (one agent per shard×database) — correct for store-global, single-database
+    ///     per-tenant partitioning, and database-per-tenant stores. See jasperfx/wolverine#3280.
+    /// </summary>
+    bool DistributesAgentsPerTenant => false;
+
+    /// <summary>
     ///     Resolve every <see cref="IEventDatabase" /> backing this event store, store-agnostically.
     ///     This is the store-neutral counterpart to Marten's <c>IMartenStorage.AllDatabases()</c> — it lets
     ///     monitoring/tooling code (e.g. CritterWatch) obtain an <see cref="IEventDatabase" /> to call the read

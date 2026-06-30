@@ -227,6 +227,34 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
 
+        // wolverine#3280: a per-tenant identity ("<proj>:All:<tenant>", or versioned
+        // "<proj>:V{n}:All:<tenant>") is requested individually under node-distributed daemons
+        // (Wolverine-managed distribution). AllShards() only carries the store-global identities, so
+        // resolve the BASE shard and fan out a per-tenant agent — the same shape
+        // buildPerTenantContinuousAgents uses — activating the tenant in the high-water coordinator so it
+        // advances against its own mark and persists its own <proj>:All:<tenant> progression row.
+        if (ShardName.TryParse(shardName, out var requested) && requested?.TenantId != null)
+        {
+            var baseIdentity = ShardName.Compose(requested.Name, requested.ShardKey, null, requested.Version).Identity;
+            var baseShard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == baseIdentity);
+            if (baseShard == null)
+            {
+                throw new ArgumentOutOfRangeException(nameof(shardName),
+                    $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
+            }
+
+            _tenantHighWater?.PolledTenants.Activate(requested.TenantId);
+            var tenantShard = baseShard with { Name = baseShard.Name.ForTenant(requested.TenantId) };
+            var tenantAgent = buildAgentForShard(tenantShard);
+            var tenantStarted = await tryStartAgentAsync(tenantAgent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+            if (!tenantStarted && tenantAgent is IAsyncDisposable td)
+            {
+                await td.DisposeAsync().ConfigureAwait(false);
+            }
+
+            return;
+        }
+
         var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
         if (shard == null)
         {
