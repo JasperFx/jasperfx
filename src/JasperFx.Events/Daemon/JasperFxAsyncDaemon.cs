@@ -251,6 +251,18 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             {
                 await td.DisposeAsync().ConfigureAwait(false);
             }
+            else if (tenantStarted)
+            {
+                // wolverine#3280: unlike StartAllAsync (which primes every tenant's ceiling before
+                // starting its agents), Wolverine-managed distribution starts each tenant agent
+                // individually here — so its ceiling is not yet known and tryStartAgentAsync seeds it at
+                // high-water 0. The per-tenant poll only re-runs on a *global* high-water tick, which the
+                // store broadcasts only when the store-global mark CHANGES (HighWaterAgent publishes only on
+                // change); once it is stable (e.g. a node that starts after catch-up), no tick follows and
+                // the freshly-started agent would sit idle at 0 forever. Drive one poll now so it is routed
+                // its own tenant's mark and advances.
+                await pollTenantHighWaterAsync().ConfigureAwait(false);
+            }
 
             return;
         }
