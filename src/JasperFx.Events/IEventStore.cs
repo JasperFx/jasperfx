@@ -58,10 +58,22 @@ public interface IEventStore
     ///     connection pool to (nearly) every shard database, so the pool count grows as nodes×databases and
     ///     exhausts a shared server's max_connections. Grouping a database's agents onto one node bounds
     ///     each node to the databases it owns, so pools scale with databases, not nodes×databases. Default
-    ///     false (even per-agent distribution). Only meaningful for sharded-database stores. See
-    ///     JasperFx/marten#4806.
+    ///     false (even per-agent distribution). Only meaningful for sharded-database stores. The fan-out is
+    ///     bounded by <see cref="MaxNodesPerDatabaseForAgents" />. See JasperFx/marten#4806.
     /// </summary>
     bool GroupAgentAssignmentsByDatabase => false;
+
+    /// <summary>
+    ///     Upper bound, when <see cref="GroupAgentAssignmentsByDatabase" /> is on, on how many nodes a single
+    ///     shard database's agents may be spread across. This is the "mix" between strict affinity and even
+    ///     spreading: <c>1</c> pins every database to one node (fewest connections, but a heavy database is
+    ///     serialized on a single node's pool); a higher value lets a database's per-tenant agents fan out
+    ///     across up to N least-loaded nodes for more parallelism, at the cost of that database being reached
+    ///     by up to N nodes (so its server-side connection ceiling becomes N × per-node pool). A database with
+    ///     fewer tenants than N naturally uses fewer nodes. Choose N so <c>databases × N × pool</c> stays
+    ///     under the server's max_connections. Default 1 (strict affinity). See JasperFx/marten#4806.
+    /// </summary>
+    int MaxNodesPerDatabaseForAgents => 1;
 
     /// <summary>
     ///     Resolve every <see cref="IEventDatabase" /> backing this event store, store-agnostically.
