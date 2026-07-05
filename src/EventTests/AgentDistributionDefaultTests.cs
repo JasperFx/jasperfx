@@ -16,10 +16,9 @@ public class AgentDistributionDefaultTests
 {
     // A bare IEventStore that overrides none of the agent-distribution members, so the assertions below
     // exercise the default interface implementations. A store that does not opt in must behave exactly as
-    // before: one agent per shard×database (DistributesAgentsPerTenant false), even per-agent spreading
-    // (GroupAgentAssignmentsByDatabase false), and no fan-out bound (MaxNodesPerDatabaseForAgents 1).
-    // See jasperfx/wolverine#3280 and JasperFx/marten#4806. Everything else throws — those members are
-    // never invoked here.
+    // before: one agent per shard×database (DistributesAgentsPerTenant false) and even per-agent spreading
+    // (GroupAgentAssignmentsByDatabase false). See jasperfx/wolverine#3280 and JasperFx/marten#4806.
+    // Everything else throws — those members are never invoked here.
     private sealed class BareEventStore : IEventStore
     {
         public Task<EventStoreUsage?> TryCreateUsage(CancellationToken token) => throw new NotImplementedException();
@@ -59,11 +58,5 @@ public class AgentDistributionDefaultTests
     public void group_agent_assignments_by_database_defaults_to_false()
     {
         theStore.GroupAgentAssignmentsByDatabase.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void max_nodes_per_database_for_agents_defaults_to_one()
-    {
-        theStore.MaxNodesPerDatabaseForAgents.ShouldBe(1);
     }
 }
