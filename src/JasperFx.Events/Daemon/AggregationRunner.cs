@@ -272,11 +272,27 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 await processPossibleSideEffects(batch, operations, slice).ConfigureAwait(false);
             }
 
-            // Only archive from the perspective of a projection that actually owns the stream.
-            // The delete-type branch only fires when a pre-existing snapshot is present
-            // (otherwise buildActionAsync returns Nothing), so slice.Snapshot signals ownership.
+            // A DeleteEvent<T> registration deletes through this short-circuit rather than
+            // through DetermineActionAsync/buildActionAsync. A pre-existing snapshot is what
+            // makes this a real deletion and signals stream ownership; with no prior snapshot
+            // buildActionAsync maps to ActionType.Nothing, so this stays a no-op.
             // See issue JasperFx/marten#4093.
-            maybeArchiveStream(storage, slice, ownsStream: slice.Snapshot != null);
+            var ownsStream = slice.Snapshot != null;
+
+            maybeArchiveStream(storage, slice, ownsStream);
+
+            if (ownsStream)
+            {
+                // Record the delete and clear the snapshot so MarkSliceAction fans the synthetic
+                // ProjectionDeleted<TDoc,TId> event to downstream composite stages. Without this,
+                // ResultingAction stayed at Nothing (and slice.Snapshot non-null), so later stages
+                // saw a stale Updated<TDoc> instead of the deletion — or nothing at all. This
+                // mirrors the DetermineActionAsync delete path below. See issue JasperFx/jasperfx#483.
+                slice.RecordAction(ActionType.Delete);
+                slice.Snapshot = default;
+                removeFromCache(cache, slice.Id);
+            }
+
             storage.Delete(slice.Id);
             return;
         }
