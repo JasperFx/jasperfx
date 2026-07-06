@@ -227,22 +227,76 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
 
+        // Exact registered identities always win — a shard identity that happens to contain enough
+        // segments to parse as tenant-bearing must not be hijacked by the per-tenant branch below.
         var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
-        if (shard == null)
+        if (shard != null)
         {
-            throw new ArgumentOutOfRangeException(nameof(shardName),
-                $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
+            var agent = buildAgentForShard(shard);
+
+            var didStart = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+
+            if (!didStart && agent is IAsyncDisposable d)
+            {
+                // Could not be started
+                await d.DisposeAsync().ConfigureAwait(false);
+            }
+
+            return;
         }
 
-        var agent = buildAgentForShard(shard);
-
-        var didStart = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
-
-        if (!didStart && agent is IAsyncDisposable d)
+        // wolverine#3280: a per-tenant identity ("<proj>:All:<tenant>", or versioned
+        // "<proj>:V{n}:All:<tenant>") is requested individually under node-distributed daemons
+        // (Wolverine-managed distribution). AllShards() only carries the store-global identities, so
+        // resolve the BASE shard and fan out a per-tenant agent — the same shape
+        // buildPerTenantContinuousAgents uses — activating the tenant in the high-water coordinator so it
+        // advances against its own mark and persists its own <proj>:All:<tenant> progression row.
+        if (ShardName.TryParse(shardName, out var requested) && requested?.TenantId != null)
         {
-            // Could not be started
-            await d.DisposeAsync().ConfigureAwait(false);
+            if (_tenantHighWater == null)
+            {
+                // Without per-tenant high-water tracking a tenant agent would seed from the store-global
+                // mark and double-process events already covered by the store-global agent. A tenant-bearing
+                // identity arriving here means the host (e.g. Wolverine) fanned out per-tenant agents
+                // against a store that does not distribute per tenant — fail loudly instead.
+                throw new ArgumentOutOfRangeException(nameof(shardName),
+                    $"Shard name '{shardName}' addresses tenant '{requested.TenantId}', but this event store does not use per-tenant event partitioning. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
+            }
+
+            var baseIdentity = ShardName.Compose(requested.Name, requested.ShardKey, null, requested.Version).Identity;
+            var baseShard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == baseIdentity);
+            if (baseShard == null)
+            {
+                throw new ArgumentOutOfRangeException(nameof(shardName),
+                    $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
+            }
+
+            // Prime the tenant's ceiling BEFORE starting the agent, mirroring StartAllAsync's
+            // prime-then-start order. tryStartAgentAsync seeds the agent from CeilingFor(tenant) and the
+            // starting position strategy runs against that ceiling — starting first and polling after
+            // would run DetermineStartingPositionAsync against high-water 0, which for a
+            // SubscribeFromPresent subscription resolves "present" to sequence 0 and rewinds its
+            // progression row, replaying the tenant's entire history.
+            _tenantHighWater.PolledTenants.Activate(requested.TenantId);
+            await pollTenantHighWaterAsync().ConfigureAwait(false);
+
+            var tenantShard = baseShard with { Name = baseShard.Name.ForTenant(requested.TenantId) };
+            var tenantAgent = buildAgentForShard(tenantShard);
+            var tenantStarted = await tryStartAgentAsync(tenantAgent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+            if (!tenantStarted && tenantAgent is IAsyncDisposable td)
+            {
+                await td.DisposeAsync().ConfigureAwait(false);
+
+                // Reconcile the polled-tenant set so a failed start doesn't leave the coordinator
+                // polling (and persisting high-water rows for) a tenant with no agent on this node.
+                syncTenantPolling();
+            }
+
+            return;
         }
+
+        throw new ArgumentOutOfRangeException(nameof(shardName),
+            $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
     }
     
     public async Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token)
