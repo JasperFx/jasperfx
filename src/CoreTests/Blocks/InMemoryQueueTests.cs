@@ -120,7 +120,73 @@ public class InMemoryQueueTests
         var actual = list.OrderBy(x => x).ToArray();
         
         actual.Length.ShouldBe(all.Length);
-        
+
         //actual.ShouldBe(all);
+    }
+
+    [Fact]
+    public async Task synchronous_Post_does_not_drop_items_when_the_bounded_channel_fills()
+    {
+        // Regression for GH-3287: previously Post() used a non-blocking TryWrite and silently dropped
+        // every item once more than the bounded capacity (10k) were queued faster than the reader drained.
+        // Here the reader is held closed until the channel has saturated and the producer is blocked in
+        // Post() waiting for capacity -- proving the item is back-pressured rather than dropped.
+        const int count = 25_000;
+        var processed = 0;
+        using var gate = new ManualResetEventSlim(false);
+
+        await using var queue = new Block<int>(1, Block<int>.DefaultBoundedCapacity, (_, token) =>
+        {
+            gate.Wait(token);
+            Interlocked.Increment(ref processed);
+            return Task.CompletedTask;
+        });
+
+        var producer = Task.Run(() =>
+        {
+            for (var i = 0; i < count; i++)
+            {
+                queue.Post(i);
+            }
+        });
+
+        // Wait until the channel is saturated (producer is now blocked inside Post waiting for room).
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (queue.Count < Block<int>.DefaultBoundedCapacity && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        queue.Count.ShouldBeGreaterThanOrEqualTo((uint)Block<int>.DefaultBoundedCapacity);
+        producer.IsCompleted.ShouldBeFalse(); // still blocked -> the overflow item was NOT dropped
+
+        gate.Set();
+
+        await producer;
+        await queue.WaitForCompletionAsync();
+
+        processed.ShouldBe(count);
+    }
+
+    [Fact]
+    public async Task unbounded_block_never_blocks_or_drops_on_Post()
+    {
+        const int count = 25_000;
+        var processed = 0;
+
+        await using var queue = new Block<int>(1, Block<int>.Unbounded, (_, _) =>
+        {
+            Interlocked.Increment(ref processed);
+            return Task.CompletedTask;
+        });
+
+        for (var i = 0; i < count; i++)
+        {
+            queue.Post(i);
+        }
+
+        await queue.WaitForCompletionAsync();
+
+        processed.ShouldBe(count);
     }
 }

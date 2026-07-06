@@ -41,7 +41,10 @@ public class RetryBlock<T> : IRetryBlock<T>, IDisposable
         _logger = logger;
         _cancellationToken = cancellationToken;
 
-        _block = new Block<Item>(executeAsync);
+        // Unbounded: executeAsync re-posts failed items back onto this same block from within its own
+        // processing action. With a bounded, back-pressuring block that self-re-enqueue would deadlock
+        // against a full channel (GH-3287), so retries must never block on write.
+        _block = new Block<Item>(1, Block<Item>.Unbounded, executeAsync);
     }
 
     public int MaximumAttempts { get; set; } = 3;
