@@ -50,20 +50,6 @@ public interface IEventStore
     bool DistributesAgentsPerTenant => false;
 
     /// <summary>
-    ///     When true, a node-distributed async daemon should assign the per-(shard, tenant) agents with
-    ///     <b>database affinity</b> — every agent for the same shard database is placed on the same node —
-    ///     rather than spreading individual agents evenly by count. This complements
-    ///     <see cref="DistributesAgentsPerTenant" /> (which fans agents out per tenant): with many tenants
-    ///     scattered across many shard databases, an even per-agent spread makes every node open a
-    ///     connection pool to (nearly) every shard database, so the pool count grows as nodes×databases and
-    ///     exhausts a shared server's max_connections. Grouping a database's agents onto one node bounds
-    ///     each node to the databases it owns, so pools scale with databases, not nodes×databases. Default
-    ///     false (even per-agent distribution). Only meaningful for sharded-database stores.
-    ///     See JasperFx/marten#4806.
-    /// </summary>
-    bool GroupAgentAssignmentsByDatabase => false;
-
-    /// <summary>
     ///     Resolve every <see cref="IEventDatabase" /> backing this event store, store-agnostically.
     ///     This is the store-neutral counterpart to Marten's <c>IMartenStorage.AllDatabases()</c> — it lets
     ///     monitoring/tooling code (e.g. CritterWatch) obtain an <see cref="IEventDatabase" /> to call the read

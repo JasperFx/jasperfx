@@ -16,8 +16,7 @@ public class AgentDistributionDefaultTests
 {
     // A bare IEventStore that overrides none of the agent-distribution members, so the assertions below
     // exercise the default interface implementations. A store that does not opt in must behave exactly as
-    // before: one agent per shard×database (DistributesAgentsPerTenant false) and even per-agent spreading
-    // (GroupAgentAssignmentsByDatabase false). See jasperfx/wolverine#3280 and JasperFx/marten#4806.
+    // before: one agent per shard×database (DistributesAgentsPerTenant false). See jasperfx/wolverine#3280.
     // Everything else throws — those members are never invoked here.
     private sealed class BareEventStore : IEventStore
     {
@@ -52,11 +51,5 @@ public class AgentDistributionDefaultTests
     public void distributes_agents_per_tenant_defaults_to_false()
     {
         theStore.DistributesAgentsPerTenant.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void group_agent_assignments_by_database_defaults_to_false()
-    {
-        theStore.GroupAgentAssignmentsByDatabase.ShouldBeFalse();
     }
 }
