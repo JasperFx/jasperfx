@@ -32,11 +32,17 @@ public class SubscriptionDescriptor : OptionsDescription
 
         // The CLR type that implements this projection/subscription, plus — for self-aggregating
         // projections (Snapshot<T> / SingleStreamProjection<T>) — the aggregate/document type, so
-        // consumers can display "what .NET type implements this projection".
-        ImplementationType = TypeDescriptor.For(subject.ImplementationType);
-        if (subject is IAggregateProjection aggregate)
+        // consumers can display "what .NET type implements this projection". This is diagnostics-only
+        // metadata, so a source that fails to supply a type leaves the property null rather than
+        // blowing up the whole Describe() pipeline.
+        if (subject.ImplementationType is { } implementationType)
         {
-            AggregateType = TypeDescriptor.For(aggregate.AggregateType);
+            ImplementationType = TypeDescriptor.For(implementationType);
+        }
+
+        if (subject is IAggregateProjection { AggregateType: { } aggregateType })
+        {
+            AggregateType = TypeDescriptor.For(aggregateType);
         }
 
         if (Lifecycle == ProjectionLifecycle.Async)
