@@ -63,6 +63,11 @@ jobs:
         run: ./build.sh test-command-line
         shell: bash
 
+      - name: test-events
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-events
+        shell: bash
+
       - name: test-event-store
         if: ${{ success() || failure() }}
         run: ./build.sh test-event-store

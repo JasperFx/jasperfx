@@ -26,6 +26,7 @@ public class SubscriptionDescriptorTests
         source.Version.Returns(2U);
         source.ShardNames().Returns([new ShardName("Foo", "One", 2U), new ShardName("Foo", "Two", 2U)]);
         source.Lifecycle.Returns(ProjectionLifecycle.Async);
+        source.ImplementationType.Returns(typeof(FakeSubscription));
 
         var store = new FakeEventStore();
 
@@ -34,9 +35,12 @@ public class SubscriptionDescriptorTests
         descriptor.Name.ShouldBe("Foo");
         descriptor.Version.ShouldBe(2U);
         descriptor.Lifecycle.ShouldBe(ProjectionLifecycle.Async);
-        
+
+        descriptor.ImplementationType.ShouldBe(TypeDescriptor.For(typeof(FakeSubscription)));
+        descriptor.AggregateType.ShouldBeNull();
+
         descriptor.ShardNames.ShouldBe([new ShardName("Foo", "One", 2U), new ShardName("Foo", "Two", 2U)]);
-        
+
         descriptor.Metrics.Select(x => x.Name).ShouldBe(["fake.foo.one.gap", "fake.foo.two.gap"]);
         descriptor.Metrics.Select(x => x.Type).Distinct().Single().ShouldBe(MetricsType.Histogram);
         
@@ -52,12 +56,33 @@ public class SubscriptionDescriptorTests
         source.Version.Returns(2U);
         source.ShardNames().Returns([new ShardName("Foo", "One", 2U), new ShardName("Foo", "Two", 2U)]);
         source.Lifecycle.Returns(ProjectionLifecycle.Async);
+        source.ImplementationType.Returns(typeof(FakeSubscription));
 
         var store = new FakeEventStore();
 
         var descriptor = new SubscriptionDescriptor(source, store);
-        
+
         descriptor.ShouldBeSerializable();
+    }
+
+    [Fact]
+    public void tolerates_a_source_with_no_implementation_type()
+    {
+        // ISubscriptionSource.ImplementationType is declared non-nullable, but the
+        // descriptor is diagnostics-only metadata — a source that returns null (as an
+        // unconfigured mock does) should yield a null ImplementationType, not an NRE
+        // out of the whole Describe() pipeline. Pins the jasperfx#465 regression.
+        var source = Substitute.For<ISubscriptionSource>();
+        source.Type.Returns(SubscriptionType.Subscription);
+        source.Name.Returns("Foo");
+        source.Version.Returns(2U);
+        source.ShardNames().Returns([new ShardName("Foo", "One", 2U)]);
+        source.Lifecycle.Returns(ProjectionLifecycle.Async);
+
+        var descriptor = new SubscriptionDescriptor(source, new FakeEventStore());
+
+        descriptor.ImplementationType.ShouldBeNull();
+        descriptor.AggregateType.ShouldBeNull();
     }
 
     [Fact]
@@ -83,6 +108,10 @@ public class SubscriptionDescriptorTests
         descriptor.Metrics.Any().ShouldBeFalse();
         descriptor.ActivitySpans.Any().ShouldBeFalse();
     }
+}
+
+public class FakeSubscription
+{
 }
 
 public class FakeEventStore : IEventStore
