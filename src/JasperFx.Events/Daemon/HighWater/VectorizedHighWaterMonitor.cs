@@ -20,7 +20,12 @@ public class VectorizedHighWaterMonitor
 
     // The last-known reading per tenant. Each tenant's gap detection reads ONLY its own entry, which is
     // what keeps tenants independent of one another.
+    // jasperfx#497: guarded by _lock — parallel per-tenant rebuild cells now drive concurrent polls
+    // (on top of the pre-existing OnNext-driven and timer-driven poll paths), and an unguarded
+    // Dictionary corrupts under concurrent writes. The detector round-trip stays outside the lock;
+    // only the interpretation/bookkeeping section is serialized.
     private readonly Dictionary<string, HighWaterStatistics> _current = new();
+    private readonly object _lock = new();
 
     public VectorizedHighWaterMonitor(IHighWaterDetector detector, ILogger? logger = null)
     {
@@ -62,28 +67,31 @@ public class VectorizedHighWaterMonitor
         var vector = await detect(tenants, token).ConfigureAwait(false);
 
         var readings = new List<TenantHighWaterReading>(tenants.Count);
-        foreach (var tenantId in tenants)
+        lock (_lock)
         {
-            if (!vector.TryGetStatistics(tenantId, out var statistics))
+            foreach (var tenantId in tenants)
             {
-                // The detector returned nothing for an assigned tenant (e.g. it has no events yet). Skip
-                // it for this round without disturbing any other tenant's state.
-                continue;
+                if (!vector.TryGetStatistics(tenantId, out var statistics))
+                {
+                    // The detector returned nothing for an assigned tenant (e.g. it has no events yet). Skip
+                    // it for this round without disturbing any other tenant's state.
+                    continue;
+                }
+
+                // Independent gap detection: interpret against THIS tenant's previous reading only. On the
+                // first sighting we compare the reading against itself, which yields CaughtUp/Changed but
+                // never a spurious Stale driven by another tenant.
+                var previous = _current.TryGetValue(tenantId, out var prior) ? prior : statistics;
+                var status = statistics.InterpretStatus(previous);
+
+                // Advance the stored mark monotonically; a stale tenant keeps its last good mark.
+                if (!_current.TryGetValue(tenantId, out var existing) || statistics.CurrentMark >= existing.CurrentMark)
+                {
+                    _current[tenantId] = statistics;
+                }
+
+                readings.Add(new TenantHighWaterReading(tenantId, statistics, status));
             }
-
-            // Independent gap detection: interpret against THIS tenant's previous reading only. On the
-            // first sighting we compare the reading against itself, which yields CaughtUp/Changed but
-            // never a spurious Stale driven by another tenant.
-            var previous = _current.TryGetValue(tenantId, out var prior) ? prior : statistics;
-            var status = statistics.InterpretStatus(previous);
-
-            // Advance the stored mark monotonically; a stale tenant keeps its last good mark.
-            if (!_current.TryGetValue(tenantId, out var existing) || statistics.CurrentMark >= existing.CurrentMark)
-            {
-                _current[tenantId] = statistics;
-            }
-
-            readings.Add(new TenantHighWaterReading(tenantId, statistics, status));
         }
 
         return readings;
@@ -95,11 +103,21 @@ public class VectorizedHighWaterMonitor
     /// null when the tenant has not yet been polled.
     /// </summary>
     public long? CeilingFor(string tenantId)
-        => _current.TryGetValue(tenantId, out var statistics) ? statistics.CurrentMark : null;
+    {
+        lock (_lock)
+        {
+            return _current.TryGetValue(tenantId, out var statistics) ? statistics.CurrentMark : null;
+        }
+    }
 
     /// <summary>
     /// The most recent reading observed for a tenant, if any.
     /// </summary>
     public bool TryGetCurrent(string tenantId, out HighWaterStatistics statistics)
-        => _current.TryGetValue(tenantId, out statistics!);
+    {
+        lock (_lock)
+        {
+            return _current.TryGetValue(tenantId, out statistics!);
+        }
+    }
 }

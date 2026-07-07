@@ -49,6 +49,32 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // executions through IDaemonRuntime -> SubscriptionAgent -> EventRange.Agent. Null = unbounded.
     public SemaphoreSlim? BatchWriteThrottle { get; }
 
+    // jasperfx#497 (the #420 leftover): ONE shared budget per daemon (= per database) for rebuild
+    // cells, spanning both fan-out layers — the CLI's projection-level fan-out AND the
+    // intra-projection per-(tenant, shard) fan-out — so a projection-level slot and its tenant
+    // cells never multiply the bound. Each cell holds a slot only for the duration of its replay
+    // (rebuildAgent). Null = unbounded.
+    private SemaphoreSlim? _rebuildBudget;
+    private int? _maxConcurrentRebuilds;
+
+    /// <summary>
+    /// jasperfx#497: the shared per-database rebuild cell budget. Resolved at construction from
+    /// <see cref="DaemonSettings.MaxConcurrentRebuildsPerDatabase"/> (explicit knob) falling back to
+    /// <see cref="IEventStore.MaxConcurrentRebuildsPerDatabase"/> (store-derived default, e.g.
+    /// Marten/Polecat's pool-size / 8). Setting it — the <c>projections rebuild --max-concurrent</c>
+    /// CLI override path — replaces the budget for subsequent rebuild operations. Null or a
+    /// non-positive value is unbounded.
+    /// </summary>
+    public int? MaxConcurrentRebuildsPerDatabase
+    {
+        get => _maxConcurrentRebuilds;
+        set
+        {
+            _maxConcurrentRebuilds = value;
+            _rebuildBudget = value is > 0 ? new SemaphoreSlim(value.Value) : null;
+        }
+    }
+
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
@@ -76,6 +102,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         BatchWriteThrottle = _projections.MaxConcurrentBatchWritesPerDatabase > 0
             ? new SemaphoreSlim(_projections.MaxConcurrentBatchWritesPerDatabase)
             : null;
+
+        // jasperfx#497: explicit DaemonSettings knob wins, then the store-derived default. Concrete
+        // stores typically fold the settings knob into their override already; the double-consult is
+        // idempotent. Null resolves to null = unbounded (JasperFx.Events has no pool signal).
+        MaxConcurrentRebuildsPerDatabase =
+            _projections.MaxConcurrentRebuildsPerDatabase ?? store.MaxConcurrentRebuildsPerDatabase;
     }
 
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
@@ -105,6 +137,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         BatchWriteThrottle = _projections.MaxConcurrentBatchWritesPerDatabase > 0
             ? new SemaphoreSlim(_projections.MaxConcurrentBatchWritesPerDatabase)
             : null;
+
+        // jasperfx#497: see the ILoggerFactory constructor overload for the resolution rationale
+        MaxConcurrentRebuildsPerDatabase =
+            _projections.MaxConcurrentRebuildsPerDatabase ?? store.MaxConcurrentRebuildsPerDatabase;
     }
 
     private RetryBlock<DeadLetterEvent> buildDeadLetterBlock()
@@ -132,6 +168,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _deadLetterBlock.Dispose();
         _loadThrottle?.Dispose();
         BatchWriteThrottle?.Dispose();
+        _rebuildBudget?.Dispose();
     }
 
     public ShardStateTracker Tracker { get; }
@@ -220,25 +257,55 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return true;
     }
 
+    // jasperfx#497: one rebuild "cell" — a single (projection, tenant/shard) replay. The cell draws a
+    // slot from the shared per-database rebuild budget for the duration of its replay, so no matter how
+    // wide the caller's fan-out is (the CLI's projection-level Parallel.ForEachAsync, the per-tenant
+    // cross-product loop, CrossTenantRebuild.RebuildEverywhereAsync), the number of concurrently
+    // replaying cells per database never exceeds the budget. The daemon's agent-registry lock
+    // (_semaphore) is now held only around the registry mutations, NOT across the replay itself —
+    // holding it across the replay (the pre-#497 shape) serialized every rebuild cell in the daemon at
+    // an effective concurrency of one, making any cap > 1 unreachable.
     private async Task rebuildAgent(ISubscriptionAgent agent, long highWaterMark, TimeSpan shardTimeout)
     {
-        await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        var budget = _rebuildBudget;
+        if (budget != null)
+        {
+            await budget.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        }
 
         try
         {
-            // Ensure that the agent is stopped if it is already running
-            await stopIfRunningAsync(agent.Name.Identity).ConfigureAwait(false);
+            await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+
+            try
+            {
+                // Ensure that the agent is stopped if it is already running
+                await stopIfRunningAsync(agent.Name.Identity).ConfigureAwait(false);
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
 
             var errorOptions = _store.RebuildErrors;
 
             var request = new SubscriptionExecutionRequest(0, ShardExecutionMode.Rebuild, errorOptions, this);
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
 
-            _agents = _agents.AddOrUpdate(agent.Name.Identity, agent);
+            await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+
+            try
+            {
+                _agents = _agents.AddOrUpdate(agent.Name.Identity, agent);
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
         }
         finally
         {
-            _semaphore.Release();
+            budget?.Release();
         }
     }
     
@@ -861,6 +928,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // partitioning, reusing the per-tenant rebuild that scopes teardown + ceiling to (shard, tenant).
     // Tenant enumeration mirrors catchUpPerTenantAsync. With no tenants registered yet, fall back to the
     // store-global rebuild (a no-op when the high-water is 0).
+    //
+    // jasperfx#497: when a rebuild budget is configured, the per-tenant fan-out runs in parallel with a
+    // launch width of the budget size — the actual replay concurrency is bounded by the SHARED
+    // per-database budget inside rebuildAgent, so overlapping projection-level rebuilds (the CLI's
+    // --max-concurrent layer) and their tenant cells never multiply the bound. With no budget
+    // (null/non-positive = unbounded core-side), the historical sequential tenant walk is preserved.
     private async Task rebuildProjectionAllTenants(
         ICrossTenantRebuildSource crossTenantSource,
         IProjectionSource<TOperations, TQuerySession> source,
@@ -873,6 +946,19 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         if (tenants.Count == 0)
         {
             await RebuildProjectionAsync(source.Name, shardTimeout, token).ConfigureAwait(false);
+            return;
+        }
+
+        // ParallelOptions.MaxDegreeOfParallelism throws on 0 — only a positive budget may pass through.
+        var maxConcurrent = MaxConcurrentRebuildsPerDatabase;
+        if (maxConcurrent is > 0)
+        {
+            await Parallel.ForEachAsync(tenants,
+                    new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = maxConcurrent.Value },
+                    async (tenantId, ct) =>
+                        await rebuildProjectionForTenant(source, tenantId, shardTimeout, ct).ConfigureAwait(false))
+                .ConfigureAwait(false);
+
             return;
         }
 

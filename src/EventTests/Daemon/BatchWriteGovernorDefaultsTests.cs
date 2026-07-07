@@ -13,12 +13,17 @@ public class BatchWriteGovernorDefaultsTests
     }
 
     [Fact]
-    public void rebuild_everywhere_default_parallelism_is_four()
+    public void rebuild_everywhere_default_parallelism_follows_the_daemon_budget_then_four()
     {
-        // An unbounded default let a 100-tenant store fan out 100 concurrent rebuilds against
-        // one database. Pin the new bounded default (0 still opts back into unbounded).
+        // #496: an unbounded default let a 100-tenant store fan out 100 concurrent rebuilds against
+        // one database, so the default became a bounded 4. jasperfx#497 refines it: the declared
+        // default is now null = "follow the daemon's shared per-database rebuild budget", and only
+        // when the daemon reports no budget does the resolution fall back to the #496 value of 4
+        // (0 still opts back into unbounded).
         var method = typeof(CrossTenantRebuild).GetMethod(nameof(CrossTenantRebuild.RebuildEverywhereAsync))!;
-        method.GetParameters().Single(x => x.Name == "maxParallelism").DefaultValue.ShouldBe(4);
+        method.GetParameters().Single(x => x.Name == "maxParallelism").DefaultValue.ShouldBeNull();
+
+        CrossTenantRebuild.ResolveLaunchWidth(null, null).ShouldBe(4);
     }
 
     [Fact]
