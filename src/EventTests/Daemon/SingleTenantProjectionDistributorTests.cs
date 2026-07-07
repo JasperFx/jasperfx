@@ -69,6 +69,145 @@ public class SingleTenantProjectionDistributorTests
         }
     }
 
+    // jasperfx#489: when the store distributes agents per tenant, each store-global
+    // shard's set expands into per-tenant shard names at distribution-build time so
+    // the coordinator loop starts tenant-bearing identities through the daemon's
+    // per-tenant StartAgentAsync branch (#487). Lock granularity is unchanged — one
+    // set (and thus one advisory lock) per STORE-GLOBAL shard; the tenant names ride
+    // inside that same set.
+    [Fact]
+    public async Task expands_each_shard_into_per_tenant_names_keeping_one_lock_per_store_global_shard()
+    {
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1", "t2"];
+        // "Day" has no registered tenants yet — the zero-tenant fallback keeps its
+        // store-global name, mirroring buildPerTenantContinuousAgents.
+
+        var trip = new ShardName("Trip", "All", 1);
+        var day = new ShardName("Day", "All", 1);
+
+        var distributor = new SingleTenantProjectionDistributor(
+            databaseAccessor: () => db,
+            allShards: () => new[] { trip, day },
+            lockFactory: _ => new FakeAdvisoryLock(),
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            schemaQualifier: "public",
+            baseLockId: 100,
+            distributesAgentsPerTenant: true);
+
+        var sets = await distributor.BuildDistributionAsync();
+
+        // One set per store-global shard — NOT per tenant. No per-tenant lock explosion.
+        sets.Count.ShouldBe(2);
+
+        var tripSet = sets.Single(s => s.Names[0].Name == "Trip");
+        tripSet.Names.Select(x => x.Identity).ShouldBe(["Trip:All:t1", "Trip:All:t2"]);
+        // The lock id stays keyed off the store-global shard identity.
+        tripSet.LockId.ShouldBe(ProjectionLockIds.Compute("public", trip, 100));
+
+        var daySet = sets.Single(s => s.Names[0].Name == "Day");
+        daySet.Names.ShouldHaveSingleItem().Identity.ShouldBe("Day:All");
+        daySet.LockId.ShouldBe(ProjectionLockIds.Compute("public", day, 100));
+
+        // The tenant source is consulted with the projection name — the same lookup
+        // grammar buildPerTenantContinuousAgents uses.
+        db.Queried.OrderBy(x => x).ShouldBe(["Day", "Trip"]);
+    }
+
+    [Fact]
+    public async Task expansion_preserves_the_version_segment_of_the_shard_grammar()
+    {
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1"];
+        var shard = new ShardName("Trip", "All", 2);
+
+        var distributor = new SingleTenantProjectionDistributor(
+            databaseAccessor: () => db,
+            allShards: () => new[] { shard },
+            lockFactory: _ => new FakeAdvisoryLock(),
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            schemaQualifier: "public",
+            baseLockId: 0,
+            distributesAgentsPerTenant: true);
+
+        var set = (await distributor.BuildDistributionAsync()).ShouldHaveSingleItem();
+
+        set.Names.ShouldHaveSingleItem().Identity.ShouldBe("Trip:V2:All:t1");
+        set.LockId.ShouldBe(ProjectionLockIds.Compute("public", shard, 0));
+    }
+
+    [Fact]
+    public async Task expansion_reenumerates_the_tenant_list_on_every_build()
+    {
+        // Tenant add/remove on another node must converge on the next leadership
+        // polling cycle without a restart — the tenant list is read fresh per build.
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1"];
+
+        var distributor = new SingleTenantProjectionDistributor(
+            databaseAccessor: () => db,
+            allShards: () => new[] { new ShardName("Trip", "All", 1) },
+            lockFactory: _ => new FakeAdvisoryLock(),
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            schemaQualifier: "public",
+            baseLockId: 0,
+            distributesAgentsPerTenant: true);
+
+        (await distributor.BuildDistributionAsync())[0].Names.Select(x => x.Identity)
+            .ShouldBe(["Trip:All:t1"]);
+
+        db.TenantsByProjection["Trip"] = ["t1", "t2"];
+        (await distributor.BuildDistributionAsync())[0].Names.Select(x => x.Identity)
+            .ShouldBe(["Trip:All:t1", "Trip:All:t2"]);
+
+        db.TenantsByProjection["Trip"] = ["t2"];
+        (await distributor.BuildDistributionAsync())[0].Names.Select(x => x.Identity)
+            .ShouldBe(["Trip:All:t2"]);
+    }
+
+    [Fact]
+    public async Task expansion_is_inert_when_the_store_does_not_distribute_per_tenant()
+    {
+        // DistributesAgentsPerTenant false → byte-for-byte the pre-#489 behavior,
+        // even against a database that could enumerate tenants.
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1", "t2"];
+
+        var distributor = new SingleTenantProjectionDistributor(
+            databaseAccessor: () => db,
+            allShards: () => new[] { new ShardName("Trip", "All", 1) },
+            lockFactory: _ => new FakeAdvisoryLock(),
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            schemaQualifier: "public",
+            baseLockId: 0);
+
+        var set = (await distributor.BuildDistributionAsync()).ShouldHaveSingleItem();
+
+        set.Names.ShouldHaveSingleItem().Identity.ShouldBe("Trip:All");
+        db.Queried.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task expansion_is_inert_when_the_database_has_no_tenant_source()
+    {
+        // Flag on, but the database is not an ICrossTenantRebuildSource — the
+        // store-global names pass through untouched.
+        var db = new FakeProjectionDatabase("only");
+
+        var distributor = new SingleTenantProjectionDistributor(
+            databaseAccessor: () => db,
+            allShards: () => new[] { new ShardName("Trip", "All", 1) },
+            lockFactory: _ => new FakeAdvisoryLock(),
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            schemaQualifier: "public",
+            baseLockId: 0,
+            distributesAgentsPerTenant: true);
+
+        var set = (await distributor.BuildDistributionAsync()).ShouldHaveSingleItem();
+
+        set.Names.ShouldHaveSingleItem().Identity.ShouldBe("Trip:All");
+    }
+
     [Fact]
     public async Task try_attain_lock_caches_one_advisory_lock_per_database()
     {
@@ -161,6 +300,29 @@ public class SingleTenantProjectionDistributorTests
 
         public string Identifier { get; }
         public Uri DatabaseUri { get; }
+    }
+
+    private sealed class FakeTenantSourceDatabase : IProjectionDatabase, ICrossTenantRebuildSource
+    {
+        public FakeTenantSourceDatabase(string identifier)
+        {
+            Identifier = identifier;
+            DatabaseUri = new Uri($"fake://{identifier}");
+        }
+
+        public string Identifier { get; }
+        public Uri DatabaseUri { get; }
+
+        public Dictionary<string, IReadOnlyList<string>> TenantsByProjection { get; } = new();
+        public List<string> Queried { get; } = [];
+
+        public Task<IReadOnlyList<string>> FindRebuildTenantsAsync(string projectionName, CancellationToken token)
+        {
+            Queried.Add(projectionName);
+            return Task.FromResult(TenantsByProjection.TryGetValue(projectionName, out var tenants)
+                ? tenants
+                : Array.Empty<string>());
+        }
     }
 
     private sealed class FakeProjectionSet : IProjectionSet

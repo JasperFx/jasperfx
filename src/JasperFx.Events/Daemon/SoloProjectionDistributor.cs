@@ -27,6 +27,7 @@ public sealed class SoloProjectionDistributor : IProjectionDistributor
     private readonly Func<IEnumerable<ShardName>> _allShards;
     private readonly Func<IProjectionDatabase, IReadOnlyList<ShardName>, int, IProjectionSet> _setFactory;
     private readonly int _baseLockId;
+    private readonly bool _distributesAgentsPerTenant;
 
     /// <summary>
     /// Construct a Solo distributor with store-supplied closures.
@@ -57,11 +58,35 @@ public sealed class SoloProjectionDistributor : IProjectionDistributor
         Func<IEnumerable<ShardName>> allShards,
         Func<IProjectionDatabase, IReadOnlyList<ShardName>, int, IProjectionSet> setFactory,
         int baseLockId)
+        : this(databaseSource, allShards, setFactory, baseLockId, distributesAgentsPerTenant: false)
+    {
+    }
+
+    /// <summary>
+    /// jasperfx#489 overload — the original constructor is kept intact for binary
+    /// compatibility with consumers compiled against earlier releases.
+    /// </summary>
+    /// <param name="distributesAgentsPerTenant">
+    /// Pass the store's <see cref="IEventStore.DistributesAgentsPerTenant"/> here.
+    /// When true, each database's set expands its store-global shard names into
+    /// per-tenant shard names using that database's own tenant list
+    /// (<see cref="ICrossTenantRebuildSource"/>) — see <see cref="PerTenantShardExpansion"/>.
+    /// The Solo hosted path drives agents through the same coordinator per-identity
+    /// starts as HotCold, so it needs the same expansion. False keeps the pre-#489
+    /// behavior byte-for-byte.
+    /// </param>
+    public SoloProjectionDistributor(
+        Func<ValueTask<IReadOnlyList<IProjectionDatabase>>> databaseSource,
+        Func<IEnumerable<ShardName>> allShards,
+        Func<IProjectionDatabase, IReadOnlyList<ShardName>, int, IProjectionSet> setFactory,
+        int baseLockId,
+        bool distributesAgentsPerTenant)
     {
         _databaseSource = databaseSource ?? throw new ArgumentNullException(nameof(databaseSource));
         _allShards = allShards ?? throw new ArgumentNullException(nameof(allShards));
         _setFactory = setFactory ?? throw new ArgumentNullException(nameof(setFactory));
         _baseLockId = baseLockId;
+        _distributesAgentsPerTenant = distributesAgentsPerTenant;
     }
 
     /// <inheritdoc />
@@ -69,7 +94,24 @@ public sealed class SoloProjectionDistributor : IProjectionDistributor
     {
         var databases = await _databaseSource().ConfigureAwait(false);
         var shards = _allShards().ToList();
-        return databases.Select(db => _setFactory(db, shards, _baseLockId)).ToList();
+
+        // jasperfx#489: same per-tenant expansion as the multi-node distributors —
+        // the Solo hosted path also starts agents per identity through the
+        // coordinator loop, so a tenant-partitioned store needs per-tenant names here
+        // too. Inert when the flag is false or the database has no tenant source.
+        var sets = new List<IProjectionSet>(databases.Count);
+        foreach (var db in databases)
+        {
+            IReadOnlyList<ShardName> names = shards;
+            if (_distributesAgentsPerTenant)
+            {
+                names = await PerTenantShardExpansion.ExpandAsync(db, names).ConfigureAwait(false);
+            }
+
+            sets.Add(_setFactory(db, names, _baseLockId));
+        }
+
+        return sets;
     }
 
     /// <inheritdoc />

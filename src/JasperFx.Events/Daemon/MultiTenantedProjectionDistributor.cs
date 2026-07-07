@@ -31,6 +31,7 @@ public class MultiTenantedProjectionDistributor : IProjectionDistributor
     private readonly Func<IProjectionDatabase, IAdvisoryLock> _lockFactory;
     private readonly Func<IProjectionDatabase, IReadOnlyList<ShardName>, int, IProjectionSet> _setFactory;
     private readonly int _baseLockId;
+    private readonly bool _distributesAgentsPerTenant;
     private readonly Dictionary<string, IAdvisoryLock> _locks = new();
 
     /// <summary>
@@ -67,12 +68,38 @@ public class MultiTenantedProjectionDistributor : IProjectionDistributor
         Func<IProjectionDatabase, IAdvisoryLock> lockFactory,
         Func<IProjectionDatabase, IReadOnlyList<ShardName>, int, IProjectionSet> setFactory,
         int baseLockId)
+        : this(databaseSource, allShards, lockFactory, setFactory, baseLockId,
+            distributesAgentsPerTenant: false)
+    {
+    }
+
+    /// <summary>
+    /// jasperfx#489 overload — the original constructor is kept intact for binary
+    /// compatibility with consumers compiled against earlier releases.
+    /// </summary>
+    /// <param name="distributesAgentsPerTenant">
+    /// Pass the store's <see cref="IEventStore.DistributesAgentsPerTenant"/> here.
+    /// When true, each database's set expands its store-global shard names into
+    /// per-tenant shard names using that database's own tenant list
+    /// (<see cref="ICrossTenantRebuildSource"/>) — see <see cref="PerTenantShardExpansion"/>.
+    /// Lock granularity is unchanged: still one set/lock per database, so a shard
+    /// database's tenant agents all run together on the winning node. False keeps
+    /// the pre-#489 behavior byte-for-byte.
+    /// </param>
+    public MultiTenantedProjectionDistributor(
+        Func<ValueTask<IReadOnlyList<IProjectionDatabase>>> databaseSource,
+        Func<IEnumerable<ShardName>> allShards,
+        Func<IProjectionDatabase, IAdvisoryLock> lockFactory,
+        Func<IProjectionDatabase, IReadOnlyList<ShardName>, int, IProjectionSet> setFactory,
+        int baseLockId,
+        bool distributesAgentsPerTenant)
     {
         _databaseSource = databaseSource ?? throw new ArgumentNullException(nameof(databaseSource));
         _allShards = allShards ?? throw new ArgumentNullException(nameof(allShards));
         _lockFactory = lockFactory ?? throw new ArgumentNullException(nameof(lockFactory));
         _setFactory = setFactory ?? throw new ArgumentNullException(nameof(setFactory));
         _baseLockId = baseLockId;
+        _distributesAgentsPerTenant = distributesAgentsPerTenant;
     }
 
     /// <inheritdoc />
@@ -81,13 +108,27 @@ public class MultiTenantedProjectionDistributor : IProjectionDistributor
         var databases = await _databaseSource().ConfigureAwait(false);
         var shards = _allShards().ToList();
 
+        // jasperfx#489: when the store distributes agents per tenant, expand each
+        // database's store-global shard names into per-tenant names from that
+        // database's own tenant list. The set/lock granularity is unchanged — one
+        // set per database — so the winning node runs every tenant agent for that
+        // shard database.
+        var sets = new List<IProjectionSet>(databases.Count);
+        foreach (var db in databases)
+        {
+            IReadOnlyList<ShardName> names = shards;
+            if (_distributesAgentsPerTenant)
+            {
+                names = await PerTenantShardExpansion.ExpandAsync(db, names).ConfigureAwait(false);
+            }
+
+            sets.Add(_setFactory(db, names, _baseLockId));
+        }
+
         // Shuffle databases so multiple nodes coming up at the same time don't
         // collide acquiring locks in the same order — same trick both Marten and
         // Polecat already used.
-        return databases
-            .Select(db => _setFactory(db, shards, _baseLockId))
-            .OrderBy(_ => Random.Shared.NextDouble())
-            .ToList();
+        return sets.OrderBy(_ => Random.Shared.NextDouble()).ToList();
     }
 
     /// <summary>
