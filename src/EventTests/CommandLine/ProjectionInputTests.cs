@@ -34,4 +34,35 @@ public class ProjectionInputTests
         new ProjectionInput { MaxConcurrentFlag = cap }
             .ResolveMaxDegreeOfParallelism().ShouldBe(-1);
     }
+
+    [Fact]
+    public void configured_store_default_applies_when_no_flag()
+    {
+        // jasperfx#420: with no --max-concurrent flag, the store's configured
+        // MaxConcurrentRebuildsPerDatabase default is honored.
+        new ProjectionInput().ResolveMaxDegreeOfParallelism(configuredDefault: 12).ShouldBe(12);
+    }
+
+    [Fact]
+    public void cli_flag_overrides_the_configured_store_default()
+    {
+        // A one-off operational --max-concurrent must win over the configured default.
+        new ProjectionInput { MaxConcurrentFlag = 4 }
+            .ResolveMaxDegreeOfParallelism(configuredDefault: 12).ShouldBe(4);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void non_positive_configured_default_is_unbounded(int configured)
+    {
+        // A store that reports a nonsensical default must not deadlock the rebuild.
+        new ProjectionInput().ResolveMaxDegreeOfParallelism(configured).ShouldBe(-1);
+    }
+
+    [Fact]
+    public void no_flag_and_no_configured_default_stays_unbounded()
+    {
+        new ProjectionInput().ResolveMaxDegreeOfParallelism(configuredDefault: null).ShouldBe(-1);
+    }
 }

@@ -38,6 +38,19 @@ public interface IEventStore
     bool HasMultipleTenants { get; }
 
     /// <summary>
+    ///     jasperfx#420 — the configured default cap on how many projection rebuild cells may run
+    ///     concurrently within a single database during a rebuild operation. <c>null</c> means
+    ///     "unbounded" to JasperFx.Events, which is store-agnostic and has no notion of a connection
+    ///     pool. Concrete stores SHOULD override this to consult the
+    ///     <see cref="Daemon.DaemonSettings.MaxConcurrentRebuildsPerDatabase" /> knob and fall back to
+    ///     a derived default (Marten/Polecat derive it from the Npgsql connection pool size —
+    ///     <c>max(1, poolSize / 8)</c>). The <c>projections rebuild --max-concurrent</c> CLI flag
+    ///     overrides this per operation; see
+    ///     <see cref="CommandLine.ProjectionInput.ResolveMaxDegreeOfParallelism" />.
+    /// </summary>
+    int? MaxConcurrentRebuildsPerDatabase => null;
+
+    /// <summary>
     ///     When true, a node-distributed async daemon (e.g. Wolverine-managed event-subscription
     ///     distribution) must fan out one subscription agent per (shard, tenant) rather than a single
     ///     store-global agent per (shard, database). Required for stores where multiple tenants are

@@ -130,4 +130,18 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// store × database). Zero or negative disables the governor.
     /// </summary>
     public int MaxConcurrentBatchWritesPerDatabase { get; set; } = 4;
+
+    /// <summary>
+    /// jasperfx#420 (epic #486 WS3): cap on how many projection rebuild cells — the
+    /// (projection × tenant/shard) cross product — may run concurrently within one database
+    /// during a rebuild operation. Rebuild only; continuous catch-up is governed by
+    /// <see cref="MaxConcurrentEventLoadsPerDatabase"/> and
+    /// <see cref="MaxConcurrentBatchWritesPerDatabase"/> instead. Null means "derive a
+    /// default store-side" — concrete stores fall back to a value derived from the
+    /// connection pool size (Marten/Polecat use <c>max(1, poolSize / 8)</c>) via their
+    /// <see cref="IEventStore.MaxConcurrentRebuildsPerDatabase"/> override; JasperFx.Events
+    /// itself is store-agnostic and treats null as unbounded. Zero or negative disables the
+    /// cap. The <c>projections rebuild --max-concurrent</c> CLI flag overrides per operation.
+    /// </summary>
+    public int? MaxConcurrentRebuildsPerDatabase { get; set; }
 }

@@ -166,6 +166,18 @@ public class EventStoreUsage : OptionsDescription
     public ProjectionErrorHandlingDescriptor? ProjectionRebuildErrors { get; set; }
 
     /// <summary>
+    /// Effective per-database concurrent rebuild cap — the store's resolved
+    /// <see cref="IEventStore.MaxConcurrentRebuildsPerDatabase"/> (configured via
+    /// <c>DaemonSettings.MaxConcurrentRebuildsPerDatabase</c>, jasperfx#420). Null when
+    /// the implementation hasn't populated it; monitoring tools should fall back to a
+    /// conservative default (typically 1).
+    /// </summary>
+    /// <remarks>
+    /// See JasperFx/CritterWatch#309 for the orchestration consumer (jasperfx#434).
+    /// </remarks>
+    public int? MaxConcurrentRebuildsPerDatabase { get; set; }
+
+    /// <summary>
     /// Which event/stream metadata this store actually captures — drives
     /// store-aware event/stream query facets in consumers (e.g. CritterWatch)
     /// without sniffing engine-specific config. Null when the implementation

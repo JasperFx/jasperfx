@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -93,24 +94,22 @@ internal class ProjectionHost: IProjectionHost
 
         var watcherTask = watcher.Start();
 
-        var list = new List<Exception>();
-
         // jasperfx#420: cap the per-database rebuild fan-out so a wide store
         // (many projections, especially under per-tenant partitioning) cannot
-        // blow the connection pool / thrash the buffer cache. A non-positive or
-        // unset flag preserves the previous unbounded behavior.
-        var maxConcurrent = input.ResolveMaxDegreeOfParallelism();
-        var parallelOptions = new ParallelOptions
-        {
-            CancellationToken = _cancellation.Token,
-            MaxDegreeOfParallelism = maxConcurrent
-        };
+        // blow the connection pool / thrash the buffer cache. The --max-concurrent
+        // CLI flag wins; otherwise the store's configured default applies; otherwise
+        // the previous unbounded behavior. A non-positive value stays unbounded.
+        var maxConcurrent = input.ResolveMaxDegreeOfParallelism(store.MaxConcurrentRebuildsPerDatabase);
 
         AnsiConsole.MarkupLine(maxConcurrent > 0
             ? $"[grey]Rebuilding with a maximum of {maxConcurrent} concurrent projection(s) per database[/]"
             : "[grey]Rebuilding with unbounded concurrency per database[/]");
 
-        await Parallel.ForEachAsync(projectionNames, parallelOptions,
+        // Concurrent collection: with maxConcurrent > 1 the rebuild lambda runs on
+        // multiple threads, so a plain List<Exception>.Add would race/corrupt.
+        var errors = new ConcurrentBag<Exception>();
+
+        await RebuildProjectionsWithCapAsync(projectionNames, maxConcurrent, _cancellation.Token,
                 async (projectionName, token) =>
                 {
                     shardTimeout ??= 5.Minutes();
@@ -128,7 +127,7 @@ internal class ProjectionHost: IProjectionHost
                         AnsiConsole.WriteException(e);
                         AnsiConsole.WriteLine();
 
-                        list.Add(e);
+                        errors.Add(e);
                     }
                 })
             .ConfigureAwait(false);
@@ -138,12 +137,35 @@ internal class ProjectionHost: IProjectionHost
         watcher.Stop();
         await watcherTask.ConfigureAwait(false);
 
-        if (list.Any())
+        if (!errors.IsEmpty)
         {
-            throw new AggregateException(list);
+            throw new AggregateException(errors);
         }
 
         return RebuildStatus.Complete;
+    }
+
+    /// <summary>
+    /// jasperfx#420 — the per-database rebuild fan-out, capped at <paramref name="maxDegreeOfParallelism"/>
+    /// concurrent cells. Extracted so the cap is independently regression-testable: a non-positive value
+    /// means unbounded (<see cref="ParallelOptions.MaxDegreeOfParallelism"/> = -1; 0 would throw), and a
+    /// positive value guarantees no more than that many invocations of <paramref name="rebuildOne"/> run
+    /// at once.
+    /// </summary>
+    internal static Task RebuildProjectionsWithCapAsync(
+        IReadOnlyList<string> projectionNames,
+        int maxDegreeOfParallelism,
+        CancellationToken token,
+        Func<string, CancellationToken, Task> rebuildOne)
+    {
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = token,
+            MaxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : -1
+        };
+
+        return Parallel.ForEachAsync(projectionNames, parallelOptions,
+            async (projectionName, ct) => await rebuildOne(projectionName, ct).ConfigureAwait(false));
     }
 
     public async Task StartShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier, string[] projectionNames)
