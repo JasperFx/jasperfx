@@ -45,6 +45,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // database's connection footprint stays O(databases), not O(agents). Null = unthrottled.
     private readonly SemaphoreSlim? _loadThrottle;
 
+    // Epic #486 WS3: bounds concurrent projection batch execute/commit sessions. Reaches the
+    // executions through IDaemonRuntime -> SubscriptionAgent -> EventRange.Agent. Null = unbounded.
+    public SemaphoreSlim? BatchWriteThrottle { get; }
+
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
@@ -67,6 +71,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _loadThrottle = _projections.MaxConcurrentEventLoadsPerDatabase > 0
             ? new SemaphoreSlim(_projections.MaxConcurrentEventLoadsPerDatabase)
+            : null;
+
+        BatchWriteThrottle = _projections.MaxConcurrentBatchWritesPerDatabase > 0
+            ? new SemaphoreSlim(_projections.MaxConcurrentBatchWritesPerDatabase)
             : null;
     }
 
@@ -92,6 +100,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _loadThrottle = _projections.MaxConcurrentEventLoadsPerDatabase > 0
             ? new SemaphoreSlim(_projections.MaxConcurrentEventLoadsPerDatabase)
+            : null;
+
+        BatchWriteThrottle = _projections.MaxConcurrentBatchWritesPerDatabase > 0
+            ? new SemaphoreSlim(_projections.MaxConcurrentBatchWritesPerDatabase)
             : null;
     }
 
@@ -119,6 +131,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _breakSubscription.Dispose();
         _deadLetterBlock.Dispose();
         _loadThrottle?.Dispose();
+        BatchWriteThrottle?.Dispose();
     }
 
     public ShardStateTracker Tracker { get; }

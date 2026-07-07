@@ -41,9 +41,11 @@ public class CrossTenantRebuild
     /// <param name="projectionName">Projection to rebuild for every tenant.</param>
     /// <param name="shardTimeout">Per-shard rebuild timeout.</param>
     /// <param name="token"></param>
-    /// <param name="maxParallelism">Maximum simultaneous per-tenant rebuilds. 0 (default) means unbounded.</param>
+    /// <param name="maxParallelism">Maximum simultaneous per-tenant rebuilds. Defaults to 4
+    /// (epic #486 WS3 — an unbounded default let a 100-tenant store fan out 100 concurrent
+    /// rebuilds against one database); pass 0 for the old unbounded behavior.</param>
     public async Task<IReadOnlyList<string>> RebuildEverywhereAsync(IProjectionDaemon daemon, string projectionName,
-        TimeSpan shardTimeout, CancellationToken token, int maxParallelism = 0)
+        TimeSpan shardTimeout, CancellationToken token, int maxParallelism = 4)
     {
         var tenants = await _source.FindRebuildTenantsAsync(projectionName, token).ConfigureAwait(false);
         if (tenants.Count == 0)

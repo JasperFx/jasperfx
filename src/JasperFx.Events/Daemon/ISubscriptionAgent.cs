@@ -34,4 +34,12 @@ public interface ISubscriptionAgent : ISubscriptionController
     /// </summary>
     /// <param name="sequence"></param>
     void MarkSkipped(long sequence);
+
+    /// <summary>
+    /// Epic #486 WS3: the daemon-owned governor bounding concurrent projection batch
+    /// execute/commit sessions against this agent's database. Null = unbounded. Surfaced
+    /// here so the projection executions (which only see the agent via EventRange) can
+    /// share the daemon-wide bound.
+    /// </summary>
+    SemaphoreSlim? BatchWriteThrottle => null;
 }
