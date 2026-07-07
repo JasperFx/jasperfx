@@ -292,6 +292,17 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
     private async Task startAgentsIfNecessaryAsync(IProjectionDistributor distributor, IProjectionSet set,
         IProjectionDaemon daemon, CancellationToken stoppingToken)
     {
+        // jasperfx#489: reconcile before starting. Under per-tenant agent distribution the
+        // set's Names are re-expanded from the current tenant list on every leadership
+        // cycle, so an agent whose identity no longer appears in Names is stale — a
+        // removed tenant's agent, or the store-global agent left over from a
+        // pre-expansion cycle (the transition edge; same shape as Wolverine's #3328
+        // stale-agent retirement). Reap it FIRST so a store-global agent never runs
+        // concurrently with the per-tenant agents that replace it. For sets whose Names
+        // match the running agents exactly (every non-partitioned store), this finds
+        // nothing and the pass is inert.
+        await reapOrphanedAgentsAsync(set, daemon).ConfigureAwait(false);
+
         foreach (var name in set.Names)
         {
             var agent = daemon.CurrentAgents().FirstOrDefault(x => x.Name.Equals(name));
@@ -307,7 +318,7 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
         }
     }
 
-    private static async Task stopAgentsIfNecessaryAsync(IProjectionSet set, IProjectionDaemon daemon)
+    private async Task stopAgentsIfNecessaryAsync(IProjectionSet set, IProjectionDaemon daemon)
     {
         foreach (var shardName in set.Names)
         {
@@ -317,6 +328,53 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
                 await daemon.StopAgentAsync(shardName.Identity).ConfigureAwait(false);
             }
         }
+
+        // jasperfx#489: also stop stale agents that belong to this set's store-global
+        // shards but whose identity fell out of the freshly expanded Names (a tenant
+        // that was removed since this node last held the lock). The identity loop
+        // above can't see them because they're no longer in Names.
+        await reapOrphanedAgentsAsync(set, daemon).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// jasperfx#489: stop agents currently running for this set's store-global shards
+    /// whose identity is NOT in the set's current Names. Identities are matched on the
+    /// tenant-neutral base (same store-global shard) so agents belonging to other
+    /// projections — or other sets on the same daemon — are never touched.
+    /// </summary>
+    private async Task reapOrphanedAgentsAsync(IProjectionSet set, IProjectionDaemon daemon)
+    {
+        var currentIdentities = set.Names.Select(x => x.Identity).ToHashSet();
+        var baseIdentities = set.Names.Select(tenantNeutralIdentity).ToHashSet();
+
+        foreach (var agent in daemon.CurrentAgents().ToArray())
+        {
+            var identity = agent.Name.Identity;
+            if (currentIdentities.Contains(identity)) continue;
+            if (!baseIdentities.Contains(tenantNeutralIdentity(agent.Name))) continue;
+
+            try
+            {
+                await daemon.StopAgentAsync(identity).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e,
+                    "Error trying to stop orphaned subscription agent {Name} on database {Database}",
+                    identity, set.Database.Identifier);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The store-global (tenant-neutral) identity for a shard name — the identity with
+    /// the trailing tenant slot removed. A store-global name is its own base.
+    /// </summary>
+    private static string tenantNeutralIdentity(ShardName name)
+    {
+        return name.TenantId == null
+            ? name.Identity
+            : ShardName.Compose(name.Name, name.ShardKey, null, name.Version).Identity;
     }
 
     private async Task tryStartAgent(IProjectionDistributor distributor, CancellationToken stoppingToken,
