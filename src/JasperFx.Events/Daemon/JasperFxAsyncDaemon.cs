@@ -8,6 +8,7 @@ using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
+using Timer = System.Timers.Timer;
 
 namespace JasperFx.Events.Daemon;
 
@@ -32,6 +33,14 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // single store-global high-water mark (today's behavior, byte for byte). jasperfx#407 Phase 2b.
     private readonly TenantedHighWaterCoordinator? _tenantHighWater;
 
+    // jasperfx#492: OnNext(HighWaterMark) only fires when the STORE-GLOBAL mark changes, so a lagging
+    // tenant appending below the global max would never be re-polled in a quiet system. This timer
+    // guarantees a per-tenant poll at least every SlowPollingTime; _lastTenantHighWaterPoll dedups it
+    // against the OnNext-driven fast path so an active system still polls once per global tick.
+    private readonly Timer? _tenantHighWaterTimer;
+    private DateTimeOffset _lastTenantHighWaterPoll;
+    private int _tenantHighWaterPollInFlight;
+
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
@@ -45,6 +54,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         if (detector.SupportsTenantPartitioning)
         {
             _tenantHighWater = new TenantedHighWaterCoordinator(detector, loggerFactory.CreateLogger<TenantedHighWaterCoordinator>());
+            _tenantHighWaterTimer = buildTenantHighWaterTimer();
         }
 
         _breakSubscription = database.Tracker.Subscribe(this);
@@ -65,6 +75,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         if (detector.SupportsTenantPartitioning)
         {
             _tenantHighWater = new TenantedHighWaterCoordinator(detector, logger);
+            _tenantHighWaterTimer = buildTenantHighWaterTimer();
         }
 
         _breakSubscription = database.Tracker.Subscribe(this);
@@ -91,6 +102,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         _cancellation?.Dispose();
         _highWater?.Dispose();
+        _tenantHighWaterTimer?.Stop();
+        _tenantHighWaterTimer?.Dispose();
         _breakSubscription.Dispose();
         _deadLetterBlock.Dispose();
     }
@@ -655,6 +668,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             return;
         }
 
+        _lastTenantHighWaterPoll = DateTimeOffset.UtcNow;
+
         try
         {
             await _tenantHighWater.PollAndRouteAsync(CurrentAgents(), _cancellation.Token).ConfigureAwait(false);
@@ -662,6 +677,45 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         catch (Exception e)
         {
             Logger.LogError(e, "Error polling per-tenant high water for database {Name}", Database.Identifier);
+        }
+    }
+
+    // jasperfx#492: guarantee a per-tenant high-water poll on a reliable cadence, not solely on
+    // store-global mark publications. Runs for the daemon's lifetime; each tick is a no-op unless the
+    // high-water agent is running and no poll happened within the last SlowPollingTime window.
+    private Timer buildTenantHighWaterTimer()
+    {
+        var timer = new Timer(_projections.SlowPollingTime.TotalMilliseconds) { AutoReset = true };
+        timer.Elapsed += (_, _) => _ = pollTenantHighWaterOnCadenceAsync();
+        timer.Start();
+        return timer;
+    }
+
+    private async Task pollTenantHighWaterOnCadenceAsync()
+    {
+        if (!_highWater.IsRunning || _cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        // The OnNext(HighWaterMark) fast path already polled within this cadence window
+        if (DateTimeOffset.UtcNow - _lastTenantHighWaterPoll < _projections.SlowPollingTime)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _tenantHighWaterPollInFlight, 1, 0) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            await pollTenantHighWaterAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _tenantHighWaterPollInFlight, 0);
         }
     }
 

@@ -152,6 +152,37 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task lagging_tenant_is_repolled_on_the_slow_polling_cadence_without_a_global_mark_change()
+    {
+        // jasperfx#492: OnNext(HighWaterMark) only fires when the STORE-GLOBAL mark changes. In this
+        // harness the store-global detector reading is pinned at 0 forever, so after the initial
+        // start-up publication no global tick will ever occur — exactly the quiet system where only a
+        // lagging tenant appends. Before the fix the per-tenant poll ran once at agent start and then
+        // never again; the daemon's SlowPollingTime timer must keep driving it.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.SlowPollingTime = TimeSpan.FromMilliseconds(50),
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        var pollsAtStart = detector.TenantPollCount;
+
+        // The tenant appends below the (frozen) global max — its mark advances, the global one doesn't
+        detector.SetTenantMark("t1", 77);
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (detector.TenantPollCount < pollsAtStart + 3 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
+
+        detector.TenantPollCount.ShouldBeGreaterThanOrEqualTo(pollsAtStart + 3);
+    }
+
+    [Fact]
     public async Task second_start_of_the_same_tenant_identity_is_idempotent()
     {
         var detector = new StubPartitionedDetector();
@@ -174,6 +205,12 @@ public class PerTenantStartAgentAsyncTests
     private sealed class DaemonHarness : IAsyncDisposable
     {
         public DaemonHarness(IHighWaterDetector detector, params AsyncShard<FakeOperations, FakeSession>[] shards)
+            : this(detector, null, shards)
+        {
+        }
+
+        public DaemonHarness(IHighWaterDetector detector, Action<DaemonSettings>? configureSettings,
+            params AsyncShard<FakeOperations, FakeSession>[] shards)
         {
             Store = Substitute.For<IEventStore<FakeOperations, FakeSession>>();
             Store.Meter.Returns(new Meter("tests"));
@@ -206,8 +243,11 @@ public class PerTenantStartAgentAsyncTests
             Database.DatabaseUri.Returns(new Uri("fake://db1"));
             Database.Tracker.Returns(new ShardStateTracker(new NulloLogger()));
 
+            var projections = new FakeProjectionGraph();
+            configureSettings?.Invoke(projections);
+
             Daemon = new JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>>(
-                Store, Database, new NulloLogger(), detector, new FakeProjectionGraph());
+                Store, Database, new NulloLogger(), detector, projections);
         }
 
         public IEventStore<FakeOperations, FakeSession> Store { get; }
@@ -258,6 +298,18 @@ public class PerTenantStartAgentAsyncTests
             lock (_tenantPolls)
             {
                 return _tenantPolls.SelectMany(x => x).Distinct().ToList();
+            }
+        }
+
+        // How many times the vectorized per-tenant poll has run
+        public int TenantPollCount
+        {
+            get
+            {
+                lock (_tenantPolls)
+                {
+                    return _tenantPolls.Count;
+                }
             }
         }
 
