@@ -205,6 +205,43 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task started_agents_surface_the_daemon_batch_write_governor()
+    {
+        // Epic #486 WS3: the governor flows daemon (IDaemonRuntime) -> agent -> execution via
+        // EventRange.Agent. The agent only learns its runtime at StartAsync, so assert on a
+        // STARTED agent.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        var agents = harness.Daemon.CurrentAgents();
+        agents.ShouldAllBe(x => ReferenceEquals(x.BatchWriteThrottle, harness.Daemon.BatchWriteThrottle));
+        harness.Daemon.BatchWriteThrottle.ShouldNotBeNull();
+        harness.Daemon.BatchWriteThrottle!.CurrentCount.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task batch_write_governor_is_disabled_by_a_nonpositive_setting()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.MaxConcurrentBatchWritesPerDatabase = 0,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        harness.Daemon.BatchWriteThrottle.ShouldBeNull();
+        harness.Daemon.CurrentAgents().ShouldAllBe(x => x.BatchWriteThrottle == null);
+    }
+
+    [Fact]
     public async Task load_throttle_is_disabled_by_a_nonpositive_setting()
     {
         var detector = new StubPartitionedDetector();
