@@ -42,6 +42,24 @@ public interface IProjectionDaemon: IDisposable
     bool IsRunning { get; }
 
     /// <summary>
+    ///     jasperfx#497 (the #420 leftover): the shared per-database budget on how many projection
+    ///     rebuild cells — the (projection × tenant/shard) cross product — may replay concurrently
+    ///     within this daemon's database. One budget spans BOTH fan-out layers, so a projection-level
+    ///     rebuild slot and its per-tenant cells never multiply the bound. Null means "derive from
+    ///     <see cref="DaemonSettings.MaxConcurrentRebuildsPerDatabase" /> /
+    ///     <see cref="IEventStore.MaxConcurrentRebuildsPerDatabase" />"; a non-positive value is
+    ///     unbounded. Setting it (e.g. the <c>projections rebuild --max-concurrent</c> CLI flag via
+    ///     <see cref="CommandLine.ProjectionInput.ResolveMaxDegreeOfParallelism" />) replaces the
+    ///     budget for subsequent rebuild operations. The default implementation ignores writes and
+    ///     reports no budget, so daemons without cross-product rebuild fan-out are unaffected.
+    /// </summary>
+    int? MaxConcurrentRebuildsPerDatabase
+    {
+        get => null;
+        set { }
+    }
+
+    /// <summary>
     ///     Rebuilds a single projection by projection name inline.
     ///     Will timeout if a shard takes longer than 5 minutes.
     /// </summary>

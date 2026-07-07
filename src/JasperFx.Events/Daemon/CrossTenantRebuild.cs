@@ -41,19 +41,26 @@ public class CrossTenantRebuild
     /// <param name="projectionName">Projection to rebuild for every tenant.</param>
     /// <param name="shardTimeout">Per-shard rebuild timeout.</param>
     /// <param name="token"></param>
-    /// <param name="maxParallelism">Maximum simultaneous per-tenant rebuilds. Defaults to 4
-    /// (epic #486 WS3 — an unbounded default let a 100-tenant store fan out 100 concurrent
-    /// rebuilds against one database); pass 0 for the old unbounded behavior.</param>
+    /// <param name="maxParallelism">Maximum simultaneous per-tenant rebuild launches. When null
+    /// (the default), follows the daemon's shared per-database rebuild budget
+    /// (<see cref="IProjectionDaemon.MaxConcurrentRebuildsPerDatabase" />, jasperfx#497) so this
+    /// fan-out stays consistent with the cap the rebuild cells draw from; falls back to 4 when the
+    /// daemon reports no budget (epic #486 WS3 — an unbounded default let a 100-tenant store fan out
+    /// 100 concurrent rebuilds against one database). Pass 0 or a negative value for the old
+    /// unbounded behavior. Whatever the launch width, the per-tenant replays themselves also draw
+    /// from the daemon's shared budget, so cells never exceed it.</param>
     public async Task<IReadOnlyList<string>> RebuildEverywhereAsync(IProjectionDaemon daemon, string projectionName,
-        TimeSpan shardTimeout, CancellationToken token, int maxParallelism = 4)
+        TimeSpan shardTimeout, CancellationToken token, int? maxParallelism = null)
     {
+        var launchWidth = ResolveLaunchWidth(maxParallelism, daemon.MaxConcurrentRebuildsPerDatabase);
+
         var tenants = await _source.FindRebuildTenantsAsync(projectionName, token).ConfigureAwait(false);
         if (tenants.Count == 0)
         {
             return tenants;
         }
 
-        if (maxParallelism <= 0)
+        if (launchWidth <= 0)
         {
             await Task.WhenAll(tenants.Select(tenantId =>
                 daemon.RebuildProjectionAsync(projectionName, tenantId, shardTimeout, token))).ConfigureAwait(false);
@@ -61,7 +68,7 @@ public class CrossTenantRebuild
             return tenants;
         }
 
-        using var gate = new SemaphoreSlim(maxParallelism);
+        using var gate = new SemaphoreSlim(launchWidth);
         await Task.WhenAll(tenants.Select(async tenantId =>
         {
             await gate.WaitAsync(token).ConfigureAwait(false);
@@ -76,5 +83,18 @@ public class CrossTenantRebuild
         })).ConfigureAwait(false);
 
         return tenants;
+    }
+
+    /// <summary>
+    /// jasperfx#497: resolve the effective launch width for the cross-tenant fan-out. An explicit
+    /// <paramref name="maxParallelism" /> always wins (non-positive = unbounded); otherwise follow the
+    /// daemon's shared per-database rebuild budget so this layer stays consistent with the cap the
+    /// rebuild cells draw from; otherwise the #496 default of 4.
+    /// </summary>
+    internal static int ResolveLaunchWidth(int? maxParallelism, int? daemonBudget)
+    {
+        if (maxParallelism.HasValue) return maxParallelism.Value;
+        if (daemonBudget.HasValue) return daemonBudget.Value;
+        return 4;
     }
 }

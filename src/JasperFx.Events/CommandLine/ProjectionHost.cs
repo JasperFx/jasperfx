@@ -101,6 +101,12 @@ internal class ProjectionHost: IProjectionHost
         // the previous unbounded behavior. A non-positive value stays unbounded.
         var maxConcurrent = input.ResolveMaxDegreeOfParallelism(store.MaxConcurrentRebuildsPerDatabase);
 
+        // jasperfx#497: thread the SAME resolved cap into the daemon so the intra-projection
+        // per-(tenant, shard) rebuild cells draw from one shared per-database budget. The
+        // projection-level fan-out below and each projection's tenant cross-product therefore
+        // never multiply — total concurrent rebuild cells per database stay <= maxConcurrent.
+        daemon.MaxConcurrentRebuildsPerDatabase = maxConcurrent;
+
         AnsiConsole.MarkupLine(maxConcurrent > 0
             ? $"[grey]Rebuilding with a maximum of {maxConcurrent} concurrent projection(s) per database[/]"
             : "[grey]Rebuilding with unbounded concurrency per database[/]");
