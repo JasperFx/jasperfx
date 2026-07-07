@@ -44,6 +44,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         ProjectionShardIdentity = name.Identity;
     }
 
+    // Exposed so tests can assert how the daemon composed this agent's loader (jasperfx#494)
+    internal IEventLoader Loader => _loader;
+
     public string ProjectionShardIdentity { get; }
 
     public CancellationToken CancellationToken => _cancellation.Token;

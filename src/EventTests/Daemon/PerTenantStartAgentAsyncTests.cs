@@ -183,6 +183,44 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task agents_share_the_daemon_load_throttle_by_default()
+    {
+        // jasperfx#494: every agent loader the daemon builds is wrapped in the shared
+        // ThrottledEventLoader so concurrent LoadAsync executions per database stay bounded.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        var loaders = harness.Daemon.CurrentAgents()
+            .Cast<SubscriptionAgent>()
+            .Select(x => x.Loader)
+            .ToArray();
+
+        loaders.ShouldAllBe(x => x is ThrottledEventLoader);
+    }
+
+    [Fact]
+    public async Task load_throttle_is_disabled_by_a_nonpositive_setting()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.MaxConcurrentEventLoadsPerDatabase = 0,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        var agent = harness.Daemon.CurrentAgents().Cast<SubscriptionAgent>().ShouldHaveSingleItem();
+        agent.Loader.ShouldNotBeOfType<ThrottledEventLoader>();
+    }
+
+    [Fact]
     public async Task second_start_of_the_same_tenant_identity_is_idempotent()
     {
         var detector = new StubPartitionedDetector();

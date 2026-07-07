@@ -41,6 +41,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private DateTimeOffset _lastTenantHighWaterPoll;
     private int _tenantHighWaterPollInFlight;
 
+    // jasperfx#494 (epic #486 WS2): shared by every agent loader this daemon builds so the
+    // database's connection footprint stays O(databases), not O(agents). Null = unthrottled.
+    private readonly SemaphoreSlim? _loadThrottle;
+
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
     {
         Database = database;
@@ -60,6 +64,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _breakSubscription = database.Tracker.Subscribe(this);
 
         _deadLetterBlock = buildDeadLetterBlock();
+
+        _loadThrottle = _projections.MaxConcurrentEventLoadsPerDatabase > 0
+            ? new SemaphoreSlim(_projections.MaxConcurrentEventLoadsPerDatabase)
+            : null;
     }
 
     public JasperFxAsyncDaemon(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, IHighWaterDetector detector, ProjectionGraph<TProjection, TOperations, TQuerySession> projections)
@@ -81,6 +89,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _breakSubscription = database.Tracker.Subscribe(this);
 
         _deadLetterBlock = buildDeadLetterBlock();
+
+        _loadThrottle = _projections.MaxConcurrentEventLoadsPerDatabase > 0
+            ? new SemaphoreSlim(_projections.MaxConcurrentEventLoadsPerDatabase)
+            : null;
     }
 
     private RetryBlock<DeadLetterEvent> buildDeadLetterBlock()
@@ -106,6 +118,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _tenantHighWaterTimer?.Dispose();
         _breakSubscription.Dispose();
         _deadLetterBlock.Dispose();
+        _loadThrottle?.Dispose();
     }
 
     public ShardStateTracker Tracker { get; }
@@ -330,6 +343,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         var execution = _loggerFactory == null ? shard.Factory.BuildExecution(_store, Database, Logger, shard.Name) : shard.Factory.BuildExecution(_store, Database, _loggerFactory, shard.Name);
         var loader = _store.BuildEventLoader(Database, Logger, shard.Filters, shard.Options, shard.Name);
+
+        if (_loadThrottle != null)
+        {
+            // jasperfx#494: all of this daemon's agents share one load throttle so the pool's
+            // high-water mark stays bounded no matter how many (projection × tenant) agents run
+            loader = new ThrottledEventLoader(loader, _loadThrottle);
+        }
 
         var metrics = new SubscriptionMetrics(_store, shard.Name, Database);
         
