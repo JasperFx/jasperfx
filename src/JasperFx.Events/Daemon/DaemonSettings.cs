@@ -107,4 +107,15 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// and <see cref="SlowPollingTime"/>.
     /// </summary>
     public IDaemonWakeup? Wakeup { get; set; }
+
+    /// <summary>
+    /// jasperfx#494 (epic #486 WS2): cap on how many subscription agents may execute
+    /// IEventLoader.LoadAsync concurrently against one database. Every load opens its own
+    /// store session, so without a bound the connection pool's high-water mark trends toward
+    /// the number of running agents — under per-tenant event partitioning that is
+    /// (projections × tenants) even though only a handful of loads are ever active at once.
+    /// Applies per daemon instance (one daemon per store × database). Zero or negative
+    /// disables the throttle.
+    /// </summary>
+    public int MaxConcurrentEventLoadsPerDatabase { get; set; } = 4;
 }
