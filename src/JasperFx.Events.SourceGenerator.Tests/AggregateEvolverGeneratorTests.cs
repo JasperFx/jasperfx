@@ -100,14 +100,88 @@ public partial class AllSync : SingleStreamProjection<MyAggregate, Guid>
         var (diagnostics, generatedSources) = RunGenerator(source);
 
         generatedSources.Length.ShouldBeGreaterThan(0);
-        var generated = generatedSources[0];
-        generated.ShouldContain("partial class AllSync");
-        generated.ShouldContain("override");
+        var generated = string.Join("\n", generatedSources);
+
+        // The dispatcher is now a standalone, file-scoped evolver registered via an assembly
+        // attribute rather than overridden members injected into the projection class. This keeps
+        // it safe when the generator loads twice (Marten + Polecat). See #462.
+        generated.ShouldContain("file sealed class AllSync_GuidEvolver");
+        generated.ShouldContain(
+            "[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.MyAggregate), typeof(global::Test.AllSync_GuidEvolver), typeof(global::Test.AllSync))]");
+        generated.ShouldContain("global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<global::Test.MyAggregate, global::System.Guid>");
         generated.ShouldContain("Evolve(");
-        generated.ShouldContain("Create(data)");
-        generated.ShouldContain("Apply(data,");
-        generated.ShouldContain("IncludeType<global::Test.CreateEvent>");
-        generated.ShouldContain("IncludeType<global::Test.MyEvent>");
+        generated.ShouldContain("_projection.Create(data)");
+        generated.ShouldContain("_projection.Apply(data,");
+        generated.ShouldContain("typeof(global::Test.CreateEvent)");
+        generated.ShouldContain("typeof(global::Test.MyEvent)");
+    }
+
+    [Fact]
+    public void di_activated_projection_without_parameterless_ctor_dispatches_through_partial_override()
+    {
+        // marten#4787: a projection registered via AddProjectionWithServices has only a constructor
+        // with injected dependencies (no parameterless ctor). The pre-fix emission built the
+        // evolver's private shadow projection via RuntimeHelpers.GetUninitializedObject — which
+        // compiled (closing the original #4185 CS7036 hole) but left injected fields null at runtime,
+        // NREing the first time a convention method dereferenced one.
+        // The fix emits a [GeneratedCode]-attributed override (Evolve / EvolveAsync /
+        // DetermineActionAsync) directly into the user's partial class. Dispatch binds to `this`
+        // (the DI-built instance), so injected fields are populated. The file-scoped Evolver and the
+        // [assembly: GeneratedEvolver(...)] attribute are NOT emitted for this case.
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public class MyAggregate { public int Count { get; set; } }
+public class MyEvent { }
+public class CreateEvent { }
+public interface ISecondaryStore { }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+public partial class DiActivated : SingleStreamProjection<MyAggregate, Guid>
+{
+    private readonly ISecondaryStore _secondaryStore;
+    public DiActivated(ISecondaryStore secondaryStore) { _secondaryStore = secondaryStore; }
+
+    public MyAggregate Create(CreateEvent e) => new MyAggregate();
+    public void Apply(MyEvent e, MyAggregate agg) { agg.Count++; }
+}
+";
+        var (_, generatedSources) = RunGenerator(source);
+        var generated = string.Join("\n", generatedSources);
+
+        // No shadow-instance escape hatch — the override dispatches on `this`.
+        generated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.DiActivated))");
+        generated.ShouldNotContain("new global::Test.DiActivated()");
+        generated.ShouldNotContain("_projection.Create");
+        generated.ShouldNotContain("_projection.Apply");
+
+        // No file-scoped Evolver class and no GeneratedEvolver assembly attribute — the runtime
+        // selects the partial-class override via isOverridden() before tryUseAssemblyRegisteredEvolver
+        // ever runs, so the file-scoped path is unreachable for this case.
+        generated.ShouldNotContain("file sealed class");
+        generated.ShouldNotContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver");
+
+        // Partial-class override on the user's class, marked [GeneratedCode] so
+        // AssembleAndAssertValidity's isSourceGeneratedOverride() accepts it.
+        generated.ShouldContain("partial class DiActivated");
+        generated.ShouldContain("[global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
+        // Either Evolve (sync, no session/ShouldDelete) or EvolveAsync would do — the projection
+        // here is sync with no ShouldDelete, so expect the sync Evolve override.
+        generated.ShouldContain("public override global::Test.MyAggregate? Evolve(");
+
+        // The generated override must compile — no CS7036 "no argument for required parameter".
+        var diagnostics = CompileWithGenerator(source);
+        diagnostics.ShouldNotContain(d => d.Id == "CS7036");
     }
 
     [Fact]
@@ -208,8 +282,12 @@ public class Registration
         var (_, generatedSources) = RunGenerator(source);
         var allGenerated = string.Join("\n", generatedSources);
 
-        allGenerated.ShouldContain("partial class DiagnostiekActiviteitProjection");
-        allGenerated.ShouldNotContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.DiagnostiekActiviteit)");
+        // The partial projection owns the evolver for the aggregate (emitted as a file-scoped type
+        // registered against DiagnostiekActiviteit). The Snapshot<T>() call site must NOT additionally
+        // emit a redundant self-aggregating evolver for the same aggregate. See #462 / #293.
+        allGenerated.ShouldContain(
+            "[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.DiagnostiekActiviteit), typeof(global::Test.DiagnostiekActiviteitProjectionEvolver), typeof(global::Test.DiagnostiekActiviteitProjection))]");
+        allGenerated.ShouldContain("file sealed class DiagnostiekActiviteitProjectionEvolver");
         allGenerated.ShouldNotContain("DiagnostiekActiviteit_StringEvolver");
     }
 
@@ -633,7 +711,11 @@ public partial class StringQuestProjection : SingleStreamProjection<StringQuest,
         // accidentally compiles some other way still trips this assertion.
         var (_, generatedSources) = RunGenerator(source);
         var allGenerated = string.Join("\n", generatedSources);
-        allGenerated.ShouldContain("public override global::System.Threading.Tasks.ValueTask<(global::Test.StringQuest?,");
+        // The ShouldDelete dispatcher is now a file-scoped evolver implementing
+        // IGeneratedAsyncDetermineAction rather than an override on the projection. See #462.
+        allGenerated.ShouldContain("file sealed class StringQuestProjectionEvolver");
+        allGenerated.ShouldContain("global::JasperFx.Events.Aggregation.IGeneratedAsyncDetermineAction<global::Test.StringQuest, string>");
+        allGenerated.ShouldContain("public global::System.Threading.Tasks.ValueTask<(global::Test.StringQuest?,");
         allGenerated.ShouldContain("new global::System.Threading.Tasks.ValueTask<(global::Test.StringQuest?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Delete))");
     }
 
@@ -687,10 +769,16 @@ public class HostTests
         // Spot-check that the generated output actually wraps with the parent partial,
         // so a future regression can't sneak through by accidentally satisfying CS0115
         // some other way.
+        // The dispatcher for a nested projection is now a file-scoped, top-level evolver whose name
+        // encodes the containing-type chain (so two same-named nested projections in sibling parents
+        // don't collide), holding the nested projection by its fully-qualified name. No nesting / no
+        // injected override means the original CS0115/CS0111 failure modes can't recur. See #462 / #292.
         var (_, generatedSources) = RunGenerator(source);
         var allGenerated = string.Join("\n", generatedSources);
-        allGenerated.ShouldContain("partial class HostTests");
-        allGenerated.ShouldContain("partial class NestedProjection");
+        allGenerated.ShouldContain("file sealed class HostTests_NestedProjectionEvolver");
+        allGenerated.ShouldContain("new global::Test.HostTests.NestedProjection()");
+        allGenerated.ShouldContain(
+            "[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.Counted), typeof(global::Test.HostTests_NestedProjectionEvolver), typeof(global::Test.HostTests.NestedProjection))]");
     }
 
     // Regression for https://github.com/JasperFx/jasperfx/issues/293 — when a Marten consumer
@@ -1123,5 +1211,83 @@ public class MyAggregate
             .ToList();
 
         obsoleteFromGenerated.ShouldBeEmpty();
+    }
+
+    // Regression for https://github.com/JasperFx/jasperfx/issues/462 — the generator is bundled as a
+    // built-in analyzer inside BOTH Marten and Polecat, so a project referencing both stores loads the
+    // SAME incremental generator twice. Each instance emits the same dispatcher against the same source.
+    // When the dispatcher was injected as partial members of the user's projection class, the two copies
+    // collided with CS0111 (duplicate member); a self-aggregating evolver class collided with CS0101
+    // (duplicate type). Emitting the dispatcher as a `file`-scoped evolver makes each copy local to its
+    // own generated file, so two instances coexist without colliding. Two generator instances on one
+    // driver reproduce the double-load precisely.
+    [Fact]
+    public void generator_loaded_twice_does_not_produce_duplicate_member_or_type_errors()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public class Wallet { public Guid Id { get; set; } public int Balance { get; set; } }
+public class Funded { public int Amount { get; set; } }
+public class Drained { }
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+// partial-projection path with ShouldDelete (the reported repro shape)
+public partial class WalletProjection : SingleStreamProjection<Wallet, Guid>
+{
+    public Wallet Create(Funded e) => new Wallet { Balance = e.Amount };
+    public void Apply(Funded e, Wallet w) { w.Balance += e.Amount; }
+    public bool ShouldDelete(Drained e) => true;
+}
+
+// self-aggregating path (separate evolver class)
+public class Tally
+{
+    public Guid Id { get; set; }
+    public int Count { get; set; }
+    public static Tally Create(Funded e) => new Tally();
+    public void Apply(Funded e) { Count++; }
+}
+";
+
+        var syntaxTree = CSharpSyntaxTree.ParseText(source);
+
+        var references = new List<MetadataReference>
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(IEvent).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Guid).Assembly.Location),
+        };
+        var runtimeDir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(runtimeDir, "System.Runtime.dll")));
+        references.Add(MetadataReference.CreateFromFile(System.IO.Path.Combine(runtimeDir, "System.Collections.dll")));
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName: "TestAssembly",
+            syntaxTrees: [syntaxTree],
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        // Two instances of the same generator == the analyzer bundled in two referenced packages.
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new AggregateEvolverGenerator(), new AggregateEvolverGenerator());
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        var collisionErrors = outputCompilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0111" or "CS0101" or "CS0102")
+            .Select(d => $"{d.Id}: {d.GetMessage()}")
+            .ToArray();
+
+        collisionErrors.ShouldBeEmpty();
     }
 }

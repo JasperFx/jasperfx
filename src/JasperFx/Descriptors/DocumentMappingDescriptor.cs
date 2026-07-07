@@ -69,14 +69,30 @@ public class DocumentMappingDescriptor
     /// <summary>
     /// Number of subclass mappings registered against this aggregate root —
     /// non-zero indicates a hierarchy (<c>doc_type</c> column is present).
+    /// Retained for back-compat; <see cref="SubClasses"/> carries the list.
     /// </summary>
     public int SubClassCount { get; set; }
 
     /// <summary>
+    /// The subclass-mapping document types registered against this root, so a
+    /// console can render the hierarchy rather than just a "has subclasses"
+    /// hint. Empty when the type is not a hierarchy root.
+    /// </summary>
+    public TypeDescriptor[] SubClasses { get; set; } = [];
+
+    /// <summary>
     /// CLR type name of the <c>IPartitionStrategy</c> in effect, or
-    /// <see langword="null"/> when the table is not partitioned.
+    /// <see langword="null"/> when the table is not partitioned. Retained for
+    /// back-compat; <see cref="Partitioning"/> carries the structured shape.
     /// </summary>
     public string? PartitioningStrategy { get; set; }
+
+    /// <summary>
+    /// Structured partitioning shape (strategy + declared partition names), or
+    /// <see langword="null"/> when the table is not partitioned. Lets the
+    /// console render the actual partitions, not just the strategy label.
+    /// </summary>
+    public PartitioningDescriptor? Partitioning { get; set; }
 
     /// <summary>
     /// Full DDL the store will generate for this document type — table
@@ -85,4 +101,25 @@ public class DocumentMappingDescriptor
     /// schema gets applied" view.
     /// </summary>
     public string Ddl { get; set; } = "";
+}
+
+/// <summary>
+/// Structured description of a partitioned document table: the partition
+/// strategy (e.g. <c>"List"</c>, <c>"Hash"</c>, <c>"Range"</c>) plus the
+/// declared partition names where the store can surface them.
+/// </summary>
+public class PartitioningDescriptor
+{
+    /// <summary>
+    /// Partition strategy label — <c>"List"</c>, <c>"Hash"</c>, <c>"Range"</c>,
+    /// etc. Mirrors the store's partition-strategy kind as a string for
+    /// serialization-friendliness across version skews.
+    /// </summary>
+    public string Strategy { get; set; } = "";
+
+    /// <summary>
+    /// Declared partition names where known (e.g. per-tenant or per-range
+    /// partition table suffixes). Empty when the partitions are not enumerable.
+    /// </summary>
+    public string[] PartitionNames { get; set; } = [];
 }

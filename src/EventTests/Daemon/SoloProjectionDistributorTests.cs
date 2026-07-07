@@ -53,6 +53,86 @@ public class SoloProjectionDistributorTests
         (await distributor.BuildDistributionAsync())[0].Names.Count.ShouldBe(2);
     }
 
+    // jasperfx#489: the Solo hosted path starts agents per identity through the same
+    // coordinator loop as HotCold, so a tenant-partitioned store needs the same
+    // per-tenant expansion here — one agent per (shard, tenant), zero-tenant shards
+    // keep their store-global name.
+    [Fact]
+    public async Task expands_shards_into_per_tenant_names_when_the_store_distributes_per_tenant()
+    {
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1", "t2"];
+
+        var shards = new[] { new ShardName("Trip", "All", 1), new ShardName("Day", "All", 1) };
+
+        var distributor = new SoloProjectionDistributor(
+            databaseSource: () => new ValueTask<IReadOnlyList<IProjectionDatabase>>(new IProjectionDatabase[] { db }),
+            allShards: () => shards,
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            baseLockId: 0,
+            distributesAgentsPerTenant: true);
+
+        var set = (await distributor.BuildDistributionAsync()).ShouldHaveSingleItem();
+
+        set.Names.Select(x => x.Identity).ShouldBe(["Trip:All:t1", "Trip:All:t2", "Day:All"]);
+    }
+
+    [Fact]
+    public async Task expansion_reenumerates_the_tenant_list_on_every_build()
+    {
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1"];
+
+        var distributor = new SoloProjectionDistributor(
+            databaseSource: () => new ValueTask<IReadOnlyList<IProjectionDatabase>>(new IProjectionDatabase[] { db }),
+            allShards: () => new[] { new ShardName("Trip", "All", 1) },
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            baseLockId: 0,
+            distributesAgentsPerTenant: true);
+
+        (await distributor.BuildDistributionAsync())[0].Names.Select(x => x.Identity)
+            .ShouldBe(["Trip:All:t1"]);
+
+        db.TenantsByProjection["Trip"] = ["t1", "t2"];
+        (await distributor.BuildDistributionAsync())[0].Names.Select(x => x.Identity)
+            .ShouldBe(["Trip:All:t1", "Trip:All:t2"]);
+    }
+
+    [Fact]
+    public async Task expansion_is_inert_when_the_store_does_not_distribute_per_tenant()
+    {
+        var db = new FakeTenantSourceDatabase("only");
+        db.TenantsByProjection["Trip"] = ["t1", "t2"];
+
+        var distributor = new SoloProjectionDistributor(
+            databaseSource: () => new ValueTask<IReadOnlyList<IProjectionDatabase>>(new IProjectionDatabase[] { db }),
+            allShards: () => new[] { new ShardName("Trip", "All", 1) },
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            baseLockId: 0);
+
+        var set = (await distributor.BuildDistributionAsync()).ShouldHaveSingleItem();
+
+        set.Names.ShouldHaveSingleItem().Identity.ShouldBe("Trip:All");
+        db.Queried.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task expansion_is_inert_when_the_database_has_no_tenant_source()
+    {
+        var db = new FakeProjectionDatabase("only", new Uri("fake://only"));
+
+        var distributor = new SoloProjectionDistributor(
+            databaseSource: () => new ValueTask<IReadOnlyList<IProjectionDatabase>>(new IProjectionDatabase[] { db }),
+            allShards: () => new[] { new ShardName("Trip", "All", 1) },
+            setFactory: (database, names, lockId) => new FakeProjectionSet(database, names, lockId),
+            baseLockId: 0,
+            distributesAgentsPerTenant: true);
+
+        var set = (await distributor.BuildDistributionAsync()).ShouldHaveSingleItem();
+
+        set.Names.ShouldHaveSingleItem().Identity.ShouldBe("Trip:All");
+    }
+
     [Fact]
     public async Task no_locks_in_solo_mode()
     {
@@ -103,6 +183,29 @@ public class SoloProjectionDistributorTests
 
         public string Identifier { get; }
         public Uri DatabaseUri { get; }
+    }
+
+    private sealed class FakeTenantSourceDatabase : IProjectionDatabase, ICrossTenantRebuildSource
+    {
+        public FakeTenantSourceDatabase(string identifier)
+        {
+            Identifier = identifier;
+            DatabaseUri = new Uri($"fake://{identifier}");
+        }
+
+        public string Identifier { get; }
+        public Uri DatabaseUri { get; }
+
+        public Dictionary<string, IReadOnlyList<string>> TenantsByProjection { get; } = new();
+        public List<string> Queried { get; } = [];
+
+        public Task<IReadOnlyList<string>> FindRebuildTenantsAsync(string projectionName, CancellationToken token)
+        {
+            Queried.Add(projectionName);
+            return Task.FromResult(TenantsByProjection.TryGetValue(projectionName, out var tenants)
+                ? tenants
+                : Array.Empty<string>());
+        }
     }
 
     private sealed class FakeProjectionSet : IProjectionSet

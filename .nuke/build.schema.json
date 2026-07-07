@@ -35,7 +35,8 @@
         "TestCodegen",
         "TestCommandLine",
         "TestCore",
-        "TestEvents"
+        "TestEvents",
+        "TestEventStore"
       ]
     },
     "Verbosity": {

@@ -107,4 +107,27 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// and <see cref="SlowPollingTime"/>.
     /// </summary>
     public IDaemonWakeup? Wakeup { get; set; }
+
+    /// <summary>
+    /// jasperfx#494 (epic #486 WS2): cap on how many subscription agents may execute
+    /// IEventLoader.LoadAsync concurrently against one database. Every load opens its own
+    /// store session, so without a bound the connection pool's high-water mark trends toward
+    /// the number of running agents — under per-tenant event partitioning that is
+    /// (projections × tenants) even though only a handful of loads are ever active at once.
+    /// Applies per daemon instance (one daemon per store × database). Zero or negative
+    /// disables the throttle.
+    /// </summary>
+    public int MaxConcurrentEventLoadsPerDatabase { get; set; } = 4;
+
+    /// <summary>
+    /// Epic #486 WS3: cap on how many projection batches may execute their SQL (the
+    /// commit round-trip) concurrently against one database. Each agent's batch opens its
+    /// own session to write documents + progression, so without a bound a burst of active
+    /// agents — e.g. every (projection × tenant) agent committing its first batch right
+    /// after daemon start — drives the connection pool's high-water mark toward the agent
+    /// count. Measurement (jasperfx#494) attributed ~29 of ~35 steady-state daemon
+    /// connections to these commit sessions. Applies per daemon instance (one daemon per
+    /// store × database). Zero or negative disables the governor.
+    /// </summary>
+    public int MaxConcurrentBatchWritesPerDatabase { get; set; } = 4;
 }

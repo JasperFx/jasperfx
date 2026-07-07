@@ -17,7 +17,12 @@ public record DatabaseId(string Server, string Name)
     public static bool TryParse(string text, out DatabaseId id)
     {
         var separator = text.LastIndexOf('.');
-        if (separator <= 0 || separator == text.Length - 1)
+
+        // A leading separator (empty server) or no separator at all is malformed, but a trailing
+        // separator is a legitimate empty database name. The ctor accepts an empty Name (e.g. a
+        // Postgres connection string with no Database= yields one), so Parse must round-trip it
+        // rather than throwing when the agent URI is parsed back. See wolverine#3170.
+        if (separator <= 0)
         {
             id = default!;
             return false;

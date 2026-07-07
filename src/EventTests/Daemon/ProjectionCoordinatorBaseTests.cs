@@ -3,6 +3,7 @@ using JasperFx.Events;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using Polly;
 using Shouldly;
 
@@ -12,12 +13,13 @@ public class ProjectionCoordinatorBaseTests
 {
     private static readonly ShardName TheShard = new("Trip", "All", 1);
 
-    private static TestCoordinator BuildCoordinator(FakeDistributor distributor, FakeDaemon daemon)
+    private static TestCoordinator BuildCoordinator(FakeDistributor distributor, FakeDaemon daemon,
+        TimeSpan? leadershipPollingTime = null)
     {
         return new TestCoordinator(
             distributor,
             daemon,
-            leadershipPollingTime: TimeSpan.FromSeconds(30),
+            leadershipPollingTime: leadershipPollingTime ?? TimeSpan.FromSeconds(30),
             agentPauseTime: TimeSpan.FromSeconds(30),
             healthCheckPollingTime: TimeSpan.FromSeconds(30));
     }
@@ -77,6 +79,132 @@ public class ProjectionCoordinatorBaseTests
         await coordinator.StopAsync(CancellationToken.None);
 
         daemon.Stopped.ShouldContain(TheShard.Identity);
+    }
+
+    // ---- jasperfx#489: per-tenant reconciliation in the start-agents pass ----
+    //
+    // Under per-tenant agent distribution the distributor re-expands each set's Names
+    // from the current tenant list on every leadership cycle. The coordinator's owned
+    // pass must converge the running agents onto those Names: tenants added on another
+    // node get agents started (through the existing #487 tenant-bearing StartAgentAsync
+    // branch), removed tenants get their agents reaped, and the store-global agent left
+    // over from a pre-expansion cycle is retired once per-tenant names appear (same
+    // shape as Wolverine's #3328 stale-agent retirement).
+
+    [Fact]
+    public async Task starts_an_agent_for_a_tenant_added_between_leadership_cycles()
+    {
+        var t1 = TheShard.ForTenant("t1");
+        var daemon = new FakeDaemon();
+        var distributor = new FakeDistributor([new FakeProjectionSet("db1", [t1], 100)]) { LockHeld = true };
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(25));
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => daemon.Started.Contains("Trip:All:t1"));
+
+        // A tenant registered on another node shows up in the next cycle's expansion.
+        distributor.Sets = [new FakeProjectionSet("db1", [t1, TheShard.ForTenant("t2")], 100)];
+        await WaitFor(() => daemon.Started.Contains("Trip:All:t2"));
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        daemon.Started.ShouldContain("Trip:All:t2");
+        // The tenant that was already running is untouched.
+        daemon.Stopped.ShouldNotContain("Trip:All:t1");
+    }
+
+    [Fact]
+    public async Task reaps_the_agent_for_a_tenant_removed_between_leadership_cycles()
+    {
+        var t1 = TheShard.ForTenant("t1");
+        var t2 = TheShard.ForTenant("t2");
+        var daemon = new FakeDaemon();
+        var distributor = new FakeDistributor([new FakeProjectionSet("db1", [t1, t2], 100)]) { LockHeld = true };
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(25));
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => daemon.Started.Contains("Trip:All:t1") && daemon.Started.Contains("Trip:All:t2"));
+
+        // Tenant t2 was removed — the next expansion no longer carries its name.
+        distributor.Sets = [new FakeProjectionSet("db1", [t1], 100)];
+        await WaitFor(() => daemon.Stopped.Contains("Trip:All:t2"));
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        daemon.Stopped.ShouldContain("Trip:All:t2");
+        daemon.Stopped.ShouldNotContain("Trip:All:t1");
+        daemon.CurrentAgents().Select(x => x.Name.Identity).ShouldBe(["Trip:All:t1"]);
+    }
+
+    [Fact]
+    public async Task retires_a_store_global_agent_when_per_tenant_names_first_appear()
+    {
+        var daemon = new FakeDaemon();
+        // Store-global agent left over from a cycle before the store's tenant list
+        // could be enumerated (the transition edge).
+        daemon.SeedRunningAgent(TheShard);
+
+        var distributor = new FakeDistributor([new FakeProjectionSet("db1", [TheShard.ForTenant("t1")], 100)])
+        {
+            LockHeld = true
+        };
+
+        var coordinator = BuildCoordinator(distributor, daemon);
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => daemon.Started.Contains("Trip:All:t1"));
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        daemon.Stopped.ShouldContain("Trip:All");
+        // The stale store-global agent stops BEFORE its per-tenant replacement starts,
+        // so the two never process the same events concurrently.
+        daemon.Log.IndexOf("stop:Trip:All").ShouldBeLessThan(daemon.Log.IndexOf("start:Trip:All:t1"));
+    }
+
+    [Fact]
+    public async Task reaping_matches_on_the_tenant_neutral_base_and_never_touches_other_projections()
+    {
+        var daemon = new FakeDaemon();
+        // Agents for a DIFFERENT projection on the same daemon — one store-global, one
+        // tenant-bearing — must never be reaped by the Trip set's reconciliation.
+        var day = new ShardName("Day", "All", 1);
+        daemon.SeedRunningAgent(day);
+        daemon.SeedRunningAgent(day.ForTenant("t9"));
+
+        var distributor = new FakeDistributor([new FakeProjectionSet("db1", [TheShard.ForTenant("t1")], 100)])
+        {
+            LockHeld = true
+        };
+
+        var coordinator = BuildCoordinator(distributor, daemon);
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => daemon.Started.Contains("Trip:All:t1"));
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        daemon.Stopped.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task reconciliation_is_inert_for_a_non_partitioned_set()
+    {
+        // A store that does not distribute agents per tenant keeps store-global Names,
+        // so the reconciliation pass finds nothing to reap across leadership cycles.
+        var daemon = new FakeDaemon();
+        var distributor = new FakeDistributor([new FakeProjectionSet("db1", [TheShard], 100)]) { LockHeld = true };
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(25));
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => daemon.Started.Contains(TheShard.Identity));
+
+        // Let several more leadership cycles run.
+        await Task.Delay(250);
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        daemon.Stopped.ShouldBeEmpty();
+        // And the running agent was never churned — exactly one start.
+        daemon.Started.Count(x => x == TheShard.Identity).ShouldBe(1);
     }
 
     [Fact]
@@ -191,12 +319,22 @@ public class ProjectionCoordinatorBaseTests
 
     private sealed class FakeDistributor(IReadOnlyList<IProjectionSet> sets) : IProjectionDistributor
     {
+        // Mutable so jasperfx#489 reconciliation tests can change the distribution
+        // between leadership cycles, the way a real distributor re-expands tenant
+        // lists on every BuildDistributionAsync call.
+        private volatile IReadOnlyList<IProjectionSet> _sets = sets;
+
+        public IReadOnlyList<IProjectionSet> Sets
+        {
+            set => _sets = value;
+        }
+
         public bool LockHeld { get; init; }
         public bool CanAttain { get; init; } = true;
         public List<IProjectionSet> ReleasedLocks { get; } = [];
         public int ReleaseAllLocksCount { get; private set; }
 
-        public ValueTask<IReadOnlyList<IProjectionSet>> BuildDistributionAsync() => new(sets);
+        public ValueTask<IReadOnlyList<IProjectionSet>> BuildDistributionAsync() => new(_sets);
         public Task RandomWait(CancellationToken token) => Task.CompletedTask;
         public bool HasLock(IProjectionSet set) => LockHeld;
         public Task<bool> TryAttainLockAsync(IProjectionSet set, CancellationToken token) => Task.FromResult(CanAttain);
@@ -227,10 +365,33 @@ public class ProjectionCoordinatorBaseTests
         public List<string> Started { get; } = [];
         public List<string> Stopped { get; } = [];
         public List<string> Ejected { get; } = [];
+
+        // Interleaved start:/stop: record so tests can assert ordering — e.g. the
+        // jasperfx#489 transition edge where the stale store-global agent must stop
+        // BEFORE its per-tenant replacements start.
+        public List<string> Log { get; } = [];
+
         public int DisposeCount { get; private set; }
         public int StopAllCount { get; private set; }
 
+        private readonly List<ISubscriptionAgent> _agents = [];
         private bool _failed;
+
+        // Pre-load a running agent, e.g. a store-global agent left over from a
+        // pre-expansion leadership cycle.
+        public void SeedRunningAgent(ShardName name) => addAgent(name);
+
+        private void addAgent(ShardName name)
+        {
+            lock (_agents)
+            {
+                _agents.RemoveAll(x => x.Name.Identity == name.Identity);
+                var agent = Substitute.For<ISubscriptionAgent>();
+                agent.Name.Returns(name);
+                agent.Status.Returns(AgentStatus.Running);
+                _agents.Add(agent);
+            }
+        }
 
         public Task StartAgentAsync(string shardName, CancellationToken token)
         {
@@ -240,13 +401,30 @@ public class ProjectionCoordinatorBaseTests
                 throw new InvalidOperationException("boom");
             }
 
-            Started.Add(shardName);
+            lock (Log)
+            {
+                Started.Add(shardName);
+                Log.Add($"start:{shardName}");
+            }
+
+            ShardName.TryParse(shardName, out var parsed);
+            addAgent(parsed ?? new ShardName(shardName));
             return Task.CompletedTask;
         }
 
         public Task StopAgentAsync(string shardName, Exception? ex = null)
         {
-            Stopped.Add(shardName);
+            lock (Log)
+            {
+                Stopped.Add(shardName);
+                Log.Add($"stop:{shardName}");
+            }
+
+            lock (_agents)
+            {
+                _agents.RemoveAll(x => x.Name.Identity == shardName);
+            }
+
             return Task.CompletedTask;
         }
 
@@ -256,7 +434,14 @@ public class ProjectionCoordinatorBaseTests
             return Status;
         }
 
-        public IReadOnlyList<ISubscriptionAgent> CurrentAgents() => [];
+        public IReadOnlyList<ISubscriptionAgent> CurrentAgents()
+        {
+            lock (_agents)
+            {
+                return _agents.ToArray();
+            }
+        }
+
         public bool HasAnyPaused() => false;
 
         public void EjectPausedShard(string shardName) => Ejected.Add(shardName);

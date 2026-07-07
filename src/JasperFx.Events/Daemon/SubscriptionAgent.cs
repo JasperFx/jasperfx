@@ -44,6 +44,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         ProjectionShardIdentity = name.Identity;
     }
 
+    // Exposed so tests can assert how the daemon composed this agent's loader (jasperfx#494)
+    internal IEventLoader Loader => _loader;
+
+    // Epic #486 WS3: surface the owning daemon's batch-write governor to the projection
+    // executions (they only see this agent via EventRange.Agent). The runtime is the daemon
+    // once StartAsync/ReplayAsync has run; the Nullo default yields null = unbounded.
+    public SemaphoreSlim? BatchWriteThrottle => _runtime.BatchWriteThrottle;
+
     public string ProjectionShardIdentity { get; }
 
     public CancellationToken CancellationToken => _cancellation.Token;

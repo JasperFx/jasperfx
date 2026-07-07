@@ -50,7 +50,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCommandLine, TestEvents, SmokeTestAot);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCommandLine, TestEvents, TestEventStore, SmokeTestAot);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -91,6 +91,17 @@ partial class Build : NukeBuild
         {
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventTests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
+    Target TestEventStore => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.EventStoreTests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());

@@ -220,6 +220,25 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
     private async Task applyBatchOperationsToDatabaseAsync(EventRange range, IProjectionBatch batch)
     {
+        // Epic #486 WS3: bound concurrent batch execute/commit sessions per database. Only
+        // BatchBehavior.Individual ranges reach this method (composite members ride the parent's
+        // batch and never execute), so the slot economy cannot deadlock on nested batches.
+        var writeThrottle = range.Agent.BatchWriteThrottle;
+        if (writeThrottle != null)
+        {
+            try
+            {
+                await writeThrottle.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+            {
+                // Shard is being torn down while queued for a write slot — nothing was executed,
+                // so don't mark success and don't treat the teardown as a failure
+                await batch.DisposeAsync().ConfigureAwait(false);
+                return;
+            }
+        }
+
         try
         {
             // Polly is already around the basic retry here, so anything that gets past this
@@ -252,6 +271,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         }
         finally
         {
+            writeThrottle?.Release();
             await batch.DisposeAsync().ConfigureAwait(false);
         }
     }

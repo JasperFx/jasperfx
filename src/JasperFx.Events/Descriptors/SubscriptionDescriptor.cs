@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using JasperFx.Core;
 using JasperFx.Descriptors;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Subscriptions;
@@ -28,6 +29,21 @@ public class SubscriptionDescriptor : OptionsDescription
         Version = subject.Version;
         ShardNames = subject.ShardNames();
         Lifecycle = subject.Lifecycle;
+
+        // The CLR type that implements this projection/subscription, plus — for self-aggregating
+        // projections (Snapshot<T> / SingleStreamProjection<T>) — the aggregate/document type, so
+        // consumers can display "what .NET type implements this projection". This is diagnostics-only
+        // metadata, so a source that fails to supply a type leaves the property null rather than
+        // blowing up the whole Describe() pipeline.
+        if (subject.ImplementationType is { } implementationType)
+        {
+            ImplementationType = TypeDescriptor.For(implementationType);
+        }
+
+        if (subject is IAggregateProjection { AggregateType: { } aggregateType })
+        {
+            AggregateType = TypeDescriptor.For(aggregateType);
+        }
 
         if (Lifecycle == ProjectionLifecycle.Async)
         {
@@ -83,6 +99,15 @@ public class SubscriptionDescriptor : OptionsDescription
     public uint Version { get; set; }
 
     public List<EventDescriptor> Events { get; set; } = new();
+
+    /// <summary>The CLR type that implements this projection/subscription.</summary>
+    public TypeDescriptor? ImplementationType { get; set; }
+
+    /// <summary>
+    /// For self-aggregating projections (Snapshot&lt;T&gt; / SingleStreamProjection&lt;T&gt;), the
+    /// aggregate/document type T. Null for non-aggregating subscriptions/projections.
+    /// </summary>
+    public TypeDescriptor? AggregateType { get; set; }
 
     /// <summary>
     /// Agent URIs that would be assigned for each shard of this subscription

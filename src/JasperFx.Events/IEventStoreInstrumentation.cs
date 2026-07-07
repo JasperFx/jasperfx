@@ -16,4 +16,22 @@ public interface IEventStoreInstrumentation
     /// Defaults to false; consumers opt in.
     /// </summary>
     bool ExtendedProgressionEnabled { get; set; }
+
+    /// <summary>
+    /// Optional observer invoked with the events appended in each successful unit-of-work commit
+    /// (e.g. Marten/Polecat <c>SaveChanges</c>), letting storage-agnostic lifecycle tooling such as
+    /// CritterWatch record runtime-observed "appends" edges. Each <see cref="IEvent" /> carries the
+    /// data such an observer needs — event type, stream id/key, aggregate type, tenant id, and
+    /// timestamp — so no store-specific projection is required.
+    /// </summary>
+    /// <remarks>
+    /// A default no-op implementation keeps existing event stores source-compatible until they opt in;
+    /// an implementing store stores the delegate and invokes it (best-effort, after commit) with the
+    /// events it just appended. Combine observers with <c>+=</c>. See CritterWatch#500.
+    /// </remarks>
+    Action<IReadOnlyList<IEvent>>? AppendObserver
+    {
+        get => null;
+        set { }
+    }
 }
