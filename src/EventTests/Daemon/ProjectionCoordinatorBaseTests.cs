@@ -2,6 +2,7 @@ using JasperFx;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Polly;
@@ -14,14 +15,15 @@ public class ProjectionCoordinatorBaseTests
     private static readonly ShardName TheShard = new("Trip", "All", 1);
 
     private static TestCoordinator BuildCoordinator(FakeDistributor distributor, FakeDaemon daemon,
-        TimeSpan? leadershipPollingTime = null)
+        TimeSpan? leadershipPollingTime = null, ILogger? logger = null)
     {
         return new TestCoordinator(
             distributor,
             daemon,
             leadershipPollingTime: leadershipPollingTime ?? TimeSpan.FromSeconds(30),
             agentPauseTime: TimeSpan.FromSeconds(30),
-            healthCheckPollingTime: TimeSpan.FromSeconds(30));
+            healthCheckPollingTime: TimeSpan.FromSeconds(30),
+            logger: logger);
     }
 
     [Fact]
@@ -207,6 +209,68 @@ public class ProjectionCoordinatorBaseTests
         daemon.Started.Count(x => x == TheShard.Identity).ShouldBe(1);
     }
 
+    // ---- jasperfx#499: shutdown drain race in the lock-attempt catch ----
+    //
+    // The per-set error handler used to treat ANY exception from TryAttainLockAsync as a
+    // transient "will retry later" and loop again after a Task.Delay. During host shutdown
+    // that amplified one racing OpenAsync against a disposing NpgsqlDataSource into a burst
+    // of ObjectDisposedException aborts (marten#4874 case B). The loop must now terminate.
+
+    [Fact]
+    public async Task terminates_the_loop_when_the_data_source_is_disposed_mid_lock_attempt()
+    {
+        var set = new FakeProjectionSet("db1", [TheShard], 100);
+        var daemon = new FakeDaemon();
+        // Every lock attempt faults the way a disposed pool does. A re-polling loop would
+        // keep incrementing AttainAttempts forever; the fix returns out of executeAsync.
+        var distributor = new FakeDistributor([set])
+        {
+            AttainFault = _ => new ObjectDisposedException("Npgsql.PoolingDataSource")
+        };
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(10));
+        await coordinator.StartAsync(CancellationToken.None);
+
+        await WaitFor(() => distributor.AttainAttempts >= 1);
+
+        // Give a re-polling loop ample opportunity to fire again (poll time is 10ms).
+        await Task.Delay(250);
+        distributor.AttainAttempts.ShouldBe(1);
+
+        // No agents were started against the dead data source.
+        daemon.Started.ShouldBeEmpty();
+
+        await coordinator.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task terminates_on_a_wrapped_cancellation_during_a_lock_attempt_without_logging_a_lock_error()
+    {
+        var set = new FakeProjectionSet("db1", [TheShard], 100);
+        var daemon = new FakeDaemon();
+        var logger = new CapturingLogger();
+
+        // The lock attempt is in-flight (blocked on the loop's own token) when the coordinator
+        // is stopped; its cancellation surfaces WRAPPED. The loop must return on the
+        // stoppingToken check rather than logging a "will retry later" lock error.
+        var distributor = new FakeDistributor([set]) { BlockThenWrapCancellation = true };
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(10), logger);
+        await coordinator.StartAsync(CancellationToken.None);
+
+        // Wait until the loop is parked inside the in-flight lock attempt.
+        await WaitFor(() => distributor.AttainAttempts >= 1);
+
+        // Stopping cancels the loop token, faulting the in-flight attempt with the wrapped
+        // OperationCanceledException. StopAsync completes cleanly (no drain deadlock) once the
+        // loop returns.
+        await coordinator.StopAsync(CancellationToken.None);
+
+        distributor.AttainAttempts.ShouldBe(1);
+        daemon.Started.ShouldBeEmpty();
+        logger.Errors.ShouldNotContain(x => x.Contains("Error trying to attain a lock"));
+    }
+
     [Fact]
     public async Task stop_releases_all_locks_and_disposes_daemons()
     {
@@ -270,13 +334,42 @@ public class ProjectionCoordinatorBaseTests
         }
     }
 
+    // Minimal ILogger that records the formatted message of every Error-level entry so a test
+    // can assert whether the loop logged a lock error (proving which catch branch fired).
+    private sealed class CapturingLogger : ILogger
+    {
+        public List<string> Errors { get; } = [];
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Error)
+            {
+                lock (Errors)
+                {
+                    Errors.Add(formatter(state, exception));
+                }
+            }
+        }
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
+    }
+
     private sealed class TestCoordinator : ProjectionCoordinatorBase
     {
         private readonly FakeDaemon _daemon;
 
         public TestCoordinator(IProjectionDistributor? distributor, FakeDaemon daemon,
-            TimeSpan leadershipPollingTime, TimeSpan agentPauseTime, TimeSpan healthCheckPollingTime)
-            : base(distributor, NullLogger.Instance, ResiliencePipeline.Empty, TimeProvider.System,
+            TimeSpan leadershipPollingTime, TimeSpan agentPauseTime, TimeSpan healthCheckPollingTime,
+            ILogger? logger = null)
+            : base(distributor, logger ?? NullLogger.Instance, ResiliencePipeline.Empty, TimeProvider.System,
                 leadershipPollingTime, agentPauseTime, healthCheckPollingTime)
         {
             _daemon = daemon;
@@ -331,13 +424,51 @@ public class ProjectionCoordinatorBaseTests
 
         public bool LockHeld { get; init; }
         public bool CanAttain { get; init; } = true;
+
+        // jasperfx#499: lets a test model the shutdown drain race where TryAttainLockAsync
+        // faults because the underlying data source is being disposed. Returns the exception
+        // to throw for a given attempt (null = attain normally); the counter records how many
+        // attempts the loop made, so a test can prove it did not re-poll a dead pool.
+        public Func<int, Exception?>? AttainFault { get; init; }
+        public int AttainAttempts;
+
+        // jasperfx#499: models a lock attempt that is in-flight when the loop is cancelled and
+        // whose cancellation surfaces WRAPPED (not a bare OperationCanceledException) — the case
+        // the inner catch must terminate on rather than logging as a lock error and re-polling.
+        public bool BlockThenWrapCancellation { get; init; }
+
         public List<IProjectionSet> ReleasedLocks { get; } = [];
         public int ReleaseAllLocksCount { get; private set; }
 
         public ValueTask<IReadOnlyList<IProjectionSet>> BuildDistributionAsync() => new(_sets);
         public Task RandomWait(CancellationToken token) => Task.CompletedTask;
         public bool HasLock(IProjectionSet set) => LockHeld;
-        public Task<bool> TryAttainLockAsync(IProjectionSet set, CancellationToken token) => Task.FromResult(CanAttain);
+
+        public async Task<bool> TryAttainLockAsync(IProjectionSet set, CancellationToken token)
+        {
+            var attempt = Interlocked.Increment(ref AttainAttempts);
+
+            if (BlockThenWrapCancellation)
+            {
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException oce)
+                {
+                    // e.g. Medallion's TryAcquireAsync surfacing a cancelled OpenAsync wrapped.
+                    throw new InvalidOperationException("wrapped shutdown cancellation", oce);
+                }
+            }
+
+            var fault = AttainFault?.Invoke(attempt);
+            if (fault != null)
+            {
+                throw fault;
+            }
+
+            return CanAttain;
+        }
 
         public Task ReleaseLockAsync(IProjectionSet set)
         {
