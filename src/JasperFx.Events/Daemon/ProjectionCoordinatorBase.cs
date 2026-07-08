@@ -242,8 +242,29 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
                             await stopAgentsIfNecessaryAsync(set, daemon).ConfigureAwait(false);
                         }
                     }
+                    catch (ObjectDisposedException e)
+                    {
+                        // Shutdown drain race (jasperfx#499 / marten#4874 case B): the underlying
+                        // data source (e.g. NpgsqlDataSource) is being disposed out from under an
+                        // in-flight lock attempt. Re-polling would hammer a dead pool and amplify
+                        // one racing OpenAsync into the burst of ObjectDisposedException aborts that
+                        // #4874 measured. The data source is gone for good, so terminate the loop
+                        // instead of treating this as a transient "will retry later" error.
+                        _logger.LogInformation(e,
+                            "Data source disposed while attaining a lock for set {Name} and lock id {LockId}; stopping the projection coordinator loop",
+                            set.Names.Select(x => x.Identity).Join(", "), set.LockId);
+                        return;
+                    }
                     catch (Exception e)
                     {
+                        // A cancellation that surfaces wrapped (not a bare OperationCanceledException)
+                        // must terminate the loop the same way the outer catch does, rather than being
+                        // logged as a lock error and re-polled against a shutting-down data source.
+                        if (stoppingToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
                         _logger.LogError(e,
                             "Error trying to attain a lock for set {Name} and lock id {LockId}. Will retry later",
                             set.Names.Select(x => x.Identity).Join(", "), set.LockId);
