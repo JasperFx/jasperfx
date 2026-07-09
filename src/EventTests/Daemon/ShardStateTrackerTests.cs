@@ -183,4 +183,60 @@ public class ShardStateTrackerTests : IDisposable
 
         state.SkippedEventsCount.ShouldBe(42L);
     }
+
+    // CritterWatch#678 — a store backed by more than one database runs one daemon (and one tracker) per
+    // database, and every one of them publishes the same shard names. Stamping the tracker's database onto
+    // each state is what lets a consumer tell them apart.
+
+    [Fact]
+    public void shard_state_database_identifier_defaults_to_null()
+    {
+        new ShardState("foo", 100).DatabaseIdentifier.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task publish_stamps_the_trackers_database_onto_every_state()
+    {
+        theTracker.DatabaseIdentifier = "tenant-a";
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        await theTracker.PublishAsync(new ShardState("foo", 35));
+        // The high water agent's marks go through the same door.
+        await theTracker.MarkHighWaterAsync(100);
+
+        await theTracker.Complete();
+
+        observer.States.Count.ShouldBe(2);
+        observer.States.ShouldAllBe(x => x.DatabaseIdentifier == "tenant-a");
+    }
+
+    [Fact]
+    public async Task publish_leaves_a_state_that_already_names_its_database_alone()
+    {
+        theTracker.DatabaseIdentifier = "tenant-a";
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        await theTracker.PublishAsync(new ShardState("foo", 35) { DatabaseIdentifier = "tenant-b" });
+        await theTracker.PublishAsync(new ShardState("bar", 36));
+
+        await theTracker.Complete();
+
+        observer.States.Single(x => x.ShardName == "foo").DatabaseIdentifier.ShouldBe("tenant-b");
+        observer.States.Single(x => x.ShardName == "bar").DatabaseIdentifier.ShouldBe("tenant-a");
+    }
+
+    [Fact]
+    public async Task publish_leaves_the_database_null_when_the_tracker_has_none()
+    {
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        await theTracker.PublishAsync(new ShardState("foo", 35));
+
+        await theTracker.Complete();
+
+        observer.States.ShouldAllBe(x => x.DatabaseIdentifier == null);
+    }
 }

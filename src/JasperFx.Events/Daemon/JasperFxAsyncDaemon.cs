@@ -83,6 +83,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _projections = projections;
         Logger = loggerFactory.CreateLogger(GetType());
         Tracker = Database.Tracker;
+        // A multi-database store runs one of these per database, all publishing the same shard names.
+        // Stamping the tracker is what lets a consumer tell them apart. See CritterWatch#678.
+        Tracker.DatabaseIdentifier ??= Database.Identifier;
         _highWater = new HighWaterAgent(store.Meter, detector, Tracker, loggerFactory.CreateLogger<HighWaterAgent>(), projections, _cancellation.Token);
 
         if (detector.SupportsTenantPartitioning)
@@ -118,6 +121,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _loggerFactory = null;
         Logger = logger;
         Tracker = Database.Tracker;
+        Tracker.DatabaseIdentifier ??= Database.Identifier;
         _highWater = new HighWaterAgent(store.Meter, detector, Tracker, logger, _projections, _cancellation.Token);
 
         if (detector.SupportsTenantPartitioning)

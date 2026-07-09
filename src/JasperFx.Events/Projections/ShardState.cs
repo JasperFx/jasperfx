@@ -144,6 +144,22 @@ public class ShardState
     /// </summary>
     public string? StoreUri { get; set; }
 
+    /// <summary>
+    /// <see cref="IEventDatabase.Identifier"/> of the database this shard state came from. An event store
+    /// backed by more than one database — database-per-tenant, sharded tenancy — runs one daemon per
+    /// database, and every one of them publishes the same shard names (<c>Trip:All</c>) and the same
+    /// <c>HighWaterMark</c>. Without this, a consumer keying on shard name alone collapses all of them into
+    /// one entry and reports whichever database published last.
+    ///
+    /// Stamped by <see cref="Daemon.ShardStateTracker.DatabaseIdentifier"/> when the daemon is constructed,
+    /// so it rides both the subscription agents' states and the high-water agent's marks. Null only when
+    /// the publisher predates this field.
+    ///
+    /// Surfaces JasperFx/CritterWatch#678: a database-per-tenant service reported a high-water mark of 0 and
+    /// every projection as "awaiting its first event" while its per-tenant daemons were actively running.
+    /// </summary>
+    public string? DatabaseIdentifier { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";
