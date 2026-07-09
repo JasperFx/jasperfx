@@ -32,6 +32,15 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     /// </summary>
     public long HighWaterMark { get; private set; }
 
+    /// <summary>
+    ///     <see cref="IEventDatabase.Identifier" /> of the database this tracker belongs to. Stamped onto every
+    ///     published <see cref="ShardState" /> that doesn't already carry one, so a consumer of a multi-database
+    ///     store (database-per-tenant, sharded tenancy) can tell one database's <c>Trip:All</c> from another's.
+    ///     Set by <see cref="JasperFxAsyncDaemon{TOperations,TQuerySession,TProjection}" /> at construction. See
+    ///     JasperFx/CritterWatch#678.
+    /// </summary>
+    public string? DatabaseIdentifier { get; set; }
+
     void IDisposable.Dispose()
     {
         _subscription.Dispose();
@@ -73,6 +82,11 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         {
             HighWaterMark = state.Sequence;
         }
+
+        // One stamp point for every state this database's daemon publishes — the subscription agents'
+        // progress and the high water agent's marks alike. A state that already names a database (a
+        // republish, or a publisher that knows better) keeps its own.
+        state.DatabaseIdentifier ??= DatabaseIdentifier;
 
         return _block.PostAsync(state);
     }
