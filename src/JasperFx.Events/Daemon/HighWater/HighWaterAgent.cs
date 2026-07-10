@@ -65,6 +65,22 @@ public class HighWaterAgent: IDisposable
                 Action = ShardAction.Started, LastAdvanced = lastAdvancedFrom(_current)
             });
 
+        // #4913: under per-tenant event partitioning the store-global high-water mark is not used to
+        // advance any projection — tenant agents advance from the per-tenant vectorized poll driven by
+        // the daemon's TenantedHighWaterCoordinator. The store-global Detect() is `max(seq_id)` fanned
+        // out across every tenant partition, so polling it on the recurring loop is pure overhead whose
+        // cost scales with the partition count. The mark is seeded once above (so the fallback ceiling and
+        // Tracker stay meaningful) and CheckNowAsync still runs an on-demand scan for rebuild/catch-up,
+        // but the continuous scan loop is skipped. Per-tenant polling cadence is carried by the daemon's
+        // tenant high-water timer instead.
+        if (_detector.SupportsTenantPartitioning)
+        {
+            _logger.LogInformation(
+                "Skipping the recurring store-global high water polling loop for database {Name} because per-tenant event partitioning drives high water per tenant",
+                _detector.DatabaseUri);
+            return;
+        }
+
         _loop = Task.Factory.StartNew(detectChanges, _token,
             TaskCreationOptions.LongRunning | TaskCreationOptions.AttachedToParent, TaskScheduler.Default);
 
