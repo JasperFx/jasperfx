@@ -39,6 +39,12 @@ public class BatchingChannel<T> : BlockBase<T>
 
     public override uint Count => (uint)_current.Count + _inner.Count;
 
+    public override Action<T, Exception> OnError
+    {
+        get => _inner.OnError;
+        set => _inner.OnError = value;
+    }
+
     public void TriggerBatch()
     {
         lock (_syncLock)

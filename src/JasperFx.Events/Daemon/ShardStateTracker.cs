@@ -22,6 +22,8 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     {
         _logger = logger;
         _block = new Block<ShardState>(publish);
+        _block.OnError = (state, ex) =>
+            _logger.LogError(ex, "Failure while publishing shard state {State}", state);
 
         _subscription = Subscribe(this);
     }

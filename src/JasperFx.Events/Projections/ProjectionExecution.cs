@@ -31,6 +31,32 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         _logger = logger;
 
         _building = new Block<EventRange>(processRangeAsync);
+        _building.OnError = onBlockFailure;
+    }
+
+    // Last-resort sink for exceptions that escape processRangeAsync (which has its own error
+    // handling) or that fault the block itself. Without this, such failures fell into Block<T>'s
+    // invisible default error handler and the shard died with zero log output (jasperfx#506)
+    private void onBlockFailure(EventRange? range, Exception ex)
+    {
+        _logger.LogError(ex, "Exception escaped the projection execution block for shard {Name}",
+            _shardName.Identity);
+
+        if (range?.Agent != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await range.Agent.ReportCriticalFailureAsync(ex).ConfigureAwait(false);
+                }
+                catch (Exception reportingException)
+                {
+                    _logger.LogError(reportingException,
+                        "Failure while reporting a critical failure for shard {Name}", _shardName.Identity);
+                }
+            });
+        }
     }
 
     public ShardName ShardName => _shardName;
@@ -119,6 +145,17 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
         }
+        catch (Exception e) when (_cancellation.IsCancellationRequested)
+        {
+            // Shard is being torn down. A genuine cancellation side effect isn't a failure, but
+            // anything else is at least logged before the teardown discards it (jasperfx#507)
+            if (!CancellationExceptions.IsCancellationLike(e))
+            {
+                _logger.LogInformation(e,
+                    "Discarding a failure while processing events for {Name} because the shard is being stopped, but the exception does not look like a cancellation side effect",
+                    _shardName.Identity);
+            }
+        }
         catch (Exception e)
         {
             activity?.AddException(e);
@@ -196,6 +233,13 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
                     _shardName.Identity,
                     range);
                 throw;
+            }
+
+            if (!CancellationExceptions.IsCancellationLike(e))
+            {
+                _logger.LogInformation(e,
+                    "Discarding a failure while executing an update batch for {Range} in shard '{Identity}' because the shard is being stopped, but the exception does not look like a cancellation side effect",
+                    range, _shardName.Identity);
             }
         }
         finally
