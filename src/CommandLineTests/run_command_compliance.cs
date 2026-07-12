@@ -1,4 +1,7 @@
+using JasperFx;
+using JasperFx.CommandLine;
 using JasperFx.CommandLine.Commands;
+using JasperFx.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Shouldly;
@@ -7,6 +10,62 @@ namespace CommandLineTests;
 
 public class run_command_compliance
 {
+    [Fact]
+    public async Task does_not_restart_a_host_already_started_by_auto_start()
+    {
+        // JasperFxEnvironment.AutoStartHost (WebApplicationFactory testing) makes the command
+        // executor eager-start the pre-built host before the run command executes. The run
+        // command must not start it a second time — IHost.StartAsync is not re-entrant and would
+        // re-run every IHostedService.StartAsync.
+        JasperFxEnvironment.AutoStartHost = true;
+        try
+        {
+            // Signalled by the counter's second StartAsync — i.e. the redundant start we guard
+            // against. It fires promptly when the bug is present and never when it is fixed.
+            var redundantStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var counter = new StartCounter(onSecondStart: () => redundantStart.TrySetResult());
+
+            var host = Host.CreateDefaultBuilder()
+                .ConfigureServices(services => services.AddSingleton<IHostedService>(counter))
+                .Build();
+
+            // Run on a background thread: with the guard in place the run command skips its only
+            // await, so its shutdown Wait() blocks synchronously — a direct call would deadlock.
+            var runTask = Task.Run(() => host.RunJasperFxCommands([]));
+
+            // Do not shut down until any redundant start has happened, or a stopping host would
+            // mask it. A correct run never signals, so bound the wait to prove the negative.
+            await Task.WhenAny(redundantStart.Task, Task.Delay(2.Seconds()));
+
+            host.Services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
+            await runTask.TimeoutAfterAsync(5000);
+
+            counter.Starts.ShouldBe(1);
+        }
+        finally
+        {
+            JasperFxEnvironment.AutoStartHost = false;
+        }
+    }
+
+    public class StartCounter(Action? onSecondStart = null) : IHostedService
+    {
+        private int _starts;
+        public int Starts => _starts;
+
+        public Task StartAsync(CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _starts) == 2)
+            {
+                onSecondStart?.Invoke();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
