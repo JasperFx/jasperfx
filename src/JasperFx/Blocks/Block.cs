@@ -25,6 +25,7 @@ public class Block<T> : BlockBase<T>
     private readonly Task[] _tasks;
     private bool _latched;
     private uint _count = 0;
+    private Exception? _failure;
 
     public Block(Func<T, CancellationToken, Task> action) : this(1, action)
     {
@@ -82,17 +83,29 @@ public class Block<T> : BlockBase<T>
         }
     }
 
+    // Deliberately NOT Debug.WriteLine: that call is compiled away in release builds, which made
+    // any exception escaping a block action completely invisible in production (jasperfx#506).
+    // This is a last-resort sink -- anything hosting a Block should assign OnError to real logging.
     private Action<T, Exception> _onError = (item, ex) =>
     {
-        Debug.WriteLine("Error processing item " + item);
-        Debug.WriteLine(ex.ToString());
+        Console.Error.WriteLine($"JasperFx Block<{typeof(T).Name}>: error processing item {item}");
+        Console.Error.WriteLine(ex.ToString());
+        Trace.WriteLine(ex.ToString());
     };
 
-    public Action<T, Exception> OnError
+    public override Action<T, Exception> OnError
     {
         get => _onError;
         set => _onError = value ?? throw new ArgumentNullException(nameof(OnError));
     }
+
+    /// <summary>
+    /// The terminal exception that faulted this block, if any. A faulted block has permanently
+    /// stopped processing and throws from <see cref="Post"/>/<see cref="PostAsync"/> so that a
+    /// dead consumer is observable by its producers instead of silently accumulating items
+    /// (jasperfx#506)
+    /// </summary>
+    public Exception? Failure => Volatile.Read(ref _failure);
 
     public override async Task WaitForCompletionAsync()
     {
@@ -101,6 +114,11 @@ public class Block<T> : BlockBase<T>
         if (_count == 0) return;
 
         await Task.WhenAll(_tasks);
+
+        // A faulted block must not try to drain -- its action already proved terminally broken.
+        // Producers learn about the fault from Post/PostAsync; teardown paths calling this method
+        // should still complete quietly.
+        if (_failure != null) return;
 
         while (!Cancellation.IsCancellationRequested && _count > 0)
         {
@@ -143,34 +161,96 @@ public class Block<T> : BlockBase<T>
 
     private async Task processAsync()
     {
-        while (!_cancellation.IsCancellationRequested)
+        try
         {
-            var isData = await _channel.Reader.WaitToReadAsync(_cancellation.Token);
-            if (!isData) return;
-
-            if (_channel.Reader.TryRead(out var item))
+            while (!_cancellation.IsCancellationRequested)
             {
-                try
+                var isData = await _channel.Reader.WaitToReadAsync(_cancellation.Token);
+                if (!isData) return;
+
+                if (_channel.Reader.TryRead(out var item))
                 {
-                    await _action(item, _cancellation.Token);
+                    try
+                    {
+                        await _action(item, _cancellation.Token);
+                    }
+                    catch (Exception e)
+                    {
+                        // The error callback itself must never be able to kill the consumer loop.
+                        // If it throws, error handling is terminally broken and the only honest
+                        // move is to fault the whole block (jasperfx#506)
+                        try
+                        {
+                            _onError(item, e);
+                        }
+                        catch (Exception handlerException)
+                        {
+                            Interlocked.Decrement(ref _count);
+                            fault(new AggregateException(e, handlerException));
+                            return;
+                        }
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _count);
+                    }
                 }
-                catch (Exception e)
-                {
-                    _onError(item, e);
-                }
-                finally
-                {
-                    Interlocked.Decrement(ref _count);
-                }
+
+                if (_latched) return;
             }
-            
-            
-            if (_latched) return;
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal block shutdown
+        }
+        catch (ObjectDisposedException)
+        {
+            // The block itself was disposed out from under the consumer loop
+        }
+        catch (Exception e)
+        {
+            // The consumer loop died on something other than shutdown. The old behavior was to
+            // exit permanently while Post/PostAsync kept accepting items that would never be
+            // processed (jasperfx#506) -- instead, fault the block so producers find out
+            fault(e);
+        }
+    }
+
+    private void fault(Exception failure)
+    {
+        if (Interlocked.CompareExchange(ref _failure, failure, null) != null) return;
+
+        _latched = true;
+
+        // Completing the channel with the failure releases any producer currently block-waiting
+        // for capacity in Post/PostAsync with a ChannelClosedException instead of hanging forever
+        // against a consumer that will never drain the channel
+        _channel.Writer.TryComplete(failure);
+
+        try
+        {
+            _onError(default!, failure);
+        }
+        catch (Exception)
+        {
+            // The error callback already proved unreliable; there is nothing else to do with this
+        }
+    }
+
+    private void assertNotFaulted()
+    {
+        if (_failure != null)
+        {
+            throw new InvalidOperationException(
+                $"This Block<{typeof(T).Name}> has faulted and can no longer accept items. See the inner exception for the terminal failure.",
+                _failure);
         }
     }
 
     public override void Post(T item)
     {
+        assertNotFaulted();
+
         if (_latched) return;
 
         Interlocked.Increment(ref _count);
@@ -191,21 +271,28 @@ public class Block<T> : BlockBase<T>
         catch (Exception e)
         {
             Interlocked.Decrement(ref _count);
+
+            // A producer released from the blocking write by a fault must observe the fault, not a
+            // swallowed error callback (jasperfx#506)
+            assertNotFaulted();
+
             try
             {
                 _onError(item, e);
             }
             catch (Exception)
             {
-                Debug.WriteLine($"Was not able to write {item} to the queue synchronously!");
+                Trace.WriteLine($"Was not able to write {item} to the queue synchronously!");
             }
         }
     }
 
     public override ValueTask PostAsync(T item)
     {
+        assertNotFaulted();
+
         if (_latched) return ValueTask.CompletedTask;
-        
+
         Interlocked.Increment(ref _count);
         return _channel.Writer.WriteAsync(item, _cancellation.Token);
     }

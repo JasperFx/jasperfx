@@ -42,6 +42,30 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _commandBlock = new Block<Command>(Apply);
 
         ProjectionShardIdentity = name.Identity;
+
+        // Last-resort sink for exceptions escaping the command loop. Without this, a failed
+        // command fell into Block<T>'s invisible default error handler and the agent silently
+        // stopped making progress (jasperfx#506). ReportCriticalFailureAsync does not post back
+        // onto the command block, so there is no recursion here
+        _commandBlock.OnError = (command, ex) =>
+        {
+            _logger.LogError(ex, "Error processing daemon command {Command} for shard {Identity}",
+                command, ProjectionShardIdentity);
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await ReportCriticalFailureAsync(ex).ConfigureAwait(false);
+                }
+                catch (Exception reportingException)
+                {
+                    _logger.LogError(reportingException,
+                        "Failure while reporting a critical failure for shard {Identity}",
+                        ProjectionShardIdentity);
+                }
+            });
+        };
     }
 
     // Exposed so tests can assert how the daemon composed this agent's loader (jasperfx#494)

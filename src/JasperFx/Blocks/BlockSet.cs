@@ -24,6 +24,16 @@ public class BlockSet<T> : IBlock<T>
         }
     }
 
+    /// <summary>
+    /// Delegates to the top block of the set -- the one whose processing action runs first for
+    /// items posted to this set
+    /// </summary>
+    public Action<T, Exception> OnError
+    {
+        get => _top.OnError;
+        set => _top.OnError = value;
+    }
+
     public IBlock<TBefore> PushUpstream<TBefore>(Func<TBefore, CancellationToken, Task<T>> transformation)
     {
         var top = new Block<TBefore>(async (item, token) =>

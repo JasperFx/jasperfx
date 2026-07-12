@@ -58,10 +58,35 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
         _logger = logger;
 
         _executionBlock = new Block<EventRange>(executeRange);
+        _executionBlock.OnError = onBlockFailure;
 
-        // TODO -- revisit this. 
+        // TODO -- revisit this.
         ShardIdentity = $"{name.Identity}@{database.Identifier}";
         ShardName = name;
+    }
+
+    // Last-resort sink for exceptions that escape executeRange (which has its own error handling)
+    // or that fault the block itself. Without this, such failures fell into Block<T>'s invisible
+    // default error handler and the subscription died with zero log output (jasperfx#506)
+    private void onBlockFailure(EventRange? range, Exception ex)
+    {
+        _logger.LogError(ex, "Exception escaped the subscription execution block for {Name}", ShardIdentity);
+
+        if (range?.Agent != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await range.Agent.ReportCriticalFailureAsync(ex).ConfigureAwait(false);
+                }
+                catch (Exception reportingException)
+                {
+                    _logger.LogError(reportingException,
+                        "Failure while reporting a critical failure for {Name}", ShardIdentity);
+                }
+            });
+        }
     }
 
     public ILogger? Logger { get; set; } = NullLogger.Instance;
@@ -167,6 +192,17 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (Exception e) when (_cancellation.IsCancellationRequested)
+        {
+            // Subscription is being torn down. A genuine cancellation side effect isn't a failure,
+            // but anything else is at least logged before the teardown discards it (jasperfx#507)
+            if (!CancellationExceptions.IsCancellationLike(e))
+            {
+                _logger.LogInformation(e,
+                    "Discarding a failure while processing subscription {Name} because the subscription is being stopped, but the exception does not look like a cancellation side effect",
+                    ShardIdentity);
+            }
         }
         catch (Exception e)
         {

@@ -8,6 +8,14 @@ public abstract class BlockBase<T> : IBlock<T>
     public abstract ValueTask PostAsync(T item);
     public abstract void Post(T item);
 
+    /// <summary>
+    /// Error callback for exceptions escaping this block's processing. Blocks that execute an
+    /// action directly (like <see cref="Block{T}"/>) invoke this; composite blocks delegate it to
+    /// their processing block. The default is a no-op holder for subclasses that never execute
+    /// user actions themselves
+    /// </summary>
+    public virtual Action<T, Exception> OnError { get; set; } = (_, _) => { };
+
     public IBlock<TBefore> PushUpstream<TBefore>(Func<TBefore, CancellationToken, Task<T>> transformation)
     {
         var top = new Block<TBefore>(async (item, token) =>

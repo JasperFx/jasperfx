@@ -19,6 +19,12 @@ public interface IBlock : IAsyncDisposable
 public interface IBlock<T> : IBlock
 {
     /// <summary>
+    /// Error callback for exceptions escaping this block's processing action. Hosts should assign
+    /// this to real logging -- the default sink is a last resort (jasperfx#506)
+    /// </summary>
+    Action<T, Exception> OnError { get; set; }
+
+    /// <summary>
     /// Add a new item to this item to be processed in the background
     /// </summary>
     /// <param name="item"></param>

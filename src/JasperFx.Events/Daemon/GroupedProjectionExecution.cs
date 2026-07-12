@@ -20,9 +20,37 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         _logger = logger;
 
         var block = new Block<EventRange>(processRangeAsync);
+        block.OnError = onBlockFailure;
         _grouping = block.PushUpstream<EventRange>(groupEventRangeAsync);
+        _grouping.OnError = onBlockFailure;
 
         _runner = runner;
+    }
+
+    // Last-resort sink for exceptions that escape processRangeAsync/groupEventRangeAsync (which
+    // have their own error handling) or that fault the block itself. Without this, such failures
+    // fell into Block<T>'s invisible default error handler and the shard died with zero log
+    // output (jasperfx#506)
+    private void onBlockFailure(EventRange? range, Exception ex)
+    {
+        _logger.LogError(ex, "Exception escaped the projection execution block for shard {Name}",
+            ShardName.Identity);
+
+        if (range?.Agent != null)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await range.Agent.ReportCriticalFailureAsync(ex).ConfigureAwait(false);
+                }
+                catch (Exception reportingException)
+                {
+                    _logger.LogError(reportingException,
+                        "Failure while reporting a critical failure for shard {Name}", ShardName.Identity);
+                }
+            });
+        }
     }
 
     public ShardName ShardName { get; }
@@ -128,9 +156,18 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
             return range;
         }
-        catch when (_cancellation.IsCancellationRequested)
+        catch (Exception e) when (_cancellation.IsCancellationRequested)
         {
-            // Shard is being torn down — don't promote the cancellation to a critical failure.
+            // Shard is being torn down — don't promote a cancellation side effect to a critical
+            // failure. Anything that is NOT a genuine cancellation side effect is still logged
+            // before the teardown discards it (jasperfx#507)
+            if (!CancellationExceptions.IsCancellationLike(e))
+            {
+                _logger.LogInformation(e,
+                    "Discarding a failure while grouping events for {Name} because the shard is being stopped, but the exception does not look like a cancellation side effect",
+                    ShardName.Identity);
+            }
+
             return null!;
         }
         catch (Exception e)
@@ -188,16 +225,19 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
             range.Agent.Metrics.UpdateProcessed(range.Size);
         }
-        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        catch (Exception e) when (_cancellation.IsCancellationRequested)
         {
             // Daemon-internal cancellation (StopAllAsync / HardStopAsync / DisposeAsync fired the
-            // shard's CTS). Don't surface as a critical shard failure — matches the guard already
-            // used in applyBatchOperationsToDatabaseAsync and SubscriptionExecutionBase.executeRange.
-        }
-        catch when (_cancellation.IsCancellationRequested)
-        {
-            // Wrapped/aggregated cancellation (e.g. Npgsql 57014 surfaced through a non-OCE) that
-            // is really a side effect of the shard being torn down. Same rationale as above.
+            // shard's CTS). A genuine cancellation side effect — OCE, wrapped/aggregated OCE, or a
+            // database exception whose SqlState is query-cancelled/connection-teardown — isn't a
+            // shard failure. Anything else (a schema problem is a schema problem regardless of the
+            // CTS state) is logged before the teardown discards it (jasperfx#507)
+            if (!CancellationExceptions.IsCancellationLike(e))
+            {
+                _logger.LogInformation(e,
+                    "Discarding a failure while processing events for {Name} because the shard is being stopped, but the exception does not look like a cancellation side effect",
+                    ShardName.Identity);
+            }
         }
         catch (Exception e)
         {
@@ -267,6 +307,13 @@ public class GroupedProjectionExecution : ISubscriptionExecution
                     ShardName.Identity,
                     range);
                 throw;
+            }
+
+            if (!CancellationExceptions.IsCancellationLike(e))
+            {
+                _logger.LogInformation(e,
+                    "Discarding a failure while executing an update batch for {Range} in shard '{Identity}' because the shard is being stopped, but the exception does not look like a cancellation side effect",
+                    range, ShardName.Identity);
             }
         }
         finally
