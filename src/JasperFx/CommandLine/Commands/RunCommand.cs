@@ -39,7 +39,14 @@ public class RunCommand : JasperFxAsyncCommand<RunInput>
         var lifetime = host.Services.GetService<IHostApplicationLifetime>();
         lifetime?.ApplicationStopping.Register(() => reset.Set());
 
-        await host.StartAsync();
+        // A host started under JasperFxEnvironment.AutoStartHost (WebApplicationFactory testing)
+        // has already run every IHostedService.StartAsync. IHost.StartAsync is not re-entrant, so
+        // starting it again re-runs them all — skip the redundant start.
+        if (lifetime is null || !lifetime.ApplicationStarted.IsCancellationRequested)
+        {
+            await host.StartAsync();
+        }
+
         reset.Wait();
         await host.StopAsync();
         return true;
