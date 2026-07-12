@@ -1922,10 +1922,16 @@ internal static class EvolverCodeEmitter
             }
             else
             {
-                // Returns aggregate - pass new instance
+                // Returns aggregate - construct into a local first. Using the constructor
+                // expression directly as the Apply receiver breaks for the reflective
+                // `(T)GetUninitializedObject(...)` fallback: `.Apply(...)` binds tighter than
+                // the cast, so Apply resolves against `object` -> CS1061 (#505).
+                sb.AppendLine($"{indent}{{");
+                sb.AppendLine($"{indent}    var s = {ctorExpression};");
                 sb.Append($"{indent}    return ");
-                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, ctorExpression, dispatchOnThis);
+                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "s", dispatchOnThis);
                 sb.AppendLine(";");
+                sb.AppendLine($"{indent}}}");
             }
         }
     }

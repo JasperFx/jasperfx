@@ -1290,4 +1290,125 @@ public class Tally
 
         collisionErrors.ShouldBeEmpty();
     }
+
+    // Regression for https://github.com/JasperFx/jasperfx/issues/505 — an aggregate with no public
+    // parameterless ctor (record with a primary ctor) hits the GetUninitializedObject fallback in
+    // BuildAggregateConstructorExpression. The null-snapshot case for an instance Apply that
+    // *returns* the aggregate used that cast expression directly as the Apply receiver:
+    // `(Cart)RuntimeHelpers.GetUninitializedObject(typeof(Cart)).Apply(data)` — member access binds
+    // tighter than the cast, so Apply resolved against `object` and the user's build failed with
+    // CS1061. The fix emits the same two-statement local form the async twin uses.
+    [Fact]
+    public void apply_returning_aggregate_without_parameterless_ctor_compiles_null_snapshot_case()
+    {
+        var source = @"
+using System;
+using System.Collections.Generic;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public sealed record CartCreated(string Owner);
+public sealed record ItemAdded(string Name);
+
+// Self-aggregating record: primary constructor only (no public parameterless ctor),
+// instance Apply method that returns the aggregate.
+public sealed record Cart(Guid Id, string Owner, List<string> Items)
+{
+    public Cart Apply(ItemAdded e) => this with { Items = [.. Items, e.Name] };
+}
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+// Partial projection subclass declaring only Create(IEvent<CartCreated>), so the
+// ItemAdded null-snapshot case must construct the aggregate itself.
+public partial class CartProjection : SingleStreamProjection<Cart, Guid>
+{
+    public Cart Create(IEvent<CartCreated> e) => new Cart(e.StreamId, e.Data.Owner, new List<string>());
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        // CS1061 is the exact error shape the issue called out: 'object' does not contain
+        // a definition for 'Apply'.
+        var castBindingErrors = diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id == "CS1061")
+            .Select(d => d.GetMessage())
+            .ToArray();
+
+        castBindingErrors.ShouldBeEmpty();
+
+        // Spot-check the emitted form so a future regression that dodges CS1061 some other
+        // way still trips: the uninitialized instance lands in a local, and Apply is called
+        // on the local — never appended directly to the cast expression.
+        var (_, generatedSources) = RunGenerator(source);
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain(
+            "var s = (global::Test.Cart)global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(global::Test.Cart));");
+        allGenerated.ShouldContain("return s.Apply(data);");
+        allGenerated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.Cart)).Apply(");
+    }
+
+    // Same defect through the other sync path (#505): the DI-activated partial-class override
+    // added for marten#4787 shares EmitNullSnapshotCases with the file-scoped evolver, so the
+    // Evolve override injected into the user's partial class emitted the identical broken cast.
+    [Fact]
+    public void di_activated_apply_returning_aggregate_without_parameterless_ctor_compiles_null_snapshot_case()
+    {
+        var source = @"
+using System;
+using System.Collections.Generic;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public sealed record CartCreated(string Owner);
+public sealed record ItemAdded(string Name);
+public interface ICartPricing { }
+
+public sealed record Cart(Guid Id, string Owner, List<string> Items)
+{
+    public Cart Apply(ItemAdded e) => this with { Items = [.. Items, e.Name] };
+}
+
+public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
+    where TDoc : notnull where TId : notnull
+{
+    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
+}
+
+// DI-only constructor forces the partial-class override path (marten#4787).
+public partial class CartProjection : SingleStreamProjection<Cart, Guid>
+{
+    private readonly ICartPricing _pricing;
+    public CartProjection(ICartPricing pricing) { _pricing = pricing; }
+
+    public Cart Create(IEvent<CartCreated> e) => new Cart(e.StreamId, e.Data.Owner, new List<string>());
+}
+";
+        var diagnostics = CompileWithGenerator(source);
+
+        var castBindingErrors = diagnostics
+            .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id == "CS1061")
+            .Select(d => d.GetMessage())
+            .ToArray();
+
+        castBindingErrors.ShouldBeEmpty();
+
+        var (_, generatedSources) = RunGenerator(source);
+        var allGenerated = string.Join("\n", generatedSources);
+        allGenerated.ShouldContain("public override global::Test.Cart? Evolve(");
+        allGenerated.ShouldContain(
+            "var s = (global::Test.Cart)global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(global::Test.Cart));");
+        allGenerated.ShouldContain("return s.Apply(data);");
+        allGenerated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.Cart)).Apply(");
+    }
 }
