@@ -89,6 +89,24 @@ public interface IFSharpSyncTaskHandler
     Task HandleAsync(string name);
 }
 
+public interface IFSharpTupleConsumer
+{
+    void Consume();
+}
+
+public interface IFSharpAsyncTupleConsumer
+{
+    Task ConsumeAsync();
+}
+
+public class FSharpTupleService
+{
+    public Task SaveAsync(Red red)
+    {
+        return Task.CompletedTask;
+    }
+}
+
 public class FSharpGenerationTests
 {
     [Fact]
@@ -300,6 +318,54 @@ public class FSharpGenerationTests
             frame.GenerateFSharpCode(null!, new FSharpSourceWriter()));
 
         ex.Message.ShouldContain(nameof(UnsupportedFrame));
+    }
+
+    [Fact]
+    public void generates_let_binding_for_sync_tuple_return()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedTupleConsumer", typeof(IFSharpTupleConsumer));
+        var method = type.MethodFor(nameof(IFSharpTupleConsumer.Consume));
+
+        var target = new InjectedField(typeof(MethodTarget), "target");
+        var call = new MethodCall(typeof(MethodTarget), nameof(MethodTarget.ReturnTuple))
+        {
+            Target = target
+        };
+        method.Frames.Add(call);
+
+        var code = assembly.GenerateFSharpCode();
+
+        code.ShouldContain("let (red, blue, green) = _target.ReturnTuple()");
+    }
+
+    [Fact]
+    public void generates_let_bang_binding_for_async_tuple_return()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedAsyncTupleConsumer", typeof(IFSharpAsyncTupleConsumer));
+        var method = type.MethodFor(nameof(IFSharpAsyncTupleConsumer.ConsumeAsync));
+
+        var target = new InjectedField(typeof(MethodTarget), "target");
+        var tupleCall = new MethodCall(typeof(MethodTarget), nameof(MethodTarget.AsyncReturnTuple))
+        {
+            Target = target
+        };
+        method.Frames.Add(tupleCall);
+
+        // A second frame forces AsyncMode.AsyncTask so the tuple binding uses let! inside a task block.
+        var service = new InjectedField(typeof(FSharpTupleService), "service");
+        var saveCall = new MethodCall(typeof(FSharpTupleService), nameof(FSharpTupleService.SaveAsync))
+        {
+            Target = service
+        };
+        saveCall.Arguments[0] = tupleCall.Creates.ElementAt(0);
+        method.Frames.Add(saveCall);
+
+        var code = assembly.GenerateFSharpCode();
+
+        code.ShouldContain("task {");
+        code.ShouldContain("let! (red, blue, green) = _target.AsyncReturnTuple()");
     }
 
     public class UnsupportedFrame : SyncFrame
