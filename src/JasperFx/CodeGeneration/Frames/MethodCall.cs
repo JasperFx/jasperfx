@@ -466,8 +466,9 @@ public class MethodCall : Frame
 
         if (ReturnVariable.VariableType.IsValueTuple())
         {
-            throw new NotSupportedException(
-                "F# code generation does not yet support value-tuple return variables.");
+            var tuple = (ValueTypeReturnVariable)ReturnVariable;
+            var fsharpTuple = "(" + tuple.Inners.Select(x => x.Inner.FSharpUsage).Join(", ") + ")";
+            return IsAsync && insideTaskBlock ? $"let! {fsharpTuple} = " : $"let {fsharpTuple} = ";
         }
 
         var awaited = IsAsync && insideTaskBlock;
