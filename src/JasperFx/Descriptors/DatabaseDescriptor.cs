@@ -37,10 +37,25 @@ public class DatabaseDescriptor : OptionsDescription
     public string ServerName { get; init; } = string.Empty;
 
     /// <summary>
+    /// The port the server listens on, for engines that carry it separately from
+    /// <see cref="ServerName"/> — PostgreSQL does; SQL Server folds it into the Data Source
+    /// (<c>host,1433</c>) and should leave this null.
+    /// </summary>
+    /// <remarks>
+    /// Null when unknown, which is what every descriptor built before this property existed will
+    /// report. Consumers that key on the server — a per-server connection budget, say — need it:
+    /// <see cref="ServerName"/> is the host alone, so two clusters co-hosted on one box are
+    /// otherwise indistinguishable. Deliberately NOT part of <see cref="DatabaseUri"/>: that URI is
+    /// already load-bearing as an identity elsewhere, and folding a new segment into it would
+    /// silently rename existing databases.
+    /// </remarks>
+    public int? Port { get; init; }
+
+    /// <summary>
     /// Name of the database on the server for database engines that support this concept
     /// </summary>
     public string DatabaseName { get; init; } = string.Empty;
-    
+
     /// <summary>
     /// If applicable, the main database schema or namespace for this usage
     /// </summary>
@@ -80,7 +95,7 @@ public class DatabaseDescriptor : OptionsDescription
 
     protected bool Equals(DatabaseDescriptor other)
     {
-        return Engine == other.Engine && ServerName == other.ServerName && DatabaseName == other.DatabaseName && SchemaOrNamespace == other.SchemaOrNamespace && Identifier == other.Identifier;
+        return Engine == other.Engine && ServerName == other.ServerName && Port == other.Port && DatabaseName == other.DatabaseName && SchemaOrNamespace == other.SchemaOrNamespace && Identifier == other.Identifier;
     }
 
     public override bool Equals(object? obj)
@@ -105,6 +120,6 @@ public class DatabaseDescriptor : OptionsDescription
 
     public override int GetHashCode()
     {
-        return HashCode.Combine(Engine, ServerName, DatabaseName, SchemaOrNamespace, Identifier);
+        return HashCode.Combine(Engine, ServerName, Port, DatabaseName, SchemaOrNamespace, Identifier);
     }
 }
