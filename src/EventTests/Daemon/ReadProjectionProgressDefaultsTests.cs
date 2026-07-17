@@ -59,6 +59,13 @@ public class ReadProjectionProgressDefaultsTests
                 ? new ValueTask<ProjectionProgressRow?>(
                     new ProjectionProgressRow("Orders", tenantId, 42, "Running", null))
                 : new ValueTask<ProjectionProgressRow?>((ProjectionProgressRow?)null);
+
+        public override ValueTask<ProjectionProgressRow?> ReadProjectionProgressAsync(
+            ShardName name, CancellationToken token)
+            => name.Identity == "Orders:All"
+                ? new ValueTask<ProjectionProgressRow?>(
+                    new ProjectionProgressRow("Orders", null, 42, null, null))
+                : new ValueTask<ProjectionProgressRow?>((ProjectionProgressRow?)null);
     }
 
     // Split out so the overriding stub does not have to restate every unrelated member.
@@ -66,6 +73,10 @@ public class ReadProjectionProgressDefaultsTests
     {
         public virtual ValueTask<ProjectionProgressRow?> ReadProjectionProgressAsync(
             string projectionName, string? tenantId, CancellationToken token)
+            => throw new NotImplementedException();
+
+        public virtual ValueTask<ProjectionProgressRow?> ReadProjectionProgressAsync(
+            ShardName name, CancellationToken token)
             => throw new NotImplementedException();
 
         public string Identifier => throw new NotImplementedException();
@@ -133,6 +144,26 @@ public class ReadProjectionProgressDefaultsTests
     {
         var row = await theProgressionDatabase.ReadProjectionProgressAsync("Unobserved", null, CancellationToken.None);
         row.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task default_throws_for_the_shard_name_overload_too()
+    {
+        // The exact ShardName overload ships as a default interface member for the same reason: an
+        // unimplemented store must surface "not implemented", never borrow the "no row" null.
+        await Should.ThrowAsync<NotSupportedException>(async () =>
+            await theBareDatabase.ReadProjectionProgressAsync(ShardName.Compose("Orders"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task an_implementing_store_can_return_a_row_by_shard_name()
+    {
+        var row = await theProgressionDatabase.ReadProjectionProgressAsync(
+            ShardName.Compose("Orders"), CancellationToken.None);
+
+        row.ShouldNotBeNull();
+        row.ProjectionName.ShouldBe("Orders");
+        row.Sequence.ShouldBe(42);
     }
 
     [Fact]
