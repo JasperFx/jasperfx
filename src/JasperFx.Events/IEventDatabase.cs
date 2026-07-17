@@ -218,4 +218,28 @@ public interface IEventDatabase
         CancellationToken token)
         => throw new NotSupportedException(
             "ReadProjectionProgressAsync is not implemented on this IEventDatabase. Use an event store (Marten or Polecat) that supports reading a single projection progression row.");
+
+    /// <summary>
+    ///     Exact per-cell progression read: look up the single progression row whose stored identity equals
+    ///     <paramref name="name" />'s <see cref="ShardName.Identity" />. Unlike the
+    ///     <see cref="ReadProjectionProgressAsync(string,string?,CancellationToken)" /> overload there is no
+    ///     version/shard collapsing — the caller supplies the full <see cref="ShardName" /> it already holds
+    ///     (for example a cell from <see cref="AllProjectionProgress(CancellationToken)" />), so a blue/green
+    ///     deploy's versions, a sliced projection's shard keys, and per-tenant partitions each address their
+    ///     own row unambiguously. A <see cref="ShardName.ShardKey" /> of <c>All</c> is the projection's global
+    ///     cell, matching the store's "All means the whole projection" convention. Returns null when no row
+    ///     exists for that identity yet.
+    ///     <para>
+    ///     Like the other overload the default implementation throws rather than returning null: null is the
+    ///     meaningful "no row yet" answer and must not be borrowed by a store that has not implemented this.
+    ///     Event stores (Marten, Polecat) override it against their progression table. See jasperfx#435.
+    ///     </para>
+    /// </summary>
+    /// <param name="name">Full shard identity of the cell to read.</param>
+    /// <param name="token"></param>
+    ValueTask<ProjectionProgressRow?> ReadProjectionProgressAsync(
+        ShardName name,
+        CancellationToken token)
+        => throw new NotSupportedException(
+            "ReadProjectionProgressAsync is not implemented on this IEventDatabase. Use an event store (Marten or Polecat) that supports reading a single projection progression row.");
 }
