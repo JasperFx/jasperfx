@@ -9,6 +9,14 @@ public interface ISubscriptionAgent : ISubscriptionController
     long Position { get; }
     AgentStatus Status { get; }
 
+    /// <summary>
+    /// jasperfx#525: the effective high-water ceiling this agent is driving toward. During a rebuild this is
+    /// the target the replay stops at (the store-wide high water, or a bounded ceiling such as the jasperfx#480
+    /// prior-version mark), so a deferred-flush execution can recognize the final range and force a flush. The
+    /// default returns 0 for agents that don't track it; the daemon's own agent overrides with the real value.
+    /// </summary>
+    long HighWaterMark => 0;
+
     DateTimeOffset? PausedTime { get; }
     ISubscriptionMetrics Metrics { get; }
     void MarkHighWater(long sequence);
