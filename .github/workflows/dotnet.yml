@@ -58,6 +58,14 @@ jobs:
         run: ./build.sh test-codegen
         shell: bash
 
+      # Regenerates the F# fixture from the emitters and compiles it with the in-box F# compiler.
+      # The `compile` step above only builds the *committed* Generated.fs, so this is what catches
+      # the fixture drifting from the code generation that produces it (jasperfx#513).
+      - name: test-codegen-fsharp
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-codegen-fsharp
+        shell: bash
+
       - name: test-command-line
         if: ${{ success() || failure() }}
         run: ./build.sh test-command-line
