@@ -2,11 +2,18 @@
 
 public static class TaskExtensions
 {
-    public static Task TimeoutAfterAsync(this Task task, int millisecondsTimeout)
+    public static async Task TimeoutAfterAsync(this Task task, int millisecondsTimeout)
     {
+        // The ContinueWith(_ => true) adapter completes successfully no matter HOW the subject task
+        // completed, so only the timeout can fault the first await — the subject's own fault or
+        // cancellation must be propagated by awaiting it directly afterward
 #pragma warning disable VSTHRD105
-        return task.ContinueWith(_ => true).TimeoutAfterAsync(millisecondsTimeout);
+        await task.ContinueWith(_ => true).TimeoutAfterAsync(millisecondsTimeout).ConfigureAwait(false);
 #pragma warning restore VSTHRD105
+
+#pragma warning disable VSTHRD003
+        await task.ConfigureAwait(false);
+#pragma warning restore VSTHRD003
     }
 
 
