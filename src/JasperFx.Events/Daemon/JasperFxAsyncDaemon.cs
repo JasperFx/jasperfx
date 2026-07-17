@@ -269,7 +269,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // (_semaphore) is now held only around the registry mutations, NOT across the replay itself —
     // holding it across the replay (the pre-#497 shape) serialized every rebuild cell in the daemon at
     // an effective concurrency of one, making any cap > 1 unreachable.
-    private async Task rebuildAgent(ISubscriptionAgent agent, long highWaterMark, TimeSpan shardTimeout)
+    // The optional floor/disableOptimizedReplay parameters exist for the jasperfx#480 side-effect
+    // version gate: its bounded replay resumes from the new version's own persisted progress (not 0)
+    // and must not route through a store replay executor that ignores the custom ceiling.
+    private async Task rebuildAgent(ISubscriptionAgent agent, long highWaterMark, TimeSpan shardTimeout,
+        long floor = 0, bool disableOptimizedReplay = false)
     {
         var budget = _rebuildBudget;
         if (budget != null)
@@ -293,7 +297,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             var errorOptions = _store.RebuildErrors;
 
-            var request = new SubscriptionExecutionRequest(0, ShardExecutionMode.Rebuild, errorOptions, this);
+            var request = new SubscriptionExecutionRequest(floor, ShardExecutionMode.Rebuild, errorOptions, this)
+            {
+                DisableOptimizedReplay = disableOptimizedReplay
+            };
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
 
             await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
@@ -312,8 +319,154 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             budget?.Release();
         }
     }
-    
-    
+
+    // jasperfx#480: the bounded warm-up replay is capped like any other rebuild; a timeout leaves the
+    // shard stopped with its partial progress persisted, and the next start resumes the warm-up from
+    // that floor (the gate triggers on progress < prior mark, not only on zero progress).
+    private static readonly TimeSpan SideEffectGateTimeout = 5.Minutes();
+
+    // jasperfx#480: single entry point for starting a shard in Continuous mode so every start path
+    // (StartAllAsync, StartAgentAsync by name, the per-tenant fan-outs) runs the opt-in blue/green
+    // side-effect gate first. Returns true when the continuous agent was actually started.
+    private async Task<bool> startContinuousShardAsync(AsyncShard<TOperations, TQuerySession> shard)
+    {
+        if (!await tryApplySideEffectVersionGateAsync(shard).ConfigureAwait(false))
+        {
+            // The warm-up replay failed; leave the shard stopped rather than starting continuous
+            // execution that would emit side effects over history the prior version already covered.
+            return false;
+        }
+
+        var agent = buildAgentForShard(shard);
+        var started = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+
+        if (!started && agent is IAsyncDisposable d)
+        {
+            await d.DisposeAsync().ConfigureAwait(false);
+        }
+
+        return started;
+    }
+
+    // jasperfx#480: opt-in blue/green side-effect gate. When a projection opts in and a NEW version of
+    // it starts behind the highest PRIOR version's persisted progression mark N, first run a bounded
+    // replay to N in Rebuild mode (side effects suppressed, aggregate state correct), then let the
+    // caller hand off to Continuous — DetermineStartingPositionAsync reads the persisted progress (now
+    // N) so side effects only fire for events the previous version never processed. Returns false ONLY
+    // when the warm-up replay was attempted and failed; every not-triggered case returns true.
+    private async Task<bool> tryApplySideEffectVersionGateAsync(AsyncShard<TOperations, TQuerySession> shard)
+    {
+        var name = shard.Name;
+        if (!shard.Options.GateSideEffectsBehindPriorVersion || name.Version <= 1)
+        {
+            return true;
+        }
+
+        if (shard.Options.UsesFromPresent(Database))
+        {
+            Logger.LogWarning(
+                "Projection shard {Name} opts into GateSideEffectsBehindPriorVersion but subscribes from 'present', which ignores persisted progression. The side-effect gate is skipped",
+                name.Identity);
+            return true;
+        }
+
+        try
+        {
+            var current = await Database.ProjectionProgressFor(name, _cancellation.Token).ConfigureAwait(false);
+            var prior = await resolvePriorVersionProgressAsync(name, _cancellation.Token).ConfigureAwait(false);
+
+            // Triggering on current < prior (rather than only current == 0) makes an interrupted
+            // warm-up resumable: a crash mid-replay leaves progress at M < N, and the next start
+            // suppresses side effects for the remaining (M, N] instead of re-emitting them.
+            if (prior <= current)
+            {
+                return true;
+            }
+
+            Logger.LogInformation(
+                "Projection shard {Name} v{Version} is behind the prior version's progression ({Current} < {Prior}); replaying to {Prior} with side effects suppressed before continuous execution starts (blue/green side-effect gate)",
+                name.Identity, name.Version, current, prior, prior);
+
+            var warmup = buildAgentForShard(shard);
+            Tracker.MarkAsRestarted(warmup.Name);
+            await rebuildAgent(warmup, prior, SideEffectGateTimeout, floor: current, disableOptimizedReplay: true)
+                .ConfigureAwait(false);
+
+            // A failed replay does NOT propagate out of ReplayAsync — the agent pauses itself via
+            // ReportCriticalFailureAsync and the completion await swallows the fault — so judge the
+            // warm-up by the agent's own state: it must still be Running and have committed the
+            // target mark. On failure, leave the paused agent registered (it carries the exception
+            // for observers) and do not start continuous execution.
+            if (warmup.Status != AgentStatus.Running || warmup.LastCommitted < prior)
+            {
+                Logger.LogError(
+                    "The blue/green side-effect gate warm-up for projection shard {Name} stopped at {Position} in status {Status} before reaching {Prior}. The shard is left in that state; restarting it will resume the suppressed warm-up from its persisted progress",
+                    name.Identity, warmup.LastCommitted, warmup.Status, prior);
+                return false;
+            }
+
+            using var cancellation = new CancellationTokenSource(5.Seconds());
+            try
+            {
+                // Marks the warm-up agent Stopped so the continuous start below is not mistaken
+                // for a duplicate of a running agent (mirrors the rebuildProjection sequence).
+                await warmup.StopAndDrainAsync(cancellation.Token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e, "Error trying to stop and drain the side-effect gate warm-up agent {Name}",
+                    warmup.Name.Identity);
+            }
+
+            Logger.LogInformation(
+                "Projection shard {Name} v{Version} finished its side-effect-suppressed warm-up at {Prior}; side effects are enabled from here on",
+                name.Identity, name.Version, prior);
+
+            return true;
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e,
+                "Error running the blue/green side-effect gate for projection shard {Name}. The shard is left stopped; restarting it will resume the suppressed warm-up from its persisted progress",
+                name.Identity);
+            return false;
+        }
+    }
+
+    // jasperfx#480: the one genuinely new read — resolve the HIGHEST prior version's persisted
+    // progression mark for the same (projection, shard key, tenant). The version is baked into the
+    // progression-row identity (Trips:V2:All vs Trips:V3:All are distinct rows), so the prior mark
+    // survives the version bump and parses back out of AllProjectionProgress here.
+    private async Task<long> resolvePriorVersionProgressAsync(ShardName name, CancellationToken token)
+    {
+        var progress = await Database.AllProjectionProgress(token).ConfigureAwait(false);
+
+        long mark = 0;
+        uint priorVersion = 0;
+        foreach (var state in progress)
+        {
+            if (!ShardName.TryParse(state.ShardName, out var parsed) || parsed == null)
+            {
+                continue;
+            }
+
+            if (parsed.Version >= name.Version || parsed.Version < priorVersion)
+            {
+                continue;
+            }
+
+            if (!parsed.Name.EqualsIgnoreCase(name.Name)) continue;
+            if (!parsed.ShardKey.EqualsIgnoreCase(name.ShardKey)) continue;
+            if (!string.Equals(parsed.TenantId, name.TenantId)) continue;
+
+            priorVersion = parsed.Version;
+            mark = state.Sequence;
+        }
+
+        return mark;
+    }
+
+
     public async Task StartAgentAsync(string shardName, CancellationToken token)
     {
         if (!_highWater.IsRunning)
@@ -342,16 +495,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
         if (shard != null)
         {
-            var agent = buildAgentForShard(shard);
-
-            var didStart = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
-
-            if (!didStart && agent is IAsyncDisposable d)
-            {
-                // Could not be started
-                await d.DisposeAsync().ConfigureAwait(false);
-            }
-
+            await startContinuousShardAsync(shard).ConfigureAwait(false);
             return;
         }
 
@@ -391,12 +535,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await pollTenantHighWaterAsync().ConfigureAwait(false);
 
             var tenantShard = baseShard with { Name = baseShard.Name.ForTenant(requested.TenantId) };
-            var tenantAgent = buildAgentForShard(tenantShard);
-            var tenantStarted = await tryStartAgentAsync(tenantAgent, ShardExecutionMode.Continuous).ConfigureAwait(false);
-            if (!tenantStarted && tenantAgent is IAsyncDisposable td)
+            var tenantStarted = await startContinuousShardAsync(tenantShard).ConfigureAwait(false);
+            if (!tenantStarted)
             {
-                await td.DisposeAsync().ConfigureAwait(false);
-
                 // Reconcile the polled-tenant set so a failed start doesn't leave the coordinator
                 // polling (and persisting high-water rows for) a tenant with no agent on this node.
                 syncTenantPolling();
@@ -514,7 +655,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await StartHighWaterDetectionAsync().ConfigureAwait(false);
         }
 
-        var agents = new List<ISubscriptionAgent>();
+        var shards = new List<AsyncShard<TOperations, TQuerySession>>();
 
         if (_tenantHighWater != null && Database is ICrossTenantRebuildSource crossTenantSource)
         {
@@ -525,7 +666,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // tenant's projection advances against its own high-water and persists its own
             // <Projection>:All:<tenant> progression row. OnNext + pollTenantHighWaterAsync already route
             // each tenant's mark to its TenantId-bearing agents.
-            await buildPerTenantContinuousAgents(crossTenantSource, agents).ConfigureAwait(false);
+            await buildPerTenantContinuousShards(crossTenantSource, shards).ConfigureAwait(false);
 
             // Prime the per-tenant ceilings BEFORE starting the agents so each tenant agent seeds from
             // its own high-water (tryStartAgentAsync reads CeilingFor) rather than the store-global mark.
@@ -535,23 +676,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
         else
         {
-            foreach (var shard in _store.AllShards())
-            {
-                agents.Add(buildAgentForShard(shard));
-            }
+            shards.AddRange(_store.AllShards());
         }
 
-        foreach (var agent in agents)
+        foreach (var shard in shards)
         {
-            await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+            await startContinuousShardAsync(shard).ConfigureAwait(false);
         }
     }
 
-    // marten#4717: build one continuous agent per (shard, tenant), enumerating tenants from the store's
+    // marten#4717: build one continuous shard per (shard, tenant), enumerating tenants from the store's
     // ICrossTenantRebuildSource (mt_tenant_partitions). A projection with no registered tenants yet keeps
-    // its store-global agent so it still runs (there are no events to process until a tenant exists).
-    private async Task buildPerTenantContinuousAgents(
-        ICrossTenantRebuildSource crossTenantSource, List<ISubscriptionAgent> agents)
+    // its store-global shard so it still runs (there are no events to process until a tenant exists).
+    private async Task buildPerTenantContinuousShards(
+        ICrossTenantRebuildSource crossTenantSource, List<AsyncShard<TOperations, TQuerySession>> shards)
     {
         foreach (var shard in _store.AllShards())
         {
@@ -560,15 +698,14 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             if (tenants.Count == 0)
             {
-                agents.Add(buildAgentForShard(shard));
+                shards.Add(shard);
                 continue;
             }
 
             foreach (var tenantId in tenants)
             {
                 _tenantHighWater!.PolledTenants.Activate(tenantId);
-                var tenantShard = shard with { Name = shard.Name.ForTenant(tenantId) };
-                agents.Add(buildAgentForShard(tenantShard));
+                shards.Add(shard with { Name = shard.Name.ForTenant(tenantId) });
             }
         }
     }

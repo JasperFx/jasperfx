@@ -48,6 +48,17 @@ public class AsyncOptions
     public bool TeardownDataOnRebuild { get; set; } = true;
 
     /// <summary>
+    /// jasperfx#480, opt-in for blue/green projection deploys. When a NEW version of this projection
+    /// (ShardName.Version > 1) starts continuous execution and a PRIOR version's progression row is
+    /// ahead of this version's own progress, the daemon first replays up to the prior version's mark
+    /// with side effects suppressed (rebuild semantics), then hands off to continuous execution — so
+    /// RaiseSideEffects (raised events / published messages) only fires for events the previous
+    /// version never processed. Default is false, i.e. the new version emits side effects over the
+    /// whole replay exactly as before.
+    /// </summary>
+    public bool GateSideEffectsBehindPriorVersion { get; set; }
+
+    /// <summary>
     /// The maximum number of aggregates that will be cached per tenant in a 2nd level,
     /// most recently used cache during async projection. Defaults to 0 (the aggregate cache
     /// is disabled) so async projection behavior matches re-fetching committed state from the
@@ -96,6 +107,11 @@ public class AsyncOptions
         var strategy = matchStrategy(database);
         return strategy.DetermineStartingPositionAsync(highWaterMark, name, mode, database, token);
     }
+
+    // jasperfx#480: the side-effect version gate replays to the PERSISTED prior-version mark, but a
+    // FromPresent subscription ignores persisted rows entirely and jumps to the live high-water —
+    // the two are incompatible, so the daemon skips the gate (with a warning) for these databases.
+    internal bool UsesFromPresent(IEventDatabase database) => matchStrategy(database) is FromPresent;
 
     private IPositionStrategy matchStrategy(IEventDatabase database)
     {
