@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Text.Json;
 using JasperFx.Descriptors;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
@@ -72,6 +73,29 @@ public interface IEventStore
     /// </summary>
     ValueTask<IReadOnlyList<IEventDatabase>> AllDatabases()
         => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>([]);
+
+    /// <summary>
+    ///     Build a standalone, display-only high-water monitor for a single database — just the high-water agent,
+    ///     with no projection shards attached, so a monitoring tool can show a live event-store "ceiling" for a
+    ///     store whose projections are all Inline/Live and therefore run no async daemon. This is the abstraction
+    ///     CritterWatch reaches for instead of <see cref="BuildProjectionDaemonAsync(string?, ILogger?)" /> when it
+    ///     only wants the store's head sequence to progress, not any projection to run. The caller owns the
+    ///     lifecycle: start the returned monitor on exactly one node (reuse the host's leader/agent election) and
+    ///     stop it when the node stands down. The default implementation throws <see cref="NotSupportedException" />;
+    ///     event stores (Marten, Polecat) override this to construct a <see cref="HighWaterMonitor" /> from their own
+    ///     <see cref="IHighWaterDetector" /> and <see cref="DaemonSettings" />.
+    ///     See <see href="https://github.com/JasperFx/CritterWatch/issues/675" />.
+    /// </summary>
+    /// <param name="tenantIdOrDatabaseIdentifier">
+    ///     Resolves which database to monitor, matching <see cref="BuildProjectionDaemonAsync(string?, ILogger?)" />.
+    ///     Null selects the default/main database.
+    /// </param>
+    /// <param name="logger">Optional logger for the monitor's diagnostic output.</param>
+    ValueTask<IHighWaterMonitor> BuildHighWaterMonitorAsync(
+        string? tenantIdOrDatabaseIdentifier = null,
+        ILogger? logger = null)
+        => throw new NotSupportedException(
+            "BuildHighWaterMonitorAsync is not implemented on this IEventStore. Use an event store (Marten or Polecat) that supports standing up a standalone display-only high-water detector.");
 
     /// <summary>
     /// Identifies the event store within an application
