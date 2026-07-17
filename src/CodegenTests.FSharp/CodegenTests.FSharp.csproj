@@ -3,16 +3,23 @@
     <!--
       F# code-generation integration tests (jasperfx#383).
 
-      This project is intentionally NOT wired into any ./build.sh / Nuke test target:
-      its single test shells out to `dotnet build` against the checked-in F# fixture,
-      which is too slow/heavy for the fast unit run. It is still part of jasperfx.sln so
-      it compiles with the rest of the solution. Run it explicitly with:
-          dotnet test src/CodegenTests.FSharp
+      Run by the `test-codegen-fsharp` target (./build.sh test-codegen-fsharp), separate from
+      test-codegen because the single test here shells out to `dotnet build` against the checked-in
+      F# fixture rather than being a fast in-process unit test. Measured cost is ~10s in CI, which
+      buys the only proof that the emitted F# actually compiles (jasperfx#513).
     -->
 
     <PropertyGroup>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
+        <!--
+          The gate locates the checked-in fixture via [CallerFilePath]. ContinuousIntegrationBuild
+          (which the SDK turns on automatically under GITHUB_ACTIONS) enables DeterministicSourcePaths,
+          rewriting those baked-in paths to '/_/...' and making the lookup fail with
+          DirectoryNotFoundException. This project needs real source paths, and it is a test assembly
+          that is never packaged, so opt out (jasperfx#513).
+        -->
+        <DeterministicSourcePaths>false</DeterministicSourcePaths>
     </PropertyGroup>
 
     <ItemGroup>
