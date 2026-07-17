@@ -19,7 +19,7 @@ public class HighWaterAgent: IDisposable
     private readonly IDaemonWakeup _daemonWakeup;
 
     private HighWaterStatistics? _current;
-    private Task<Task> _loop = null!;
+    private Task _loop = null!;
     private readonly CancellationToken _token;
     private readonly string _spanName;
     private readonly Counter<int> _skipping;
@@ -81,12 +81,48 @@ public class HighWaterAgent: IDisposable
             return;
         }
 
+        // #524 (defect C): StartNew over an async delegate hands back a Task<Task> that completes as soon as
+        // detectChanges hits its first await — the real poll loop is the inner task. Unwrap so _loop *is* that
+        // inner task; otherwise _loop.IsFaulted is always false and the checkState watchdog can never see the
+        // loop fault, let alone restart it.
         _loop = Task.Factory.StartNew(detectChanges, _token,
-            TaskCreationOptions.LongRunning | TaskCreationOptions.AttachedToParent, TaskScheduler.Default);
+            TaskCreationOptions.LongRunning | TaskCreationOptions.AttachedToParent, TaskScheduler.Default).Unwrap();
 
         _timer.Start();
 
         _logger.LogInformation("Started HighWaterAgent for database {Name}", _detector.DatabaseUri);
+    }
+
+    // #524 (defect A): the IDaemonWakeup implementation is untrusted. A custom wakeup — e.g. Marten's
+    // LISTEN/NOTIFY wakeup, which reconnects a dropped LISTEN connection — can throw a connection error when
+    // the database is down or failing over. Such a throw must never escape the poll loop and permanently kill
+    // high-water progress, so log it and fall back to a plain delay before the loop continues. Cancellation is
+    // the expected shutdown path and is swallowed quietly.
+    private async Task waitAsync(TimeSpan delayTime)
+    {
+        try
+        {
+            await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            if (_token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _logger.LogError(e,
+                "Error while waiting on the daemon wakeup for database {Name}; falling back to a delay",
+                _detector.DatabaseUri);
+
+            try
+            {
+                await Task.Delay(delayTime, _token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
     }
 
     private async Task detectChanges()
@@ -112,7 +148,7 @@ public class HighWaterAgent: IDisposable
             _logger.LogError(e, "Failed while making the initial determination of the high water mark for database {Name}", _detector.DatabaseUri);
         }
 
-        await _daemonWakeup.WaitAsync(_settings.FastPollingTime, _token).ConfigureAwait(false);
+        await waitAsync(_settings.FastPollingTime).ConfigureAwait(false);
 
         while (!_token.IsCancellationRequested)
         {
@@ -137,7 +173,7 @@ public class HighWaterAgent: IDisposable
                 }
 
                 _logger.LogError(ex, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseUri);
-                await _daemonWakeup.WaitAsync(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+                await waitAsync(_settings.SlowPollingTime).ConfigureAwait(false);
 
                 activity?.AddException(ex);
 
@@ -148,7 +184,7 @@ public class HighWaterAgent: IDisposable
             {
                 _logger.LogError(e, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseUri);
                 activity?.AddException(e);
-                await _daemonWakeup.WaitAsync(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+                await waitAsync(_settings.SlowPollingTime).ConfigureAwait(false);
                 continue;
             }
 
@@ -172,7 +208,7 @@ public class HighWaterAgent: IDisposable
                     var safeHarborTime = _current!.Timestamp.Add(_settings.StaleSequenceThreshold);
                     if (safeHarborTime > statistics.Timestamp)
                     {
-                        await _daemonWakeup.WaitAsync(_settings.SlowPollingTime, _token).ConfigureAwait(false);
+                        await waitAsync(_settings.SlowPollingTime).ConfigureAwait(false);
                         continue;
                     }
 
@@ -234,7 +270,7 @@ public class HighWaterAgent: IDisposable
                 _current = statistics;
             }
 
-            await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
+            await waitAsync(delayTime).ConfigureAwait(false);
             return;
         }
 
@@ -247,7 +283,7 @@ public class HighWaterAgent: IDisposable
 
         await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
 
-        await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
+        await waitAsync(delayTime).ConfigureAwait(false);
     }
 
     // Surface "when the current mark was observed" (jasperfx#449) so a monitor can compute
@@ -315,13 +351,18 @@ public class HighWaterAgent: IDisposable
         try
         {
             _timer?.Stop();
+
+            // #524 (defect C): now that _loop is the unwrapped inner poll task, awaiting it here genuinely
+            // blocks until the loop exits. The loop only breaks when it sees cancellation or IsRunning == false,
+            // so IsRunning must be cleared *before* the await — otherwise a loop parked in a wakeup wakes, never
+            // sees the stop signal, and StopAsync hangs forever on a stop that did not cancel the token.
+            IsRunning = false;
+
             if (_loop != null)
             {
                 await _loop.ConfigureAwait(false);
                 _loop?.Dispose();
             }
-
-            IsRunning = false;
         }
         catch (Exception e)
         {
