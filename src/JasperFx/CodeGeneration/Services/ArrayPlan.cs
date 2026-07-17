@@ -142,7 +142,7 @@ public class CreateArrayFrame : SyncFrame
             {
                 var message = EnumerableSingletons.MissingMirrorMessage(_elementType, descriptor.ServiceKey);
                 writer.WriteLine(
-                    $"if isNull {element.FSharpUsage} then raise({typeof(InvalidOperationException).FSharpName()}({CodeFormatter.Write(message)}))");
+                    $"if isNull (box {element.FSharpUsage}) then raise({typeof(InvalidOperationException).FSharpName()}({CodeFormatter.Write(message)}))");
             }
         }
 

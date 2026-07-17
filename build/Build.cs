@@ -50,7 +50,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCommandLine, TestEvents, TestEventStore, SmokeTestAot);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, SmokeTestAot);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -74,6 +74,25 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
     
+    // The F# acceptance gate: regenerates the fixture's Generated.fs from the emitters and compiles it
+    // with the in-box F# compiler. Compile alone only proves the *committed* Generated.fs builds, so
+    // without this target the fixture can silently drift from the emitters that produce it.
+    //
+    // Pinned to a single framework on purpose: the gate writes Generated.fs and builds the fixture, so
+    // running both target frameworks would have two test runs racing on the same file. (CI's
+    // DISABLE_TEST_PARALLELIZATION only serializes *within* an assembly, not across frameworks.)
+    Target TestCodegenFSharp => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.src.CodegenTests_FSharp)
+                .SetFramework("net9.0")
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
     Target TestCommandLine => _ => _
         .DependsOn(Compile)
         .Executes(() =>

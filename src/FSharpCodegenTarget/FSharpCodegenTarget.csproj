@@ -12,4 +12,9 @@
       compiles) and the F# codegen integration test (so it can reflect over the Types).
     -->
 
+    <ItemGroup>
+        <!-- FSharpSaga: a real F# class type for the null-guard fixture (jasperfx#513). -->
+        <ProjectReference Include="..\FSharpTypes\FSharpTypes.fsproj" />
+    </ItemGroup>
+
 </Project>

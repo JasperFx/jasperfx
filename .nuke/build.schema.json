@@ -33,6 +33,7 @@
         "SmokeTestCommands",
         "Test",
         "TestCodegen",
+        "TestCodegenFSharp",
         "TestCommandLine",
         "TestCore",
         "TestEvents",

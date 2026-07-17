@@ -3,6 +3,7 @@
 namespace FSharpCodegenTarget.Generated
 
 open FSharpCodegenTarget
+open FSharpTypes
 open Microsoft.Extensions.DependencyInjection
 open System
 open System.Threading.Tasks
@@ -53,10 +54,20 @@ type GeneratedConditionalGreeter(controlFlowService: FSharpCodegenTarget.Control
 
     interface FSharpCodegenTarget.IConditionalGreeter with
         member this.Describe(input: string) : string =
-            if isNull input then
+            if isNull (box input) then
                 _controlFlowService.Fallback()
             else
                 _controlFlowService.Echo(input)
+
+type GeneratedFSharpSagaGuard(sagaService: FSharpCodegenTarget.SagaService) =
+    let _sagaService = sagaService
+
+    interface FSharpCodegenTarget.IFSharpSagaGuard with
+        member this.Describe(saga: FSharpTypes.FSharpSaga) : string =
+            if isNull (box saga) then
+                _sagaService.Fallback()
+            else
+                _sagaService.Echo(saga)
 
 type GeneratedToggle(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
     let _controlFlowService = controlFlowService

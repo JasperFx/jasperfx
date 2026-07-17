@@ -58,6 +58,14 @@ jobs:
         run: ./build.sh test-codegen
         shell: bash
 
+      # Regenerates the F# fixture from the emitters and compiles it with the in-box F# compiler.
+      # The `compile` step above only builds the *committed* Generated.fs, so this is what catches
+      # the fixture drifting from the code generation that produces it (jasperfx#513).
+      - name: test-codegen-fsharp
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-codegen-fsharp
+        shell: bash
+
       - name: test-command-line
         if: ${{ success() || failure() }}
         run: ./build.sh test-command-line
@@ -71,6 +79,18 @@ jobs:
       - name: test-event-store
         if: ${{ success() || failure() }}
         run: ./build.sh test-event-store
+        shell: bash
+
+      # End-to-end CLI smoke tests, including `codegen preview --language fsharp`: proves the F# flag
+      # is wired through the CLI and the F# emit path runs without throwing. It does NOT prove the
+      # output compiles -- `preview` only prints, and GeneratorTarget feeds codegen a raw C# CodeFrame
+      # (a documented passthrough), so its F# preview is knowingly not valid F#. The compile proof is
+      # test-codegen-fsharp above. Also covers the C# `codegen preview` and the `describe` flag
+      # variants, none of which ran in CI before. These commands all exit 0 (unlike smoke-test-help
+      # below), so the Nuke target gates on the exit code directly.
+      - name: smoke-test-commands
+        if: ${{ success() || failure() }}
+        run: ./build.sh smoke-test-commands
         shell: bash
 
       # Smoke test the usage/help renderer end-to-end. `help describe` renders a

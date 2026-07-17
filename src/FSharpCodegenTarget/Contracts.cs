@@ -57,6 +57,31 @@ public interface IConditionalGreeter
     string Describe(string input);
 }
 
+/// <summary>
+///     The same null-guard, but over an F# class type that is not <c>[&lt;AllowNullLiteral&gt;]</c> —
+///     the shape of an F# Wolverine saga. F#'s <c>isNull</c> carries a <c>'T : null</c> constraint that
+///     such a type does not satisfy, so the guard must box its subject to compile (jasperfx#513).
+///     <see cref="IConditionalGreeter" /> cannot cover this: its subject is a <c>string</c>, which is
+///     null-permitting in F# and so compiles either way.
+/// </summary>
+public interface IFSharpSagaGuard
+{
+    string Describe(FSharpTypes.FSharpSaga saga);
+}
+
+public class SagaService
+{
+    public string Fallback()
+    {
+        return "no saga";
+    }
+
+    public string Echo(FSharpTypes.FSharpSaga saga)
+    {
+        return saga.Name;
+    }
+}
+
 public interface IToggle
 {
     void Toggle(bool flag);
