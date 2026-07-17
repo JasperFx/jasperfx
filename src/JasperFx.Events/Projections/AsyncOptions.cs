@@ -70,6 +70,17 @@ public class AsyncOptions
     public int CacheLimitPerTenant { get; set; } = 0;
 
     /// <summary>
+    /// jasperfx#525, rebuild-mode only. When greater than 0, the async daemon defers projected-document
+    /// writes during a rebuild, accumulating only the latest snapshot (or a tombstone) per aggregate id in
+    /// memory and flushing to the database when the number of dirty aggregates reaches this threshold or the
+    /// rebuild reaches its target ceiling. This guarantees exactly one write per aggregate per flush window,
+    /// which is the prerequisite for INSERT-only (binary COPY) rebuild batches. 0 (the default) keeps the
+    /// flush-per-page behavior and is a complete no-op. Applies to Individual (non-composite) aggregation
+    /// batches only; composite projections are excluded in v1.
+    /// </summary>
+    public int RebuildFlushThreshold { get; set; } = 0;
+
+    /// <summary>
     ///     Add explicit teardown rule to delete all documents of type T
     ///     when this projection shard is rebuilt
     /// </summary>

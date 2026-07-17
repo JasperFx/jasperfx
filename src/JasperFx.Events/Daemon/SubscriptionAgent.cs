@@ -89,6 +89,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
     public long HighWaterMark { get; set; }
 
+    // jasperfx#525: highest range ceiling a deferred rebuild has BUFFERED (accumulated in memory) but not yet
+    // committed. Kept >= LastCommitted at all times. Loading back-pressure is measured against this rather than
+    // LastCommitted so a deferred rebuild — whose LastCommitted intentionally lags until the next flush — keeps
+    // pumping pages instead of stalling. Only touched on the command-loop thread.
+    private long _bufferedCeiling;
+
     public async ValueTask DisposeAsync()
     {
         if (_heartbeatTimer != null)
@@ -241,6 +247,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
         LastCommitted = request.Floor; // Force it to start here!
+        _bufferedCeiling = request.Floor; // jasperfx#525
 
         try
         {
@@ -303,6 +310,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         });
     }
 
+    // jasperfx#525: a deferred-rebuild execution buffered a range without committing. Advance the buffered
+    // ceiling on the command loop so the loader keeps pumping the next page while committed progression waits
+    // for the next flush.
+    public async ValueTask MarkRangeBufferedAsync(long ceiling)
+    {
+        await _commandBlock.PostAsync(Command.RangeBuffered(ceiling));
+    }
+
     public void MarkHighWater(long sequence)
     {
         _commandBlock.Post(Command.HighWaterMarkUpdated(sequence));
@@ -341,6 +356,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
                 HighWaterMark = command.HighWaterMark;
                 LastCommitted = LastEnqueued = command.LastCommitted;
+                _bufferedCeiling = LastCommitted; // jasperfx#525
 
                 // The Mode guard matters for jasperfx#480: a bounded rebuild that disabled the
                 // optimized replay (ReplayAsync above) posts Start in Rebuild mode with a replay
@@ -387,12 +403,27 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
             case CommandType.RangeCompleted:
                 LastCommitted = command.LastCommitted;
+                if (LastCommitted > _bufferedCeiling)
+                {
+                    _bufferedCeiling = LastCommitted; // jasperfx#525: keep the buffered marker >= committed
+                }
+
                 await _tracker.PublishAsync(new ShardState(Name, LastCommitted));
 
                 if (LastCommitted == HighWaterMark && Mode == ShardExecutionMode.Rebuild)
                 {
                     // We're done, get out of here!
                     _rebuild?.TrySetResult();
+                }
+
+                break;
+
+            case CommandType.RangeBuffered:
+                // jasperfx#525: a deferred rebuild buffered up to this ceiling without committing. Advance the
+                // back-pressure marker (LastCommitted stays put) and fall through to keep pumping the next page.
+                if (command.LastCommitted > _bufferedCeiling)
+                {
+                    _bufferedCeiling = command.LastCommitted;
                 }
 
                 break;
@@ -409,7 +440,11 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             return;
         }
 
-        var inflight = LastEnqueued - LastCommitted;
+        // jasperfx#525: measure in-flight (loaded-but-unprocessed) events against the buffered ceiling, not
+        // committed progression. During a deferred rebuild LastCommitted lags until the next flush, so using it
+        // here would make in-flight grow without bound and wedge the loader; the buffered ceiling advances as
+        // each page is processed, so this stays equal to LastEnqueued - LastCommitted in every non-deferred path.
+        var inflight = LastEnqueued - Math.Max(LastCommitted, _bufferedCeiling);
 
         // Back pressure, slow down
         if (inflight >= Options.MaximumHopperSize)

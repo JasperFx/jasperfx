@@ -69,6 +69,11 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         _grouping.Complete();
         await _cancellation.CancelAsync().ConfigureAwait(false);
 
+        // jasperfx#525: drop any un-flushed deferred-rebuild writes. A rebuild that completed normally already
+        // flushed its final window (that's what let it complete), so this is a no-op there; a rebuild torn down
+        // early discards its accumulator so nothing partial is written and replay stays clean.
+        _runner.DiscardDeferredRebuildWrites();
+
         if (Disposables != null)
         {
             await Disposables.MaybeDisposeAllAsync().ConfigureAwait(false);
@@ -102,6 +107,9 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     {
         await _cancellation.CancelAsync().ConfigureAwait(false);
         _grouping.Complete();
+
+        // jasperfx#525: a hard stop mid-rebuild throws away the un-flushed accumulator (see DisposeAsync).
+        _runner.DiscardDeferredRebuildWrites();
     }
 
     public async Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage page,
@@ -212,14 +220,38 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
             if (range.BatchBehavior == BatchBehavior.Individual)
             {
-                try
+                if (_runner.DefersRebuildWrites(Mode, range))
                 {
-                    // Executing the SQL commands for the ProjectionUpdateBatch
-                    await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
-                }
-                finally
-                {
+                    // jasperfx#525: the per-slice writes were accumulated in the runner during BuildBatchAsync,
+                    // so the batch built here carries no operations — dispose it (it was only used to load prior
+                    // snapshots) and flush the accumulator into its own batch at the threshold or the rebuild
+                    // ceiling, rather than committing per range. Progress advances only at those flushes.
                     await batch.DisposeAsync();
+
+                    if (_runner.DeferredFlushDue(range))
+                    {
+                        await _runner
+                            .FlushDeferredRebuildWritesAsync(range, range.SequenceCeiling, _cancellation.Token)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        // jasperfx#525: nothing flushed, so committed progression stays put — but tell the agent
+                        // this range was buffered so its loader keeps pumping the next page instead of stalling.
+                        await range.Agent.MarkRangeBufferedAsync(range.SequenceCeiling).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        // Executing the SQL commands for the ProjectionUpdateBatch
+                        await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await batch.DisposeAsync();
+                    }
                 }
             }
 

@@ -17,6 +17,14 @@ public interface ISubscriptionController
     ValueTask MarkSuccessAsync(long processedCeiling);
 
     /// <summary>
+    ///     jasperfx#525: tell the governing agent that a deferred-rebuild range was buffered up to
+    ///     <paramref name="ceiling" /> in memory but NOT yet committed. This advances the loading back-pressure
+    ///     marker so the daemon keeps pumping pages during a deferred rebuild, while committed progression only
+    ///     advances at the next flush. No-op for controllers that never defer.
+    /// </summary>
+    ValueTask MarkRangeBufferedAsync(long ceiling) => default;
+
+    /// <summary>
     ///     Tell the governing subscription agent that there was a critical error that
     ///     should pause the subscription or projection
     /// </summary>

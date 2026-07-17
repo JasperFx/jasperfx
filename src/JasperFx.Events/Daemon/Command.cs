@@ -28,6 +28,13 @@ public class Command
         return new Command { HighWaterMark = sequence, Type = CommandType.HighWater };
     }
 
+    // jasperfx#525: a deferred-rebuild range was buffered up to `ceiling` without committing. Carries the
+    // ceiling in LastCommitted purely to advance the buffered-ceiling back-pressure marker.
+    internal static Command RangeBuffered(long ceiling)
+    {
+        return new Command { LastCommitted = ceiling, Type = CommandType.RangeBuffered };
+    }
+
     public static Command Started(long highWater, long lastCommitted)
     {
         return new Command { HighWaterMark = highWater, LastCommitted = lastCommitted };

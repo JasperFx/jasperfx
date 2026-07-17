@@ -23,6 +23,18 @@ public interface IProjectionStorage<TDoc, TId> : IIdentitySetter<TDoc, TId>
     void StoreProjection(TDoc aggregate, IEvent? lastEvent, AggregationScope scope);
     void ArchiveStream(TId sliceId, string tenantId);
     Task<TDoc> LoadAsync(TId id, CancellationToken cancellation);
+
+    /// <summary>
+    /// jasperfx#525: store a projected document as part of a deferred rebuild flush. When
+    /// <paramref name="previouslyFlushed"/> is false the aggregate is appearing for the first time this
+    /// rebuild (post-TRUNCATE), so a store may route it through an INSERT-only fast path (e.g. binary COPY);
+    /// when true the aggregate was already written in an earlier flush window (an overflow reflush) and must
+    /// be routed as an UPSERT. The default implementation ignores the hint and behaves exactly like
+    /// <see cref="StoreProjection"/>, so a store that has not opted into the optimization stays correct.
+    /// </summary>
+    void StoreProjectionForRebuildFlush(TDoc aggregate, IEvent? lastEvent, AggregationScope scope,
+        bool previouslyFlushed)
+        => StoreProjection(aggregate, lastEvent, scope);
 }
 
 public static class ProjectionStorageExtensions
