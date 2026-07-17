@@ -80,7 +80,8 @@ public class FSharpControlFlowTests
         var code = assembly.GenerateFSharpCode();
         _output.WriteLine(code);
 
-        code.ShouldContain("if isNull input then");
+        // Boxed so the guard does not require the subject type to be [<AllowNullLiteral>] (jasperfx#513)
+        code.ShouldContain("if isNull (box input) then");
         code.ShouldContain("_service.Fallback()");
         code.ShouldContain("else");
         code.ShouldContain("_service.Echo(input)");

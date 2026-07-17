@@ -45,7 +45,9 @@ public class IfElseNullGuardFrame : Frame
         // F# if/then/else is an expression: when it is the trailing position both branches yield
         // the method's return value; otherwise both branches must be unit. `else` dedents back to
         // align with `if` (no braces).
-        writer.Write($"BLOCK:if isNull {_subject.FSharpUsage} then");
+        // `isNull` carries a 'T : null constraint that F# class types do not satisfy unless they are
+        // [<AllowNullLiteral>], so box the subject first to erase the constraint (jasperfx#513).
+        writer.Write($"BLOCK:if isNull (box {_subject.FSharpUsage}) then");
         foreach (var frame in _nullPath) frame.GenerateFSharpCode(method, writer);
         writer.FinishBlock();
 
@@ -113,7 +115,8 @@ public class IfElseNullGuardFrame : Frame
 
         protected override void generateFSharpCode(GeneratedMethod method, ISourceWriter writer, Frame inner)
         {
-            writer.Write($"BLOCK:if not (isNull {_variable.FSharpUsage}) then");
+            // Boxed for the same 'T : null reason as IfElseNullGuardFrame above (jasperfx#513).
+            writer.Write($"BLOCK:if not (isNull (box {_variable.FSharpUsage})) then");
             inner.GenerateFSharpCode(method, writer);
             writer.FinishBlock();
         }

@@ -55,6 +55,7 @@ public static class FSharpCodegenSample
         AddDirectAsyncType(assembly);
         AddAccumulatorType(assembly);
         AddConditionalType(assembly);
+        AddFSharpSagaGuardType(assembly);
         AddToggleType(assembly);
         AddResourceType(assembly);
         AddOrderHandlerType(assembly);
@@ -318,6 +319,34 @@ public static class FSharpCodegenSample
         echo.Arguments[0] = input;
 
         method.Frames.Add(new IfElseNullGuardFrame(input, new Frame[] { fallback }, new Frame[] { echo }));
+    }
+
+    /// <summary>
+    ///     The same null-guard over an F# class type that is not <c>[&lt;AllowNullLiteral&gt;]</c> — the
+    ///     regression for jasperfx#513. <see cref="AddConditionalType" /> guards a <c>string</c>, which is
+    ///     null-permitting in F# and so compiles with a bare <c>isNull</c>; only a genuine F# class type
+    ///     trips the <c>'T : null</c> constraint. If the guard ever stops boxing its subject, the compile
+    ///     gate fails here.
+    /// </summary>
+    private static void AddFSharpSagaGuardType(GeneratedAssembly assembly)
+    {
+        var type = assembly.AddType("GeneratedFSharpSagaGuard", typeof(IFSharpSagaGuard));
+        var method = type.MethodFor(nameof(IFSharpSagaGuard.Describe));
+        var saga = method.Arguments[0];
+
+        var service = new InjectedField(typeof(SagaService), "sagaService");
+
+        var fallback = new MethodCall(typeof(SagaService), nameof(SagaService.Fallback))
+        {
+            Target = service, ReturnAction = ReturnAction.Return
+        };
+        var echo = new MethodCall(typeof(SagaService), nameof(SagaService.Echo))
+        {
+            Target = service, ReturnAction = ReturnAction.Return
+        };
+        echo.Arguments[0] = saga;
+
+        method.Frames.Add(new IfElseNullGuardFrame(saga, new Frame[] { fallback }, new Frame[] { echo }));
     }
 
     /// <summary>
