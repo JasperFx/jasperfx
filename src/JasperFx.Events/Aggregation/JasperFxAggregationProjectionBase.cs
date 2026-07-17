@@ -738,22 +738,56 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
         }
 
-        // For static factory methods on the aggregate itself that return a new TDoc
-        // (the self-aggregating pattern — see JasperFx/marten#4277):
-        //   public static TDoc Create(TEvent e) => new TDoc(...);
-        // We can safely call the method with the raw event data and read the natural
-        // key property off the returned aggregate.
+        // For static methods on the aggregate itself that return a TDoc, call the method
+        // and read the natural key property off the returned aggregate. This covers BOTH:
+        //   * the self-aggregating create factory (JasperFx/marten#4277):
+        //       public static TDoc Create(TEvent e) => new TDoc(...);
+        //   * an evolve/update method that CHANGES the natural key (JasperFx/marten#4966):
+        //       public static TDoc Apply(TEvent e, TDoc current) => current with { Key = ... };
+        // Build one argument per parameter: the event parameter receives the raw event data
+        // (converted); a TDoc parameter (the prior aggregate in an evolve method) receives a
+        // fresh default aggregate, mirroring the instance-method branch above. Only the event
+        // data reaches the extractor (NaturalKeyProjection passes @event.Data), so a parameter
+        // that needs IEvent<T> metadata — or a doc type without a public parameterless ctor —
+        // can't be satisfied here; in that case fall through to the property-matching fallback.
         if (method.IsStatic && method.DeclaringType == docType && method.ReturnType == docType)
         {
-            var eventType = firstParamType;
+            var callArgs = new Expression[parameters.Length];
+            var eventArgBound = false;
+            var canCall = true;
 
-            var body = Expression.Convert(
-                Expression.Property(
-                    Expression.Call(method, Expression.Convert(eventParam, eventType)),
-                    naturalKeyProp),
-                typeof(object));
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                var paramType = parameters[i].ParameterType;
+                var isIEvent = paramType.IsGenericType
+                    && paramType.GetGenericTypeDefinition() == typeof(IEvent<>);
 
-            return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
+                if (paramType == docType && docType.GetConstructor(System.Type.EmptyTypes) != null)
+                {
+                    callArgs[i] = Expression.New(docType);
+                }
+                else if (!eventArgBound && paramType != docType && !isIEvent)
+                {
+                    callArgs[i] = Expression.Convert(eventParam, paramType);
+                    eventArgBound = true;
+                }
+                else
+                {
+                    canCall = false;
+                    break;
+                }
+            }
+
+            if (canCall && eventArgBound)
+            {
+                var body = Expression.Convert(
+                    Expression.Property(
+                        Expression.Call(method, callArgs),
+                        naturalKeyProp),
+                    typeof(object));
+
+                return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
+            }
         }
 
         // For static methods on the projection class, we can't safely call them

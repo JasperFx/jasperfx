@@ -57,6 +57,33 @@ public class NaturalKeySourceDiscoveryTests
         var extracted = mapping!.Extractor(new NkSeparateProjectionCreatedEvent(new NkAggregateKey("separate")));
         extracted.ShouldBe(new NkAggregateKey("separate"));
     }
+
+    [Fact]
+    public void discovers_natural_key_source_on_static_evolve_method_that_changes_the_key()
+    {
+        // Regression for https://github.com/JasperFx/marten/issues/4966: a static
+        // [NaturalKeySource] method that EVOLVES the aggregate and changes the natural key —
+        //   public static TDoc Apply(TEvent e, TDoc current) => current with { Key = ... };
+        // — must also produce an event mapping. Previously buildExtractor only knew how to call
+        // a one-arg static factory, so the two-arg evolve method threw while building the call
+        // and was silently skipped, leaving the mt_natural_key table stale after the key changed
+        // (never inserting the new key on live append OR rebuild).
+        var projection = new NkEvolvingKeyProjection();
+
+        projection.NaturalKeyDefinition.ShouldNotBeNull();
+
+        // The create factory still maps.
+        var created = projection.NaturalKeyDefinition!.EventMappings
+            .SingleOrDefault(m => m.EventType == typeof(NkCreatedEvent));
+        created.ShouldNotBeNull();
+        created!.Extractor(new NkCreatedEvent("first")).ShouldBe(new NkAggregateKey("first"));
+
+        // ...and so does the two-arg evolve method that changes the key.
+        var changed = projection.NaturalKeyDefinition.EventMappings
+            .SingleOrDefault(m => m.EventType == typeof(NkKeyChangedEvent));
+        changed.ShouldNotBeNull();
+        changed!.Extractor(new NkKeyChangedEvent("second")).ShouldBe(new NkAggregateKey("second"));
+    }
 }
 
 // ───────────────────────── fixtures ─────────────────────────
@@ -108,4 +135,29 @@ public class NkSeparateProjectionClass : SingleStreamProjection<NkSeparateProjec
     [NaturalKeySource]
     public static NkSeparateProjectionAggregate Create(NkSeparateProjectionCreatedEvent e)
         => new() { Key = e.Key };
+}
+
+// #4966 fixture: a self-aggregating record (settable-property record → has a public
+// parameterless ctor) whose natural key is set by a create factory and later CHANGED by a
+// two-arg static evolve method. This is the shape from the reported repro.
+public record NkKeyChangedEvent(string NewKey);
+
+public sealed record NkEvolvingKeyAggregate
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public NkAggregateKey Key { get; set; } = default!;
+
+    [NaturalKeySource]
+    public static NkEvolvingKeyAggregate Create(NkCreatedEvent e)
+        => new() { Key = new NkAggregateKey(e.Key) };
+
+    [NaturalKeySource]
+    public static NkEvolvingKeyAggregate Apply(NkKeyChangedEvent e, NkEvolvingKeyAggregate current)
+        => current with { Key = new NkAggregateKey(e.NewKey) };
+}
+
+public class NkEvolvingKeyProjection : SingleStreamProjection<NkEvolvingKeyAggregate, NkAggregateKey>
+{
 }
