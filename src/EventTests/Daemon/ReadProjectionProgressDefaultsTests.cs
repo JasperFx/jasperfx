@@ -140,4 +140,13 @@ public class ReadProjectionProgressDefaultsTests
     {
         new ProjectionProgressRow("Orders", null, 1, "Running", null).TenantId.ShouldBeNull();
     }
+
+    // jasperfx#435: agent state is only persisted where a store both models the column and writes it.
+    // Neither Marten nor Polecat writes agent_status today, so a store must be able to report "I have
+    // no agent state for this cell" rather than invent one.
+    [Fact]
+    public void null_agent_status_means_the_store_does_not_persist_one()
+    {
+        new ProjectionProgressRow("Orders", null, 1, null, null).AgentStatus.ShouldBeNull();
+    }
 }
