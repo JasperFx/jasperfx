@@ -40,6 +40,15 @@ public class ConcurrencyException: Exception
     {
     }
 
+    /// <summary>
+    /// Use when a store detects the concurrency violation through its own exception (say, a CosmosDB 412
+    /// Precondition Failed) and needs to keep that exception attached, so error handling policies and logs
+    /// can still see what the database actually said.
+    /// </summary>
+    public ConcurrencyException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+
     public string DocType { get; set; }
     public object Id { get; set; }
 }
