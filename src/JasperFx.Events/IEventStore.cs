@@ -108,6 +108,21 @@ public interface IEventStore
             "GetRecentStreamsAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for the event store explorer.");
 
     /// <summary>
+    /// Return the most recently updated streams within a single tenant partition. A null
+    /// <paramref name="tenantId"/> is store-global and delegates to the tenant-less overload
+    /// (today's behavior). Event stores that implement multi-tenancy override this to open a
+    /// tenant-scoped session; the default throws for a non-null tenant. See jasperfx#503.
+    /// </summary>
+    /// <param name="count">Maximum number of streams to return.</param>
+    /// <param name="tenantId">Tenant partition to scope the listing to. Null means store-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<IReadOnlyList<StreamSummary>> GetRecentStreamsAsync(int count, string? tenantId, CancellationToken ct)
+        => tenantId == null
+            ? GetRecentStreamsAsync(count, ct)
+            : throw new NotSupportedException(
+                "Per-tenant GetRecentStreamsAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
+
+    /// <summary>
     /// Stream the events of a single stream from oldest to newest. Powers
     /// the explorer's stream-detail timeline. The default implementation
     /// throws <see cref="NotImplementedException"/>.
@@ -117,6 +132,24 @@ public interface IEventStore
     IAsyncEnumerable<EventRecord> ReadStreamAsync(string streamId, CancellationToken ct)
         => throw new NotImplementedException(
             "ReadStreamAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for the event store explorer.");
+
+    /// <summary>
+    /// Stream the events of a single stream within a single tenant partition. A null
+    /// <paramref name="tenantId"/> is store-global and delegates to the tenant-less overload
+    /// (today's behavior). This overload exists because on a conjoined multi-tenant store the same
+    /// stream id can exist under two tenants, so the tenant-less read resolves whichever tenant the
+    /// default session happens to carry. Event stores that implement multi-tenancy override this to
+    /// open a tenant-scoped session; the default throws for a non-null tenant rather than silently
+    /// returning another tenant's events. See jasperfx#503.
+    /// </summary>
+    /// <param name="streamId">String form of the stream identifier.</param>
+    /// <param name="tenantId">Tenant partition to read the stream from. Null means store-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    IAsyncEnumerable<EventRecord> ReadStreamAsync(string streamId, string? tenantId, CancellationToken ct)
+        => tenantId == null
+            ? ReadStreamAsync(streamId, ct)
+            : throw new NotSupportedException(
+                "Per-tenant ReadStreamAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
 
     /// <summary>
     /// Return full diagnostic metadata for a single stream — version,
@@ -129,6 +162,22 @@ public interface IEventStore
     Task<StreamMetadata?> GetStreamMetadataAsync(string streamId, CancellationToken ct)
         => throw new NotImplementedException(
             "GetStreamMetadataAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for the event store explorer.");
+
+    /// <summary>
+    /// Return full diagnostic metadata for a single stream within a single tenant partition. A null
+    /// <paramref name="tenantId"/> is store-global and delegates to the tenant-less overload
+    /// (today's behavior). Event stores that implement multi-tenancy override this to open a
+    /// tenant-scoped session; the default throws for a non-null tenant. See jasperfx#503.
+    /// </summary>
+    /// <param name="streamId">String form of the stream identifier.</param>
+    /// <param name="tenantId">Tenant partition to resolve the stream in. Null means store-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Stream metadata, or <see langword="null"/> when no stream exists with that id in that tenant.</returns>
+    Task<StreamMetadata?> GetStreamMetadataAsync(string streamId, string? tenantId, CancellationToken ct)
+        => tenantId == null
+            ? GetStreamMetadataAsync(streamId, ct)
+            : throw new NotSupportedException(
+                "Per-tenant GetStreamMetadataAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
 
     /// <summary>
     /// Stream events that match all of the supplied DCB tag values.

@@ -67,7 +67,24 @@ public interface IEventDatabase
 
     string StorageIdentifier { get; }
     Task<long> FetchHighestEventSequenceNumber(CancellationToken token);
-    
+
+    /// <summary>
+    ///     Fetch the highest assigned event sequence number for a single tenant partition — the "head"
+    ///     an explorer subtracts projection progress from to render lag. A null <paramref name="tenantId" />
+    ///     is store-global and delegates to the tenant-less overload (today's behavior). Under
+    ///     <c>UseTenantPartitionedEvents</c> each tenant draws its own sequence, so the store-global head
+    ///     is not a meaningful lag baseline for any single tenant; event stores that implement per-tenant
+    ///     partitioning override this. The default throws for a non-null tenant. See jasperfx#503.
+    /// </summary>
+    /// <param name="tenantId">Tenant partition to scope the head sequence to. Null means store-global.</param>
+    /// <param name="token"></param>
+    Task<long> FetchHighestEventSequenceNumber(string? tenantId, CancellationToken token)
+        => tenantId == null
+            ? FetchHighestEventSequenceNumber(token)
+            : throw new NotSupportedException(
+                "Per-tenant FetchHighestEventSequenceNumber is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
+
+
     /// <summary>
     ///     Check the current progress of all asynchronous projections
     /// </summary>
