@@ -10,6 +10,20 @@ namespace EventTests;
 public class SharedExceptionTests
 {
     [Fact]
+    public void concurrency_exception_preserves_an_inner_exception()
+    {
+        // Stores that detect the violation through their own exception (a CosmosDB 412 Precondition
+        // Failed, say) need to keep it attached, so error handling policies and logs can still see what
+        // the database actually said. Without a base ctor taking one, a derived exception cannot set
+        // InnerException at all - it is only settable through Exception(string, Exception).
+        var inner = new InvalidOperationException("412 Precondition Failed");
+        var ex = new ConcurrencyException("Saga was modified concurrently", inner);
+
+        ex.InnerException.ShouldBeSameAs(inner);
+        ex.Message.ShouldBe("Saga was modified concurrently");
+    }
+
+    [Fact]
     public void dcb_concurrency_exception_carries_query_and_sequence_and_is_a_concurrency_exception()
     {
         var query = new EventTagQuery().Or<Guid>(Guid.NewGuid());

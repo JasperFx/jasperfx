@@ -43,11 +43,49 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     // jasperfx#494 (epic #486 WS2): shared by every agent loader this daemon builds so the
     // database's connection footprint stays O(databases), not O(agents). Null = unthrottled.
-    private readonly SemaphoreSlim? _loadThrottle;
+    private SemaphoreSlim? _loadThrottle;
+    private int _maxConcurrentEventLoads;
 
     // Epic #486 WS3: bounds concurrent projection batch execute/commit sessions. Reaches the
     // executions through IDaemonRuntime -> SubscriptionAgent -> EventRange.Agent. Null = unbounded.
-    public SemaphoreSlim? BatchWriteThrottle { get; }
+    private SemaphoreSlim? _batchWriteThrottle;
+    private int _maxConcurrentBatchWrites;
+
+    public SemaphoreSlim? BatchWriteThrottle => _batchWriteThrottle;
+
+    /// <summary>
+    /// The per-database cap on concurrent event loads. Setting it replaces the throttle for agent
+    /// loaders built AFTER the change — a running agent captured its loader's throttle when it was
+    /// built (see ThrottledEventLoader), so resizing does not retroactively narrow an in-flight load.
+    /// Null or a non-positive value is unthrottled. Mirrors <see cref="MaxConcurrentRebuildsPerDatabase"/>:
+    /// the previous semaphore is deliberately not disposed, since callers may still be waiting on it.
+    /// </summary>
+    public int MaxConcurrentEventLoadsPerDatabase
+    {
+        get => _maxConcurrentEventLoads;
+        set
+        {
+            _maxConcurrentEventLoads = value;
+            _loadThrottle = value > 0 ? new SemaphoreSlim(value) : null;
+        }
+    }
+
+    /// <summary>
+    /// The per-database cap on concurrent projection batch execute/commit sessions. Unlike
+    /// <see cref="MaxConcurrentEventLoadsPerDatabase"/> this one reaches running agents immediately,
+    /// because they read it through a live pass-through (SubscriptionAgent.BatchWriteThrottle) rather
+    /// than capturing it. Null or a non-positive value is unbounded. The previous semaphore is
+    /// deliberately not disposed, since callers may still be waiting on it.
+    /// </summary>
+    public int MaxConcurrentBatchWritesPerDatabase
+    {
+        get => _maxConcurrentBatchWrites;
+        set
+        {
+            _maxConcurrentBatchWrites = value;
+            _batchWriteThrottle = value > 0 ? new SemaphoreSlim(value) : null;
+        }
+    }
 
     // jasperfx#497 (the #420 leftover): ONE shared budget per daemon (= per database) for rebuild
     // cells, spanning both fan-out layers — the CLI's projection-level fan-out AND the
@@ -98,13 +136,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _deadLetterBlock = buildDeadLetterBlock();
 
-        _loadThrottle = _projections.MaxConcurrentEventLoadsPerDatabase > 0
-            ? new SemaphoreSlim(_projections.MaxConcurrentEventLoadsPerDatabase)
-            : null;
-
-        BatchWriteThrottle = _projections.MaxConcurrentBatchWritesPerDatabase > 0
-            ? new SemaphoreSlim(_projections.MaxConcurrentBatchWritesPerDatabase)
-            : null;
+        MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
+        MaxConcurrentBatchWritesPerDatabase = _projections.MaxConcurrentBatchWritesPerDatabase;
 
         // jasperfx#497: explicit DaemonSettings knob wins, then the store-derived default. Concrete
         // stores typically fold the settings knob into their override already; the double-consult is
@@ -134,13 +167,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _deadLetterBlock = buildDeadLetterBlock();
 
-        _loadThrottle = _projections.MaxConcurrentEventLoadsPerDatabase > 0
-            ? new SemaphoreSlim(_projections.MaxConcurrentEventLoadsPerDatabase)
-            : null;
-
-        BatchWriteThrottle = _projections.MaxConcurrentBatchWritesPerDatabase > 0
-            ? new SemaphoreSlim(_projections.MaxConcurrentBatchWritesPerDatabase)
-            : null;
+        MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
+        MaxConcurrentBatchWritesPerDatabase = _projections.MaxConcurrentBatchWritesPerDatabase;
 
         // jasperfx#497: see the ILoggerFactory constructor overload for the resolution rationale
         MaxConcurrentRebuildsPerDatabase =
@@ -171,7 +199,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _breakSubscription.Dispose();
         _deadLetterBlock.Dispose();
         _loadThrottle?.Dispose();
-        BatchWriteThrottle?.Dispose();
+        _batchWriteThrottle?.Dispose();
         _rebuildBudget?.Dispose();
     }
 
@@ -790,9 +818,33 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private Timer buildTenantHighWaterTimer()
     {
         var timer = new Timer(_projections.SlowPollingTime.TotalMilliseconds) { AutoReset = true };
-        timer.Elapsed += (_, _) => _ = pollTenantHighWaterOnCadenceAsync();
+        timer.Elapsed += (_, _) =>
+        {
+            syncTenantHighWaterInterval();
+            _ = pollTenantHighWaterOnCadenceAsync();
+        };
         timer.Start();
         return timer;
+    }
+
+    /// <summary>
+    /// Re-read SlowPollingTime every tick so a caller that re-paces the daemon at runtime is honored.
+    /// The interval used to be captured at construction, which left this timer polling at the original
+    /// cadence for the life of the daemon no matter what SlowPollingTime was changed to — the high-water
+    /// loop itself re-reads its polling times every wait, so this was the odd one out.
+    /// </summary>
+    private void syncTenantHighWaterInterval()
+    {
+        if (_tenantHighWaterTimer == null) return;
+
+        var desired = _projections.SlowPollingTime.TotalMilliseconds;
+        if (desired <= 0) return;
+
+        // Assigning Interval restarts the timer, so only touch it on a real change
+        if (Math.Abs(_tenantHighWaterTimer.Interval - desired) > 1)
+        {
+            _tenantHighWaterTimer.Interval = desired;
+        }
     }
 
     private async Task pollTenantHighWaterOnCadenceAsync()
@@ -827,7 +879,25 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // node. No-op for non-partitioned stores. jasperfx#407 Phase 2b.
     private void syncTenantPolling()
     {
-        _tenantHighWater?.SyncAssignedTenants(CurrentAgents().Select(x => x.Name));
+        var assigned = CurrentAgents().Select(x => x.Name).ToArray();
+        _tenantHighWater?.SyncAssignedTenants(assigned);
+
+        // Idle the cadence timer along with the daemon's actual workload. It used to run from
+        // construction until Dispose(), so a daemon that had been stopped — or one whose database was
+        // handed to another node — kept waking every SlowPollingTime forever to do nothing. The poll
+        // itself already no-ops via the _highWater.IsRunning guard, so this is housekeeping rather
+        // than a correctness fix, and StartAgentAsync's syncTenantPolling call starts it again.
+        if (_tenantHighWaterTimer == null) return;
+
+        if (assigned.Length == 0)
+        {
+            _tenantHighWaterTimer.Stop();
+        }
+        else if (!_tenantHighWaterTimer.Enabled)
+        {
+            syncTenantHighWaterInterval();
+            _tenantHighWaterTimer.Start();
+        }
     }
 
     public Task RecordDeadLetterEventAsync(DeadLetterEvent @event)

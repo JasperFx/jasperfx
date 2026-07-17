@@ -1,6 +1,8 @@
 using System.Diagnostics.Metrics;
+using System.Reflection;
 using EventTests.Projections;
 using JasperFx;
+using JasperFx.Core;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Daemon.HighWater;
@@ -9,6 +11,7 @@ using JasperFx.Events.Subscriptions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
+using Timer = System.Timers.Timer;
 
 namespace EventTests.Daemon;
 
@@ -258,6 +261,135 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task batch_write_governor_can_be_resized_at_runtime()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.MaxConcurrentBatchWritesPerDatabase = 4,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        harness.Daemon.BatchWriteThrottle!.CurrentCount.ShouldBe(4);
+
+        harness.Daemon.MaxConcurrentBatchWritesPerDatabase = 2;
+
+        harness.Daemon.BatchWriteThrottle!.CurrentCount.ShouldBe(2);
+
+        // The agents read this through a live pass-through rather than capturing it, so an ALREADY
+        // running agent picks the new gate up - that is the half of the pacing story that has to work
+        // without restarting anything.
+        harness.Daemon.CurrentAgents()
+            .ShouldAllBe(x => ReferenceEquals(x.BatchWriteThrottle, harness.Daemon.BatchWriteThrottle));
+    }
+
+    [Fact]
+    public async Task batch_write_governor_can_be_disabled_at_runtime()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.MaxConcurrentBatchWritesPerDatabase = 4,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        harness.Daemon.MaxConcurrentBatchWritesPerDatabase = 0;
+
+        harness.Daemon.BatchWriteThrottle.ShouldBeNull();
+        harness.Daemon.CurrentAgents().ShouldAllBe(x => x.BatchWriteThrottle == null);
+    }
+
+    [Fact]
+    public async Task resizing_the_load_governor_applies_to_agents_built_afterwards()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.MaxConcurrentEventLoadsPerDatabase = 0,
+            shardFor(new ShardName("Trip")));
+
+        // Started while the governor was off, so this one's loader is unthrottled for its lifetime -
+        // the throttle is captured into the loader when the agent is built, not read per load.
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        harness.Daemon.MaxConcurrentEventLoadsPerDatabase = 3;
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        var agents = harness.Daemon.CurrentAgents().Cast<SubscriptionAgent>()
+            .ToDictionary(x => x.Name.Identity);
+
+        agents["Trip:All:t1"].Loader.ShouldNotBeOfType<ThrottledEventLoader>();
+        agents["Trip:All:t2"].Loader.ShouldBeOfType<ThrottledEventLoader>();
+    }
+
+    // The timer is deliberately private; there is no observable seam for "is it still waking up?"
+    // short of reaching for it, and the behavior below is worth pinning.
+    private static Timer TenantTimerOf(
+        JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>> daemon)
+    {
+        var field = daemon.GetType()
+            .GetField("_tenantHighWaterTimer", BindingFlags.Instance | BindingFlags.NonPublic);
+        return (Timer)field!.GetValue(daemon)!;
+    }
+
+    [Fact]
+    public async Task tenant_high_water_timer_idles_when_the_daemon_has_no_agents()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+        var timer = TenantTimerOf(harness.Daemon);
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        timer.Enabled.ShouldBeTrue();
+
+        await harness.Daemon.StopAllAsync();
+
+        // Used to run from construction until Dispose(), so a stopped daemon - or one whose database
+        // moved to another node - kept waking every SlowPollingTime forever to do nothing.
+        timer.Enabled.ShouldBeFalse();
+
+        // ...and comes back with the workload
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        timer.Enabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task tenant_high_water_timer_re_paces_when_slow_polling_time_changes()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.SlowPollingTime = 100.Milliseconds(),
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        var timer = TenantTimerOf(harness.Daemon);
+        timer.Interval.ShouldBe(100);
+
+        // The interval used to be captured at construction, so this timer kept the original cadence for
+        // the daemon's whole life no matter what SlowPollingTime was re-paced to.
+        harness.Projections.SlowPollingTime = 400.Milliseconds();
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (Math.Abs(timer.Interval - 400) > 1 && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
+
+        timer.Interval.ShouldBe(400);
+    }
+
+    [Fact]
     public async Task second_start_of_the_same_tenant_identity_is_idempotent()
     {
         var detector = new StubPartitionedDetector();
@@ -318,15 +450,16 @@ public class PerTenantStartAgentAsyncTests
             Database.DatabaseUri.Returns(new Uri("fake://db1"));
             Database.Tracker.Returns(new ShardStateTracker(new NulloLogger()));
 
-            var projections = new FakeProjectionGraph();
-            configureSettings?.Invoke(projections);
+            Projections = new FakeProjectionGraph();
+            configureSettings?.Invoke(Projections);
 
             Daemon = new JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>>(
-                Store, Database, new NulloLogger(), detector, projections);
+                Store, Database, new NulloLogger(), detector, Projections);
         }
 
         public IEventStore<FakeOperations, FakeSession> Store { get; }
         public IEventDatabase Database { get; }
+        public ProjectionGraph<IJasperFxProjection<FakeOperations>, FakeOperations, FakeSession> Projections { get; }
         public JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>> Daemon { get; }
 
         public async ValueTask DisposeAsync()
