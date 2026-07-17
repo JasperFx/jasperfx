@@ -14,4 +14,13 @@ public record SubscriptionExecutionRequest(
     /// at start is essential.
     /// </summary>
     public long? StartingHighWater { get; init; }
+
+    /// <summary>
+    /// jasperfx#480: force the plain event-loader replay path even when the store's execution can
+    /// build an optimized IReplayExecutor. The blue/green side-effect gate replays to a CUSTOM
+    /// ceiling (the prior version's mark) that store-implemented replay executors are not guaranteed
+    /// to honor — they typically replay to their own detected high-water. Default false keeps
+    /// today's behavior everywhere else.
+    /// </summary>
+    public bool DisableOptimizedReplay { get; init; }
 }

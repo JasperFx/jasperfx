@@ -244,7 +244,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
         try
         {
-            if (_execution.TryBuildReplayExecutor(out var executor))
+            if (!request.DisableOptimizedReplay && _execution.TryBuildReplayExecutor(out var executor))
             {
                 _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
                     Name.Identity);
@@ -342,7 +342,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 HighWaterMark = command.HighWaterMark;
                 LastCommitted = LastEnqueued = command.LastCommitted;
 
-                if (LastCommitted == 0 && HighWaterMark > 0 && _execution.TryBuildReplayExecutor(out var executor))
+                // The Mode guard matters for jasperfx#480: a bounded rebuild that disabled the
+                // optimized replay (ReplayAsync above) posts Start in Rebuild mode with a replay
+                // executor available — kicking off the executor here would overshoot the custom
+                // ceiling. Unreachable in Rebuild mode before #480 (ReplayAsync would have taken
+                // the optimized branch), so this is behavior-preserving for every other path.
+                if (Mode != ShardExecutionMode.Rebuild && LastCommitted == 0 && HighWaterMark > 0 &&
+                    _execution.TryBuildReplayExecutor(out var executor))
                 {
                     _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
                         Name.Identity);
