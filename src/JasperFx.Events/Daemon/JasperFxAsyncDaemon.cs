@@ -389,14 +389,41 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             var warmup = buildAgentForShard(shard);
             Tracker.MarkAsRestarted(warmup.Name);
-            await rebuildAgent(warmup, prior, SideEffectGateTimeout, floor: current, disableOptimizedReplay: true)
-                .ConfigureAwait(false);
 
-            // A failed replay does NOT propagate out of ReplayAsync — the agent pauses itself via
-            // ReportCriticalFailureAsync and the completion await swallows the fault — so judge the
-            // warm-up by the agent's own state: it must still be Running and have committed the
-            // target mark. On failure, leave the paused agent registered (it carries the exception
-            // for observers) and do not start continuous execution.
+            try
+            {
+                await rebuildAgent(warmup, prior, SideEffectGateTimeout, floor: current, disableOptimizedReplay: true)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is not TimeoutException)
+            {
+                // A failed replay faults ReplayAsync: the agent pauses itself via
+                // ReportCriticalFailureAsync and faults the rebuild completion, which rebuildAgent
+                // propagates — skipping its registration step. Register the paused agent here so the
+                // shard is observably Paused and carries the failure for observers, and do not start
+                // continuous execution over history the prior version already covered. A TimeoutException
+                // is NOT an agent failure and falls through to the outer catch: the wedged agent is
+                // disposed but never paused, so registering it would misreport the shard as Running.
+                Logger.LogError(e,
+                    "The blue/green side-effect gate warm-up for projection shard {Name} failed at {Position}. The shard is left paused; restarting it will resume the suppressed warm-up from its persisted progress",
+                    name.Identity, warmup.LastCommitted);
+
+                await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+                try
+                {
+                    _agents = _agents.AddOrUpdate(warmup.Name.Identity, warmup);
+                }
+                finally
+                {
+                    _semaphore.Release();
+                }
+
+                return false;
+            }
+
+            // Belt and braces: a replay that returned normally should have left the agent Running at
+            // the target mark, but judge the warm-up by the agent's own state anyway before enabling
+            // side effects. On failure, leave the agent registered and do not start continuous execution.
             if (warmup.Status != AgentStatus.Running || warmup.LastCommitted < prior)
             {
                 Logger.LogError(
