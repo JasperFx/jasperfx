@@ -325,22 +325,47 @@ public class HighWaterAgent: IDisposable
         return _detector.Detect(cancellation);
     }
 
+    /// <summary>
+    /// Backstop for the CheckNowAsync catch-up loop. The loop's target is the committed ceiling, which
+    /// is reachable by definition, but a detector legitimately holding before an in-flight append (or a
+    /// database outage) could stall the loop — after this long CheckNowAsync proceeds with whatever
+    /// high water mark it has.
+    /// </summary>
+    public TimeSpan CheckNowTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
     public async Task CheckNowAsync()
     {
+        // marten#4953: catch up to the highest COMMITTED sequence, never HighWaterStatistics.HighestSequence.
+        // That value can be a database sequence's last_value, which includes numbers reserved by
+        // transactions still in flight — looping DetectInSafeZone until the mark reached the reserved
+        // ceiling pressured the detection into skipping every in-flight gap during concurrent load
+        // (a rebuild or catch-up during an import silently lost events) and could spin forever on a
+        // rolled-back tail. A detector that holds before in-flight gaps now simply makes this loop
+        // wait for those appends to land; the committed ceiling is reachable by definition.
+        var ceiling = await _detector.FetchCommittedHighWaterCeilingAsync(_token).ConfigureAwait(false);
+
         var statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);
-        var initialHighMark = statistics.HighestSequence;
 
         // Get out of here if you're at the initial, empty state
-        if (initialHighMark == 1 && statistics.CurrentMark == 0)
+        if (statistics.HighestSequence == 1 && statistics.CurrentMark == 0)
         {
             await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
             return;
         }
 
-        while (statistics.CurrentMark < initialHighMark)
+        var stopwatch = Stopwatch.StartNew();
+        while (statistics.CurrentMark < ceiling && stopwatch.Elapsed < CheckNowTimeout &&
+               !_token.IsCancellationRequested)
         {
             await Task.Delay(_settings.SlowPollingTime, _token).ConfigureAwait(false);
             statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);
+        }
+
+        if (statistics.CurrentMark < ceiling)
+        {
+            _logger.LogWarning(
+                "CheckNowAsync for database {Name} stopped at high water mark {CurrentMark} before reaching the committed ceiling {Ceiling} (timeout {Timeout} or cancellation). Continuing with the current mark",
+                _detector.DatabaseUri, statistics.CurrentMark, ceiling, CheckNowTimeout);
         }
 
         await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
