@@ -7,6 +7,22 @@ public interface IHighWaterDetector
     Uri DatabaseUri { get; }
 
     /// <summary>
+    /// The highest COMMITTED event sequence right now — the catch-up ceiling used by
+    /// <see cref="HighWaterAgent.CheckNowAsync" /> (marten#4953). <see cref="HighWaterStatistics.HighestSequence" />
+    /// can come from a database sequence's last_value, which includes numbers merely RESERVED by
+    /// in-flight or rolled-back transactions; treating it as a catch-up target either waits on events
+    /// that will never exist or pressures the safe-zone detection into skipping events that will. The
+    /// default implementation preserves the prior behavior (a Detect reading's HighestSequence) so
+    /// existing detectors keep compiling and behaving unchanged; stores that can read a committed
+    /// height directly (e.g. max(seq_id) in Marten) should override.
+    /// </summary>
+    async Task<long> FetchCommittedHighWaterCeilingAsync(CancellationToken token)
+    {
+        var statistics = await Detect(token).ConfigureAwait(false);
+        return statistics.HighestSequence;
+    }
+
+    /// <summary>
     /// Does the backing event store partition events per tenant, such that this detector can emit a
     /// meaningful per-tenant high-water vector via <see cref="DetectForTenantsAsync" />? When false (the
     /// default) the daemon stays on the single store-global high-water mark — today's behavior, byte for
