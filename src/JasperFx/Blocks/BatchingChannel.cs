@@ -54,6 +54,8 @@ public class BatchingChannel<T> : BlockBase<T>
                 _downstream.Post(_current.ToArray());
                 _current.Clear();
             }
+
+            disarmTimer();
         }
     }
 
@@ -66,7 +68,43 @@ public class BatchingChannel<T> : BlockBase<T>
             {
                 _downstream.Post(_current.ToArray());
                 _current.Clear();
+                disarmTimer();
             }
+            else if (_current.Count == 1)
+            {
+                // First item of a new batch: arm the one-shot flush timer. The timer is
+                // deliberately NOT re-armed by later items — the timeout is the maximum age
+                // of a batch, not a quiet-period debounce. The previous behavior (reset the
+                // timer on every Post) meant a steady trickle arriving faster than the
+                // timeout postponed the flush indefinitely until batchSize accumulated:
+                // measured as multi-second p50 delivery latency at 8 msg/s with the default
+                // 100/250ms settings in wolverine#3490.
+                armTimer();
+            }
+        }
+    }
+
+    private void armTimer()
+    {
+        try
+        {
+            _trigger.Change(_timeOut, Timeout.InfiniteTimeSpan);
+        }
+        catch (Exception)
+        {
+            // ignored — the timer may already be disposed during shutdown
+        }
+    }
+
+    private void disarmTimer()
+    {
+        try
+        {
+            _trigger.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+        catch (Exception)
+        {
+            // ignored — the timer may already be disposed during shutdown
         }
     }
 
@@ -96,29 +134,11 @@ public class BatchingChannel<T> : BlockBase<T>
 
     public override ValueTask PostAsync(T item)
     {
-        try
-        {
-            _trigger.Change(_timeOut, Timeout.InfiniteTimeSpan);
-        }
-        catch (Exception)
-        {
-            // ignored
-        }
-
         return _inner.PostAsync(item);
     }
 
     public override void Post(T item)
     {
-        try
-        {
-            _trigger.Change(_timeOut, Timeout.InfiniteTimeSpan);
-        }
-        catch (Exception)
-        {
-            // ignored
-        }
-
         _inner.Post(item);
     }
 }
