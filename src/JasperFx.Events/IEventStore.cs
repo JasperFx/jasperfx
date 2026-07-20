@@ -64,6 +64,20 @@ public interface IEventStore
     bool DistributesAgentsPerTenant => false;
 
     /// <summary>
+    ///     Whether extended progression tracking is enabled for this store — the store-level opt-in that
+    ///     creates the extended progression columns (heartbeat, agent_status, pause_reason,
+    ///     running_on_node) and, as of jasperfx#537, gates the daemon's write path onto them: when true,
+    ///     the async daemon subscribes an <see cref="Daemon.ExtendedProgressionWriter" /> publication of
+    ///     agent status transitions and heartbeat ticks through
+    ///     <see cref="IEventDatabase.WriteExtendedProgressionAsync" />. Concrete stores override this to
+    ///     reflect their own opt-in flag (Marten's <c>EnableExtendedProgressionTracking</c> /
+    ///     <see cref="IEventStoreInstrumentation.ExtendedProgressionEnabled" />); the default is false so
+    ///     nothing changes for stores that have not opted in. Read live per publication, so a runtime
+    ///     flip is honored.
+    /// </summary>
+    bool ExtendedProgressionEnabled => false;
+
+    /// <summary>
     ///     Resolve every <see cref="IEventDatabase" /> backing this event store, store-agnostically.
     ///     This is the store-neutral counterpart to Marten's <c>IMartenStorage.AllDatabases()</c> — it lets
     ///     monitoring/tooling code (e.g. CritterWatch) obtain an <see cref="IEventDatabase" /> to call the read
