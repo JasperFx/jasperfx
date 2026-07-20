@@ -406,6 +406,31 @@ public class PerTenantStartAgentAsyncTests
         agent.Status.ShouldBe(AgentStatus.Running);
     }
 
+    [Fact]
+    public async Task rewind_leaves_the_restarted_agent_registered_and_running()
+    {
+        // wolverine#3520: RewindSubscriptionAsync stops the running continuous agents, rewinds progress,
+        // then rebuilds and StartAsync-es fresh continuous agents. Before the fix those fresh agents were
+        // never registered in the daemon's running set, so CurrentAgents() (and StartAgentAsync(ShardName)
+        // via the same _agents lookup) still saw only the pre-rewind agent that stopRunningAgents() had
+        // just HardStopped — the shard was effectively orphaned under Wolverine-managed distribution, and
+        // a subsequent restart would spin up a DUPLICATE agent on the same progression row.
+        await using var harness = new DaemonHarness(new GlobalOnlyStubDetector(), shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All", CancellationToken.None);
+        var original = harness.Daemon.CurrentAgents().ShouldHaveSingleItem();
+        original.Status.ShouldBe(AgentStatus.Running);
+
+        await harness.Daemon.RewindSubscriptionAsync("Trip", CancellationToken.None, 0);
+
+        // Exactly one agent registered for the shard — the freshly restarted one, running — not the
+        // HardStopped pre-rewind instance, and never two agents on the same identity.
+        var restarted = harness.Daemon.CurrentAgents().ShouldHaveSingleItem();
+        restarted.Name.Identity.ShouldBe("Trip:All");
+        restarted.Status.ShouldBe(AgentStatus.Running);
+        ReferenceEquals(restarted, original).ShouldBeFalse();
+    }
+
     // Real daemon + real SubscriptionAgents over a substituted store/database. The store-global
     // high-water detector reading is pinned at mark 0, so any nonzero seed/floor a test observes can
     // only have come from the per-tenant coordinator.
