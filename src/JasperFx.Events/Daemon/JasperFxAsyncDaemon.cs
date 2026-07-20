@@ -23,6 +23,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private readonly ILoggerFactory? _loggerFactory;
     private readonly ProjectionGraph<TProjection, TOperations, TQuerySession> _projections;
     private ImHashMap<string, ISubscriptionAgent> _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
+
+    // wolverine#3519 / jasperfx#534: the last exception a start attempt caught, keyed by shard identity.
+    // tryStartAgentAsync swallows a faulted start into a bool; stashing the cause here lets
+    // StartAgentAsync(ShardName) attach it as the inner exception instead of throwing a causeless one.
+    private ImHashMap<string, Exception> _lastStartFailures = ImHashMap<string, Exception>.Empty;
     private CancellationTokenSource _cancellation = new();
     private readonly HighWaterAgent _highWater;
     private readonly IDisposable _breakSubscription;
@@ -222,6 +227,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         // Be idempotent, don't start an agent that is already running
         if (_agents.TryFind(agent.Name.Identity, out var running) && running.Status == AgentStatus.Running)
         {
+            // jasperfx#534: this false path was silent. It is benign (the agent is already running, so a
+            // TryFind by the caller succeeds), but logging it at Debug keeps the "why did my start return
+            // false" trail unbroken.
+            Logger.LogDebug("Start of agent {ShardName} skipped: an agent is already running for this shard",
+                agent.Name.Identity);
             return false;
         }
 
@@ -233,6 +243,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // Be idempotent, don't start an agent that is already running now that we have the lock.
             if (_agents.TryFind(agent.Name.Identity, out running) && running.Status == AgentStatus.Running)
             {
+                Logger.LogDebug("Start of agent {ShardName} skipped: an agent is already running for this shard",
+                    agent.Name.Identity);
                 return false;
             }
 
@@ -274,11 +286,18 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             agent.MarkHighWater(highWaterMark);
 
             _agents = _agents.AddOrUpdate(agent.Name.Identity, agent);
+
+            // jasperfx#534: a prior failed start for this identity has now been superseded by a success.
+            _lastStartFailures = _lastStartFailures.Remove(agent.Name.Identity);
             syncTenantPolling();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error trying to start agent {ShardName}", agent.Name.Identity);
+
+            // jasperfx#534: stash the cause so StartAgentAsync(ShardName) can attach it to the exception it
+            // throws instead of a causeless "Unable to start" that fills a caller's retry log forever.
+            _lastStartFailures = _lastStartFailures.AddOrUpdate(agent.Name.Identity, ex);
             return false;
         }
         finally
@@ -610,10 +629,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         await StartAgentAsync(name.Identity, token);
         if (_agents.TryFind(name.Identity, out var agent)) return agent;
 
-        // wolverine#3519: the string-overload start returned without throwing, yet nothing is registered
-        // under this identity. Callers (e.g. Wolverine's EventSubscriptionAgent) previously got a bare
-        // Exception with no context and wedged in a permanent retry loop with no way to see why. Surface
-        // the daemon state that explains the miss instead of masking it.
+        // wolverine#3519 / jasperfx#534: the string-overload start returned without throwing, yet nothing
+        // is registered under this identity. Callers (e.g. Wolverine's EventSubscriptionAgent) previously
+        // got a bare Exception with no context and wedged in a permanent retry loop with no way to see why.
+        // If a start attempt actually faulted, attach that cause; otherwise surface the daemon state that
+        // explains the miss instead of masking it.
+        if (_lastStartFailures.TryFind(name.Identity, out var cause))
+        {
+            throw new ShardStartException(name.Identity, cause);
+        }
+
         throw new ShardStartException(name.Identity, describeStartFailure(name));
     }
 
@@ -1261,6 +1286,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
 
+    // jasperfx#535: a rebuild stops the projection's running continuous agents (below), replays through
+    // transient rebuild agents, drains those, and returns WITHOUT restarting the continuous agents it
+    // stopped. This is by contract: on a host with the store's own coordinator loop the coordinator
+    // resurrects the stopped shards, and on a coordinator-less host (e.g. Wolverine-managed
+    // event-subscription distribution) restoring continuous execution is the DRIVING CALLER's
+    // responsibility after RebuildProjectionAsync returns — see Wolverine's EventSubscriptionAgent.
+    // RebuildAsync. Restarting here unconditionally would double-start against a store coordinator.
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
