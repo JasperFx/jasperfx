@@ -33,6 +33,14 @@ public interface IReadOnlyDaemonSettings
     TimeSpan HealthCheckPollingTime { get; }
 
     /// <summary>
+    ///     How long the high-water agent's poll loop may go without completing a cycle (its liveness
+    ///     heartbeat) before the health-check watchdog treats it as wedged and restarts it. This is
+    ///     measured against heartbeat age — the loop cycling — NOT against the mark advancing, so a
+    ///     quiet store with no new events is never considered stale. The default is 30 seconds.
+    /// </summary>
+    TimeSpan HighWaterStalenessThreshold { get; }
+
+    /// <summary>
     ///     Projection Daemon mode. The default is Disabled
     /// </summary>
     DaemonMode AsyncMode { get; }
@@ -88,6 +96,15 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     ///     of its activities and try to restart anything that is not currently running
     /// </summary>
     public TimeSpan HealthCheckPollingTime { get; set; } = 5.Seconds();
+
+    /// <summary>
+    ///     jasperfx#539: how long the high-water agent's poll loop may go without completing a cycle (its
+    ///     liveness heartbeat) before the health-check watchdog treats it as wedged and restarts it. Measured
+    ///     against heartbeat age — the loop cycling — NOT against the mark advancing, so a quiet store with no
+    ///     new events is never considered stale. The default of 30 seconds sits comfortably above
+    ///     <see cref="SlowPollingTime"/> × several cycles plus <see cref="StaleSequenceThreshold"/>.
+    /// </summary>
+    public TimeSpan HighWaterStalenessThreshold { get; set; } = 30.Seconds();
 
     /// <summary>
     /// If a subscription has been paused for any reason

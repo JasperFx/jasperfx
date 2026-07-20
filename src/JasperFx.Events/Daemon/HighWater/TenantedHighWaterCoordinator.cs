@@ -19,6 +19,11 @@ public class TenantedHighWaterCoordinator
     private readonly IHighWaterDetector _detector;
     private readonly ILogger _logger;
 
+    // jasperfx#539: UtcTicks of the last completed vectorized poll (0 == none yet). This is the liveness
+    // heartbeat for the per-tenant high-water path — proof the coordinator is cycling — read from the
+    // daemon watchdog thread, so written/read via Interlocked.
+    private long _lastPolledAtTicks;
+
     public TenantedHighWaterCoordinator(IHighWaterDetector detector, ILogger? logger = null)
     {
         _monitor = new VectorizedHighWaterMonitor(detector, logger);
@@ -27,6 +32,34 @@ public class TenantedHighWaterCoordinator
     }
 
     public PolledTenantSet PolledTenants => _monitor.PolledTenants;
+
+    /// <summary>
+    /// jasperfx#539: heartbeat of the last completed per-tenant poll cycle — proof the coordinator is
+    /// cycling, independent of whether any tenant's mark advanced. Null until the first poll.
+    /// </summary>
+    public DateTimeOffset? LastPolledAt
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _lastPolledAtTicks);
+            return ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
+        }
+    }
+
+    /// <summary>
+    /// jasperfx#539: true when the per-tenant poll has not completed a cycle within <paramref name="threshold"/>.
+    /// Measured against heartbeat age (the poll cycling), NOT against any mark advancing.
+    /// </summary>
+    public bool IsStale(TimeSpan threshold, DateTimeOffset now)
+    {
+        var ticks = Interlocked.Read(ref _lastPolledAtTicks);
+        if (ticks == 0)
+        {
+            return false;
+        }
+
+        return now - new DateTimeOffset(ticks, TimeSpan.Zero) > threshold;
+    }
 
     /// <summary>
     /// The rebuild ceiling for a tenant — its latest observed high-water mark. Null until first polled.
@@ -58,6 +91,10 @@ public class TenantedHighWaterCoordinator
         IReadOnlyList<ISubscriptionAgent> agents, CancellationToken token)
     {
         var readings = await _monitor.PollAsync(token).ConfigureAwait(false);
+
+        // jasperfx#539: a completed vectorized poll is one cycle of the per-tenant high-water path — stamp
+        // the liveness heartbeat even when no tenant's mark moved.
+        Interlocked.Exchange(ref _lastPolledAtTicks, DateTimeOffset.UtcNow.UtcTicks);
 
         foreach (var reading in readings)
         {

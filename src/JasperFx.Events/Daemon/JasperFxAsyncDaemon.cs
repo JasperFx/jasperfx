@@ -51,6 +51,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private DateTimeOffset _lastTenantHighWaterPoll;
     private int _tenantHighWaterPollInFlight;
 
+    // jasperfx#539: highest store-global mark that has already driven a per-tenant poll. OnNext re-triggers a
+    // tenant poll only on a genuine advance past this, so the per-cycle high-water HEARTBEAT publications
+    // (which carry the same, non-advancing mark) can't feed back into an unbounded poll → publish → poll loop.
+    private long _lastTenantPollTriggerMark;
+
+    // jasperfx#539: Path B (per-tenant) watchdog bookkeeping, mirroring HighWaterAgent's. Serializes
+    // overlapping restarts and caps them to once per staleness window.
+    private int _tenantHighWaterRemediating;
+    private DateTimeOffset _lastTenantHighWaterRemediation;
+
     // jasperfx#494 (epic #486 WS2): shared by every agent loader this daemon builds so the
     // database's connection footprint stays O(databases), not O(agents). Null = unthrottled.
     private SemaphoreSlim? _loadThrottle;
@@ -989,6 +999,35 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return Tracker.HighWaterMark;
     }
 
+    // jasperfx#539: delegate the high-water liveness surface to whichever path is active. Under per-tenant
+    // partitioning the store-global loop is skipped and the tenant coordinator owns liveness (Path B);
+    // otherwise it's the store-global HighWaterAgent (Path A).
+    public DateTimeOffset? HighWaterLastPolledAt =>
+        _tenantHighWater != null ? _tenantHighWater.LastPolledAt : _highWater.LastPolledAt;
+
+    public bool IsHighWaterStale
+    {
+        get
+        {
+            var now = DateTimeOffset.UtcNow;
+            return _tenantHighWater != null
+                ? _tenantHighWater.IsStale(_projections.HighWaterStalenessThreshold, now)
+                : _highWater.IsStale(_projections.HighWaterStalenessThreshold, now);
+        }
+    }
+
+    public async Task RestartHighWaterAgentAsync(CancellationToken token)
+    {
+        if (_tenantHighWater != null)
+        {
+            await publishHighWaterStatusAsync(ShardAction.Restarted, "Restarted").ConfigureAwait(false);
+            restartTenantHighWater();
+            return;
+        }
+
+        await _highWater.RestartAsync().ConfigureAwait(false);
+    }
+
     void IObserver<ShardState>.OnCompleted()
     {
         // Nothing
@@ -1037,8 +1076,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 agent.MarkHighWater(value.Sequence);
             }
 
-            if (_tenantHighWater != null)
+            // jasperfx#539: only a genuine advance of the store-global mark drives a per-tenant poll. Without
+            // this guard the high-water heartbeat (published every cycle carrying the SAME mark) would loop
+            // back through here into pollTenantHighWaterAsync, which publishes another heartbeat, forever.
+            if (_tenantHighWater != null && value.Sequence > _lastTenantPollTriggerMark)
             {
+                _lastTenantPollTriggerMark = value.Sequence;
+
                 // Reuse the global high-water cadence to drive one vectorized per-tenant poll.
                 _ = pollTenantHighWaterAsync();
             }
@@ -1059,10 +1103,98 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         try
         {
             await _tenantHighWater.PollAndRouteAsync(CurrentAgents(), _cancellation.Token).ConfigureAwait(false);
+
+            // jasperfx#539: publish the per-cycle liveness heartbeat for Path B. The coordinator has already
+            // stamped its in-memory LastPolledAt; this surfaces the same beat on the live Tracker (and the
+            // ExtendedProgression columns) so remote consumers can tell "no new events" from "the tenant
+            // high-water poll died". Carries the store-global mark unchanged, so it never advances it and,
+            // by the OnNext guard above, never re-triggers a poll.
+            await publishHighWaterStatusAsync(ShardAction.Updated, "Running").ConfigureAwait(false);
         }
         catch (Exception e)
         {
             Logger.LogError(e, "Error polling per-tenant high water for database {Name}", Database.Identifier);
+        }
+    }
+
+    // jasperfx#539: publish a HighWaterMark ShardState carrying a liveness/status beat without moving the
+    // mark. Used by the Path B heartbeat and the Path B watchdog (Faulted/Restarted). The OnNext re-trigger
+    // guard keeps a same-mark publication from feeding back into another tenant poll.
+    private ValueTask publishHighWaterStatusAsync(ShardAction action, string status)
+    {
+        return Tracker.PublishAsync(new ShardState(ShardState.HighWaterMark, Tracker.HighWaterMark)
+        {
+            Action = action,
+            AgentStatus = status,
+            LastHeartbeat = DateTimeOffset.UtcNow
+        });
+    }
+
+    // jasperfx#539: Path B restart seam. The per-tenant path is timer-driven, so remediation is a stop/re-arm
+    // of the cadence timer plus clearing any wedged in-flight guard so a fresh poll can start. A hung poll is
+    // abandoned (its result is ignored on completion), mirroring HighWaterAgent's non-blocking restart.
+    private void restartTenantHighWater()
+    {
+        if (_tenantHighWaterTimer == null)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _tenantHighWaterPollInFlight, 0);
+        _tenantHighWaterTimer.Stop();
+
+        if (!_cancellation.IsCancellationRequested)
+        {
+            syncTenantHighWaterInterval();
+            _tenantHighWaterTimer.Start();
+        }
+    }
+
+    // jasperfx#539: Path B watchdog, fired off the tenant cadence timer. Restart the per-tenant poll when it
+    // has stopped completing cycles within the staleness threshold. Capped to once per window and never
+    // overlapping, exactly like HighWaterAgent.checkState governs Path A.
+    private async Task checkTenantHighWaterStalenessAsync()
+    {
+        if (_tenantHighWater == null || !_highWater.IsRunning || _cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (!_tenantHighWater.IsStale(_projections.HighWaterStalenessThreshold, now))
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _tenantHighWaterRemediating, 1, 0) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_lastTenantHighWaterRemediation != default &&
+                now - _lastTenantHighWaterRemediation < _projections.HighWaterStalenessThreshold)
+            {
+                return;
+            }
+
+            _lastTenantHighWaterRemediation = now;
+
+            Logger.LogWarning(
+                "Per-tenant high-water poll for database {Name} has not completed a cycle within {Threshold}; restarting the tenant high-water poll",
+                Database.Identifier, _projections.HighWaterStalenessThreshold);
+
+            await publishHighWaterStatusAsync(ShardAction.Restarted, "Restarted").ConfigureAwait(false);
+            restartTenantHighWater();
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e, "Error restarting per-tenant high water for database {Name}", Database.Identifier);
+        }
+        finally
+        {
+            Volatile.Write(ref _tenantHighWaterRemediating, 0);
         }
     }
 
@@ -1076,6 +1208,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         {
             syncTenantHighWaterInterval();
             _ = pollTenantHighWaterOnCadenceAsync();
+            _ = checkTenantHighWaterStalenessAsync();
         };
         timer.Start();
         return timer;

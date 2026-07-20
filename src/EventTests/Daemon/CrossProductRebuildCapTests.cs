@@ -473,6 +473,9 @@ public class CrossProductRebuildCapTests
         public Task CatchUpAsync(TimeSpan timeout, CancellationToken cancellation) => throw new NotSupportedException();
         public Task WaitForNonStaleData(TimeSpan timeout) => throw new NotSupportedException();
         public long HighWaterMark() => throw new NotSupportedException();
+        public DateTimeOffset? HighWaterLastPolledAt => throw new NotSupportedException();
+        public bool IsHighWaterStale => throw new NotSupportedException();
+        public Task RestartHighWaterAgentAsync(CancellationToken token) => throw new NotSupportedException();
         public Task WaitForShardToBeRunning(string shardName, TimeSpan timeout) => throw new NotSupportedException();
         public Task RewindSubscriptionAsync(string subscriptionName, CancellationToken token, long? sequenceFloor = 0, DateTimeOffset? timestamp = null) => throw new NotSupportedException();
         public IReadOnlyList<ISubscriptionAgent> CurrentAgents() => throw new NotSupportedException();
