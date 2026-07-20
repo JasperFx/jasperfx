@@ -95,8 +95,21 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     // pumping pages instead of stalling. Only touched on the command-loop thread.
     private long _bufferedCeiling;
 
+    private bool _disposed;
+
     public async ValueTask DisposeAsync()
     {
+        // jasperfx#540: be idempotent. A faulted start is now torn down at the point of failure (see
+        // JasperFxAsyncDaemon.tryStartAgentAsync), and the daemon's start caller ALSO disposes the agent
+        // on a false return -- so the same agent can legitimately be disposed twice. Guard so the second
+        // call is a harmless no-op rather than re-cancelling/re-completing/re-disposing the execution.
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+
         if (_heartbeatTimer != null)
         {
             await _heartbeatTimer.DisposeAsync().ConfigureAwait(false);
