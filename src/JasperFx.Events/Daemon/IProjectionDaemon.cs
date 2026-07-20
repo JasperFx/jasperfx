@@ -236,6 +236,31 @@ public interface IProjectionDaemon: IDisposable
     Task WaitForNonStaleData(TimeSpan timeout);
 
     public long HighWaterMark();
+
+    /// <summary>
+    /// jasperfx#539: heartbeat of the last completed high-water poll cycle — proof the high-water path is
+    /// *cycling*, independent of whether the mark is *advancing*. Delegates to whichever path is active
+    /// (store-global agent or the per-tenant coordinator). Null until the first cycle completes. Lets a
+    /// health check distinguish "no new events" from "the high-water agent died" without the mark alone.
+    /// </summary>
+    DateTimeOffset? HighWaterLastPolledAt { get; }
+
+    /// <summary>
+    /// jasperfx#539: true when the active high-water path has not completed a poll cycle within the
+    /// configured <see cref="IReadOnlyDaemonSettings.HighWaterStalenessThreshold"/> — i.e. the loop is
+    /// alive-but-wedged. Measured against heartbeat age, NOT against the mark advancing, so a quiet store
+    /// with no new events is never reported stale.
+    /// </summary>
+    bool IsHighWaterStale { get; }
+
+    /// <summary>
+    /// jasperfx#539: local restart seam for the high-water path. Restarts whichever path is active without
+    /// ever advancing the mark. Intended for a health check that has observed staleness and wants to
+    /// remediate in-process.
+    /// </summary>
+    /// <param name="token"></param>
+    Task RestartHighWaterAgentAsync(CancellationToken token);
+
     AgentStatus StatusFor(string shardName);
 
     /// <summary>

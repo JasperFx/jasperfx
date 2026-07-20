@@ -25,7 +25,20 @@ public enum ShardAction
     
     /// <summary>
     /// Recorded for the high water mark when it had to "skip" over stale
-    /// data and potential holes in the event sequence 
+    /// data and potential holes in the event sequence
     /// </summary>
-    Skipped
+    Skipped,
+
+    /// <summary>
+    /// jasperfx#539: recorded for the high water mark when its poll loop was observed to have faulted
+    /// (the watchdog saw an unhandled exception on the loop) before it is restarted.
+    /// </summary>
+    Faulted,
+
+    /// <summary>
+    /// jasperfx#539: recorded for the high water mark when the watchdog restarted the poll loop after it
+    /// faulted or went stale (stopped completing cycles within the configured staleness threshold). The
+    /// restart never advances the mark — it only re-establishes the loop.
+    /// </summary>
+    Restarted
 }

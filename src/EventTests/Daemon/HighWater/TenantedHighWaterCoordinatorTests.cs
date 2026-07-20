@@ -138,4 +138,30 @@ public class TenantedHighWaterCoordinatorTests
         coordinator.CeilingFor("t1").ShouldBe(42);
         coordinator.CeilingFor("never-polled").ShouldBeNull();
     }
+
+    [Fact]
+    public async Task tracks_a_liveness_heartbeat_across_polls()
+    {
+        // jasperfx#539: the per-tenant path is the daemon's Path B. Each completed vectorized poll stamps a
+        // liveness heartbeat so the daemon can tell "no new events" from "the tenant high-water poll died".
+        var detector = new FakeVectorDetector();
+        detector.Enqueue(new HighWaterVector([stat("t1", 10, 10)]));
+
+        var coordinator = new TenantedHighWaterCoordinator(detector);
+        coordinator.PolledTenants.SetTenants(["t1"]);
+
+        // No cycle has completed yet: no heartbeat, never stale.
+        coordinator.LastPolledAt.ShouldBeNull();
+        coordinator.IsStale(TimeSpan.FromSeconds(1), DateTimeOffset.UtcNow).ShouldBeFalse();
+
+        await coordinator.PollAndRouteAsync(
+            [agentFor(ShardName.Compose("Orders", "All", "t1"))], CancellationToken.None);
+
+        coordinator.LastPolledAt.ShouldNotBeNull();
+        // Fresh poll is not stale against a generous threshold...
+        coordinator.IsStale(TimeSpan.FromHours(1), DateTimeOffset.UtcNow).ShouldBeFalse();
+        // ...but is once "now" has advanced well past the last poll.
+        coordinator.IsStale(TimeSpan.FromSeconds(1), coordinator.LastPolledAt!.Value.AddSeconds(5))
+            .ShouldBeTrue();
+    }
 }
