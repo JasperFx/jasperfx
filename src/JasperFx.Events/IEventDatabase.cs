@@ -132,6 +132,39 @@ public interface IEventDatabase
             "DeleteProjectionProgressByShardNameAsync is not implemented on this IEventDatabase. Use an event store (Marten or Polecat) that supports deleting a projection-progression row by its raw shard identity.");
 
     /// <summary>
+    ///     Persist the extended progression telemetry for a single projection/subscription shard —
+    ///     heartbeat, agent status, pause reason, running node — onto the store's progression row for
+    ///     <see cref="ShardState.ShardName" /> (the raw shard identity). This is the write half of the
+    ///     extended progression tracking feature (<see cref="IEventStoreInstrumentation.ExtendedProgressionEnabled" />):
+    ///     the daemon computes these values in process (agent status transitions, the ~10s heartbeat
+    ///     timer) and drives this method through <see cref="Daemon.ExtendedProgressionWriter" />, so a
+    ///     monitoring consumer polling the database (e.g. CritterWatch when the publishing node is down)
+    ///     can see shard health without an in-process channel. See jasperfx#537.
+    ///     <para>
+    ///     Contract for implementations:
+    ///     <list type="bullet">
+    ///     <item>Best-effort telemetry — never throw for a missing row; a shard that has not yet
+    ///     committed any progression simply has nowhere to record status, and the write should no-op.
+    ///     Transient failures may throw; the caller logs at debug and never fails the shard.</item>
+    ///     <item>Do NOT advance or regress <c>last_seq_id</c>-equivalent progression from this path.
+    ///     Progression is owned by the projection batch commit; this write updates only the extended
+    ///     telemetry columns, so it can never race a concurrent batch commit into losing progress.</item>
+    ///     </list>
+    ///     </para>
+    ///     The default implementation is a graceful no-op so existing stores compile and degrade
+    ///     silently until they implement the write (the established graceful-no-op pattern).
+    /// </summary>
+    /// <param name="state">
+    ///     The published shard state carrying <see cref="ShardState.AgentStatus" />,
+    ///     <see cref="ShardState.PauseReason" />, <see cref="ShardState.LastHeartbeat" /> and
+    ///     <see cref="ShardState.RunningOnNode" /> for the shard named by
+    ///     <see cref="ShardState.ShardName" />.
+    /// </param>
+    /// <param name="token"></param>
+    Task WriteExtendedProgressionAsync(ShardState state, CancellationToken token = default)
+        => Task.CompletedTask;
+
+    /// <summary>
     ///     Count the stored dead letter events for a single projection/subscription shard. With
     ///     <c>SkipApplyErrors</c> on (the JasperFx.Events 2.0 default), a failed <c>Apply()</c> is
     ///     recorded as a <see cref="DeadLetterEvent" /> and the shard keeps advancing, so the

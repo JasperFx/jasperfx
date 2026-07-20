@@ -31,6 +31,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private CancellationTokenSource _cancellation = new();
     private readonly HighWaterAgent _highWater;
     private readonly IDisposable _breakSubscription;
+
+    // jasperfx#537: persists agent status transitions + heartbeat ticks onto the store's extended
+    // progression columns when the store opts in via IEventStore.ExtendedProgressionEnabled
+    private readonly ExtendedProgressionWriter _extendedProgression;
+    private readonly IDisposable _extendedProgressionSubscription;
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
@@ -139,6 +144,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
+        // jasperfx#537: subscribe unconditionally; the writer checks the store's
+        // ExtendedProgressionEnabled flag live per publication so runtime opt-in is honored
+        _extendedProgression = new ExtendedProgressionWriter(store, database, store.TimeProvider,
+            loggerFactory.CreateLogger<ExtendedProgressionWriter>());
+        _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
+
         _deadLetterBlock = buildDeadLetterBlock();
 
         MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
@@ -169,6 +180,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         _breakSubscription = database.Tracker.Subscribe(this);
+
+        // jasperfx#537: see the ILoggerFactory constructor overload for the rationale
+        _extendedProgression = new ExtendedProgressionWriter(store, database, store.TimeProvider, logger);
+        _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
 
         _deadLetterBlock = buildDeadLetterBlock();
 
@@ -202,6 +217,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _tenantHighWaterTimer?.Stop();
         _tenantHighWaterTimer?.Dispose();
         _breakSubscription.Dispose();
+        _extendedProgressionSubscription.Dispose();
+        // Completes the writer's queue so a final Stopped write can drain in the background
+        _ = _extendedProgression.DisposeAsync();
         _deadLetterBlock.Dispose();
         _loadThrottle?.Dispose();
         _batchWriteThrottle?.Dispose();
