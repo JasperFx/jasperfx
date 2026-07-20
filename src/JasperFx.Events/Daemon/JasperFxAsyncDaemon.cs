@@ -316,6 +316,25 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // jasperfx#534: stash the cause so StartAgentAsync(ShardName) can attach it to the exception it
             // throws instead of a causeless "Unable to start" that fills a caller's retry log forever.
             _lastStartFailures = _lastStartFailures.AddOrUpdate(agent.Name.Identity, ex);
+
+            // jasperfx#540: agent.StartAsync may have already spun up the execution pipeline and heartbeat
+            // and begun advancing before it faulted. This agent was NEVER added to _agents, so no later
+            // StopAgentAsync can reach it -- returning now would leave it orphaned, still holding the
+            // shard's execution loop. On multi-store / Wolverine-managed hosts that is a candidate for the
+            // permanent first-start wedge in wolverine#3519. Hard-stop it here so a faulted start is always
+            // fully released at the point of failure, independent of what the caller does. Guarded so a
+            // secondary teardown failure never masks the original cause.
+            try
+            {
+                await agent.HardStopAsync().ConfigureAwait(false);
+            }
+            catch (Exception teardownEx)
+            {
+                Logger.LogDebug(teardownEx,
+                    "Error tearing down partially-started agent {ShardName} after a failed start",
+                    agent.Name.Identity);
+            }
+
             return false;
         }
         finally

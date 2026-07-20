@@ -249,4 +249,29 @@ public class SubscriptionAgentTests
         theAgent.LastCommitted.ShouldBe(7000); // no change
         theAgent.HighWaterMark.ShouldBe(highWaterMark);
     }
+
+    // jasperfx#540: a faulted start is now torn down at the point of failure AND the daemon start caller
+    // still disposes the agent on a false return, so the same agent can be disposed twice. DisposeAsync
+    // must be idempotent so the second call is a harmless no-op rather than re-disposing the execution.
+    [Fact]
+    public async Task dispose_is_idempotent()
+    {
+        await theAgent.DisposeAsync();
+        await theAgent.DisposeAsync();
+
+        await theExecution.Received(1).DisposeAsync();
+    }
+
+    // jasperfx#540: the teardown of a partially-started agent goes through HardStopAsync (hard-stop the
+    // execution loop + dispose), and the caller's subsequent DisposeAsync must not tear the execution down
+    // a second time.
+    [Fact]
+    public async Task hard_stop_then_dispose_tears_the_execution_down_exactly_once()
+    {
+        await theAgent.HardStopAsync();
+        await theAgent.DisposeAsync();
+
+        await theExecution.Received(1).HardStopAsync();
+        await theExecution.Received(1).DisposeAsync();
+    }
 }
