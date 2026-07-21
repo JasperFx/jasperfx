@@ -35,7 +35,24 @@ public class JasperFxOptions : SystemPartBase
     ///     that assuming that the IDE or test runner assembly is the application assembly
     /// </summary>
     public static Assembly? RememberedApplicationAssembly;
-    
+
+    // GH-3521: the assembly this host's own AddJasperFx call resolved to, captured while the caller's frame
+    // was still on the stack (see JasperFxServiceCollectionExtensions.AddJasperFx). Compared later against
+    // the application assembly actually adopted for code generation and type discovery — which, for an
+    // implicit host, is the process-pinned RememberedApplicationAssembly set by whichever host started
+    // FIRST. Null when a caller assembly could not be resolved.
+    internal Assembly? RegistrationCallingAssembly { get; set; }
+
+    /// <summary>
+    ///     GH-3521: set to a human-readable warning when this host adopts an application assembly that was
+    ///     pinned by an EARLIER host in the same process (a process-wide value) and it differs from where
+    ///     this host was actually registered. This typically only bites a test harness that stands up
+    ///     multiple Critter Stack hosts across different assemblies, where a later implicit host silently
+    ///     scans the first host's assembly. Null when there is nothing to warn about. Consumers (e.g.
+    ///     Wolverine) surface this at startup where a logger is available.
+    /// </summary>
+    public string? ApplicationAssemblyReuseWarning { get; internal set; }
+
     public JasperFxOptions() : base("JasperFx Options", new Uri("system://jasperfx"))
     {
         ActiveProfile = Development;
@@ -135,6 +152,10 @@ public class JasperFxOptions : SystemPartBase
         else if (RememberedApplicationAssembly != null)
         {
             ApplicationAssembly = RememberedApplicationAssembly;
+
+            // GH-3521: we're adopting a process-wide pinned assembly. If it differs from where this host
+            // was registered, discovery will silently scan the wrong assembly — record a warning.
+            checkForDivergentApplicationAssembly(RememberedApplicationAssembly);
         }
         else
         {
@@ -145,6 +166,31 @@ public class JasperFxOptions : SystemPartBase
         {
             throw new InvalidOperationException("Unable to determine an application assembly");
         }
+    }
+
+    // GH-3521: record a warning (surfaced later by a consumer that has a logger at startup) when the
+    // application assembly adopted for discovery differs from where this host was registered. Only
+    // meaningful for an implicit host — an explicit ApplicationAssembly / SetApplicationProject never
+    // reaches establishApplicationAssembly, so it stays silent. The first host never diverges: it pins
+    // RememberedApplicationAssembly to its own registration assembly.
+    private void checkForDivergentApplicationAssembly(Assembly adopted)
+    {
+        var registered = RegistrationCallingAssembly;
+        if (registered == null)
+        {
+            return;
+        }
+
+        if (string.Equals(registered.GetName().Name, adopted.GetName().Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        ApplicationAssemblyReuseWarning =
+            $"JasperFx adopted application assembly '{adopted.GetName().Name}' for code generation and type discovery, but this host was registered from '{registered.GetName().Name}'. " +
+            $"The application assembly is a process-wide value pinned by whichever Critter Stack host started FIRST in this process (GH-3521), so discovery will NOT scan '{registered.GetName().Name}'. " +
+            $"This typically only bites a test harness that stands up multiple hosts across different assemblies. If types defined in '{registered.GetName().Name}' appear to be missing, " +
+            $"set the application assembly explicitly on this host (e.g. opts.ApplicationAssembly = typeof(SomeType).Assembly, or the equivalent on the owning Critter Stack tool).";
     }
     
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Walks the call stack via StackTrace + StackFrame.GetMethod() to determine the calling assembly. AOT-publishing apps should call SetApplicationProject(Assembly) explicitly.")]

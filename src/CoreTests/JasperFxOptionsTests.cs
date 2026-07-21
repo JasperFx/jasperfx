@@ -219,4 +219,122 @@ public class JasperFxOptionsTests
             DynamicCodeBuilder.WithinCodegenCommand = originalValue;
         }
     }
+
+    // GH-3521: the application assembly is a process-wide value pinned by whichever host starts FIRST in the
+    // process. A later host that adopts it while it was registered from a DIFFERENT assembly silently scans
+    // the wrong assembly. These tests pin the behavior of the divergence detection surfaced on JasperFxOptions.
+
+    [Fact]
+    public void warns_when_adopted_assembly_diverges_from_where_the_host_registered()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            // Simulate an earlier host in the process having pinned a different assembly...
+            var pinned = typeof(JasperFxOptions).Assembly;
+            JasperFxOptions.RememberedApplicationAssembly = pinned;
+
+            var options = new JasperFxOptions
+            {
+                // ...while THIS host was registered from the test assembly.
+                RegistrationCallingAssembly = GetType().Assembly
+            };
+
+            options.ReadHostEnvironment(new StubHostEnvironment());
+
+            options.ApplicationAssembly.ShouldBe(pinned);
+            options.ApplicationAssemblyReuseWarning.ShouldNotBeNull();
+            options.ApplicationAssemblyReuseWarning.ShouldContain(pinned.GetName().Name!);
+            options.ApplicationAssemblyReuseWarning.ShouldContain(GetType().Assembly.GetName().Name!);
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void does_not_warn_when_the_adopted_assembly_matches_where_the_host_registered()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = GetType().Assembly;
+
+            var options = new JasperFxOptions
+            {
+                RegistrationCallingAssembly = GetType().Assembly
+            };
+
+            options.ReadHostEnvironment(new StubHostEnvironment());
+
+            options.ApplicationAssemblyReuseWarning.ShouldBeNull();
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void does_not_warn_when_the_registration_assembly_could_not_be_resolved()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = typeof(JasperFxOptions).Assembly;
+
+            // RegistrationCallingAssembly left null — we don't warn on a value we couldn't attribute.
+            var options = new JasperFxOptions();
+
+            options.ReadHostEnvironment(new StubHostEnvironment());
+
+            options.ApplicationAssemblyReuseWarning.ShouldBeNull();
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void does_not_warn_when_the_application_assembly_is_set_explicitly()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = typeof(JasperFxOptions).Assembly;
+
+            var options = new JasperFxOptions
+            {
+                // An explicit choice short-circuits establishApplicationAssembly entirely.
+                ApplicationAssembly = GetType().Assembly,
+                RegistrationCallingAssembly = GetType().Assembly
+            };
+
+            options.ReadHostEnvironment(new StubHostEnvironment());
+
+            options.ApplicationAssemblyReuseWarning.ShouldBeNull();
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public async Task a_normal_single_assembly_host_does_not_warn()
+    {
+        // False-positive guard: a real host registered and resolved from the test assembly must not warn,
+        // and the registration assembly must be captured as THIS assembly (not "JasperFx").
+        using var host = await Host.CreateDefaultBuilder()
+            .ConfigureServices(s => s.AddJasperFx())
+            .UseEnvironment("Development")
+            .StartAsync();
+
+        var options = host.Services.GetRequiredService<JasperFxOptions>();
+
+        options.RegistrationCallingAssembly.ShouldBe(GetType().Assembly);
+        options.ApplicationAssemblyReuseWarning.ShouldBeNull();
+    }
 }
