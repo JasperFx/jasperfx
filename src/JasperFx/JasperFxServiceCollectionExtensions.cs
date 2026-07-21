@@ -51,15 +51,19 @@ public static class JasperFxServiceCollectionExtensions
     /// Annotation-free for trim/AOT — see the remarks on <see cref="CritterStackDefaults"/>.
     /// </remarks>
     [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-        Justification = "Two reachable RUC call sites are stack-walk fallbacks that only execute when the consumer hasn't pre-set the application assembly: DetermineCallingAssembly is guarded by `RememberedApplicationAssembly == null`, and ReadHostEnvironment's establishApplicationAssembly fallback is guarded by `ApplicationAssembly == null`. AOT consumers are expected to call `JasperFxOptions.SetApplicationProject(typeof(Program).Assembly)` before AddJasperFx per the AOT publishing guide, which short-circuits both fallbacks. Apps that omit that call are by definition on the runtime-codegen path. See docs/codegen/aot.md.")]
+        Justification = "Two reachable RUC call sites are stack-walk fallbacks that only run on the runtime-codegen path: DetermineCallingAssembly (used to seed RememberedApplicationAssembly for the first host and, for GH-3521, to capture the registering assembly of every host) and ReadHostEnvironment's establishApplicationAssembly fallback, guarded by `ApplicationAssembly == null`. AOT consumers set the application assembly explicitly per the AOT publishing guide, which routes them through the `ApplicationAssembly != null` short-circuit; and under NativeAOT the frames carry no method metadata, so DetermineCallingAssembly falls back to Assembly.GetEntryAssembly() without throwing and its result is unused. See docs/codegen/aot.md.")]
     public static IServiceCollection AddJasperFx(this IServiceCollection services, Action<JasperFxOptions>? configure = null)
     {
-        // It's actually important to do this as close as possible to this call
+        // GH-3521: capture the assembly this AddJasperFx call was made from while the caller's frame is
+        // still on the stack. This lets a later host that adopts an application assembly pinned by an
+        // EARLIER host in the same process (the classic multi-host test harness) warn instead of silently
+        // scanning the wrong assembly. It's actually important to do this as close as possible to this call.
+        var registrationAssembly = JasperFxOptions.DetermineCallingAssembly();
         if (JasperFxOptions.RememberedApplicationAssembly == null)
         {
-            JasperFxOptions.RememberedApplicationAssembly = JasperFxOptions.DetermineCallingAssembly();
+            JasperFxOptions.RememberedApplicationAssembly = registrationAssembly;
         }
-        
+
         bool exists = services.Any(x => !x.IsKeyedService && x.ServiceType == typeof(JasperFxOptions));
         
         var optionsBuilder = services.AddOptions<JasperFxOptions>();
@@ -68,7 +72,13 @@ public static class JasperFxServiceCollectionExtensions
         {
             optionsBuilder.Configure(configure!);
         }
-        
+
+        // GH-3521: stash the registering assembly onto the options instance (the local is resolved eagerly
+        // above; this lambda only assigns it). ??= keeps the first registration when AddJasperFx is called
+        // more than once against the same container. Compared later in establishApplicationAssembly against
+        // the assembly actually adopted for discovery.
+        optionsBuilder.Configure(o => o.RegistrationCallingAssembly ??= registrationAssembly);
+
         services.TryAddSingleton<IHostEnvironment, HostingEnvironment>();
         
         if (!exists)
