@@ -43,6 +43,56 @@ public class ShardStateTrackerTests : IDisposable
     }
 
     [Fact]
+    public async Task stamps_the_assigned_node_number_onto_published_states()
+    {
+        theTracker.AssignedNodeNumber = 4;
+
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        var state = new ShardState("Trip:All", 30) { AgentStatus = "Running" };
+        await theTracker.PublishAsync(state);
+        await theTracker.Complete();
+
+        observer.States.Last().AssignedNodeNumber.ShouldBe(4);
+
+        theTracker.Finish();
+    }
+
+    [Fact]
+    public async Task does_not_clobber_a_state_that_already_carries_a_node()
+    {
+        theTracker.AssignedNodeNumber = 4;
+
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        var state = new ShardState("Trip:All", 30) { AgentStatus = "Running", AssignedNodeNumber = 9 };
+        await theTracker.PublishAsync(state);
+        await theTracker.Complete();
+
+        observer.States.Last().AssignedNodeNumber.ShouldBe(9);
+
+        theTracker.Finish();
+    }
+
+    [Fact]
+    public async Task stamps_nothing_when_the_assigned_node_number_is_unset()
+    {
+        // Default AssignedNodeNumber == 0 (unset) — e.g. non-managed / single-node — leaves states alone.
+        var observer = new Observer();
+        theTracker.Subscribe(observer);
+
+        var state = new ShardState("Trip:All", 30) { AgentStatus = "Running" };
+        await theTracker.PublishAsync(state);
+        await theTracker.Complete();
+
+        observer.States.Last().AssignedNodeNumber.ShouldBe(0);
+
+        theTracker.Finish();
+    }
+
+    [Fact]
     public async Task mark_skipping()
     {
         var observer1 = new Observer();

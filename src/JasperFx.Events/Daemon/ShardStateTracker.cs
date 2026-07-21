@@ -43,6 +43,17 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     /// </summary>
     public string? DatabaseIdentifier { get; set; }
 
+    /// <summary>
+    ///     Node number this database's daemon is running on. Stamped onto every published
+    ///     <see cref="ShardState" /> that doesn't already carry one, so the
+    ///     <see cref="ExtendedProgressionWriter" /> can persist <see cref="ShardState.RunningOnNode" />.
+    ///     A distribution layer that owns the node assignment (e.g. Wolverine-managed subscription
+    ///     distribution) sets this when this node takes ownership of the daemon — the daemon only runs the
+    ///     agents assigned to its node, so the local node number is the assigned node for every state it
+    ///     publishes. Zero (the default) means unset, and nothing is stamped. See JasperFx/marten#5001.
+    /// </summary>
+    public int AssignedNodeNumber { get; set; }
+
     void IDisposable.Dispose()
     {
         _subscription.Dispose();
@@ -89,6 +100,13 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         // progress and the high water agent's marks alike. A state that already names a database (a
         // republish, or a publisher that knows better) keeps its own.
         state.DatabaseIdentifier ??= DatabaseIdentifier;
+
+        // Same idea for the assigned node (marten#5001): stamp the running node so ExtendedProgressionWriter
+        // can carry it into running_on_node. A state that already carries a node (a republish) keeps its own.
+        if (AssignedNodeNumber != 0 && state.AssignedNodeNumber == 0)
+        {
+            state.AssignedNodeNumber = AssignedNodeNumber;
+        }
 
         return _block.PostAsync(state);
     }
