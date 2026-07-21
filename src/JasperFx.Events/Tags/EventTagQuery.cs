@@ -23,6 +23,22 @@ public class EventTagQuery
     public IReadOnlyList<EventTagQueryCondition> Conditions => _conditions;
 
     /// <summary>
+    /// Build a query directly from an existing set of conditions. Used when
+    /// rehydrating a query that was carried over the wire as an
+    /// <see cref="EventTagQuerySpec"/> — the fluent builders can't reconstruct
+    /// an arbitrary condition set because their type arguments are only known
+    /// at compile time.
+    /// </summary>
+    public static EventTagQuery FromConditions(IEnumerable<EventTagQueryCondition> conditions)
+    {
+        ArgumentNullException.ThrowIfNull(conditions);
+
+        var query = new EventTagQuery();
+        query._conditions.AddRange(conditions);
+        return query;
+    }
+
+    /// <summary>
     /// Add a condition: events of type TEvent tagged with the given tag value.
     /// </summary>
     public EventTagQuery Or<TEvent, TTag>(TTag tagValue) where TTag : notnull
