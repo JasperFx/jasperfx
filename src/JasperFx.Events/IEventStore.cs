@@ -341,6 +341,31 @@ public interface IEventStore
         CancellationToken ct)
         => throw new NotImplementedException(
             "RunProjectionByNameAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for projection step-through.");
+
+    /// <summary>
+    /// Replay a projection referenced by name over a fixed in-memory event list,
+    /// fanning the events out across every aggregate identity the projection touches
+    /// and returning one <see cref="ProjectionTimelineRaw"/> per identity. Unlike
+    /// <see cref="RunProjectionByNameAsync"/> this drives the projection's full
+    /// slice → group → enrich → fold path against a live query session, so multi-stream
+    /// projections produce a timeline per resulting identity and single-stream
+    /// projections produce exactly one. Stateless — nothing is persisted. The default
+    /// implementation throws <see cref="NotImplementedException"/>.
+    /// </summary>
+    /// <remarks>
+    /// Enrichment reads present-day reference data even when replaying historical events;
+    /// enriched values reflect the current state of that reference data, not its state at
+    /// the time the events were originally recorded.
+    /// </remarks>
+    /// <param name="projectionName">Name of the projection to replay.</param>
+    /// <param name="events">Events to feed into the projection in global apply order.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<MultiAggregateProjectionResult> RunMultiStreamProjectionAsync(
+        string projectionName,
+        IReadOnlyList<EventRecord> events,
+        CancellationToken ct)
+        => throw new NotImplementedException(
+            "RunMultiStreamProjectionAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for projection step-through.");
 }
 
 public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOperations : TQuerySession, IStorageOperations
