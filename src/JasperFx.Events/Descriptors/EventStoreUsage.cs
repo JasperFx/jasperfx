@@ -119,6 +119,15 @@ public class EventStoreUsage : OptionsDescription
     public List<DcbTagDescriptor> DcbTagTypes { get; set; } = new();
 
     /// <summary>
+    /// DCB aggregates discovered at runtime — those used only inside a DCB
+    /// operation (nested handler/endpoint code) and therefore invisible to the
+    /// source generator and to the named-projection registry. Populated from the
+    /// store's <see cref="Tags.IDcbAggregateRegistry"/> so CritterWatch can surface
+    /// them as steppable run targets identified by type. See jasperfx#546.
+    /// </summary>
+    public List<DcbAggregateDescriptor> DiscoveredDcbAggregates { get; set; } = new();
+
+    /// <summary>
     /// Configured event-type registrations as known to the event store.
     /// Mirror of the store's event registry used by monitoring tools to
     /// list which event aliases are wired up and what their CLR types
