@@ -50,6 +50,14 @@ public class TenantScopedExplorerReadDefaultsTests
             return Task.FromResult<StreamMetadata?>(null);
         }
 
+        public async IAsyncEnumerable<EventRecord> QueryByTagsAsync(
+            IReadOnlyDictionary<string, string> tags, CancellationToken ct)
+        {
+            Calls.Add($"QueryByTagsAsync({tags.Count} tags)");
+            await Task.CompletedTask;
+            yield break;
+        }
+
         public Task<EventStoreUsage?> TryCreateUsage(CancellationToken token) => throw new NotImplementedException();
         public Uri Subject => throw new NotImplementedException();
 
@@ -130,6 +138,38 @@ public class TenantScopedExplorerReadDefaultsTests
         await Should.ThrowAsync<NotSupportedException>(
             () => theStore.GetStreamMetadataAsync("stream-1", "tenant-1", CancellationToken.None));
         theRecorder.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task query_by_tags_for_null_tenant_delegates_to_store_global()
+    {
+        var tags = new Dictionary<string, string> { ["account"] = "abc" };
+        await foreach (var _ in theStore.QueryByTagsAsync(tags, tenantId: null, CancellationToken.None))
+        {
+        }
+
+        theRecorder.Calls.ShouldBe(["QueryByTagsAsync(1 tags)"]);
+    }
+
+    [Fact]
+    public void query_by_tags_for_a_tenant_throws_when_not_multi_tenanted()
+    {
+        // Same shape as ReadStreamAsync: the default is an expression-bodied member, so it throws on the
+        // call itself rather than deferring to the first MoveNextAsync. A caller that never enumerates
+        // still gets told the tenant scope was ignored.
+        var tags = new Dictionary<string, string> { ["account"] = "abc" };
+        Should.Throw<NotSupportedException>(
+            () => theStore.QueryByTagsAsync(tags, "tenant-1", CancellationToken.None));
+        theRecorder.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void event_query_tenant_id_defaults_to_store_global()
+    {
+        // The Event Explorer's metadata/event query carries its tenant scope on EventQuery itself
+        // (jasperfx#555). Default null preserves today's store-global behavior for every existing caller.
+        new EventQuery().TenantId.ShouldBeNull();
+        new EventQuery { TenantId = "tenant-1" }.TenantId.ShouldBe("tenant-1");
     }
 
     // A bare IEventDatabase whose only real member is the tenant-less head sequence, so the tenant

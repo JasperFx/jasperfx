@@ -27,6 +27,15 @@ public class EventQuery
     /// JasperFx/CritterWatch #629.
     /// </summary>
     public string? UserName { get; set; }
+
+    /// <summary>
+    /// Optional tenant partition to scope the query to. Null means store-global (today's behavior). On a
+    /// conjoined <c>UseTenantPartitionedEvents</c> store an untenanted query reads an ambiguous cross-tenant
+    /// union, so the Event Explorer sets this to scope the events/metadata query to a single tenant. Only
+    /// honored by stores that implement multi-tenancy; a store without a tenant dimension ignores it. See
+    /// jasperfx#555 (companion to the jasperfx#503 stream-read overloads).
+    /// </summary>
+    public string? TenantId { get; set; }
 }
 
 public class PagedEvents
