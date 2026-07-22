@@ -148,7 +148,9 @@ public abstract class Frame
 
         var resolved = variables.Where(x => x != null).ToArray();
         uses.AddRange(resolved);
-        foreach (var v in resolved) v.IsReferenced = true;
+        // Mark all uses (including any pre-populated in constructors) as referenced so that
+        // F# tuple codegen emits `_` only for genuinely unused slots.
+        foreach (var v in uses) v.IsReferenced = true;
 
         _hasResolved = true;
     }
