@@ -423,10 +423,47 @@ public class MethodCall : Frame
             methodName += $"<{Method.GetGenericArguments().Select(x => x.FSharpName()).Join(", ")}>";
         }
 
-        var callingCode = $"{methodName}({Arguments.Select(x => x.FSharpUsage).Join(", ")})";
+        string callingCode;
+        if (needsFSharpCurriedSyntax())
+        {
+            callingCode = Arguments.Any()
+                ? $"{methodName} {Arguments.Select(x => x.FSharpUsage).Join(" ")}"
+                : $"{methodName}()";
+        }
+        else
+        {
+            callingCode = $"{methodName}({Arguments.Select(x => x.FSharpUsage).Join(", ")})";
+        }
 
         return $"{fsharpDetermineTarget()}{callingCode}";
     }
+
+    private static bool isFSharpModule(Type? type)
+    {
+        if (type == null) return false;
+        var attr = type.GetCustomAttributes(false)
+            .FirstOrDefault(a => a.GetType().FullName == "Microsoft.FSharp.Core.CompilationMappingAttribute");
+        if (attr == null) return false;
+        var prop = attr.GetType().GetProperty("SourceConstructFlags");
+        if (prop == null) return false;
+        var flags = (int)prop.GetValue(attr)!;
+        return (flags & 4) != 0; // SourceConstructFlags.Module = 4
+    }
+
+    private bool isFSharpModuleFunction() => Method.IsStatic && isFSharpModule(Method.DeclaringType);
+
+    // F# class members with multiple separate parameter groups (e.g. `static member Apply (a: A) (b: B) = ...`)
+    // are compiled as regular .NET multi-param methods BUT must be called with curried (space-separated) syntax
+    // from F# because the F# type-checker tracks the separate-group arity. The compiler attaches
+    // CompilationArgumentCountsAttribute to mark these so tooling can distinguish them from
+    // single-group methods (which use tuple/comma syntax).
+    private bool isFSharpCurriedMember()
+    {
+        return Method.GetCustomAttributes(false)
+            .Any(a => a.GetType().FullName == "Microsoft.FSharp.Core.CompilationArgumentCountsAttribute");
+    }
+
+    private bool needsFSharpCurriedSyntax() => isFSharpModuleFunction() || isFSharpCurriedMember();
 
     private string fsharpDetermineTarget()
     {
@@ -467,8 +504,13 @@ public class MethodCall : Frame
         if (ReturnVariable.VariableType.IsValueTuple())
         {
             var tuple = (ValueTypeReturnVariable)ReturnVariable;
-            var fsharpTuple = "(" + tuple.Inners.Select(x => x.Inner.FSharpUsage).Join(", ") + ")";
-            return IsAsync && insideTaskBlock ? $"let! {fsharpTuple} = " : $"let {fsharpTuple} = ";
+            // F# requires `struct` in the pattern for both sync and async struct tuple destructuring:
+            // `let struct (a, b) = ...` and `let! struct (a, b) = ...`
+            // Omitting it causes FS0001 "one tuple type is a struct tuple, the other is a reference tuple".
+            var tuplePrefix = ReturnVariable.VariableType.IsValueType ? "struct " : "";
+            var fsharpTuple = $"{tuplePrefix}(" + tuple.Inners.Select(x => x.Inner.FSharpUsage).Join(", ") + ")";
+            var asyncBinding = IsAsync && insideTaskBlock;
+            return asyncBinding ? $"let! {fsharpTuple} = " : $"let {fsharpTuple} = ";
         }
 
         var awaited = IsAsync && insideTaskBlock;
