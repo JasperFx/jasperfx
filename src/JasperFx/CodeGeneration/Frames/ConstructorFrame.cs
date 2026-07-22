@@ -258,9 +258,23 @@ public class ConstructorFrame : SyncFrame
                 "F# code generation does not yet support constructor property setters.");
         }
 
+        // F# record types cannot be constructed with positional constructor syntax from F# code.
+        // Detect via CompilationMappingAttribute(SourceConstructFlags.RecordType = 2) and emit
+        // F# record expression syntax: { Field1 = val1; Field2 = val2; ... }
+        if (isFSharpRecord(BuiltType))
+        {
+            var ctorParams = Ctor.GetParameters();
+            var fields = ctorParams
+                .Zip(Parameters, (p, v) => $"{p.Name![0].ToString().ToUpperInvariant()}{p.Name[1..]} = {v.FSharpUsage}")
+                .Join("; ");
+            return $"{{ {fields} }}";
+        }
+
         // F# omits the `new` keyword for ordinary construction.
         return $"{BuiltType.FSharpName()}({Parameters.Select(x => x.FSharpUsage).Join(", ")})";
     }
+
+    private static bool isFSharpRecord(Type type) => type.IsFSharpRecord();
 
     public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
     {
