@@ -336,7 +336,8 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("let struct (red, blue, green) = _target.ReturnTuple()");
+        // None of the tuple members are consumed by a subsequent frame, so all slots become `_`.
+        code.ShouldContain("let struct (_, _, _) = _target.ReturnTuple()");
     }
 
     [Fact]
@@ -365,7 +366,8 @@ public class FSharpGenerationTests
         var code = assembly.GenerateFSharpCode();
 
         code.ShouldContain("task {");
-        code.ShouldContain("let! struct (red, blue, green) = _target.AsyncReturnTuple()");
+        // Only `red` (index 0) is wired to saveCall — `blue` and `green` become `_`.
+        code.ShouldContain("let! struct (red, _, _) = _target.AsyncReturnTuple()");
     }
 
     public class UnsupportedFrame : SyncFrame

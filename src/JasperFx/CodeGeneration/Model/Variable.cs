@@ -156,6 +156,13 @@ public class Variable
     public virtual string Usage { get; protected set; }
 
     /// <summary>
+    ///     Set to true during frame arrangement when any downstream frame resolves this variable
+    ///     as a dependency. Used by F# codegen to emit <c>_</c> for unused tuple slots instead
+    ///     of a named binding, avoiding FS1182 warnings in generated code.
+    /// </summary>
+    public bool IsReferenced { get; internal set; }
+
+    /// <summary>
     ///     How the variable is used within assignments. Default is
     ///     $"var {Usage}"
     /// </summary>

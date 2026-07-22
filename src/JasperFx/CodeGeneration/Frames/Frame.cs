@@ -146,7 +146,9 @@ public abstract class Frame
             throw new InvalidOperationException($"Frame {this} could not resolve one of its variables");
         }
 
-        uses.AddRange(variables.Where(x => x != null));
+        var resolved = variables.Where(x => x != null).ToArray();
+        uses.AddRange(resolved);
+        foreach (var v in resolved) v.IsReferenced = true;
 
         _hasResolved = true;
     }

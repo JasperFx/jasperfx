@@ -508,7 +508,9 @@ public class MethodCall : Frame
             // `let struct (a, b) = ...` and `let! struct (a, b) = ...`
             // Omitting it causes FS0001 "one tuple type is a struct tuple, the other is a reference tuple".
             var tuplePrefix = ReturnVariable.VariableType.IsValueType ? "struct " : "";
-            var fsharpTuple = $"{tuplePrefix}(" + tuple.Inners.Select(x => x.Inner.FSharpUsage).Join(", ") + ")";
+            // Emit `_` for tuple slots that no downstream frame consumes — avoids FS1182 in generated code.
+            var slots = tuple.Inners.Select(x => x.Inner.IsReferenced ? x.Inner.FSharpUsage : "_");
+            var fsharpTuple = $"{tuplePrefix}(" + slots.Join(", ") + ")";
             var asyncBinding = IsAsync && insideTaskBlock;
             return asyncBinding ? $"let! {fsharpTuple} = " : $"let {fsharpTuple} = ";
         }
