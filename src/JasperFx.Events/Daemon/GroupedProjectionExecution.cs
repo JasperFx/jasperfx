@@ -350,7 +350,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         }
         finally
         {
-            writeThrottle?.Release();
+            writeThrottle.SafeRelease();
             await batch.DisposeAsync().ConfigureAwait(false);
         }
     }

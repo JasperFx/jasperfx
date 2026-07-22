@@ -595,7 +595,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         }
         finally
         {
-            writeThrottle?.Release();
+            writeThrottle.SafeRelease();
             await batch.DisposeAsync().ConfigureAwait(false);
         }
     }
