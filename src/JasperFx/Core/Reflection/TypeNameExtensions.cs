@@ -94,6 +94,24 @@ public static class TypeNameExtensions
     };
 
     /// <summary>
+    ///     Returns true when <paramref name="type"/> is an F# record type, detected via
+    ///     <c>Microsoft.FSharp.Core.CompilationMappingAttribute</c> with
+    ///     <c>SourceConstructFlags.RecordType = 2</c>. F# record types require record-expression
+    ///     construction syntax <c>{ Field = value; ... }</c> rather than positional constructor
+    ///     syntax from F# code.
+    /// </summary>
+    public static bool IsFSharpRecord(this Type type)
+    {
+        var attr = type.GetCustomAttributes(false)
+            .FirstOrDefault(a => a.GetType().FullName == "Microsoft.FSharp.Core.CompilationMappingAttribute");
+        if (attr == null) return false;
+        var prop = attr.GetType().GetProperty("SourceConstructFlags");
+        if (prop == null) return false;
+        var flags = (int)prop.GetValue(attr)!;
+        return flags == 2; // SourceConstructFlags.RecordType = 2
+    }
+
+    /// <summary>
     ///     EXPERIMENTAL. Derives the full type name *as it would appear in F# code*. Handles the
     ///     primitive aliases (see <see cref="FSharpAliases" />), arrays, and closed generic types.
     ///     Throws <see cref="NotSupportedException" /> on cases the F# code generator does not yet
@@ -133,6 +151,13 @@ public static class TypeNameExtensions
             {
                 throw new NotSupportedException(
                     $"F# code generation does not yet support the tuple type '{type}'.");
+            }
+
+            // F# list type: Microsoft.FSharp.Collections.FSharpList<T> → "T list" in F# source
+            if (definition.FullName == "Microsoft.FSharp.Collections.FSharpList`1")
+            {
+                var elementArg = type.GetGenericArguments()[0].FSharpName();
+                return $"{elementArg} list";
             }
 
             var cleanName = type.Name.Split('`').First();

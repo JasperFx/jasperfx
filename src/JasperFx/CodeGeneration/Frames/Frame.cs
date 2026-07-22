@@ -146,7 +146,11 @@ public abstract class Frame
             throw new InvalidOperationException($"Frame {this} could not resolve one of its variables");
         }
 
-        uses.AddRange(variables.Where(x => x != null));
+        var resolved = variables.Where(x => x != null).ToArray();
+        uses.AddRange(resolved);
+        // Mark all uses (including any pre-populated in constructors) as referenced so that
+        // F# tuple codegen emits `_` only for genuinely unused slots.
+        foreach (var v in uses) v.IsReferenced = true;
 
         _hasResolved = true;
     }

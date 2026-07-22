@@ -302,7 +302,8 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("member this.HandleAsync(name: string) : System.Threading.Tasks.Task =");
+        // `name` is not consumed by any frame, so it is emitted with the `_` prefix to suppress FS1182.
+        code.ShouldContain("member this.HandleAsync(_name: string) : System.Threading.Tasks.Task =");
         code.ShouldContain("_service.Record()");
         // No state machine for a synchronous body — just yield a completed Task.
         code.ShouldNotContain("task {");
@@ -336,7 +337,8 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("let (red, blue, green) = _target.ReturnTuple()");
+        // None of the tuple members are consumed by a subsequent frame, so all slots become `_`.
+        code.ShouldContain("let struct (_, _, _) = _target.ReturnTuple()");
     }
 
     [Fact]
@@ -365,7 +367,8 @@ public class FSharpGenerationTests
         var code = assembly.GenerateFSharpCode();
 
         code.ShouldContain("task {");
-        code.ShouldContain("let! (red, blue, green) = _target.AsyncReturnTuple()");
+        // Only `red` (index 0) is wired to saveCall — `blue` and `green` become `_`.
+        code.ShouldContain("let! struct (red, _, _) = _target.AsyncReturnTuple()");
     }
 
     public class UnsupportedFrame : SyncFrame
