@@ -165,6 +165,32 @@ public interface IEventDatabase
         => Task.CompletedTask;
 
     /// <summary>
+    ///     Persist the extended progression telemetry for a batch of shards in as few database
+    ///     round-trips as the store can manage — ideally one. The <see cref="Daemon.ExtendedProgressionWriter" />
+    ///     coalesces the heartbeat publications of every shard on a database into one batch per flush
+    ///     interval and drives this overload, because the per-shard single-row write does not scale
+    ///     under per-tenant agent fan-out: agents = projections × tenants, and one connection
+    ///     rent + round-trip per agent per heartbeat interval drove a sharded multi-tenant deployment
+    ///     to its database server's connection ceiling (jasperfx#553).
+    ///     <para>
+    ///     Same contract as the single-state overload: best-effort telemetry, never advance or
+    ///     regress progression, missing rows no-op. The batch is at-most-one-state-per-shard
+    ///     (the writer keeps only the latest state per shard between flushes).
+    ///     </para>
+    ///     The default implementation degrades to the single-state overload per shard so existing
+    ///     stores keep working unchanged until they implement a true batched write.
+    /// </summary>
+    /// <param name="states">The latest published state per shard, at most one entry per shard name.</param>
+    /// <param name="token"></param>
+    async Task WriteExtendedProgressionAsync(IReadOnlyList<ShardState> states, CancellationToken token = default)
+    {
+        foreach (var state in states)
+        {
+            await WriteExtendedProgressionAsync(state, token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     ///     Count the stored dead letter events for a single projection/subscription shard. With
     ///     <c>SkipApplyErrors</c> on (the JasperFx.Events 2.0 default), a failed <c>Apply()</c> is
     ///     recorded as a <see cref="DeadLetterEvent" /> and the shard keeps advancing, so the
