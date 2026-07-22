@@ -11,6 +11,7 @@ public class IfBlock : CompositeFrame
 
     public IfBlock(Variable variable, params Frame[] inner) : this(variable.Usage, inner)
     {
+        uses.Add(variable);
     }
 
     public string Condition { get; }
