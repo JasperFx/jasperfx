@@ -58,13 +58,18 @@ public class RetryBlockTests
     [Fact]
     public async Task disregard_after_too_many_failures()
     {
+        // Set the short pauses BEFORE posting: assigning them after Post races the block picking up the
+        // message, and a fast pickup would retry on the constructor's [1s,3s,5s] schedule instead, taking
+        // seconds and blowing past the poll window below (CI flake).
+        theBlock.Pauses = [0.Milliseconds(), 50.Milliseconds()];
+
         var theMessage = new SometimesFailingMessage(5, "Aubrey");
         theBlock.Post(theMessage);
 
-        theBlock.Pauses = [0.Milliseconds(), 50.Milliseconds()];
-
+        // Discard happens after ~50ms of pauses; poll generously (up to 5s) so a loaded CI runner that is
+        // slow to schedule the Task.Delay continuations doesn't fail before the block gets there.
         var tries = 0;
-        while (tries < 10 && !theLogger.Messages[LogLevel.Information].Any())
+        while (tries < 50 && !theLogger.Messages[LogLevel.Information].Any())
         {
             tries++;
             await Task.Delay(100.Milliseconds());

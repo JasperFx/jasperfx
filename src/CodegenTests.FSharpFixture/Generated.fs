@@ -106,7 +106,7 @@ type GeneratedSyncTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFlo
     let _controlFlowService = controlFlowService
 
     interface FSharpCodegenTarget.ISyncTaskHandler with
-        member this.HandleAsync(name: string) : System.Threading.Tasks.Task =
+        member this.HandleAsync(_name: string) : System.Threading.Tasks.Task =
             _controlFlowService.Record()
             System.Threading.Tasks.Task.CompletedTask
 

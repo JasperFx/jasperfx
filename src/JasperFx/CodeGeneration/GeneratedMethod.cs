@@ -205,7 +205,7 @@ public class GeneratedMethod : IGeneratedMethod
 
         Header?.Write(writer);
 
-        var arguments = Arguments.Select(x => $"{x.Usage}: {x.VariableType.FSharpName()}").Join(", ");
+        var arguments = Arguments.Select(x => $"{(x.IsReferenced ? x.Usage : "_" + x.Usage)}: {x.VariableType.FSharpName()}").Join(", ");
         var returnType = ReturnType.FSharpName();
         var keyword = Overrides ? "override" : "member";
 
