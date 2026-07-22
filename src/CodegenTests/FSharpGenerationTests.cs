@@ -302,7 +302,8 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("member this.HandleAsync(name: string) : System.Threading.Tasks.Task =");
+        // `name` is not consumed by any frame, so it is emitted with the `_` prefix to suppress FS1182.
+        code.ShouldContain("member this.HandleAsync(_name: string) : System.Threading.Tasks.Task =");
         code.ShouldContain("_service.Record()");
         // No state machine for a synchronous body — just yield a completed Task.
         code.ShouldNotContain("task {");
