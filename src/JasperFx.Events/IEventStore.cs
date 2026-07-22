@@ -230,6 +230,25 @@ public interface IEventStore
             "QueryByTagsAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for DCB tag queries.");
 
     /// <summary>
+    /// Stream events that match all of the supplied DCB tag values within a single tenant partition. A
+    /// null <paramref name="tenantId"/> is store-global and delegates to the tenant-less overload (today's
+    /// behavior). This overload exists because on a conjoined multi-tenant store the same tag can exist
+    /// under two tenants, so the tenant-less query resolves whichever tenant the default session happens
+    /// to carry. Event stores that implement multi-tenancy override this to open a tenant-scoped session;
+    /// the default throws for a non-null tenant rather than silently returning another tenant's events.
+    /// See jasperfx#555 (companion to the jasperfx#503 stream-read overloads).
+    /// </summary>
+    /// <param name="tags">Tag-name -> tag-value pairs to match.</param>
+    /// <param name="tenantId">Tenant partition to scope the query to. Null means store-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    IAsyncEnumerable<EventRecord> QueryByTagsAsync(
+        IReadOnlyDictionary<string, string> tags, string? tenantId, CancellationToken ct)
+        => tenantId == null
+            ? QueryByTagsAsync(tags, ct)
+            : throw new NotSupportedException(
+                "Per-tenant QueryByTagsAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
+
+    /// <summary>
     /// Rehydrate a DCB-projected entity by tag set, returning the
     /// projected state at its current version. The default implementation
     /// throws <see cref="NotImplementedException"/>.
