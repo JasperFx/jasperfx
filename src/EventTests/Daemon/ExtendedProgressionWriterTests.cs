@@ -4,7 +4,6 @@ using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 
 namespace EventTests.Daemon;
@@ -34,9 +33,9 @@ public class ExtendedProgressionWriterTests
         };
     }
 
-    private static ShardState heartbeat(string shardName = "Counters:All")
+    private static ShardState heartbeat(string shardName = "Counters:All", long sequence = 42)
     {
-        return new ShardState(shardName, 42)
+        return new ShardState(shardName, sequence)
         {
             Action = ShardAction.Updated,
             AgentStatus = "Running",
@@ -45,7 +44,7 @@ public class ExtendedProgressionWriterTests
     }
 
     [Fact]
-    public async Task writes_status_transitions_through_the_database()
+    public async Task writes_status_transitions_through_the_database_immediately()
     {
         theWriter.OnNext(transition(ShardAction.Started, "Running"));
         theWriter.OnNext(transition(ShardAction.Paused, "Paused", "boom"));
@@ -57,6 +56,9 @@ public class ExtendedProgressionWriterTests
         writes[1].AgentStatus.ShouldBe("Paused");
         writes[1].PauseReason.ShouldBe("boom");
         writes[2].AgentStatus.ShouldBe("Stopped");
+
+        // A transition never waits on the flush interval: three transitions, three batches
+        (await theDatabase.Batches()).Count.ShouldBe(3);
     }
 
     [Fact]
@@ -96,25 +98,70 @@ public class ExtendedProgressionWriterTests
     }
 
     [Fact]
-    public async Task throttles_heartbeat_writes_per_shard_but_never_transitions()
+    public async Task coalesces_heartbeats_into_one_batched_write_per_flush_interval()
     {
-        theWriter.OnNext(heartbeat());
-        theWriter.OnNext(heartbeat()); // same instant, throttled
-        theWriter.OnNext(heartbeat("Others:All")); // different shard, its own budget
+        // The very first heartbeat flushes immediately (nothing to wait for)
+        theWriter.OnNext(heartbeat(sequence: 1));
+        var writes = await theDatabase.WaitForWrites(1);
+        writes[0].Sequence.ShouldBe(1);
+
+        // Everything landing inside the flush interval is coalesced, latest state per shard wins
+        theWriter.OnNext(heartbeat(sequence: 2));
+        theWriter.OnNext(heartbeat(sequence: 3));
+        theWriter.OnNext(heartbeat("Others:All", sequence: 7));
+        await theDatabase.AssertWriteCountStaysAt(1);
+
+        // Once the interval passes, the next publication flushes the whole pending set as ONE batch
+        theTime.Advance(theWriter.HeartbeatWriteInterval + TimeSpan.FromMilliseconds(1));
+        theWriter.OnNext(heartbeat("Others:All", sequence: 8));
+
+        writes = await theDatabase.WaitForWrites(3);
+        var batches = await theDatabase.Batches();
+        batches.Count.ShouldBe(2);
+        batches[1].Length.ShouldBe(2);
+        batches[1].Single(x => x.ShardName == "Counters:All").Sequence.ShouldBe(3);
+        batches[1].Single(x => x.ShardName == "Others:All").Sequence.ShouldBe(8);
+        writes.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task a_transition_flushes_immediately_and_carries_the_pending_heartbeats_along()
+    {
+        // Seed a flush so the interval throttle is active
+        theWriter.OnNext(heartbeat(sequence: 1));
+        await theDatabase.WaitForWrites(1);
+
+        // These queue up inside the interval
+        theWriter.OnNext(heartbeat("Others:All", sequence: 7));
+
+        // A transition inside the interval must not wait -- and takes the pending batch with it
+        theWriter.OnNext(transition(ShardAction.Paused, "Paused", "boom"));
+
+        var writes = await theDatabase.WaitForWrites(3);
+        var batches = await theDatabase.Batches();
+        batches.Count.ShouldBe(2);
+        batches[1].Single(x => x.ShardName == "Others:All").Sequence.ShouldBe(7);
+        batches[1].Single(x => x.ShardName == "Counters:All").AgentStatus.ShouldBe("Paused");
+        writes.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task a_transition_replaces_a_pending_heartbeat_for_the_same_shard()
+    {
+        theWriter.OnNext(heartbeat(sequence: 1));
+        await theDatabase.WaitForWrites(1);
+
+        // Heartbeat queued, then a transition for the SAME shard lands: latest state wins,
+        // the stale heartbeat must not overwrite the Paused status afterwards
+        theWriter.OnNext(heartbeat(sequence: 2));
+        theWriter.OnNext(transition(ShardAction.Paused, "Paused", "boom"));
 
         var writes = await theDatabase.WaitForWrites(2);
-        writes.Count(x => x.ShardName == "Counters:All").ShouldBe(1);
-        writes.Count(x => x.ShardName == "Others:All").ShouldBe(1);
-
-        // A transition inside the throttle window still writes immediately
-        theWriter.OnNext(transition(ShardAction.Paused, "Paused", "boom"));
-        await theDatabase.WaitForWrites(3);
-
-        // And once the interval passes, heartbeats flow again
-        theTime.Advance(theWriter.HeartbeatWriteInterval + TimeSpan.FromMilliseconds(1));
-        theWriter.OnNext(heartbeat());
-        var all = await theDatabase.WaitForWrites(4);
-        all.Count(x => x.ShardName == "Counters:All").ShouldBe(3);
+        var batches = await theDatabase.Batches();
+        batches.Count.ShouldBe(2);
+        batches[1].Length.ShouldBe(1);
+        batches[1][0].AgentStatus.ShouldBe("Paused");
+        writes.Count.ShouldBe(2);
     }
 
     [Fact]
@@ -156,6 +203,37 @@ public class ExtendedProgressionWriterTests
     }
 
     [Fact]
+    public async Task disposing_flushes_the_pending_batch()
+    {
+        theWriter.OnNext(heartbeat(sequence: 1));
+        await theDatabase.WaitForWrites(1);
+
+        // Queued inside the interval, would normally wait for the next flush
+        theWriter.OnNext(heartbeat(sequence: 2));
+
+        await theWriter.DisposeAsync();
+
+        var writes = await theDatabase.WaitForWrites(2);
+        writes[1].Sequence.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task the_default_batch_implementation_degrades_to_single_state_writes()
+    {
+        // A store that has not implemented the batched overload keeps working through the
+        // default interface member, one single-state write per shard
+        var singlesOnly = new SingleWriteOnlyDatabase();
+        IEventDatabase database = singlesOnly;
+
+        await database.WriteExtendedProgressionAsync([heartbeat(sequence: 1), heartbeat("Others:All", sequence: 2)],
+            CancellationToken.None);
+
+        singlesOnly.Writes.Count.ShouldBe(2);
+        singlesOnly.Writes[0].ShardName.ShouldBe("Counters:All");
+        singlesOnly.Writes[1].ShardName.ShouldBe("Others:All");
+    }
+
+    [Fact]
     public async Task subscription_agent_lifecycle_flows_through_a_tracker_into_the_database()
     {
         // End-to-end through the real tracker + a real SubscriptionAgent: start (Running heartbeat)
@@ -181,14 +259,50 @@ public class ExtendedProgressionWriterTests
         writes[1].AgentStatus.ShouldBe("Stopped");
     }
 
+    private class SingleWriteOnlyDatabase : IEventDatabase
+    {
+        public List<ShardState> Writes { get; } = new();
+
+        public Task WriteExtendedProgressionAsync(ShardState state, CancellationToken token = default)
+        {
+            Writes.Add(state);
+            return Task.CompletedTask;
+        }
+
+        public string Identifier => "singles";
+        public Uri DatabaseUri => new("db://singles");
+        public ShardStateTracker Tracker => null!;
+
+        public Task StoreDeadLetterEventAsync(object storage, DeadLetterEvent deadLetterEvent,
+            CancellationToken token) => Task.CompletedTask;
+
+        public Task EnsureStorageExistsAsync(Type storageType, CancellationToken token) => Task.CompletedTask;
+
+        public Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout) => Task.CompletedTask;
+
+        public Task<long> ProjectionProgressFor(ShardName name, CancellationToken token = default)
+            => Task.FromResult(0L);
+
+        public Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, CancellationToken token)
+            => Task.FromResult<long?>(null);
+
+        public string StorageIdentifier => "singles";
+
+        public Task<long> FetchHighestEventSequenceNumber(CancellationToken token) => Task.FromResult(0L);
+
+        public Task<IReadOnlyList<ShardState>> AllProjectionProgress(CancellationToken token = default)
+            => Task.FromResult<IReadOnlyList<ShardState>>([]);
+    }
+
     private class RecordingEventDatabase : IEventDatabase
     {
-        private readonly List<ShardState> _writes = new();
+        private readonly List<ShardState[]> _batches = new();
         private readonly SemaphoreSlim _signal = new(0);
 
         public bool FailNextWrite { get; set; }
 
-        public Task WriteExtendedProgressionAsync(ShardState state, CancellationToken token = default)
+        public Task WriteExtendedProgressionAsync(IReadOnlyList<ShardState> states,
+            CancellationToken token = default)
         {
             if (FailNextWrite)
             {
@@ -197,9 +311,9 @@ public class ExtendedProgressionWriterTests
                 throw new InvalidOperationException("The database is grumpy");
             }
 
-            lock (_writes)
+            lock (_batches)
             {
-                _writes.Add(state);
+                _batches.Add(states.ToArray());
             }
 
             _signal.Release();
@@ -211,12 +325,23 @@ public class ExtendedProgressionWriterTests
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             while (true)
             {
-                lock (_writes)
+                lock (_batches)
                 {
-                    if (_writes.Count >= count) return _writes.ToList();
+                    var flattened = _batches.SelectMany(x => x).ToList();
+                    if (flattened.Count >= count) return flattened;
                 }
 
                 await _signal.WaitAsync(timeout.Token);
+            }
+        }
+
+        public async Task<IReadOnlyList<ShardState[]>> Batches()
+        {
+            // Give the background block a beat to finish posting
+            await Task.Delay(50);
+            lock (_batches)
+            {
+                return _batches.ToList();
             }
         }
 
@@ -224,9 +349,18 @@ public class ExtendedProgressionWriterTests
         {
             // Give the background block a beat to (not) do its thing
             await Task.Delay(100);
-            lock (_writes)
+            lock (_batches)
             {
-                _writes.ShouldBeEmpty();
+                _batches.ShouldBeEmpty();
+            }
+        }
+
+        public async Task AssertWriteCountStaysAt(int count)
+        {
+            await Task.Delay(100);
+            lock (_batches)
+            {
+                _batches.SelectMany(x => x).Count().ShouldBe(count);
             }
         }
 
