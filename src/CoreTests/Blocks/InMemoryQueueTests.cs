@@ -133,13 +133,19 @@ public class InMemoryQueueTests
         // Post() waiting for capacity -- proving the item is back-pressured rather than dropped.
         const int count = 25_000;
         var processed = 0;
-        using var gate = new ManualResetEventSlim(false);
 
-        await using var queue = new Block<int>(1, Block<int>.DefaultBoundedCapacity, (_, token) =>
+        // The reader is held on an ASYNC gate, not a synchronous ManualResetEventSlim.Wait. The channel is
+        // built with AllowSynchronousContinuations, so the producer's first TryWrite can run the reader's
+        // continuation inline on the producer's own thread; with a blocking gate that hijacked the producer
+        // into the wait and it posted a single item before parking forever (Count==1 flake, net10). An
+        // awaited TCS yields the thread back instead, so the producer keeps filling regardless of which
+        // thread the continuation lands on.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var queue = new Block<int>(1, Block<int>.DefaultBoundedCapacity, async (_, token) =>
         {
-            gate.Wait(token);
+            await gate.Task.WaitAsync(token);
             Interlocked.Increment(ref processed);
-            return Task.CompletedTask;
         });
 
         var producer = Task.Run(() =>
@@ -151,7 +157,7 @@ public class InMemoryQueueTests
         });
 
         // Wait until the channel is saturated (producer is now blocked inside Post waiting for room).
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
         while (queue.Count < Block<int>.DefaultBoundedCapacity && DateTime.UtcNow < deadline)
         {
             await Task.Delay(10);
@@ -160,7 +166,7 @@ public class InMemoryQueueTests
         queue.Count.ShouldBeGreaterThanOrEqualTo((uint)Block<int>.DefaultBoundedCapacity);
         producer.IsCompleted.ShouldBeFalse(); // still blocked -> the overflow item was NOT dropped
 
-        gate.Set();
+        gate.SetResult();
 
         await producer;
         await queue.WaitForCompletionAsync();
