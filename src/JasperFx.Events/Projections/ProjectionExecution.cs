@@ -244,7 +244,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         }
         finally
         {
-            writeThrottle?.Release();
+            writeThrottle.SafeRelease();
             await batch.DisposeAsync().ConfigureAwait(false);
         }
     }

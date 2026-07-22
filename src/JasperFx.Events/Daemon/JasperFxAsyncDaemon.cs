@@ -34,8 +34,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     // jasperfx#537: persists agent status transitions + heartbeat ticks onto the store's extended
     // progression columns when the store opts in via IEventStore.ExtendedProgressionEnabled
-    private readonly ExtendedProgressionWriter _extendedProgression;
-    private readonly IDisposable _extendedProgressionSubscription;
+    // Not readonly: StopAllAsync drains (completes) the writer while the daemon is quiesced, then
+    // rebuilds it so a subsequent StartAllAsync resumes persisting extended progression (jasperfx#557).
+    private ExtendedProgressionWriter _extendedProgression;
+    private IDisposable _extendedProgressionSubscription;
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
@@ -154,10 +156,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
-        // jasperfx#537: subscribe unconditionally; the writer checks the store's
-        // ExtendedProgressionEnabled flag live per publication so runtime opt-in is honored
-        _extendedProgression = new ExtendedProgressionWriter(store, database, store.TimeProvider,
-            loggerFactory.CreateLogger<ExtendedProgressionWriter>());
+        _extendedProgression = buildExtendedProgressionWriter();
         _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
 
         _deadLetterBlock = buildDeadLetterBlock();
@@ -191,8 +190,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
-        // jasperfx#537: see the ILoggerFactory constructor overload for the rationale
-        _extendedProgression = new ExtendedProgressionWriter(store, database, store.TimeProvider, logger);
+        _extendedProgression = buildExtendedProgressionWriter();
         _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
 
         _deadLetterBlock = buildDeadLetterBlock();
@@ -215,6 +213,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await Database.StoreDeadLetterEventAsync(_store, deadLetterEvent, token).ConfigureAwait(false);
         }, Logger, _cancellation.Token);
     }
+
+    // jasperfx#537: subscribe unconditionally; the writer checks the store's ExtendedProgressionEnabled
+    // flag live per publication so runtime opt-in is honored. Built through a helper so StopAllAsync can
+    // rebuild it after draining, exactly as it rebuilds the dead-letter block (jasperfx#557).
+    private ExtendedProgressionWriter buildExtendedProgressionWriter()
+        => new(_store, Database, _store.TimeProvider,
+            _loggerFactory?.CreateLogger<ExtendedProgressionWriter>() ?? Logger);
 
     public IEventDatabase Database { get; }
 
@@ -900,11 +905,31 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 Logger.LogError(e, "Error trying to finish all outstanding DeadLetterEvent persistence");
             }
 
+            // jasperfx#557: drain the extended-progression writer here, on the async stop path where the
+            // agents are already stopped-and-drained and the daemon is genuinely quiesced, so a Stopped
+            // heartbeat queued during shutdown is fully persisted before StopAllAsync returns. Left to the
+            // sync Dispose() it would drain fire-and-forget in the background and could overtake a later
+            // deliberate write to the same progression row.
+            try
+            {
+                _extendedProgressionSubscription.Dispose();
+                await _extendedProgression.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e, "Error trying to drain the extended progression writer");
+            }
+
             _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
             syncTenantPolling();
 
             _cancellation.TryReset();
             _deadLetterBlock = buildDeadLetterBlock();
+
+            // Rebuild the drained writer + resubscribe so a subsequent StartAllAsync (e.g. resume after a
+            // rebuild) keeps persisting extended progression, mirroring the dead-letter block rebuild above.
+            _extendedProgression = buildExtendedProgressionWriter();
+            _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
         }
         finally
         {

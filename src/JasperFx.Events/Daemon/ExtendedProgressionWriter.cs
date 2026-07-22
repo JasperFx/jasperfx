@@ -134,13 +134,14 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IAsyncDis
     {
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         // Push any coalesced-but-unflushed states (e.g. the Stopped states published during shutdown
-        // arrive flushed already, but a trailing heartbeat may not be) and let the queued writes
-        // drain in the background rather than dropping them on the floor
+        // arrive flushed already, but a trailing heartbeat may not be), then AWAIT the drain. Returning
+        // before the queued writes complete let a Stopped write land in the background *after* the daemon
+        // was reported stopped and clobber a later deliberate write to the same progression row
+        // (jasperfx#557). WaitForCompletionAsync completes the block, then awaits its in-flight writes.
         flush(_timeProvider.GetUtcNow());
-        _block.Complete();
-        return ValueTask.CompletedTask;
+        await _block.WaitForCompletionAsync().ConfigureAwait(false);
     }
 }

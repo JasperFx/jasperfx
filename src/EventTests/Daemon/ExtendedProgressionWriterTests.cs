@@ -218,6 +218,31 @@ public class ExtendedProgressionWriterTests
     }
 
     [Fact]
+    public async Task dispose_awaits_the_in_flight_write_rather_than_draining_in_the_background()
+    {
+        // jasperfx#557: DisposeAsync must not return until the queued Stopped write has actually been
+        // persisted. If it drains in the background, that late Stopped write can overtake a later
+        // deliberate write to the same progression row and silently roll the status back to Stopped.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        theDatabase.GateWrites = gate;
+
+        theWriter.OnNext(transition(ShardAction.Stopped, "Stopped"));
+
+        var dispose = theWriter.DisposeAsync().AsTask();
+
+        // The write is parked on the gate, so DisposeAsync cannot have completed yet
+        await Task.Delay(100);
+        dispose.IsCompleted.ShouldBeFalse();
+
+        // Let the write through; only now may DisposeAsync complete
+        gate.SetResult();
+        await dispose;
+
+        var writes = await theDatabase.WaitForWrites(1);
+        writes[0].AgentStatus.ShouldBe("Stopped");
+    }
+
+    [Fact]
     public async Task the_default_batch_implementation_degrades_to_single_state_writes()
     {
         // A store that has not implemented the batched overload keeps working through the
@@ -301,9 +326,18 @@ public class ExtendedProgressionWriterTests
 
         public bool FailNextWrite { get; set; }
 
-        public Task WriteExtendedProgressionAsync(IReadOnlyList<ShardState> states,
+        // When set, a write parks on this gate before it records anything, so a test can observe whether
+        // DisposeAsync waits for the in-flight write to finish (jasperfx#557).
+        public TaskCompletionSource? GateWrites { get; set; }
+
+        public async Task WriteExtendedProgressionAsync(IReadOnlyList<ShardState> states,
             CancellationToken token = default)
         {
+            if (GateWrites != null)
+            {
+                await GateWrites.Task;
+            }
+
             if (FailNextWrite)
             {
                 FailNextWrite = false;
@@ -317,7 +351,6 @@ public class ExtendedProgressionWriterTests
             }
 
             _signal.Release();
-            return Task.CompletedTask;
         }
 
         public async Task<IReadOnlyList<ShardState>> WaitForWrites(int count)
