@@ -336,7 +336,7 @@ public class FSharpGenerationTests
 
         var code = assembly.GenerateFSharpCode();
 
-        code.ShouldContain("let (red, blue, green) = _target.ReturnTuple()");
+        code.ShouldContain("let struct (red, blue, green) = _target.ReturnTuple()");
     }
 
     [Fact]
@@ -365,7 +365,7 @@ public class FSharpGenerationTests
         var code = assembly.GenerateFSharpCode();
 
         code.ShouldContain("task {");
-        code.ShouldContain("let! (red, blue, green) = _target.AsyncReturnTuple()");
+        code.ShouldContain("let! struct (red, blue, green) = _target.AsyncReturnTuple()");
     }
 
     public class UnsupportedFrame : SyncFrame
