@@ -27,6 +27,11 @@ internal class ScopedAggregationProjection<TSource, TDoc, TId, TOperations, TQue
         return _inner.RaiseSideEffects(operations, slice);
     }
 
+    public ValueTask RaiseSideEffects(TOperations operations, TId id, IEventSlice<TDoc> slice)
+    {
+        return _inner.RaiseSideEffects(operations, id, slice);
+    }
+
     public Task EnrichEventsAsync(SliceGroup<TDoc, TId> group, TQuerySession querySession, CancellationToken cancellation)
     {
         return _inner.EnrichEventsAsync(group, querySession, cancellation);
