@@ -768,7 +768,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     private async Task processPossibleSideEffects(IProjectionBatch batch, TOperations operations,
         EventSlice<TDoc, TId> slice)
     {
-        await Projection.RaiseSideEffects(operations, slice);
+        await Projection.RaiseSideEffects(operations, slice.Id, slice);
 
         if (slice.RaisedEvents != null)
         {

@@ -135,7 +135,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                 
                 if (operations.EnableSideEffectsOnInlineProjections)
                 {
-                    await RaiseSideEffects(operations, slice);
+                    await RaiseSideEffects(operations, slice.Id, slice);
                     if (slice.RaisedEvents != null)
                     {
                         throw new InvalidOperationException(

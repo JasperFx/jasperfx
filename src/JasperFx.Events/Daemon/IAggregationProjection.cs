@@ -24,6 +24,18 @@ public interface IAggregationProjection<TDoc, TId, in TOperations, in TQuerySess
     /// <returns></returns>
     ValueTask RaiseSideEffects(TOperations operations, IEventSlice<TDoc> slice);
 
+    /// <summary>
+    /// Use to create "side effects" when running an aggregation (single stream, custom projection, multi-stream)
+    /// asynchronously in a continuous mode (i.e., not in rebuilds). The identity of the current slice is
+    /// supplied as <paramref name="id"/>.
+    /// </summary>
+    /// <param name="operations"></param>
+    /// <param name="id"></param>
+    /// <param name="slice"></param>
+    /// <returns></returns>
+    ValueTask RaiseSideEffects(TOperations operations, TId id, IEventSlice<TDoc> slice)
+        => RaiseSideEffects(operations, slice);
+
     AggregationScope Scope { get; }
     
     bool MatchesAnyDeleteType(IReadOnlyList<IEvent> events);

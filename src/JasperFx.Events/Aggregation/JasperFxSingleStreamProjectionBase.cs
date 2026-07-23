@@ -125,7 +125,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
             Snapshot = transformed
         };
 
-        await RaiseSideEffects(session, slice);
+        await RaiseSideEffects(session, id, slice);
         if (slice.RaisedEvents != null)
         {
             throw new InvalidOperationException(

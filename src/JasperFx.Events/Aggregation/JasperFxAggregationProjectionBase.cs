@@ -472,7 +472,20 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         return new ValueTask();
     }
-    
+
+    /// <summary>
+    /// Potentially raise "side effects" during projection processing to either emit additional events,
+    /// or publish messages. The identity of the current slice is supplied as <paramref name="id"/>.
+    /// </summary>
+    /// <param name="operations"></param>
+    /// <param name="id"></param>
+    /// <param name="slice"></param>
+    /// <returns></returns>
+    public virtual ValueTask RaiseSideEffects(TOperations operations, TId id, IEventSlice<TDoc> slice)
+    {
+        return RaiseSideEffects(operations, slice);
+    }
+
     public SubscriptionDescriptor Describe(IEventStore store)
     {
         return new SubscriptionDescriptor(this, store);
