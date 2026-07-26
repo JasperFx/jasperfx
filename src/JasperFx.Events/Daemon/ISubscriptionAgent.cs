@@ -18,6 +18,22 @@ public interface ISubscriptionAgent : ISubscriptionController
     long HighWaterMark => 0;
 
     DateTimeOffset? PausedTime { get; }
+
+    /// <summary>
+    /// jasperfx#565: WHY this agent was paused or stopped, if it was. <see cref="Status"/> alone told an
+    /// external supervisor (Wolverine's <c>EventSubscriptionAgent</c>, which wraps a shard as a
+    /// distributed agent) that a shard had paused but never what to do about it, so progress could
+    /// flatline with no actionable alert. Set alongside <see cref="Status"/> when a failure is reported,
+    /// and cleared when the agent starts or replays.
+    ///
+    /// <para>
+    /// Defaulted to null so implementations that don't track failures — test doubles, wrappers that
+    /// delegate — are unaffected. A wrapper around a live inner agent should delegate this the same way
+    /// it delegates <see cref="Status"/>.
+    /// </para>
+    /// </summary>
+    ShardFailure? Failure => null;
+
     ISubscriptionMetrics Metrics { get; }
     void MarkHighWater(long sequence);
 

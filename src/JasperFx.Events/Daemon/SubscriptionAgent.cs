@@ -140,6 +140,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             await _cancellation.CancelAsync().ConfigureAwait(false);
             await _execution.HardStopAsync().ConfigureAwait(false);
 
+            // jasperfx#565: every failure path in the daemon funnels through here, so this is the one
+            // place the reason gets classified. Published on the ShardState AND held on the agent, because
+            // the two consumers differ: the tracker feeds observers and the persisted extended progression
+            // row, while an external supervisor (Wolverine's EventSubscriptionAgent) polls the live agent.
+            // PauseReason keeps carrying the full exception text it always did.
+            var failure = ShardFailure.For(ex, _timeProvider.GetUtcNow());
+            Failure = failure;
+
             if (ex is ProgressionProgressOutOfOrderException)
             {
                 PausedTime = null;
@@ -149,7 +157,8 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     Action = ShardAction.Stopped,
                     Exception = ex,
                     AgentStatus = "Stopped",
-                    PauseReason = ex.ToString(),
+                    PauseReason = failure.Detail,
+                    Failure = failure,
                     LastHeartbeat = _timeProvider.GetUtcNow()
                 });
             }
@@ -162,7 +171,8 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     Action = ShardAction.Paused,
                     Exception = ex,
                     AgentStatus = "Paused",
-                    PauseReason = ex.ToString(),
+                    PauseReason = failure.Detail,
+                    Failure = failure,
                     LastHeartbeat = _timeProvider.GetUtcNow()
                 });
             }
@@ -239,6 +249,11 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
 
+        // jasperfx#565: a fresh start supersedes whatever paused this agent last. Clearing it here (rather
+        // than leaving the last reason hanging around) is what keeps a supervisor from alerting on a
+        // failure the operator already recovered from.
+        Failure = null;
+
         await _commandBlock.PostAsync(Command.Started(request.StartingHighWater ?? _tracker.HighWaterMark, request.Floor));
         await _tracker.PublishAsync(new ShardState(Name, request.Floor)
         {
@@ -259,6 +274,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _execution.Mode = ShardExecutionMode.Rebuild;
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
+        Failure = null; // jasperfx#565: see StartAsync
         LastCommitted = request.Floor; // Force it to start here!
         _bufferedCeiling = request.Floor; // jasperfx#525
 
@@ -307,6 +323,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     }
 
     public DateTimeOffset? PausedTime { get; private set; }
+
+    /// <summary>
+    /// jasperfx#565: the classified reason this agent last paused or stopped, or null while it is healthy.
+    /// Set in <see cref="ReportCriticalFailureAsync(Exception)"/> and cleared by a start or a replay, so a
+    /// supervisor polling it never reads a stale reason against a running agent.
+    /// </summary>
+    public ShardFailure? Failure { get; private set; }
 
     public ISubscriptionMetrics Metrics { get; }
 
