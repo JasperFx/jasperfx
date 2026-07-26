@@ -43,8 +43,6 @@ internal class ShardStatusWatcher : IObserver<ShardState>
             }
         });
 
-        _unsubscribe = tracker.Subscribe(this);
-
         // jasperfx#568: publication is asynchronous — PublishAsync posts to a Block and returns, and the
         // consumer thread walks the listener list that existed when it started. A state can therefore be
         // delivered (and recorded in the tracker's state map) in the window between a caller checking the
@@ -52,7 +50,15 @@ internal class ShardStatusWatcher : IObserver<ShardState>
         // OnNext only ever sees states delivered AFTER this point, re-check what the tracker already knows
         // now that we're subscribed. TrySetResult makes a double hit harmless — whichever path wins first,
         // the other is a no-op. This is also the only current-state check WaitForShardCondition gets.
-        foreach (var state in tracker.CurrentStates())
+        //
+        // jasperfx#572: subscribing and then reading the snapshot as two separate steps still left a hole
+        // for a watcher to fall through — the publication walk could capture the listener list without this
+        // watcher, and the snapshot could still be read before that state was recorded, so NEITHER path saw
+        // it. Taking both in one atomic step against the tracker's publication lock closes it rather than
+        // narrowing it.
+        _unsubscribe = tracker.SubscribeAndCaptureCurrentStates(this, out var currentStates);
+
+        foreach (var state in currentStates)
         {
             try
             {
