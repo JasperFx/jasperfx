@@ -89,6 +89,17 @@ public interface IFSharpSyncTaskHandler
     Task HandleAsync(string name);
 }
 
+// Types for the DerivedVariable → Argument IsReferenced propagation test.
+// Models the Wolverine pattern where a concrete argument (e.g. MessageContext) is
+// exposed under an interface alias (e.g. IMessageContext) in DerivedVariables.
+public interface IFakeBusContext { }
+public class FakeBusContext : IFakeBusContext { }
+
+public interface IFakeBusContextHandler
+{
+    Task HandleAsync(FakeBusContext context);
+}
+
 public interface IFSharpTupleConsumer
 {
     void Consume();
@@ -369,6 +380,39 @@ public class FSharpGenerationTests
         code.ShouldContain("task {");
         // Only `red` (index 0) is wired to saveCall — `blue` and `green` become `_`.
         code.ShouldContain("let! struct (red, _, _) = _target.AsyncReturnTuple()");
+    }
+
+    [Fact]
+    public void argument_is_not_prefixed_with_underscore_when_derived_variable_with_same_name_is_referenced()
+    {
+        var assembly = new GeneratedAssembly(new GenerationRules("Some.Generated"));
+        var type = assembly.AddType("GeneratedFakeContextHandler", typeof(IFakeBusContextHandler));
+        var method = type.MethodFor(nameof(IFakeBusContextHandler.HandleAsync));
+
+        // Simulate the Wolverine pattern: the concrete argument (FakeBusContext context) is
+        // exposed under an interface alias in DerivedVariables, and middleware marks the alias
+        // as referenced without touching the original Argument object.
+        // InternalsVisibleTo lets us set `IsReferenced` directly here.
+        var derivedContext = new Variable(typeof(IFakeBusContext), "context");
+        derivedContext.IsReferenced = true;
+        method.DerivedVariables.Add(derivedContext);
+
+        // This frame does NOT use `context` directly — it represents middleware that only
+        // needs the interface alias.
+        var service = new InjectedField(typeof(FSharpControlService), "service");
+        method.Frames.Add(new MethodCall(typeof(FSharpControlService), nameof(FSharpControlService.Record))
+        {
+            Target = service
+        });
+
+        var code = assembly.GenerateFSharpCode();
+
+        // WriteFSharpMethod must propagate IsReferenced from the DerivedVariable to the
+        // Argument with the matching Usage name.  Without the fix the argument would be
+        // emitted as `_context` (FS1182 suppression prefix), breaking any frame body that
+        // references `context`.
+        code.ShouldContain("member this.HandleAsync(context:");
+        code.ShouldNotContain("member this.HandleAsync(_context:");
     }
 
     public class UnsupportedFrame : SyncFrame

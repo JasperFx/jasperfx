@@ -205,6 +205,21 @@ public class GeneratedMethod : IGeneratedMethod
 
         Header?.Write(writer);
 
+        // Propagate IsReferenced from DerivedVariables to Arguments that share the same Usage name.
+        // Handles the case where a method argument (e.g. `context: MessageContext`) is exposed under
+        // an interface alias in DerivedVariables (e.g. `ContextVariable("context", IMessageContext)`):
+        // middleware frames resolve the alias and mark it referenced, but the original argument object
+        // is a distinct Variable instance and would otherwise receive an erroneous `_` prefix.
+        // Setting IsReferenced here (within the JasperFx assembly, so `internal set` is accessible)
+        // ensures all downstream F# code-generation that reads arg.IsReferenced is also consistent.
+        foreach (var arg in Arguments)
+        {
+            if (!arg.IsReferenced && DerivedVariables.Any(d => d.Usage == arg.Usage && d.IsReferenced))
+            {
+                arg.IsReferenced = true;
+            }
+        }
+
         var arguments = Arguments.Select(x => $"{(x.IsReferenced ? x.Usage : "_" + x.Usage)}: {x.VariableType.FSharpName()}").Join(", ");
         var returnType = ReturnType.FSharpName();
         var keyword = Overrides ? "override" : "member";
