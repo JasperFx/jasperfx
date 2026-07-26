@@ -744,12 +744,29 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return agent;
     }
 
+    // jasperfx#564: the graceful drain of a shard used to be bounded by a hardcoded 5 seconds. An
+    // in-flight page that needs longer than that to finish and flush progression got cancelled
+    // mid-flush, abandoning the progression write -> ProgressionProgressOutOfOrderException on the
+    // next start. The bound is now DaemonSettings.StopAndDrainTimeout, and a non-positive value or
+    // Timeout.InfiniteTimeSpan opts out of the separate bound entirely (the daemon's own
+    // _cancellation still applies through the linked source at every call site).
+    private CancellationTokenSource stopAndDrainCancellation()
+    {
+        var cancellation = new CancellationTokenSource();
+        var timeout = _projections.StopAndDrainTimeout;
+        if (timeout > TimeSpan.Zero)
+        {
+            cancellation.CancelAfter(timeout);
+        }
+
+        return cancellation;
+    }
+
     private async Task stopIfRunningAsync(string shardIdentity)
     {
         if (_agents.TryFind(shardIdentity, out var agent))
         {
-            var cancellation = new CancellationTokenSource();
-            cancellation.CancelAfter(5.Seconds());
+            using var cancellation = stopAndDrainCancellation();
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token, _cancellation.Token);
 
             try
@@ -776,8 +793,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
             try
             {
-                var cancellation = new CancellationTokenSource();
-                cancellation.CancelAfter(5.Seconds());
+                using var cancellation = stopAndDrainCancellation();
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token, _cancellation.Token);
 
                 try
@@ -878,8 +894,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         {
             await _highWater.StopAsync().ConfigureAwait(false);
 
-            var cancellation = new CancellationTokenSource();
-            cancellation.CancelAfter(5.Seconds());
+            using var cancellation = stopAndDrainCancellation();
             try
             {
                 var activeAgents = _agents.Enumerate().Select(x => x.Value).Where(x => x.Status == AgentStatus.Running)

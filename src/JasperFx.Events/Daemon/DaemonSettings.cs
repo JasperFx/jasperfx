@@ -41,6 +41,15 @@ public interface IReadOnlyDaemonSettings
     TimeSpan HighWaterStalenessThreshold { get; }
 
     /// <summary>
+    ///     How long the daemon will wait for a single subscription or projection shard to gracefully
+    ///     finish its in-flight page and flush its progression when that agent is stopped. Exceeding
+    ///     this bound cancels the drain mid-flight, which abandons the progression flush. The default
+    ///     is 5 seconds. <see cref="Timeout.InfiniteTimeSpan"/> or any non-positive value means
+    ///     "no separate bound" — the drain is then only limited by the daemon's own cancellation.
+    /// </summary>
+    TimeSpan StopAndDrainTimeout { get; }
+
+    /// <summary>
     ///     Projection Daemon mode. The default is Disabled
     /// </summary>
     DaemonMode AsyncMode { get; }
@@ -110,6 +119,19 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// If a subscription has been paused for any reason
     /// </summary>
     public TimeSpan AgentPauseTime { get; set; } = 1.Seconds();
+
+    /// <summary>
+    ///     jasperfx#564: how long the daemon will wait for a single subscription or projection shard to
+    ///     gracefully finish its in-flight page and flush its progression when that agent is stopped
+    ///     (StopAgentAsync, StopAllAsync, and the internal stop-if-running replacement path). Exceeding
+    ///     this bound cancels the drain mid-flight, abandoning the progression flush — which surfaces as
+    ///     a <see cref="ProgressionProgressOutOfOrderException"/> on the next start. Deployments with a
+    ///     large agent universe (e.g. database-per-tenant with thousands of shards) and a generous
+    ///     termination grace period can raise this to match. The default is 5 seconds.
+    ///     <see cref="Timeout.InfiniteTimeSpan"/> or any non-positive value means "no separate bound" —
+    ///     the drain is then only limited by the daemon's own cancellation.
+    /// </summary>
+    public TimeSpan StopAndDrainTimeout { get; set; } = 5.Seconds();
 
     /// <summary>
     ///     Projection Daemon mode. The default is Disabled.
