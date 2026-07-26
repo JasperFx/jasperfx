@@ -15,9 +15,17 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 {
     private readonly Block<ShardState> _block;
     private readonly ILogger _logger;
-    private readonly IDisposable _subscription;
+
+    // jasperfx#572: _listeners and _states are mutated from arbitrary publisher threads, from watcher
+    // threads subscribing, and from the block's consumer thread. One lock over both of them is what makes
+    // "subscribe, then read the snapshot" atomic with respect to "record the state, then hand it to the
+    // listeners that existed at that moment" -- see the comment on SubscribeAndCaptureCurrentStates.
+    // They were also both read-modify-write on plain fields before, so two concurrent Subscribe calls
+    // could silently lose one of the subscribers outright.
+    private readonly object _lock = new();
     private ImmutableList<IObserver<ShardState>> _listeners = ImmutableList<IObserver<ShardState>>.Empty;
     private ImHashMap<string, ShardState> _states = ImHashMap<string, ShardState>.Empty;
+    private long _highWaterMark;
 
     public ShardStateTracker(ILogger logger)
     {
@@ -25,15 +33,17 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         _block = new Block<ShardState>(publish);
         _block.OnError = (state, ex) =>
             _logger.LogError(ex, "Failure while publishing shard state {State}", state);
-
-        _subscription = Subscribe(this);
     }
 
     /// <summary>
     ///     Currently known "high water mark" denoting the highest complete sequence
     ///     of the event storage
     /// </summary>
-    public long HighWaterMark { get; private set; }
+    public long HighWaterMark
+    {
+        get => Volatile.Read(ref _highWaterMark);
+        private set => Volatile.Write(ref _highWaterMark, value);
+    }
 
     /// <summary>
     ///     <see cref="IEventDatabase.Identifier" /> of the database this tracker belongs to. Stamped onto every
@@ -57,7 +67,6 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     void IDisposable.Dispose()
     {
-        _subscription.Dispose();
         _block.Complete();
     }
 
@@ -69,13 +78,50 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     /// <returns></returns>
     public IDisposable Subscribe(IObserver<ShardState> observer)
     {
-        if (!_listeners.Contains(observer))
+        lock (_lock)
         {
-            _listeners = _listeners.Add(observer);
+            addListener(observer);
         }
 
         return new Unsubscriber(this, observer);
     }
+
+    /// <summary>
+    ///     jasperfx#572: subscribe an observer AND read the current state snapshot as one atomic step with
+    ///     respect to publication. A watcher has two ways to learn that its shard reached a sequence — an
+    ///     <see cref="IObserver{T}.OnNext" /> from the publication walk, or the snapshot it reads right
+    ///     after subscribing — and it must never fall between them. Doing the two separately left exactly
+    ///     that hole: the walk could capture the listener list (missing the watcher) and the watcher could
+    ///     then read the snapshot before that state was recorded, so neither path saw it. If nothing
+    ///     further was ever published for that shard — a high water agent that has reached the head has
+    ///     nothing left to detect — the wait could only end in a timeout, however generous.
+    ///     Taking the same lock <see cref="PublishAsync" /> uses to record the state and <see cref="publish" />
+    ///     uses to capture its listener list totally orders the two sides: either this call wins the lock,
+    ///     and the walk that follows sees the new listener, or the publication wins and the state is in the
+    ///     snapshot returned here.
+    /// </summary>
+    internal IDisposable SubscribeAndCaptureCurrentStates(IObserver<ShardState> observer,
+        out IReadOnlyList<ShardState> currentStates)
+    {
+        lock (_lock)
+        {
+            addListener(observer);
+            currentStates = snapshot();
+        }
+
+        return new Unsubscriber(this, observer);
+    }
+
+    private void addListener(IObserver<ShardState> observer)
+    {
+        if (!_listeners.Contains(observer))
+        {
+            _listeners = _listeners.Add(observer);
+        }
+    }
+
+    private IReadOnlyList<ShardState> snapshot()
+        => _states.Enumerate().Select(x => x.Value).ToList();
 
     void IObserver<ShardState>.OnCompleted()
     {
@@ -85,9 +131,23 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     {
     }
 
+    /// <summary>
+    ///     Only reachable by wiring this tracker up as an observer of some other observable. The tracker no
+    ///     longer subscribes to itself to maintain its own state map — <see cref="PublishAsync" /> records
+    ///     the state synchronously instead, so the map is never behind a publication the caller has already
+    ///     made (jasperfx#572).
+    /// </summary>
     void IObserver<ShardState>.OnNext(ShardState value)
     {
-        _states = _states.AddOrUpdate(value.ShardName, value);
+        recordState(value);
+    }
+
+    private void recordState(ShardState state)
+    {
+        lock (_lock)
+        {
+            _states = _states.AddOrUpdate(state.ShardName, state);
+        }
     }
 
     public ValueTask PublishAsync(ShardState state)
@@ -108,6 +168,13 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         {
             state.AssignedNodeNumber = AssignedNodeNumber;
         }
+
+        // jasperfx#572: record the state BEFORE handing it to the block. Delivery to the listeners stays
+        // asynchronous, but "what the tracker knows" is now synchronous with the caller, so a snapshot read
+        // can never lag a publication that has already happened. This used to be done by the tracker's own
+        // OnNext on the consumer thread, which put the map update *after* the point at which a watcher
+        // could subscribe too late for the walk.
+        recordState(state);
 
         return _block.PostAsync(state);
     }
@@ -155,7 +222,12 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     /// </summary>
     /// <param name="shardName">The raw <see cref="ShardName.Identity" />, or <see cref="ShardState.HighWaterMark" />.</param>
     public ShardState? CurrentState(string shardName)
-        => _states.TryFind(shardName, out var state) ? state : null;
+    {
+        lock (_lock)
+        {
+            return _states.TryFind(shardName, out var state) ? state : null;
+        }
+    }
 
     /// <summary>
     ///     <see cref="CurrentState(string)" /> for a strongly typed shard name.
@@ -177,7 +249,12 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     ///     underlying map is immutable, so a concurrent publication can't disturb the returned list.
     /// </summary>
     public IReadOnlyList<ShardState> CurrentStates()
-        => _states.Enumerate().Select(x => x.Value).ToList();
+    {
+        lock (_lock)
+        {
+            return snapshot();
+        }
+    }
 
     /// <summary>
     ///     Use to "wait" for an expected projection shard state. Safe to call after the state has already
@@ -189,12 +266,10 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     /// <returns></returns>
     public Task<ShardState> WaitForShardState(ShardState expected, TimeSpan? timeout = null)
     {
-        if (_states.TryFind(expected.ShardName, out var state))
+        var state = CurrentState(expected.ShardName);
+        if (state != null && (state.Equals(expected) || state.Sequence >= expected.Sequence))
         {
-            if (state.Equals(expected) || state.Sequence >= expected.Sequence)
-            {
-                return Task.FromResult(state);
-            }
+            return Task.FromResult(state);
         }
 
         timeout ??= 1.Minutes();
@@ -223,12 +298,10 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     /// <returns></returns>
     public Task<ShardState> WaitForShardState(ShardName name, long sequence, TimeSpan? timeout = null)
     {
-        if (_states.TryFind(name.Identity, out var state))
+        var state = CurrentState(name.Identity);
+        if (state != null && state.Sequence >= sequence)
         {
-            if (state.Sequence >= sequence)
-            {
-                return Task.FromResult(state);
-            }
+            return Task.FromResult(state);
         }
 
         return WaitForShardState(new ShardState(name.Identity, sequence), timeout);
@@ -277,7 +350,17 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
             _logger.LogDebug("Received {ShardState}", state);
         }
 
-        foreach (var observer in _listeners)
+        // The listener list is captured under the same lock that records state and that a subscribing
+        // watcher takes, so this walk and "subscribe then read the snapshot" are totally ordered against
+        // each other (jasperfx#572). Notification itself stays outside the lock -- an observer is arbitrary
+        // user code and must never be able to deadlock the tracker by publishing or subscribing from OnNext.
+        ImmutableList<IObserver<ShardState>> listeners;
+        lock (_lock)
+        {
+            listeners = _listeners;
+        }
+
+        foreach (var observer in listeners)
         {
             try
             {
@@ -294,7 +377,13 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     public void Finish()
     {
-        foreach (var observer in _listeners)
+        ImmutableList<IObserver<ShardState>> listeners;
+        lock (_lock)
+        {
+            listeners = _listeners;
+        }
+
+        foreach (var observer in listeners)
         {
             try
             {
@@ -309,7 +398,10 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     public void MarkAsRestarted(ShardName name)
     {
-        _states = _states.Remove(name.Identity);
+        lock (_lock)
+        {
+            _states = _states.Remove(name.Identity);
+        }
     }
 
     private class Unsubscriber: IDisposable
@@ -327,7 +419,10 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         {
             if (_observer != null)
             {
-                _tracker._listeners = _tracker._listeners.Remove(_observer);
+                lock (_tracker._lock)
+                {
+                    _tracker._listeners = _tracker._listeners.Remove(_observer);
+                }
             }
         }
     }

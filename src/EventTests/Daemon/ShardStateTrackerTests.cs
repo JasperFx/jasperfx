@@ -419,4 +419,168 @@ public class ShardStateTrackerTests : IDisposable
 
         (await waiter).ShardName.ShouldBe("Trip:All");
     }
+
+    // jasperfx#572 — #568 narrowed the lost-wakeup window but could not close it, because the snapshot the
+    // watcher re-checked was itself written by the very publication walk it was racing: the tracker
+    // subscribed itself first and updated its state map from OnNext on the block's consumer thread. A
+    // watcher could subscribe too late for the walk AND read the snapshot before that walk recorded the
+    // state, so neither path saw it. The tracker now records the state synchronously in PublishAsync, and
+    // subscribe-then-snapshot happens under the same lock as record-then-capture-listeners.
+
+    [Fact]
+    public async Task the_state_map_is_never_behind_a_publication_the_caller_has_already_made()
+    {
+        // This is the invariant the fix rests on: once PublishAsync has returned, no reader can be told
+        // that the tracker has never heard of the shard. Previously the map was only updated when the
+        // consumer thread got around to walking the listeners.
+        await theTracker.PublishAsync(new ShardState("Trip:All", 45) { AgentStatus = "Running" });
+
+        theTracker.CurrentState("Trip:All").ShouldNotBeNull().Sequence.ShouldBe(45);
+        theTracker.CurrentStates().ShouldContain(x => x.ShardName == "Trip:All");
+    }
+
+    [Fact]
+    public async Task the_state_map_does_not_regress_to_an_older_state_still_in_flight()
+    {
+        // The old arrangement had two writers of the map racing: PublishAsync's caller and the consumer
+        // thread replaying an earlier state. A snapshot read could briefly go backwards.
+        await theTracker.PublishAsync(new ShardState("Trip:All", 10));
+        await theTracker.PublishAsync(new ShardState("Trip:All", 45));
+
+        theTracker.CurrentState("Trip:All").ShouldNotBeNull().Sequence.ShouldBe(45);
+    }
+
+    [Fact]
+    public async Task watcher_sees_a_state_that_is_published_but_not_yet_delivered()
+    {
+        // The deterministic form of #572: park the tracker's single consumer thread inside a delivery so
+        // the *next* publication is provably queued and un-walked, then set up a wait for it. Nothing can
+        // ever arrive at OnNext while the gate is shut, so the watcher must find it in the snapshot or
+        // burn its whole timeout on a mark that has already been reached.
+        var gate = new ManualResetEventSlim(false);
+        var blocker = new BlockingObserver(gate);
+        theTracker.Subscribe(blocker);
+
+        var parked = parkTheDeliveryThread(blocker);
+        try
+        {
+            await theTracker.PublishAsync(new ShardState("Trip:All", 45) { AgentStatus = "Running" });
+
+            // Straight at the watcher — WaitForShardState's own pre-check would otherwise mask which
+            // half of the fix is doing the work.
+            var watcher = new ShardStatusWatcher(theTracker, new ShardState("Trip:All", 45), 5.Seconds());
+
+            watcher.Task.IsCompleted.ShouldBeTrue();
+            (await watcher.Task).Sequence.ShouldBe(45);
+        }
+        finally
+        {
+            gate.Set();
+            await parked;
+        }
+    }
+
+    [Fact]
+    public async Task wait_for_shard_condition_sees_a_state_that_is_published_but_not_yet_delivered()
+    {
+        var gate = new ManualResetEventSlim(false);
+        var blocker = new BlockingObserver(gate);
+        theTracker.Subscribe(blocker);
+
+        var parked = parkTheDeliveryThread(blocker);
+        try
+        {
+            await theTracker.PublishAsync(new ShardState("Trip:All", 45) { AgentStatus = "Paused" });
+
+            var waiter = theTracker.WaitForShardCondition(
+                x => x.ShardName == "Trip:All" && x.AgentStatus == "Paused", "Trip:All is paused", 5.Seconds());
+
+            waiter.IsCompleted.ShouldBeTrue();
+            (await waiter).AgentStatus.ShouldBe("Paused");
+        }
+        finally
+        {
+            gate.Set();
+            await parked;
+        }
+    }
+
+    /// <summary>
+    /// Publish the sentinel "Blocker" state from a pool thread and return once its delivery has parked.
+    /// The block's channel allows synchronous continuations, so whichever thread posts an item may be the
+    /// one that runs the delivery — publishing this from the test's own thread would park the test itself.
+    /// Once it is parked, nothing further can be delivered until the gate opens.
+    /// </summary>
+    private Task parkTheDeliveryThread(BlockingObserver blocker)
+    {
+        var parked = Task.Run(async () => await theTracker.PublishAsync(new ShardState("Blocker", 1)));
+        blocker.Entered.Wait(10.Seconds()).ShouldBeTrue("The 'Blocker' state was never delivered");
+        return parked;
+    }
+
+    [Fact]
+    public async Task publish_then_wait_from_another_thread_never_loses_the_wakeup()
+    {
+        // The shape Marten's HighWaterAgentTests hit: a publication in flight on one thread while the wait
+        // is being set up on another, and nothing further is ever published for that shard. Repeat it
+        // enough times to land inside the old window.
+        for (var i = 0; i < 200; i++)
+        {
+            using var tracker = new ShardStateTracker(new NulloLogger());
+            var ready = new ManualResetEventSlim(false);
+
+            var publisher = Task.Run(async () =>
+            {
+                ready.Wait();
+                await tracker.PublishAsync(new ShardState("Trip:All", 45) { AgentStatus = "Running" });
+            });
+
+            ready.Set();
+
+            var state = await tracker.WaitForShardState("Trip:All", 45, 10.Seconds());
+            state.Sequence.ShouldBe(45);
+
+            await publisher;
+        }
+    }
+
+    [Fact]
+    public async Task concurrent_subscribers_are_never_silently_dropped()
+    {
+        // Subscribe was a read-modify-write on a plain field, so two threads adding themselves at once
+        // could leave one of them off the list entirely — a permanently lost wakeup, not a delayed one.
+        var observers = Enumerable.Range(0, 100).Select(_ => new Observer()).ToArray();
+
+        Parallel.ForEach(observers, observer => theTracker.Subscribe(observer));
+
+        await theTracker.PublishAsync(new ShardState("Trip:All", 45));
+        await theTracker.Complete();
+
+        observers.ShouldAllBe(x => x.States.Count == 1);
+    }
+
+    /// <summary>
+    /// Occupies the tracker's consumer thread inside a delivery until released, so a test can prove a
+    /// following publication has not been walked yet.
+    /// </summary>
+    private class BlockingObserver(ManualResetEventSlim gate) : IObserver<ShardState>
+    {
+        public readonly ManualResetEventSlim Entered = new(false);
+
+        public void OnCompleted()
+        {
+        }
+
+        public void OnError(Exception error)
+        {
+        }
+
+        public void OnNext(ShardState value)
+        {
+            if (value.ShardName != "Blocker") return;
+
+            Entered.Set();
+            gate.Wait(30.Seconds());
+        }
+    }
 }
