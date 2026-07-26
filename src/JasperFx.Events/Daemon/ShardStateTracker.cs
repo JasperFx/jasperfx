@@ -180,7 +180,9 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         => _states.Enumerate().Select(x => x.Value).ToList();
 
     /// <summary>
-    ///     Use to "wait" for an expected projection shard state
+    ///     Use to "wait" for an expected projection shard state. Safe to call after the state has already
+    ///     been published — the returned task completes immediately from the current state snapshot rather
+    ///     than waiting on the next publication. See jasperfx#568.
     /// </summary>
     /// <param name="expected"></param>
     /// <param name="timeout"></param>
@@ -233,7 +235,9 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     }
 
     /// <summary>
-    ///     Use to "wait" for an expected projection shard condition
+    ///     Use to "wait" for an expected projection shard condition. The condition is evaluated against
+    ///     every state this tracker has already seen before waiting on new publications, so a condition
+    ///     that is already satisfied completes immediately. See jasperfx#568.
     /// </summary>
     /// <param name="condition"></param>
     /// <param name="description"></param>
