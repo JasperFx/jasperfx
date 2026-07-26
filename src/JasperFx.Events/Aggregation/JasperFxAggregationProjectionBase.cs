@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -71,6 +72,49 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     }
 
     public NaturalKeyDefinition? NaturalKeyDefinition { get; }
+
+    /// <summary>
+    ///     Explicitly register how the natural key of <typeparamref name="TDoc" /> is derived from events,
+    ///     bypassing (or correcting) <c>[NaturalKeySource]</c> attribute discovery:
+    ///     <code>
+    ///     NaturalKeyFor(x => x
+    ///         .SetBy&lt;ProductRegistered&gt;(e => new ProductCode(e.Code))
+    ///         .SetByEvent&lt;ProductCodeChanged&gt;(e => new ProductCode(e.Data.NewCode)));
+    ///     </code>
+    ///     An explicit registration replaces whatever discovery found for the same event type, and clears
+    ///     the configuration-time error a method that could not be bound would otherwise raise. The key
+    ///     has to be a function of the event alone — the lookup table is maintained inline as events are
+    ///     appended, where no prior aggregate exists. See jasperfx#569.
+    /// </summary>
+    public void NaturalKeyFor(Action<NaturalKeyBuilder<TDoc>> configure)
+    {
+        if (NaturalKeyDefinition == null)
+        {
+            throw new InvalidProjectionException(
+                $"{typeof(TDoc).FullNameInCode()} has no property marked with [NaturalKey], so there is no natural key to configure.");
+        }
+
+        configure(new NaturalKeyBuilder<TDoc>(NaturalKeyDefinition));
+    }
+
+    /// <summary>
+    ///     jasperfx#569: a [NaturalKeySource] method that discovery could not turn into a key extraction
+    ///     used to be swallowed whole — no mapping, no log, no error — and the user found out when the
+    ///     natural key lookup silently returned null for events of that type. Fail at configuration time
+    ///     instead, naming the method and the reason.
+    /// </summary>
+    private void assertNaturalKeyValidity()
+    {
+        if (NaturalKeyDefinition == null || NaturalKeyDefinition.DiscoveryProblems.Count == 0) return;
+
+        var problems = NaturalKeyDefinition.DiscoveryProblems
+            .Select(x => "  * " + x)
+            .Join(System.Environment.NewLine);
+
+        throw new InvalidProjectionException(
+            $"Unable to derive the natural key '{typeof(TDoc).FullNameInCode()}.{NaturalKeyDefinition.Member.Name}' from every [NaturalKeySource] method on {GetType().FullNameInCode()}:{System.Environment.NewLine}{problems}{System.Environment.NewLine}" +
+            $"Either give the method a signature that derives the key from the event alone — a static method returning {NaturalKeyDefinition.OuterType.FullNameInCode()} that takes the event or IEvent<T> — or register the mapping explicitly with NaturalKeyFor(x => x.SetBy<TEvent>(...)).");
+    }
 
     public Type ImplementationType => GetType();
     public SubscriptionType Type { get; }
@@ -378,6 +422,10 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     
     public override void AssembleAndAssertValidity()
     {
+        // Ahead of everything else, and outside the source-generated short circuit below: natural key
+        // discovery is independent of how the aggregation itself is dispatched.
+        assertNaturalKeyValidity();
+
         // If a source-generated evolver was found (either for Apply/Create or Evolve/EvolveAsync),
         // skip conventional method validation — the evolver handles everything
         if (_generatedEvolverEventTypes != null)
@@ -673,6 +721,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return definition;
     }
 
+    private static readonly PropertyInfo _eventDataProperty =
+        typeof(IEvent).GetProperty(nameof(IEvent.Data))!;
+
     private static void discoverNaturalKeySourceMethods(
         NaturalKeyDefinition definition,
         PropertyInfo naturalKeyProp,
@@ -686,156 +737,344 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         foreach (var method in methods)
         {
             var parameters = method.GetParameters();
-            if (parameters.Length == 0) continue;
 
-            // Determine the event type from the first parameter.
-            // It can be the raw event type or IEvent<T>.
-            var firstParamType = parameters[0].ParameterType;
-            Type eventType;
-            if (firstParamType.IsGenericType &&
-                firstParamType.GetGenericTypeDefinition() == typeof(IEvent<>))
+            var eventType = determineEventType(parameters, docType);
+            if (eventType == null)
             {
-                eventType = firstParamType.GetGenericArguments()[0];
-            }
-            else if (typeof(IEvent).IsAssignableFrom(firstParamType))
-            {
-                eventType = firstParamType;
-            }
-            else
-            {
-                eventType = firstParamType;
+                definition.RecordProblem(method, method.DeclaringType ?? searchType,
+                    "no event parameter could be identified — a [NaturalKeySource] method has to accept the event, either as the event type itself or as IEvent<T>");
+                continue;
             }
 
             // Skip if we already have a mapping for this event type
-            if (definition.EventMappings.Any(m => m.EventType == eventType))
-                continue;
+            if (definition.HasMappingFor(eventType)) continue;
 
             try
             {
-                var extractor = buildExtractor(method, naturalKeyProp, docType, parameters);
+                var extractor = buildExtractor(method, naturalKeyProp, docType, parameters, eventType,
+                    out var reason);
                 if (extractor != null)
                 {
-                    definition.EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor));
-                }
-            }
-            catch
-            {
-                // Silently skip methods we can't build extractors for
-            }
-        }
-    }
-
-    private static Func<object, object?>? buildExtractor(
-        MethodInfo method,
-        PropertyInfo naturalKeyProp,
-        Type docType,
-        ParameterInfo[] parameters)
-    {
-        var eventParam = Expression.Parameter(typeof(object), "e");
-        var firstParamType = parameters[0].ParameterType;
-
-        // For instance methods on the aggregate (the original working pattern):
-        // Create a new TDoc, call the method, read the natural key property
-        if (!method.IsStatic && method.DeclaringType == docType)
-        {
-            var eventType = firstParamType;
-            var docParam = Expression.Variable(docType, "doc");
-
-            var body = Expression.Block(
-                [docParam],
-                Expression.Assign(docParam, Expression.New(docType)),
-                Expression.Call(docParam, method, Expression.Convert(eventParam, eventType)),
-                Expression.Convert(Expression.Property(docParam, naturalKeyProp), typeof(object))
-            );
-
-            return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
-        }
-
-        // For static methods on the aggregate itself that return a TDoc, call the method
-        // and read the natural key property off the returned aggregate. This covers BOTH:
-        //   * the self-aggregating create factory (JasperFx/marten#4277):
-        //       public static TDoc Create(TEvent e) => new TDoc(...);
-        //   * an evolve/update method that CHANGES the natural key (JasperFx/marten#4966):
-        //       public static TDoc Apply(TEvent e, TDoc current) => current with { Key = ... };
-        // Build one argument per parameter: the event parameter receives the raw event data
-        // (converted); a TDoc parameter (the prior aggregate in an evolve method) receives a
-        // fresh default aggregate, mirroring the instance-method branch above. Only the event
-        // data reaches the extractor (NaturalKeyProjection passes @event.Data), so a parameter
-        // that needs IEvent<T> metadata — or a doc type without a public parameterless ctor —
-        // can't be satisfied here; in that case fall through to the property-matching fallback.
-        if (method.IsStatic && method.DeclaringType == docType && method.ReturnType == docType)
-        {
-            var callArgs = new Expression[parameters.Length];
-            var eventArgBound = false;
-            var canCall = true;
-
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                var paramType = parameters[i].ParameterType;
-                var isIEvent = paramType.IsGenericType
-                    && paramType.GetGenericTypeDefinition() == typeof(IEvent<>);
-
-                if (paramType == docType && docType.GetConstructor(System.Type.EmptyTypes) != null)
-                {
-                    callArgs[i] = Expression.New(docType);
-                }
-                else if (!eventArgBound && paramType != docType && !isIEvent)
-                {
-                    callArgs[i] = Expression.Convert(eventParam, paramType);
-                    eventArgBound = true;
+                    definition.AddOrReplaceMapping(eventType, extractor);
                 }
                 else
                 {
-                    canCall = false;
-                    break;
+                    definition.RecordProblem(method, eventType, reason!);
                 }
             }
-
-            if (canCall && eventArgBound)
+            catch (Exception e)
             {
-                var body = Expression.Convert(
-                    Expression.Property(
-                        Expression.Call(method, callArgs),
-                        naturalKeyProp),
-                    typeof(object));
+                // jasperfx#569: this used to be a bare `catch { }`, so a method that could not be bound
+                // produced no mapping, no log, and no configuration-time error — the natural key lookup
+                // table was simply never written for that event type, and the user found out when
+                // FetchLatest returned null. Keep the failure, and make validation report it.
+                definition.RecordProblem(method, eventType,
+                    $"building a key extraction failed with {e.GetType().Name}: {e.Message}");
+            }
+        }
+    }
 
-                return Expression.Lambda<Func<object, object?>>(body, eventParam).Compile();
+    /// <summary>
+    /// Which event does this [NaturalKeySource] method handle? The event can arrive as the event type
+    /// itself or as IEvent&lt;T&gt;, and it is not necessarily the first parameter — an evolve method
+    /// may take the prior aggregate first.
+    /// </summary>
+    private static Type? determineEventType(ParameterInfo[] parameters, Type docType)
+    {
+        foreach (var parameter in parameters)
+        {
+            var parameterType = parameter.ParameterType;
+
+            if (parameterType.IsGenericType && parameterType.GetGenericTypeDefinition() == typeof(IEvent<>))
+            {
+                return parameterType.GetGenericArguments()[0];
+            }
+
+            // The prior aggregate, and a bare IEvent, both say nothing about which event this handles.
+            if (parameterType == docType || parameterType == typeof(IEvent)) continue;
+
+            return parameterType;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Compile the "derive this event's natural key value" function for one [NaturalKeySource] method.
+    /// The extractor receives the whole <see cref="IEvent" /> (jasperfx#569), which is what makes an
+    /// IEvent&lt;T&gt; handler bindable at all. Preference order, most trustworthy first:
+    ///   1. a static method that IS a key extraction — it returns the natural key type and is a pure
+    ///      function of the event, so nothing has to be fabricated;
+    ///   2. a property of the natural key type carried directly on the event body;
+    ///   3. invoking the user's aggregation method against a fabricated blank aggregate.
+    /// (3) is the legacy path and stays last for a reason: it runs user code against an aggregate that
+    /// was never built by any constructor the user wrote, so a handler body that touches any state other
+    /// than the key throws — out of the extractor, out of the inline natural key maintenance, and out of
+    /// the caller's SaveChangesAsync. It is now gated on the aggregate being safely constructible. Note
+    /// that whatever path is used, the key is derived from the event alone: Marten maintains the lookup
+    /// table inline at append time, where no prior aggregate exists under an Async snapshot lifecycle, so
+    /// a key that depends on prior aggregate state is not expressible here.
+    /// </summary>
+    private static Func<IEvent, object?>? buildExtractor(
+        MethodInfo method,
+        PropertyInfo naturalKeyProp,
+        Type docType,
+        ParameterInfo[] parameters,
+        Type eventType,
+        out string? reason)
+    {
+        reason = null;
+
+        var keyType = naturalKeyProp.PropertyType;
+        var eventParam = Expression.Parameter(typeof(IEvent), "e");
+        var blockers = new List<string>();
+
+        // 1. The dedicated key extraction signature: static, returns the natural key type, and every
+        //    parameter comes off the event. Nothing is fabricated and no user aggregation code runs.
+        //      [NaturalKeySource] public static Code KeyFor(CodeChanged e) => new Code(e.NewCode);
+        //      [NaturalKeySource] public static Code KeyFor(IEvent<CodeChanged> e) => ...;
+        if (method.IsStatic && method.ReturnType == keyType)
+        {
+            if (tryBindArguments(eventParam, parameters, eventType, docType, null, out var keyArgs,
+                    out var blocker))
+            {
+                return compile(Expression.Convert(Expression.Call(method, keyArgs!), typeof(object)),
+                    eventParam);
+            }
+
+            blockers.Add(blocker!);
+        }
+
+        // 2. The natural key value carried directly on the event body.
+        var fromEventBody = tryReadKeyOffTheEvent(eventParam, eventType, naturalKeyProp, out var matchBlocker);
+        if (fromEventBody != null)
+        {
+            return compile(fromEventBody, eventParam);
+        }
+
+        if (matchBlocker != null) blockers.Add(matchBlocker);
+
+        // 3. Last resort: run the user's aggregation method against a fabricated aggregate.
+        var fabricated = tryInvokeAgainstFabricatedAggregate(method, naturalKeyProp, docType, parameters,
+            eventType, eventParam, out var fabricationBlocker);
+        if (fabricated != null)
+        {
+            return compile(fabricated, eventParam);
+        }
+
+        if (fabricationBlocker != null) blockers.Add(fabricationBlocker);
+
+        reason = blockers.Any()
+            ? blockers.Join("; ")
+            : $"no way to derive a {keyType.FullNameInCode()} from a {eventType.FullNameInCode()} could be determined from this signature";
+
+        return null;
+    }
+
+    /// <summary>
+    /// Bind one argument per parameter out of the <see cref="IEvent" /> the extractor is handed.
+    /// <paramref name="fabricatedAggregate" /> is non-null only on the fabricated-aggregate path; a
+    /// TDoc parameter is otherwise unbindable, which is exactly what keeps path (1) honest.
+    /// </summary>
+    private static bool tryBindArguments(
+        ParameterExpression eventParam,
+        ParameterInfo[] parameters,
+        Type eventType,
+        Type docType,
+        Expression? fabricatedAggregate,
+        out Expression[]? arguments,
+        out string? blocker)
+    {
+        var args = new Expression[parameters.Length];
+
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var parameterType = parameters[i].ParameterType;
+
+            if (parameterType.IsGenericType && parameterType.GetGenericTypeDefinition() == typeof(IEvent<>))
+            {
+                args[i] = Expression.Convert(eventParam, parameterType);
+            }
+            else if (parameterType == typeof(IEvent))
+            {
+                args[i] = eventParam;
+            }
+            else if (parameterType == docType)
+            {
+                if (fabricatedAggregate == null)
+                {
+                    arguments = null;
+                    blocker =
+                        $"parameter '{parameters[i].Name}' is the prior {docType.FullNameInCode()}, which is not available when the natural key is derived from the event alone";
+                    return false;
+                }
+
+                args[i] = fabricatedAggregate;
+            }
+            else if (parameterType.IsAssignableFrom(eventType))
+            {
+                args[i] = Expression.Convert(Expression.Property(eventParam, _eventDataProperty), parameterType);
+            }
+            else
+            {
+                arguments = null;
+                blocker =
+                    $"parameter '{parameters[i].Name}' of type {parameterType.FullNameInCode()} cannot be supplied from the event";
+                return false;
             }
         }
 
-        // For static methods on the projection class, we can't safely call them
-        // (they may need IEvent with StreamKey, etc.). Instead, find a matching
-        // property on the event data type and read it directly.
-        Type eventDataType;
-        if (firstParamType.IsGenericType && firstParamType.GetGenericTypeDefinition() == typeof(IEvent<>))
+        arguments = args;
+        blocker = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Read the natural key straight off the event body when the event carries a property of the key's
+    /// type. A single candidate is unambiguous; several are only usable when one of them shares the name
+    /// of the natural key property, because silently taking the first declared one is how an event that
+    /// carries both an old and a new key gets the wrong answer.
+    /// </summary>
+    private static Expression? tryReadKeyOffTheEvent(
+        ParameterExpression eventParam,
+        Type eventType,
+        PropertyInfo naturalKeyProp,
+        out string? blocker)
+    {
+        blocker = null;
+
+        var candidates = eventType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.PropertyType == naturalKeyProp.PropertyType && p.GetMethod != null)
+            .ToArray();
+
+        if (candidates.Length == 0) return null;
+
+        var chosen = candidates.Length == 1
+            ? candidates[0]
+            : candidates.FirstOrDefault(p =>
+                string.Equals(p.Name, naturalKeyProp.Name, StringComparison.OrdinalIgnoreCase));
+
+        if (chosen == null)
         {
-            eventDataType = firstParamType.GetGenericArguments()[0];
+            blocker =
+                $"{eventType.FullNameInCode()} carries more than one {naturalKeyProp.PropertyType.FullNameInCode()} property ({candidates.Select(x => x.Name).Join(", ")}) and none of them is named '{naturalKeyProp.Name}', so which one is the natural key is ambiguous";
+            return null;
         }
-        else if (firstParamType == docType && parameters.Length >= 2)
+
+        return Expression.Convert(
+            Expression.Property(
+                Expression.Convert(Expression.Property(eventParam, _eventDataProperty), eventType),
+                chosen),
+            typeof(object));
+    }
+
+    /// <summary>
+    /// The legacy path: build a blank TDoc, run the user's own Create/Apply method against it, and read
+    /// the natural key back off the result. Covers the self-aggregating create factory (marten#4277) and
+    /// the static evolve method that changes the key (marten#4966). Gated on TDoc being safely
+    /// constructible, since <c>Expression.New</c> bypasses required-member enforcement and hands the
+    /// user's method an aggregate that no constructor of theirs ever produced (marten#5041).
+    /// </summary>
+    private static Expression? tryInvokeAgainstFabricatedAggregate(
+        MethodInfo method,
+        PropertyInfo naturalKeyProp,
+        Type docType,
+        ParameterInfo[] parameters,
+        Type eventType,
+        ParameterExpression eventParam,
+        out string? blocker)
+    {
+        var needsAggregate = !method.IsStatic || parameters.Any(x => x.ParameterType == docType);
+
+        if (needsAggregate && !canSafelyFabricate(docType, out blocker))
         {
-            var secondType = parameters[1].ParameterType;
-            eventDataType = secondType.IsGenericType && secondType.GetGenericTypeDefinition() == typeof(IEvent<>)
-                ? secondType.GetGenericArguments()[0]
-                : secondType;
+            return null;
+        }
+
+        if (!method.IsStatic && method.DeclaringType != docType)
+        {
+            blocker =
+                $"it is an instance method on {method.DeclaringType?.FullNameInCode()}, which discovery has no instance of — make it static, or register the mapping explicitly with NaturalKeyFor()";
+            return null;
+        }
+
+        var docVariable = Expression.Variable(docType, "doc");
+
+        if (!tryBindArguments(eventParam, parameters, eventType, docType, docVariable, out var args,
+                out blocker))
+        {
+            return null;
+        }
+
+        var call = method.IsStatic
+            ? Expression.Call(method, args!)
+            : Expression.Call(docVariable, method, args!);
+
+        var statements = new List<Expression>();
+        if (needsAggregate)
+        {
+            statements.Add(Expression.Assign(docVariable, Expression.New(docType)));
+        }
+
+        Expression keyExpression;
+        if (method.ReturnType == naturalKeyProp.PropertyType)
+        {
+            // e.g. an instance method on the aggregate that simply returns the key
+            keyExpression = call;
+        }
+        else if (method.ReturnType == docType)
+        {
+            // The evolve/create shape — read the key off what the method produced, not off the blank.
+            keyExpression = Expression.Property(call, naturalKeyProp);
+        }
+        else if (!method.IsStatic)
+        {
+            // The classic mutating instance Apply — call it, then read the key it set on the aggregate.
+            statements.Add(call);
+            keyExpression = Expression.Property(docVariable, naturalKeyProp);
         }
         else
         {
-            eventDataType = firstParamType;
+            blocker =
+                $"it is static and returns {method.ReturnType.FullNameInCode()}, which is neither the aggregate nor the natural key type {naturalKeyProp.PropertyType.FullNameInCode()}, so there is nothing to read the key from";
+            return null;
         }
 
-        // Search for a property on the event data that matches the natural key by type
-        var eventKeyProp = eventDataType
-            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .FirstOrDefault(p => p.PropertyType == naturalKeyProp.PropertyType);
+        statements.Add(Expression.Convert(keyExpression, typeof(object)));
 
-        if (eventKeyProp == null) return null;
-
-        var body2 = Expression.Convert(
-            Expression.Property(
-                Expression.Convert(eventParam, eventDataType),
-                eventKeyProp),
-            typeof(object));
-
-        return Expression.Lambda<Func<object, object?>>(body2, eventParam).Compile();
+        blocker = null;
+        return Expression.Block([docVariable], statements);
     }
+
+    private static bool canSafelyFabricate(Type docType, out string? blocker)
+    {
+        var constructor = docType.GetConstructor(System.Type.EmptyTypes);
+        if (constructor == null)
+        {
+            blocker =
+                $"deriving the key means calling this method against a blank {docType.FullNameInCode()}, which has no public parameterless constructor";
+            return false;
+        }
+
+        // Expression.New happily ignores `required`, so the user's method would run against an aggregate
+        // with null members that C# itself would never have let them create. That is the marten#5041
+        // ArgumentNullException, thrown out of a plain event append.
+        var hasRequiredMembers =
+            docType.GetCustomAttributes(inherit: true).Any(x => x is RequiredMemberAttribute);
+        var constructorSetsThem =
+            constructor.GetCustomAttributes(inherit: true).Any(x => x is SetsRequiredMembersAttribute);
+
+        if (hasRequiredMembers && !constructorSetsThem)
+        {
+            blocker =
+                $"deriving the key means calling this method against a blank {docType.FullNameInCode()}, but it declares required members that a parameterless constructor cannot satisfy";
+            return false;
+        }
+
+        blocker = null;
+        return true;
+    }
+
+    private static Func<IEvent, object?> compile(Expression body, ParameterExpression eventParam)
+        => Expression.Lambda<Func<IEvent, object?>>(body, eventParam).Compile();
 }
