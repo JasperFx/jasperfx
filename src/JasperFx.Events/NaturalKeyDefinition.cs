@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Reflection;
 using JasperFx.Core.Reflection;
 
@@ -11,14 +12,43 @@ namespace JasperFx.Events;
 /// </summary>
 public class NaturalKeyEventMapping
 {
-    public NaturalKeyEventMapping(Type eventType, Func<object, object?> extractor)
+    public NaturalKeyEventMapping(Type eventType, Func<IEvent, object?> extractor)
     {
         EventType = eventType;
         Extractor = extractor;
     }
 
     public Type EventType { get; }
-    public Func<object, object?> Extractor { get; }
+
+    /// <summary>
+    /// Derives the natural key value carried by a single event. Receives the whole <see cref="IEvent" />
+    /// rather than just <see cref="IEvent.Data" /> (jasperfx#569) so that an <c>IEvent&lt;T&gt;</c> handler
+    /// — a first class signature everywhere else in aggregation discovery — is directly bindable, and so
+    /// that a key derived from event metadata (stream key, timestamp, headers) is expressible at all.
+    /// </summary>
+    public Func<IEvent, object?> Extractor { get; }
+}
+
+/// <summary>
+/// A <c>[NaturalKeySource]</c> method that discovery could not turn into a usable extractor, along with
+/// the reason. Surfaced instead of being swallowed so that projection validation can fail loudly at
+/// configuration time naming the method — see jasperfx#569.
+/// </summary>
+public class NaturalKeySourceProblem
+{
+    public NaturalKeySourceProblem(MethodInfo method, Type eventType, string reason)
+    {
+        Method = method;
+        EventType = eventType;
+        Reason = reason;
+    }
+
+    public MethodInfo Method { get; }
+    public Type EventType { get; }
+    public string Reason { get; }
+
+    public override string ToString()
+        => $"{Method.DeclaringType?.FullNameInCode()}.{Method.Name}() for event {EventType.FullNameInCode()}: {Reason}";
 }
 
 /// <summary>
@@ -31,6 +61,8 @@ public class NaturalKeyEventMapping
     Justification = "Class-level: reflective Type results assigned to DAM-annotated targets during natural-key discovery. Source types preserved at registration.")]
 public class NaturalKeyDefinition
 {
+    private readonly List<NaturalKeySourceProblem> _problems = new();
+
     public NaturalKeyDefinition(Type aggregateType, MemberInfo member)
     {
         AggregateType = aggregateType;
@@ -82,6 +114,41 @@ public class NaturalKeyDefinition
     /// Event-to-key mappings registered via SetBy or [NaturalKeySource].
     /// </summary>
     public List<NaturalKeyEventMapping> EventMappings { get; } = new();
+
+    /// <summary>
+    /// <c>[NaturalKeySource]</c> methods that discovery could not bind, and why. Empty when every
+    /// annotated method produced a mapping. Projection validation turns any leftovers into an
+    /// <c>InvalidProjectionException</c> at configuration time rather than a natural key lookup table
+    /// that is silently never written. See jasperfx#569.
+    /// </summary>
+    public IReadOnlyList<NaturalKeySourceProblem> DiscoveryProblems => _problems;
+
+    /// <summary>
+    /// Is there already a key extraction registered for this event type?
+    /// </summary>
+    public bool HasMappingFor(Type eventType) => EventMappings.Any(x => x.EventType == eventType);
+
+    /// <summary>
+    /// Register (or replace) the key extraction for an event type. Replacing is what lets an explicit
+    /// <see cref="NaturalKeyBuilder{TDoc}" /> registration override — and clear the recorded problem of —
+    /// an attribute-discovered method that discovery could not bind.
+    /// </summary>
+    public void AddOrReplaceMapping(Type eventType, Func<IEvent, object?> extractor)
+    {
+        EventMappings.RemoveAll(x => x.EventType == eventType);
+        EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor));
+        _problems.RemoveAll(x => x.EventType == eventType);
+    }
+
+    /// <summary>
+    /// Record a <c>[NaturalKeySource]</c> method that could not be bound to an extractor.
+    /// </summary>
+    public void RecordProblem(MethodInfo method, Type eventType, string reason)
+    {
+        if (HasMappingFor(eventType)) return;
+
+        _problems.Add(new NaturalKeySourceProblem(method, eventType, reason));
+    }
 
     /// <summary>
     /// Unwrap a natural key value to its inner primitive representation.
