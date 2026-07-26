@@ -149,6 +149,14 @@ public interface IEventDatabase
     ///     <item>Do NOT advance or regress <c>last_seq_id</c>-equivalent progression from this path.
     ///     Progression is owned by the projection batch commit; this write updates only the extended
     ///     telemetry columns, so it can never race a concurrent batch commit into losing progress.</item>
+    ///     <item>jasperfx#565: persist <see cref="ShardState.Failure" /> when it is non-null, and CLEAR the
+    ///     persisted failure when it is null on a <see cref="Daemon.ShardAction.Started" /> state — a
+    ///     recovered shard must not keep reporting the reason it paused an hour ago. The classified fields
+    ///     worth their own columns are <see cref="ShardFailure.Category" />,
+    ///     <see cref="EventFailureDetails.Sequence" /> and <see cref="EventFailureDetails.EventTypeName" />
+    ///     of <see cref="ShardFailure.Event" />, and the tenant; the rest of the reason text already rides
+    ///     in the existing pause-reason column (<see cref="ShardFailure.Detail" /> is exactly what
+    ///     <see cref="ShardState.PauseReason" /> carries).</item>
     ///     </list>
     ///     </para>
     ///     The default implementation is a graceful no-op so existing stores compile and degrade
@@ -156,7 +164,8 @@ public interface IEventDatabase
     /// </summary>
     /// <param name="state">
     ///     The published shard state carrying <see cref="ShardState.AgentStatus" />,
-    ///     <see cref="ShardState.PauseReason" />, <see cref="ShardState.LastHeartbeat" /> and
+    ///     <see cref="ShardState.PauseReason" />, <see cref="ShardState.Failure" />,
+    ///     <see cref="ShardState.LastHeartbeat" /> and
     ///     <see cref="ShardState.RunningOnNode" /> for the shard named by
     ///     <see cref="ShardState.ShardName" />.
     /// </param>

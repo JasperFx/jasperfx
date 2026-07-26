@@ -91,6 +91,20 @@ public class ShardState
     public string? PauseReason { get; set; }
 
     /// <summary>
+    /// jasperfx#565: the classified reason this shard was paused or stopped — category, the failing
+    /// event when one can be blamed, and the exception text — as a plain serializable value an external
+    /// supervisor can act on. <see cref="Exception"/> still carries the live exception for in-process
+    /// observers; this is what survives a hop to Wolverine's assignment plane, a persisted extended
+    /// progression row, or a CritterWatch alert. Null on every state that isn't reporting a failure.
+    ///
+    /// <para>
+    /// <see cref="PauseReason" /> is kept in lockstep (it is <see cref="ShardFailure.Detail"/>), so
+    /// consumers that only read the string are unaffected.
+    /// </para>
+    /// </summary>
+    public ShardFailure? Failure { get; set; }
+
+    /// <summary>
     /// The node number that is currently running this shard
     /// </summary>
     public int? RunningOnNode { get; set; }

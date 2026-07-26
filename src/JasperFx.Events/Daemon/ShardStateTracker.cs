@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using ImTools;
 using JasperFx.Blocks;
 using JasperFx.Core;
@@ -143,6 +144,40 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
             LastAdvanced = lastAdvanced
         });
     }
+
+    /// <summary>
+    ///     jasperfx#565: the last state published for a single shard, or null if this tracker has never seen
+    ///     it. The tracker has always kept this map to satisfy <see cref="WaitForShardState(ShardState,TimeSpan?)" />,
+    ///     but it was private, so the only way to observe a shard was to subscribe BEFORE the interesting
+    ///     transition happened, or to block in a wait. An external poller — a supervisor asking "is this
+    ///     shard paused, and why?" on its own schedule — had no synchronous snapshot to read; this is it,
+    ///     including <see cref="ShardState.Failure" /> on a paused or stopped shard.
+    /// </summary>
+    /// <param name="shardName">The raw <see cref="ShardName.Identity" />, or <see cref="ShardState.HighWaterMark" />.</param>
+    public ShardState? CurrentState(string shardName)
+        => _states.TryFind(shardName, out var state) ? state : null;
+
+    /// <summary>
+    ///     <see cref="CurrentState(string)" /> for a strongly typed shard name.
+    /// </summary>
+    public ShardState? CurrentState(ShardName shardName) => CurrentState(shardName.Identity);
+
+    /// <summary>
+    ///     Try-get form of <see cref="CurrentState(string)" />.
+    /// </summary>
+    public bool TryGetCurrentState(string shardName, [NotNullWhen(true)] out ShardState? state)
+    {
+        state = CurrentState(shardName);
+        return state != null;
+    }
+
+    /// <summary>
+    ///     Snapshot of the last state published for every shard this tracker has seen, including the
+    ///     <see cref="ShardState.HighWaterMark" /> pseudo-shard. Point in time and safe to enumerate — the
+    ///     underlying map is immutable, so a concurrent publication can't disturb the returned list.
+    /// </summary>
+    public IReadOnlyList<ShardState> CurrentStates()
+        => _states.Enumerate().Select(x => x.Value).ToList();
 
     /// <summary>
     ///     Use to "wait" for an expected projection shard state
