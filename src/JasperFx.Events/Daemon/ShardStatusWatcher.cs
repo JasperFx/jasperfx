@@ -10,41 +10,64 @@ internal class ShardStatusWatcher : IObserver<ShardState>
 {
     private readonly TaskCompletionSource<ShardState> _completion;
     private readonly Func<ShardState, bool> _condition;
+    private readonly CancellationTokenSource _timeout;
     private readonly IDisposable _unsubscribe;
 
     public ShardStatusWatcher(ShardStateTracker tracker, ShardState expected, TimeSpan timeout)
+        : this(tracker, x => x.ShardName == expected.ShardName && x.Sequence >= expected.Sequence, timeout,
+            $"Shard {expected.ShardName} did not reach sequence number {expected.Sequence} in the time allowed")
     {
-        _condition = x => x.ShardName == expected.ShardName && x.Sequence >= expected.Sequence;
-        _completion = new TaskCompletionSource<ShardState>();
-
-
-        var timeout1 = new CancellationTokenSource(timeout);
-        timeout1.Token.Register(() =>
-        {
-            _completion.TrySetException(new TimeoutException(
-                $"Shard {expected.ShardName} did not reach sequence number {expected.Sequence} in the time allowed"));
-        });
-
-        _unsubscribe = tracker.Subscribe(this);
     }
 
     public ShardStatusWatcher(string description, Func<ShardState, bool> condition, ShardStateTracker tracker,
         TimeSpan timeout)
+        : this(tracker, condition, timeout, $"{description} was not detected in the time allowed")
+    {
+        Debug.WriteLine("Subscribed to watch shard state: " + description);
+    }
+
+    private ShardStatusWatcher(ShardStateTracker tracker, Func<ShardState, bool> condition, TimeSpan timeout,
+        string timeoutMessage)
     {
         _condition = condition;
-        _completion = new TaskCompletionSource<ShardState>();
+        _completion = new TaskCompletionSource<ShardState>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-
-        var timeout1 = new CancellationTokenSource(timeout);
-        timeout1.Token.Register(() =>
+        _timeout = new CancellationTokenSource(timeout);
+        _timeout.Token.Register(() =>
         {
-            _completion.TrySetException(new TimeoutException(
-                $"{description} was not detected in the time allowed"));
+            if (_completion.TrySetException(new TimeoutException(timeoutMessage)))
+            {
+                // ReSharper disable once ConstantConditionalAccessQualifier -- the token can fire before
+                // the constructor has finished assigning _unsubscribe if the timeout is tiny.
+                _unsubscribe?.Dispose();
+            }
         });
 
         _unsubscribe = tracker.Subscribe(this);
 
-        Debug.WriteLine("Subscribed to watch shard state: " + description);
+        // jasperfx#568: publication is asynchronous — PublishAsync posts to a Block and returns, and the
+        // consumer thread walks the listener list that existed when it started. A state can therefore be
+        // delivered (and recorded in the tracker's state map) in the window between a caller checking the
+        // map and this watcher subscribing, and nothing else may ever be published for that shard. Since
+        // OnNext only ever sees states delivered AFTER this point, re-check what the tracker already knows
+        // now that we're subscribed. TrySetResult makes a double hit harmless — whichever path wins first,
+        // the other is a no-op. This is also the only current-state check WaitForShardCondition gets.
+        foreach (var state in tracker.CurrentStates())
+        {
+            try
+            {
+                if (check(state))
+                {
+                    break;
+                }
+            }
+            catch (Exception)
+            {
+                // A user supplied condition that blows up on some unrelated shard's state has always
+                // just meant "no match" -- ShardStateTracker.publish() swallows and logs whatever a
+                // listener throws. Keep that contract here instead of throwing out of WaitFor*.
+            }
+        }
     }
 
     public Task<ShardState> Task => _completion.Task;
@@ -55,15 +78,28 @@ internal class ShardStatusWatcher : IObserver<ShardState>
 
     public void OnError(Exception error)
     {
-        _completion.SetException(error);
+        if (_completion.TrySetException(error))
+        {
+            _unsubscribe.Dispose();
+            _timeout.Dispose();
+        }
     }
 
     public void OnNext(ShardState value)
     {
-        if (_condition(value))
+        check(value);
+    }
+
+    private bool check(ShardState state)
+    {
+        if (!_condition(state)) return false;
+
+        if (_completion.TrySetResult(state))
         {
-            _completion.SetResult(value);
             _unsubscribe.Dispose();
+            _timeout.Dispose();
         }
+
+        return true;
     }
 }
