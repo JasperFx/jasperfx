@@ -95,6 +95,16 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
     /// </summary>
     protected abstract IReadOnlyList<IProjectionDaemon> ResolvedDaemons();
 
+    /// <summary>
+    /// Drop every daemon from the subclass cache. Called by <see cref="StopAsync"/> after it has
+    /// disposed the resolved daemons (marten#5055): without this, the cache keeps handing back
+    /// disposed daemons — a second Pause/Stop fans <c>StopAllAsync</c> out over them (one
+    /// ObjectDisposedException error log per daemon), and a later <see cref="ResumeAsync"/> or
+    /// daemon accessor returns a dead instance instead of rebuilding a fresh one. After this runs,
+    /// <see cref="ResolvedDaemons"/> must return empty.
+    /// </summary>
+    protected abstract void ClearResolvedDaemons();
+
     /// <inheritdoc />
     public abstract IProjectionDaemon DaemonForMainDatabase();
 
@@ -139,6 +149,14 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
             {
                 await daemon.StopAllAsync().ConfigureAwait(false);
             }
+            catch (ObjectDisposedException exception)
+            {
+                // marten#5055: at shutdown a second Pause/Stop can fan out over daemons the first
+                // pass already disposed. There is nothing left to stop, so this is not an error —
+                // same philosophy as the jasperfx#499 disposed-data-source handling in executeAsync.
+                _logger.LogDebug(exception,
+                    "Projection daemon was already disposed while pausing; this is benign during shutdown");
+            }
             catch (Exception exception)
             {
                 _logger.LogError(exception, "Error while trying to stop daemon agents");
@@ -161,6 +179,10 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
         {
             daemon.SafeDispose();
         }
+
+        // marten#5055: the daemons above are dead; purge them from the subclass cache so a second
+        // StopAsync has nothing to fan out over and a later ResumeAsync builds fresh daemons.
+        ClearResolvedDaemons();
 
         var distributor = Distributor;
         if (distributor != null)

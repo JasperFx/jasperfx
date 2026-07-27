@@ -289,6 +289,74 @@ public class ProjectionCoordinatorBaseTests
         daemon.StopAllCount.ShouldBeGreaterThanOrEqualTo(1);
     }
 
+    // ---- marten#5055: shutdown over already-disposed daemons ----
+    //
+    // StopAsync disposes every resolved daemon, but the subclass cache used to keep handing them
+    // back. Any second Pause/Stop (double AddAsyncDaemon hosted-service registration, user pause +
+    // host stop, Wolverine quiesce + host stop) then fanned StopAllAsync out over disposed daemons,
+    // logging "Error while trying to stop daemon agents" with an ObjectDisposedException per daemon
+    // on every pod shutdown.
+
+    [Fact]
+    public async Task stop_purges_the_resolved_daemon_cache()
+    {
+        var daemon = new FakeDaemon();
+        var distributor = new FakeDistributor([]);
+
+        var coordinator = BuildCoordinator(distributor, daemon);
+        await coordinator.StartAsync(CancellationToken.None);
+        coordinator.ForceResolve();
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        // The disposed daemons are gone, so a later ResumeAsync (or daemon accessor path) has to
+        // resolve fresh ones instead of handing back a dead instance.
+        coordinator.VisibleResolvedDaemons.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_second_stop_neither_throws_nor_logs_an_error_over_the_disposed_daemons()
+    {
+        var logger = new CapturingLogger();
+        // Behaves like the pre-fix real daemon: StopAllAsync throws ObjectDisposedException once the
+        // daemon has been disposed, so this test fails if the cache purge ever regresses.
+        var daemon = new FakeDaemon { ThrowObjectDisposedOnStopAllWhenDisposed = true };
+        var distributor = new FakeDistributor([]);
+
+        var coordinator = BuildCoordinator(distributor, daemon, logger: logger);
+        await coordinator.StartAsync(CancellationToken.None);
+        coordinator.ForceResolve();
+
+        await coordinator.StopAsync(CancellationToken.None);
+        await Should.NotThrowAsync(() => coordinator.StopAsync(CancellationToken.None));
+
+        // The first stop did the real work; the second had nothing to fan out over.
+        daemon.StopAllCount.ShouldBe(1);
+        daemon.DisposeCount.ShouldBe(1);
+        logger.Errors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task pausing_over_an_already_disposed_daemon_logs_debug_not_error()
+    {
+        // A daemon disposed out from under the coordinator (e.g. a store shutdown racing a pause)
+        // still surfaces ObjectDisposedException from StopAllAsync. That is benign — there is
+        // nothing left to stop — so it must land at Debug, not as the issue's Error log.
+        var logger = new CapturingLogger();
+        var daemon = new FakeDaemon { ThrowObjectDisposedOnStopAllWhenDisposed = true };
+        var distributor = new FakeDistributor([]);
+
+        var coordinator = BuildCoordinator(distributor, daemon, logger: logger);
+        await coordinator.StartAsync(CancellationToken.None);
+        coordinator.ForceResolve();
+        daemon.Dispose();
+
+        await Should.NotThrowAsync(() => coordinator.PauseAsync());
+
+        logger.Errors.ShouldBeEmpty();
+        logger.Debugs.ShouldContain(x => x.Contains("already disposed"));
+    }
+
     // #352: a coordinator can be legitimately constructed but never started when the async
     // daemon is Disabled — the store's BuildDistributor returns null because there is nothing
     // to coordinate. The ctor must not reject that; the lifecycle methods must no-op cleanly.
@@ -334,11 +402,13 @@ public class ProjectionCoordinatorBaseTests
         }
     }
 
-    // Minimal ILogger that records the formatted message of every Error-level entry so a test
-    // can assert whether the loop logged a lock error (proving which catch branch fired).
+    // Minimal ILogger that records the formatted message of every Error- and Debug-level entry so a
+    // test can assert which catch branch fired (e.g. marten#5055's benign-disposal Debug vs. the
+    // "Error while trying to stop daemon agents" Error).
     private sealed class CapturingLogger : ILogger
     {
         public List<string> Errors { get; } = [];
+        public List<string> Debugs { get; } = [];
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
@@ -348,6 +418,13 @@ public class ProjectionCoordinatorBaseTests
                 lock (Errors)
                 {
                     Errors.Add(formatter(state, exception));
+                }
+            }
+            else if (logLevel == LogLevel.Debug)
+            {
+                lock (Debugs)
+                {
+                    Debugs.Add(formatter(state, exception));
                 }
             }
         }
@@ -387,6 +464,11 @@ public class ProjectionCoordinatorBaseTests
 
         protected override IReadOnlyList<IProjectionDaemon> ResolvedDaemons()
             => _resolved ? [_daemon] : [];
+
+        protected override void ClearResolvedDaemons() => _resolved = false;
+
+        // Exposes the protected snapshot so marten#5055 tests can assert the cache is purged.
+        public IReadOnlyList<IProjectionDaemon> VisibleResolvedDaemons => ResolvedDaemons();
 
         public override IProjectionDaemon DaemonForMainDatabase() => _daemon;
 
@@ -505,6 +587,10 @@ public class ProjectionCoordinatorBaseTests
         public int DisposeCount { get; private set; }
         public int StopAllCount { get; private set; }
 
+        // marten#5055: mimics the real JasperFxAsyncDaemon BEFORE the fix — StopAllAsync on a disposed
+        // daemon read _cancellation.Token off a disposed CancellationTokenSource and threw.
+        public bool ThrowObjectDisposedOnStopAllWhenDisposed { get; init; }
+
         private readonly List<ISubscriptionAgent> _agents = [];
         private bool _failed;
 
@@ -579,6 +665,11 @@ public class ProjectionCoordinatorBaseTests
 
         public Task StopAllAsync()
         {
+            if (ThrowObjectDisposedOnStopAllWhenDisposed && DisposeCount > 0)
+            {
+                throw new ObjectDisposedException(nameof(CancellationTokenSource));
+            }
+
             StopAllCount++;
             return Task.CompletedTask;
         }

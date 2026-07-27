@@ -41,6 +41,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
+    // marten#5055: StopAllAsync on an already-disposed daemon must be a no-op instead of throwing
+    // ObjectDisposedException from _cancellation.Token. Volatile because Dispose() (sync, e.g. from
+    // ProjectionCoordinatorBase.StopAsync) can race a StopAllAsync fanned out from another Pause/Stop.
+    private volatile bool _disposed;
+
     // Only non-null when the backing store partitions events per tenant; null keeps the daemon on the
     // single store-global high-water mark (today's behavior, byte for byte). jasperfx#407 Phase 2b.
     private readonly TenantedHighWaterCoordinator? _tenantHighWater;
@@ -227,6 +232,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public void Dispose()
     {
+        // marten#5055: idempotent, and flags StopAllAsync to no-op once the daemon is gone. Double
+        // disposal is a real path: ProjectionCoordinatorBase.StopAsync disposes every resolved daemon,
+        // and a second Pause/Stop (double hosted-service registration, user pause + host stop) fans
+        // back out over the same instances.
+        if (_disposed) return;
+        _disposed = true;
+
         _cancellation?.Dispose();
         _highWater?.Dispose();
         _tenantHighWaterTimer?.Stop();
@@ -888,7 +900,22 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public async Task StopAllAsync()
     {
-        await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        // marten#5055: a disposed daemon has nothing left to stop. Without this guard, the second
+        // Pause/Stop pass at shutdown (double AddAsyncDaemon registration, user pause + host stop,
+        // Wolverine quiesce + host stop) hits _cancellation.Token on a disposed source and throws
+        // ObjectDisposedException, which the coordinator then logs as an Error per daemon.
+        if (_disposed) return;
+
+        try
+        {
+            await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Dispose() raced this stop between the flag check and the token access; same benign
+            // "already disposed" outcome as the early return above.
+            return;
+        }
 
         try
         {
