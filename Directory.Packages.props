@@ -55,9 +55,9 @@
 
   <!-- Shipping dependencies -->
   <ItemGroup>
-    <PackageVersion Include="Aspire.Hosting" Version="13.3.1" />
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.3.1" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.3.1" />
+    <PackageVersion Include="Aspire.Hosting" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.4.6" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="1.2.39" />
     <PackageVersion Include="FastExpressionCompiler" Version="5.4.1" />
     <PackageVersion Include="FSharp.Core" Version="9.0.303" />
