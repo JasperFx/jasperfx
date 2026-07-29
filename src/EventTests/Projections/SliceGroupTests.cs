@@ -544,9 +544,12 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
         throw new NotImplementedException();
     }
 
+    // Part of the IProjectionStorage contract this class self-stubs, NOT xunit lifecycle -- but
+    // xunit v3 disposes a test class that implements IAsyncDisposable, so a throwing stub here
+    // fails every test in the class during teardown. Nothing in these tests needs disposal.
     ValueTask IAsyncDisposable.DisposeAsync()
     {
-        throw new NotImplementedException();
+        return ValueTask.CompletedTask;
     }
 
     Task<IProjectionStorage<TDoc, TId>> IStorageOperations.FetchProjectionStorageAsync<TDoc, TId>(string tenantId, CancellationToken cancellationToken)

@@ -2,6 +2,7 @@ using System.Reflection;
 using JasperFx.CommandLine;
 using JasperFx.Core;
 using Shouldly;
+using Spectre.Console;
 
 namespace CommandLineTests
 {
@@ -22,6 +23,17 @@ namespace CommandLineTests
         public CommandExecutorTester()
         {
             Console.SetOut(theOutput);
+
+            // CommandExecutor renders failures through Spectre's AnsiConsole, which caches the
+            // TextWriter it binds to on first use anywhere in the process. Console.SetOut alone
+            // therefore does NOT redirect the failure path -- whichever test touched Spectre first
+            // has already pinned the writer. That made run_an_async_command_that_fails pass or fail
+            // purely on test ordering (it survived xunit v2's order and broke under v3's). Bind
+            // Spectre explicitly so this class captures failure output regardless of order.
+            AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Out = new AnsiConsoleOutput(theOutput)
+            });
 
             executor = CommandExecutor.For(_ =>
             {

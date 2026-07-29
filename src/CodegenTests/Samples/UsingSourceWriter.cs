@@ -1,7 +1,6 @@
 ﻿using System;
 using JasperFx.CodeGeneration;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace CodegenTests.Samples;
 

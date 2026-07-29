@@ -1,5 +1,4 @@
 using JasperFx.Core;
-using Xunit.Abstractions;
 
 namespace CoreTests.Core;
 

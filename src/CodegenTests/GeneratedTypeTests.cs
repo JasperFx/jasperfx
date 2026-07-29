@@ -2,7 +2,6 @@ using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core;
 using Shouldly;
-using Xunit.Abstractions;
 
 namespace CodegenTests;
 

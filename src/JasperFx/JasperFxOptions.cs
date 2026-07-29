@@ -22,8 +22,21 @@ public class JasperFxOptions : SystemPartBase
         var names = assembly.GetReferencedAssemblies();
         foreach (var name in names)
         {
-            var reference = Assembly.Load(name);
-            if (reference != null && reference.HasAttribute<JasperFxToolAttribute>()) return true;
+            // Best-effort detection: an application's assembly graph routinely contains references
+            // that cannot be loaded or reflected over at runtime -- optional dependencies that were
+            // never deployed, assemblies trimmed away, or (as here) a reference whose own
+            // dependencies are missing from the output so that enumerating its custom attributes
+            // throws. None of that means the app is a JasperFx tool, and none of it is worth
+            // failing host startup over, so skip the assembly and keep looking.
+            try
+            {
+                var reference = Assembly.Load(name);
+                if (reference != null && reference.HasAttribute<JasperFxToolAttribute>()) return true;
+            }
+            catch (Exception)
+            {
+                // Intentionally ignored; see above.
+            }
         }
 
         return false;

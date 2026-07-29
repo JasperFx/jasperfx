@@ -5,16 +5,13 @@
         <IsPackable>false</IsPackable>
     </PropertyGroup>
 
-    <ItemGroup>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" />
-        <PackageReference Include="Shouldly" />
-        <PackageReference Include="xunit" />
-        <PackageReference Include="xunit.runner.visualstudio">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-    </ItemGroup>
-
+    <!--
+      No test packages here on purpose. This project holds compile-checked documentation samples
+      (mdsnippets sources), contains zero [Fact]/[Theory] methods, and is not in jasperfx.slnx or
+      any Nuke target. It carried xunit + the VSTest runner + Microsoft.NET.Test.Sdk purely as
+      inherited boilerplate; xunit.v3 would additionally have forced OutputType=Exe on a
+      Microsoft.NET.Sdk.Web project for no benefit.
+    -->
     <ItemGroup>
         <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
         <ProjectReference Include="..\JasperFx.RuntimeCompiler\JasperFx.RuntimeCompiler.csproj" />

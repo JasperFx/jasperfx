@@ -7,7 +7,6 @@ using JasperFx.CodeGeneration.Services;
 using JasperFx.RuntimeCompiler;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
-using Xunit.Abstractions;
 
 namespace CodegenTests.Services;
 

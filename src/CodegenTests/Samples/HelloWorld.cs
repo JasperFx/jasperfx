@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using JasperFx.RuntimeCompiler;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace CodegenTests.Samples;
 
