@@ -17,6 +17,32 @@
         <AddSyntheticProjectReferencesForSolutionDependencies>false</AddSyntheticProjectReferencesForSolutionDependencies>
     </PropertyGroup>
 
+    <!--
+      Microsoft Testing Platform (#581). Both properties have to be repo-wide rather than per-test-
+      project: TestingPlatformDotnetTestSupport switches how `dotnet test` invokes a project, and a
+      solution where only some projects answered to MTP would leave `dotnet test` on the .slnx in a
+      mixed mode. They are inert in projects that don't reference xunit.v3.
+
+      UseMicrosoftTestingPlatformRunner makes xunit v3 build its MTP entry point instead of the
+      VSTest bridge; TestingPlatformDotnetTestSupport makes `dotnet test` run that executable
+      directly rather than going through testhost. Neither package
+      (Microsoft.NET.Test.Sdk, xunit.runner.visualstudio) is referenced anymore.
+    -->
+    <PropertyGroup>
+        <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+        <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+        <!--
+          Without this, a failing test prints only
+
+            error run failed: Tests failed: '.../TestResults/EventStoreTests_net9.0_x64.log'
+
+          and the test name, assertion and stack trace go to that file. On a CI runner the file is
+          never published, so the log is all anyone gets - a red build with no way to tell what
+          broke. The VSTest bridge printed failures inline, and this restores that.
+        -->
+        <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+    </PropertyGroup>
+
     <ItemGroup>
         <PackageReference Include="DotNet.ReproducibleBuilds" PrivateAssets="All"/>
     </ItemGroup>
