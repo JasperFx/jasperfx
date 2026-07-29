@@ -67,7 +67,6 @@
     <PackageVersion Include="Npgsql" Version="9.0.2" />
     <PackageVersion Include="Polly.Core" Version="8.6.5" />
     <PackageVersion Include="Spectre.Console" Version="0.55.0" />
-    <PackageVersion Include="System.Collections.Immutable" Version="9.0.0" />
   </ItemGroup>
 
   <!--
