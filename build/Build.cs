@@ -50,7 +50,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, SmokeTestAot);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestSourceGenerators, TestAspire, SmokeTestAot);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -121,6 +121,40 @@ partial class Build : NukeBuild
         {
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventStoreTests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
+    // Both source generator suites. These are in the solution (so `compile` builds them, and they
+    // break the build if they stop compiling) but were in no test target, meaning 45 tests covering
+    // the two Roslyn generators built and never ran. Single-framework by project: both test
+    // projects pin TargetFramework=net9.0 to match the netstandard2.0 generators they host.
+    Target TestSourceGenerators => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.src.JasperFx_SourceGenerator_Tests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+
+            DotNetTest(c => c
+                .SetProjectFile(Solution.src.JasperFx_Events_SourceGenerator_Tests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
+    // Aspire integration surface. net10.0-only, matching JasperFx.Aspire itself (Aspire 13 is
+    // net10-first). Was likewise in the solution but in no test target.
+    Target TestAspire => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.src.JasperFx_Aspire_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
