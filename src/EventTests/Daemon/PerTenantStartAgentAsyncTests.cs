@@ -179,7 +179,7 @@ public class PerTenantStartAgentAsyncTests
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (detector.TenantPollCount < pollsAtStart + 3 && DateTime.UtcNow < deadline)
         {
-            await Task.Delay(25);
+            await Task.Delay(25, TestContext.Current.CancellationToken);
         }
 
         detector.TenantPollCount.ShouldBeGreaterThanOrEqualTo(pollsAtStart + 3);
@@ -383,7 +383,7 @@ public class PerTenantStartAgentAsyncTests
         var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         while (Math.Abs(timer.Interval - 400) > 1 && DateTimeOffset.UtcNow < deadline)
         {
-            await Task.Delay(25);
+            await Task.Delay(25, TestContext.Current.CancellationToken);
         }
 
         timer.Interval.ShouldBe(400);

@@ -19,7 +19,11 @@ public class SingleStreamProjectionTests
     [InlineData("Overrides EnrichEventsAsync with conventional Apply", typeof(OverridesEnrichEventsAsyncWithConventionalApply))]
     public void validation_is_good_with_only_conventional_methods(string explanation, Type type)
     {
-        Activator.CreateInstance(type).As<ProjectionBase>().AssembleAndAssertValidity();
+        // 'explanation' names the case; xUnit1026 flagged it as unused. Feeding it to Should.NotThrow
+        // keeps it as the label it was always meant to be, and now it shows up in the failure message.
+        Should.NotThrow(
+            () => Activator.CreateInstance(type).As<ProjectionBase>().AssembleAndAssertValidity(),
+            explanation);
     }
 
     // Regression for #298: tryUseAssemblyRegisteredEvolver was short-circuiting on

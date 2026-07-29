@@ -38,7 +38,7 @@ public class BlockErrorHandlingTests
         block.Post("poison");
         block.Post("second");
 
-        await secondItemProcessed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await secondItemProcessed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         processed.ShouldBe(new[] { "first", "second" });
         failures.Count.ShouldBe(1);
@@ -71,7 +71,7 @@ public class BlockErrorHandlingTests
 
         block.Post("poison");
 
-        await faulted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await faulted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         block.Failure.ShouldNotBeNull();
         var aggregate = block.Failure.ShouldBeOfType<AggregateException>();
@@ -107,11 +107,11 @@ public class BlockErrorHandlingTests
         block.OnError = (_, _) => throw new InvalidCastException("kill the block");
 
         block.Post("poison");
-        await actionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await actionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         block.Post("buffered");
 
         // This producer has no capacity left and parks waiting for the consumer
-        var blockedProducer = Task.Run(async () => await block.PostAsync("parked"));
+        var blockedProducer = Task.Run(async () => await block.PostAsync("parked"), TestContext.Current.CancellationToken);
         blockedProducer.IsCompleted.ShouldBeFalse();
 
         // Now the action throws, the error callback throws, and the block faults. The parked
@@ -143,10 +143,10 @@ public class BlockErrorHandlingTests
         };
 
         block.Post("poison");
-        await faulted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await faulted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Teardown paths call this on shutdown; a fault must not blow up the shutdown itself
-        await block.WaitForCompletionAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await block.WaitForCompletionAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public class BlockErrorHandlingTests
             block.Post("poison");
             block.Post("after");
 
-            await processed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await processed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await block.WaitForCompletionAsync();
 
             writer.ToString().ShouldContain("DivideByZeroException");

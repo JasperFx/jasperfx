@@ -71,7 +71,7 @@ public class CrossProductRebuildCapTests
             (await harness.Loader.NextEntryAsync()).SetResult();
         }
 
-        await rebuilds.WaitAsync(TestTimeout);
+        await rebuilds.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Loader.PeakConcurrency.ShouldBe(3);
         harness.Loader.CellsLoaded.OrderBy(x => x)
@@ -112,7 +112,7 @@ public class CrossProductRebuildCapTests
             (await harness.Loader.NextEntryAsync()).SetResult();
         }
 
-        await rebuild.WaitAsync(TestTimeout);
+        await rebuild.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Loader.PeakConcurrency.ShouldBe(2);
         harness.Loader.CellsLoaded.OrderBy(x => x).ShouldBe(expectedCells(["ProjA"], tenants));
@@ -132,9 +132,9 @@ public class CrossProductRebuildCapTests
         harness.Daemon.MaxConcurrentRebuildsPerDatabase = cap;
 
         await Task.WhenAll(
-                harness.Daemon.RebuildProjectionAsync("ProjA", tenantId: null, TestTimeout, CancellationToken.None),
-                harness.Daemon.RebuildProjectionAsync("ProjB", tenantId: null, TestTimeout, CancellationToken.None))
-            .WaitAsync(TestTimeout);
+                harness.Daemon.RebuildProjectionAsync("ProjA", tenantId: null, TestTimeout, TestContext.Current.CancellationToken),
+                harness.Daemon.RebuildProjectionAsync("ProjB", tenantId: null, TestTimeout, TestContext.Current.CancellationToken))
+            .WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Loader.CellsLoaded.OrderBy(x => x)
             .ShouldBe(expectedCells(["ProjA", "ProjB"], tenants));
@@ -147,8 +147,8 @@ public class CrossProductRebuildCapTests
         await using var harness = new RebuildHarness(tenants, ["ProjA"], gated: false);
 
         await harness.Daemon
-            .RebuildProjectionAsync("ProjA", tenantId: null, TestTimeout, CancellationToken.None)
-            .WaitAsync(TestTimeout);
+            .RebuildProjectionAsync("ProjA", tenantId: null, TestTimeout, TestContext.Current.CancellationToken)
+            .WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Loader.CellsLoaded.OrderBy(x => x).ShouldBe(expectedCells(["ProjA"], tenants));
     }
@@ -198,7 +198,7 @@ public class CrossProductRebuildCapTests
             (await daemon.NextEntryAsync()).SetResult();
         }
 
-        var rebuilt = await rebuild.WaitAsync(TestTimeout);
+        var rebuilt = await rebuild.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         rebuilt.OrderBy(x => x).ShouldBe(tenants.OrderBy(x => x));
         daemon.PeakConcurrency.ShouldBe(2);

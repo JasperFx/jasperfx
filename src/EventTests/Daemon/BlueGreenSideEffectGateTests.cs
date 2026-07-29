@@ -40,7 +40,7 @@ public class BlueGreenSideEffectGateTests
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1000L));
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
@@ -56,7 +56,7 @@ public class BlueGreenSideEffectGateTests
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
 
-        await harness.Daemon.StartAgentAsync("Trips:V3:All", CancellationToken.None).WaitAsync(TestTimeout);
+        await harness.Daemon.StartAgentAsync("Trips:V3:All", TestContext.Current.CancellationToken).WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1000L));
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
@@ -75,7 +75,7 @@ public class BlueGreenSideEffectGateTests
         harness.SetProgress("Trips:V2:All", 1000);
         harness.SetProgress("Trips:V3:All", 400);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 400L, 1000L));
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
@@ -89,7 +89,7 @@ public class BlueGreenSideEffectGateTests
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3));
         harness.SetProgress("Trips:V2:All", 1000);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 0L, HighWater));
     }
@@ -100,7 +100,7 @@ public class BlueGreenSideEffectGateTests
         await using var harness = new GateHarness(ShardName.Compose("Trips"),
             options => options.GateSideEffectsBehindPriorVersion = true);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 0L, HighWater));
     }
@@ -115,7 +115,7 @@ public class BlueGreenSideEffectGateTests
         harness.SetProgress("Trips:V2:All", 1000);
         harness.SetProgress("Trips:V3:All", 1200);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1200L, HighWater));
     }
@@ -126,7 +126,7 @@ public class BlueGreenSideEffectGateTests
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
             options => options.GateSideEffectsBehindPriorVersion = true);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 0L, HighWater));
     }
@@ -143,7 +143,7 @@ public class BlueGreenSideEffectGateTests
         harness.SetProgress("Trips:V4:All:tenant1", 5000);
         harness.SetProgress("Others:V4:All", 999);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1200L));
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1200L, HighWater));
@@ -163,12 +163,12 @@ public class BlueGreenSideEffectGateTests
             });
         harness.SetProgress("Trips:V2:All", 1000);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Running);
 
         // Give the command loop a beat: a wrongly-triggered warm-up would surface as a Rebuild page.
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         harness.Execution.RecordedPages.ShouldBeEmpty();
     }
 
@@ -183,7 +183,7 @@ public class BlueGreenSideEffectGateTests
             options => options.GateSideEffectsBehindPriorVersion = true, withReplayExecutor: true);
         harness.SetProgress("Trips:V2:All", 1000);
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1000L));
         (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
@@ -203,7 +203,7 @@ public class BlueGreenSideEffectGateTests
         harness.SetProgress("Trips:V2:All", 1000);
         harness.Loader.ThrowOnLoad = true;
 
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Paused);
         harness.Execution.RecordedPages.ShouldBeEmpty();

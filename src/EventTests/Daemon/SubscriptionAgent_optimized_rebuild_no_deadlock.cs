@@ -53,7 +53,7 @@ public class SubscriptionAgent_optimized_rebuild_no_deadlock
         var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
         while (agent.LastCommitted < PageCount && DateTimeOffset.UtcNow < deadline)
         {
-            await Task.Delay(25);
+            await Task.Delay(25, TestContext.Current.CancellationToken);
         }
 
         agent.LastCommitted.ShouldBe(PageCount);

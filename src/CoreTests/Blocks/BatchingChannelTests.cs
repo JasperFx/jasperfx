@@ -43,11 +43,11 @@ public class BatchingChannelTests
             for (var i = 0; i < 20; i++)
             {
                 channel.Post(i);
-                await Task.Delay(25);
+                await Task.Delay(25, TestContext.Current.CancellationToken);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
-        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds()));
+        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds(), TestContext.Current.CancellationToken));
         flushed.ShouldBe(firstBatch.Task,
             "the first batch should flush within the max age even though items keep trickling in");
 
@@ -68,7 +68,7 @@ public class BatchingChannelTests
 
         channel.Post(42);
 
-        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds()));
+        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds(), TestContext.Current.CancellationToken));
         flushed.ShouldBe(firstBatch.Task);
 
         channel.Complete();
@@ -90,7 +90,7 @@ public class BatchingChannelTests
             channel.Post(i);
         }
 
-        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds()));
+        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds(), TestContext.Current.CancellationToken));
         flushed.ShouldBe(firstBatch.Task, "a full batch should flush without waiting on the timer");
 
         channel.Complete();

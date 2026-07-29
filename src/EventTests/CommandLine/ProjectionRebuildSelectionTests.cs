@@ -13,14 +13,14 @@ namespace EventTests.CommandLine;
 //     PROJECTION names (so a subscription name throws "No registered projection matches..."), and a
 //     rebuild would re-publish every historical event (contrary to SubscribeFromPresent()).
 //   - Inline and Async PROJECTIONS remain rebuildable.
-public class ProjectionRebuildSelectionTests : IProjectionHost
+public class ProjectionRebuildSelectionTests
 {
     private readonly ProjectionController theController;
-    private string[] _rebuiltNames = [];
+    private readonly RecordingProjectionHost theHost = new();
 
     public ProjectionRebuildSelectionTests()
     {
-        theController = new ProjectionController(this, new NulloConsoleView());
+        theController = new ProjectionController(theHost, new NulloConsoleView());
     }
 
     private static SubscriptionDescriptor descriptor(string name, ProjectionLifecycle lifecycle, SubscriptionType type)
@@ -52,7 +52,7 @@ public class ProjectionRebuildSelectionTests : IProjectionHost
     [Fact]
     public async Task rebuild_all_skips_subscriptions_and_live_but_keeps_projections()
     {
-        _usages =
+        theHost.Usages =
         [
             usageWith(
                 descriptor("AsyncProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection),
@@ -63,15 +63,15 @@ public class ProjectionRebuildSelectionTests : IProjectionHost
 
         await theController.Execute(new ProjectionInput { Action = ProjectionAction.rebuild });
 
-        _rebuiltNames.ShouldBe(["AsyncProjection", "InlineProjection"], ignoreOrder: true);
-        _rebuiltNames.ShouldNotContain("WolverineRelay");
-        _rebuiltNames.ShouldNotContain("LiveProjection");
+        theHost.RebuiltNames.ShouldBe(["AsyncProjection", "InlineProjection"], ignoreOrder: true);
+        theHost.RebuiltNames.ShouldNotContain("WolverineRelay");
+        theHost.RebuiltNames.ShouldNotContain("LiveProjection");
     }
 
     [Fact]
     public async Task named_rebuild_of_a_subscription_is_skipped()
     {
-        _usages =
+        theHost.Usages =
         [
             usageWith(
                 descriptor("WolverineRelay", ProjectionLifecycle.Async, SubscriptionType.Subscription))
@@ -82,21 +82,28 @@ public class ProjectionRebuildSelectionTests : IProjectionHost
             Action = ProjectionAction.rebuild, ProjectionFlag = "WolverineRelay"
         });
 
-        _rebuiltNames.ShouldBeEmpty();
+        theHost.RebuiltNames.ShouldBeEmpty();
     }
+}
 
-    #region IProjectionHost test double
+// Was implemented by the test class itself. Interface members have to be public, so every one of
+// them read as a public attribute-less method on a test class (xUnit1013) -- the same self-stub
+// shape that broke all 16 SliceGroupTests in #577, where a self-stubbed IAsyncDisposable ran as
+// test lifecycle instead of as a stub. Splitting it out removes the warnings and the footgun.
+internal class RecordingProjectionHost : IProjectionHost
+{
+    public IReadOnlyList<EventStoreUsage> Usages { get; set; } = [];
 
-    private IReadOnlyList<EventStoreUsage> _usages = [];
+    public string[] RebuiltNames { get; private set; } = [];
 
-    public Task<IReadOnlyList<EventStoreUsage>> AllStoresAsync() => Task.FromResult(_usages);
+    public Task<IReadOnlyList<EventStoreUsage>> AllStoresAsync() => Task.FromResult(Usages);
 
     public void ListenForUserTriggeredExit() { }
 
     public Task<RebuildStatus> TryRebuildShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier,
         ProjectionInput input, string[] names, TimeSpan? shardTimeout = null)
     {
-        _rebuiltNames = names;
+        RebuiltNames = names;
         return Task.FromResult(RebuildStatus.Complete);
     }
 
@@ -107,8 +114,6 @@ public class ProjectionRebuildSelectionTests : IProjectionHost
 
     public Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none)
         => Task.CompletedTask;
-
-    #endregion
 }
 
 internal class NulloConsoleView : IConsoleView

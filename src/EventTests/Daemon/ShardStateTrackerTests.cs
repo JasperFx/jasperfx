@@ -533,7 +533,7 @@ public class ShardStateTrackerTests : IDisposable
             {
                 ready.Wait();
                 await tracker.PublishAsync(new ShardState("Trip:All", 45) { AgentStatus = "Running" });
-            });
+            }, TestContext.Current.CancellationToken);
 
             ready.Set();
 

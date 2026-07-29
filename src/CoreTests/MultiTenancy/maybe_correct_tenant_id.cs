@@ -20,8 +20,10 @@ public class maybe_correct_tenant_id
     [InlineData(TenantIdStyle.CaseSensitive, "One", "One")]
     [InlineData(TenantIdStyle.ForceLowerCase, "One", "one")]
     [InlineData(TenantIdStyle.ForceUpperCase, "One", "ONE")]
-    public void correct_tenant_id(TenantIdStyle tenantIdStyle, string raw, string corrected)
+    public void correct_tenant_id(TenantIdStyle tenantIdStyle, string? raw, string corrected)
     {
-        tenantIdStyle.MaybeCorrectTenantId(raw).ShouldBe(corrected);
+        // MaybeCorrectTenantId declares a non-nullable parameter, but null is exactly what the first
+        // three InlineData cases are here to pin down: it maps to the default tenant id.
+        tenantIdStyle.MaybeCorrectTenantId(raw!).ShouldBe(corrected);
     }
 }

@@ -53,11 +53,11 @@ public class StopAndDrainTimeoutTests
         // Well past the old 5s bound would be unreasonable in a test; what matters is that the drain
         // owns the decision to finish. Hold it long enough that an immediate/short bound would have
         // fired, then let it complete normally.
-        await Task.Delay(750);
+        await Task.Delay(750, TestContext.Current.CancellationToken);
         drain.Token.IsCancellationRequested.ShouldBeFalse();
         drain.Release();
 
-        await stop.WaitAsync(TestTimeout);
+        await stop.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Execution.DrainCompletedUncancelled.ShouldBeTrue();
         harness.Daemon.CurrentAgents().ShouldBeEmpty();
@@ -77,7 +77,7 @@ public class StopAndDrainTimeoutTests
         var stop = harness.Daemon.StopAgentAsync("Trip:All");
 
         // The execution parks on the token, so only the configured bound can release it.
-        await stop.WaitAsync(TestTimeout);
+        await stop.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
         stopwatch.Stop();
 
         harness.Execution.LastDrainToken!.Value.IsCancellationRequested.ShouldBeTrue();
@@ -95,7 +95,7 @@ public class StopAndDrainTimeoutTests
         await harness.Daemon.StartAgentAsync("Trip:All", CancellationToken.None);
 
         var stopwatch = Stopwatch.StartNew();
-        await harness.Daemon.StopAllAsync().WaitAsync(TestTimeout);
+        await harness.Daemon.StopAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
         stopwatch.Stop();
 
         harness.Execution.LastDrainToken!.Value.IsCancellationRequested.ShouldBeTrue();
@@ -122,11 +122,11 @@ public class StopAndDrainTimeoutTests
         var stop = harness.Daemon.StopAgentAsync("Trip:All");
         var drain = await harness.Execution.NextDrainAsync();
 
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
         drain.Token.IsCancellationRequested.ShouldBeFalse();
         drain.Release();
 
-        await stop.WaitAsync(TestTimeout);
+        await stop.WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
         harness.Execution.DrainCompletedUncancelled.ShouldBeTrue();
     }
