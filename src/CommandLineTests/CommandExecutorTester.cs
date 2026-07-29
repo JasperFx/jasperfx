@@ -115,7 +115,13 @@ namespace CommandLineTests
             CommandExecutor.ExecuteCommand<OptionCommand>(new[] {"--big", "--number", "6"})
                 .ShouldBe(0);
 
-            theOutput.ToString().Trim().ShouldBe("Big is True, Number is 6");
+            // ShouldEndWith, not ShouldBe. CommandFactory prints "Searching '<assembly>' for
+            // commands" until its *static* _hasAppliedExtensions latch flips, so exactly one test
+            // per process picks up that banner as a prefix -- whichever one runs first. With an
+            // exact match, this test and its async sibling below fail on a coin flip. Seen in CI on
+            // both #587 and #589. The banner is always a prefix (discovery runs before the command
+            // does), so anchoring to the end keeps the assertion just as strong.
+            theOutput.ToString().Trim().ShouldEndWith("Big is True, Number is 6");
         }
 
         [Fact]
@@ -124,7 +130,8 @@ namespace CommandLineTests
             (await CommandExecutor.ExecuteCommandAsync<OptionCommand>(new[] { "--big", "--number", "7" }))
                 .ShouldBe(0);
 
-            theOutput.ToString().Trim().ShouldBe("Big is True, Number is 7");
+            // See execute_single_command_synchronously above for why this is ShouldEndWith.
+            theOutput.ToString().Trim().ShouldEndWith("Big is True, Number is 7");
         }
     }
 
