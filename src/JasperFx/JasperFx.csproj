@@ -11,27 +11,20 @@
         <IsAotCompatible>true</IsAotCompatible>
     </PropertyGroup>
 
-    <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
-        <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="9.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0"/>
-        <PackageReference Include="Microsoft.Bcl.TimeProvider" Version="9.0.11"/>
-    </ItemGroup>
-
-    <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-        <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Bcl.TimeProvider" Version="10.0.0"/>
+    <!-- Versions are per-TFM (9.0.x on net9.0, 10.0.x on net10.0); see Directory.Packages.props. -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.ObjectPool"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions"/>
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting"/>
+        <PackageReference Include="Microsoft.Bcl.TimeProvider"/>
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="FastExpressionCompiler" Version="5.4.1" />
-        <PackageReference Include="ImTools" Version="4.0.0"/>
-        <PackageReference Include="Spectre.Console" Version="0.55.0" />
-        <PackageReference Include="Polly.Core" Version="8.6.5" />
+        <PackageReference Include="FastExpressionCompiler" />
+        <PackageReference Include="ImTools"/>
+        <PackageReference Include="Spectre.Console" />
+        <PackageReference Include="Polly.Core" />
     </ItemGroup>
 
     <ItemGroup>

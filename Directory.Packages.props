@@ -1,5 +1,90 @@
 <Project>
   <PropertyGroup>
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
+
+  <!--
+    Versions that are deliberately different per target framework. Directory.Packages.props is
+    evaluated once per inner (per-TFM) build, so $(TargetFramework) is available here and these
+    conditions resolve the same way the per-csproj ItemGroups they replace did.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
+    <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="9.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.ObjectPool" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.ObjectPool" Version="10.0.0" />
+  </ItemGroup>
+
+  <!--
+    Roslyn. Three different consumers want three different answers, and the difference is
+    load-bearing, so this cannot collapse to a single version:
+
+      - JasperFx.RuntimeCompiler ships runtime compilation and tracks the SDK's Roslyn. It is the
+        only multi-targeted consumer, so it gets the default below (range on net9.0, 5.0.0 on
+        net10.0) with no override.
+      - The two source generators are netstandard2.0 and must stay pinned LOW. A generator
+        compiled against Roslyn 4.14+ will not load in an older consumer's compiler. They carry
+        VersionOverride in their csproj (4.3.0 and 4.8.0 respectively).
+      - The generator *test* projects host Roslyn in-process to drive the generators under test, so
+        they override to match the generator they exercise (4.8.0).
+
+    The unconditional default exists so netstandard2.0 projects resolve at all; without it they hit
+    NU1010 (PackageReference with no matching PackageVersion), since neither TFM condition applies.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.CodeAnalysis" Version="[4.14.0,6.0.0)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="[4.14.0,6.0.0)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Scripting" Version="[4.14.0,6.0.0)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageVersion Update="Microsoft.CodeAnalysis" Version="5.0.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.Scripting" Version="5.0.0" />
+  </ItemGroup>
+
+  <!-- Shipping dependencies -->
+  <ItemGroup>
+    <PackageVersion Include="Aspire.Hosting" Version="13.3.1" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.3.1" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.3.1" />
+    <PackageVersion Include="DotNet.ReproducibleBuilds" Version="1.2.39" />
+    <PackageVersion Include="FastExpressionCompiler" Version="5.4.1" />
+    <PackageVersion Include="FSharp.Core" Version="9.0.303" />
+    <PackageVersion Include="ImTools" Version="4.0.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+    <PackageVersion Include="Npgsql" Version="9.0.2" />
+    <PackageVersion Include="Polly.Core" Version="8.6.5" />
+    <PackageVersion Include="Spectre.Console" Version="0.55.0" />
+    <PackageVersion Include="System.Collections.Immutable" Version="9.0.0" />
+  </ItemGroup>
+
+  <!--
+    Test dependencies. Five of these were drifting a version behind in EventStoreTests only
+    (xunit 2.9.2, xunit.runner.visualstudio 2.9.2, NSubstitute 5.1.0, Shouldly 4.2.1,
+    Microsoft.Extensions.TimeProvider.Testing 9.0.0); centralizing pulls that suite up to match
+    everything else.
+  -->
+  <ItemGroup>
+    <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.7.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="NSubstitute" Version="5.3.0" />
+    <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.0" />
+  </ItemGroup>
+
 </Project>

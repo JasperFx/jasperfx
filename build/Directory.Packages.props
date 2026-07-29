@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+
+  <!--
+    build/ deliberately isolates itself from the repo's MSBuild (see the sibling
+    Directory.Build.props / .targets, which exist only to stop the parent files from being
+    imported). Central package management does NOT follow that isolation: NuGet discovers
+    Directory.Packages.props by walking up the directory tree on its own, so without this file the
+    root one applies here and Build.csproj's inline Nuke.Common version fails with NU1008.
+
+    Opting out keeps the Nuke bootstrap self-contained, which is the same reason the neighbouring
+    files exist. Do not "fix" this by moving Nuke.Common into the root package list.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+</Project>
