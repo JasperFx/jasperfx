@@ -29,6 +29,12 @@
         <!-- The scoped-DI sample's generated code references IServiceScopeFactory / GetRequiredService /
              CreateAsyncScope (jasperfx#397). -->
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+
+        <!-- Explicit because central package management turns off the F# SDK's implicit FSharp.Core
+             reference (#580). Without it fsc silently falls back to the copy bundled with whichever
+             SDK is running, so the gate would compile against a different FSharp.Core than the one
+             the repo pins. -->
+        <PackageReference Include="FSharp.Core" />
     </ItemGroup>
 
 </Project>

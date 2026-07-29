@@ -8,6 +8,18 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!--
+          Must be explicit. The F# SDK normally adds FSharp.Core implicitly, but
+          Microsoft.FSharp.NetSdk.props sets DisableImplicitFSharpCoreReference=true whenever
+          ManagePackageVersionsCentrally is on (#576) - so without this line the project compiles
+          but ships no FSharp.Core, and nothing can reflect over the output assembly: the F#
+          compiler stamps FSharpInterfaceDataVersionAttribute on it, and that attribute type lives
+          in FSharp.Core (#580).
+        -->
+        <PackageReference Include="FSharp.Core" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Compile Include="Types.fs"/>
     </ItemGroup>
 
