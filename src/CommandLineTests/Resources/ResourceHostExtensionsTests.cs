@@ -6,7 +6,14 @@ using Shouldly;
 
 namespace CommandLineTests.Resources;
 
-public class ResourceHostExtensionsTests : ResourceCommandContext
+/// <summary>
+/// Documentation samples only -- never executed. These live outside ResourceHostExtensionsTests
+/// because a public, attribute-less method on a test class is xUnit1013, and the analyzer is right
+/// to flag it: on a class that does hold [Fact]s, that shape is indistinguishable from a test
+/// someone forgot to attribute. Keeping the methods public here preserves the snippet text verbatim
+/// -- sample_programmatically_control_resources includes its method signature.
+/// </summary>
+public class ResourceHostExtensionsSamples
 {
     public static async Task sample1()
     {
@@ -70,7 +77,10 @@ public class ResourceHostExtensionsTests : ResourceCommandContext
     }
 
     #endregion
+}
 
+public class ResourceHostExtensionsTests : ResourceCommandContext
+{
     [Fact]
     public void add_resource_startup()
     {
@@ -154,7 +164,7 @@ public class ResourceHostExtensionsTests : ResourceCommandContext
                 CopyResources(services);
                 services.AddResourceSetupOnStartup();
             })
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         foreach (var resource in AllResources)
         {
@@ -189,7 +199,7 @@ public class ResourceHostExtensionsTests : ResourceCommandContext
                 CopyResources(services);
                 services.AddResourceSetupOnStartup(StartupAction.ResetState);
             })
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         foreach (var resource in AllResources)
         {
@@ -217,7 +227,7 @@ public class ResourceHostExtensionsTests : ResourceCommandContext
         });
 
         using var host = await buildHost();
-        await host.SetupResources();
+        await host.SetupResources(TestContext.Current.CancellationToken);
 
         foreach (var resource in AllResources) await resource.Received().Setup(Arg.Any<CancellationToken>());
     }
@@ -241,7 +251,7 @@ public class ResourceHostExtensionsTests : ResourceCommandContext
         });
 
         using var host = await buildHost();
-        await host.ResetResourceState();
+        await host.ResetResourceState(TestContext.Current.CancellationToken);
 
         foreach (var resource in AllResources)
         {
@@ -269,7 +279,7 @@ public class ResourceHostExtensionsTests : ResourceCommandContext
         });
 
         using var host = await buildHost();
-        await host.TeardownResources();
+        await host.TeardownResources(TestContext.Current.CancellationToken);
 
         foreach (var resource in AllResources) await resource.Received().Teardown(Arg.Any<CancellationToken>());
     }

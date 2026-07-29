@@ -47,7 +47,7 @@ public class JasperFxOptionsTests
         using var host = await Host.CreateDefaultBuilder()
             .ConfigureServices(s => s.AddJasperFx())
             .UseEnvironment("Development")
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
         
         var options = host.Services.GetRequiredService<JasperFxOptions>();
         
@@ -80,7 +80,7 @@ public class JasperFxOptionsTests
         using var host = await Host.CreateDefaultBuilder()
             .ConfigureServices(s => s.AddJasperFx())
             .UseEnvironment("Development")
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var options = host.Services.GetRequiredService<JasperFxOptions>();
         options.ActiveProfile.ShouldBe(options.Development);
@@ -94,7 +94,7 @@ public class JasperFxOptionsTests
         using var host = await Host.CreateDefaultBuilder()
             .ConfigureServices(s => s.AddJasperFx())
             .UseEnvironment("Production")
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var options = host.Services.GetRequiredService<JasperFxOptions>();
         options.ActiveProfile.ShouldBe(options.Production);
@@ -330,7 +330,7 @@ public class JasperFxOptionsTests
         using var host = await Host.CreateDefaultBuilder()
             .ConfigureServices(s => s.AddJasperFx())
             .UseEnvironment("Development")
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var options = host.Services.GetRequiredService<JasperFxOptions>();
 

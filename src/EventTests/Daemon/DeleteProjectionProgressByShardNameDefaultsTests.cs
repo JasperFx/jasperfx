@@ -96,7 +96,7 @@ public class DeleteProjectionProgressByShardNameDefaultsTests
     public async Task override_receives_the_raw_shard_identity_verbatim()
     {
         var database = new CapturingEventDatabase();
-        await database.DeleteProjectionProgressByShardNameAsync("claim_lines:V9:All");
+        await database.DeleteProjectionProgressByShardNameAsync("claim_lines:V9:All", TestContext.Current.CancellationToken);
         database.DeletedIdentity.ShouldBe("claim_lines:V9:All");
     }
 }

@@ -64,10 +64,10 @@ public class InMemoryQueueTests
         };
         
         await Task.WhenAll([
-            Task.Run(() => publish(expected1)),
-            Task.Run(() => publish(expected2)),
-            Task.Run(() => publish(expected3)),
-            Task.Run(() => publish(expected4)),
+            Task.Run(() => publish(expected1), TestContext.Current.CancellationToken),
+            Task.Run(() => publish(expected2), TestContext.Current.CancellationToken),
+            Task.Run(() => publish(expected3), TestContext.Current.CancellationToken),
+            Task.Run(() => publish(expected4), TestContext.Current.CancellationToken),
             
             
             ]);
@@ -106,10 +106,10 @@ public class InMemoryQueueTests
         };
         
         await Task.WhenAll([
-            Task.Run(() => publish(expected1)),
-            Task.Run(() => publish(expected2)),
-            Task.Run(() => publish(expected3)),
-            Task.Run(() => publish(expected4)),
+            Task.Run(() => publish(expected1), TestContext.Current.CancellationToken),
+            Task.Run(() => publish(expected2), TestContext.Current.CancellationToken),
+            Task.Run(() => publish(expected3), TestContext.Current.CancellationToken),
+            Task.Run(() => publish(expected4), TestContext.Current.CancellationToken),
             
             
         ]);
@@ -154,13 +154,13 @@ public class InMemoryQueueTests
             {
                 queue.Post(i);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         // Wait until the channel is saturated (producer is now blocked inside Post waiting for room).
         var deadline = DateTime.UtcNow.AddSeconds(30);
         while (queue.Count < Block<int>.DefaultBoundedCapacity && DateTime.UtcNow < deadline)
         {
-            await Task.Delay(10);
+            await Task.Delay(10, TestContext.Current.CancellationToken);
         }
 
         queue.Count.ShouldBeGreaterThanOrEqualTo((uint)Block<int>.DefaultBoundedCapacity);

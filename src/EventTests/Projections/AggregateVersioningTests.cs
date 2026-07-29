@@ -19,7 +19,7 @@ public class AggregateVersioningTests
     [InlineData(typeof(ConventionalVersionedAggregate6), "VersionOverride")]
     [InlineData(typeof(ConventionalVersionedAggregate6Field), "VersionOverride")]
     [InlineData(typeof(ConventionalVersionedAggregate7), null)]
-    public void find_conventional_property_or_field(Type aggregateType, string expectedMemberName)
+    public void find_conventional_property_or_field(Type aggregateType, string? expectedMemberName)
     {
         var versioning =
             typeof(AggregateVersioning<,>).CloseAndBuildAs<IAggregateVersioning>(
@@ -69,7 +69,11 @@ public class AggregateVersioningTests
         var aggregate = Activator.CreateInstance(aggregateType);
         versioning.TrySetVersion(aggregate, e);
 
-
+        // xUnit1026 flagged 'expected' as unused, and it was: this theory ran ten cases and
+        // asserted nothing at all, so it only ever proved TrySetVersion() doesn't throw. The
+        // assertion below is what the InlineData was always describing -- SingleStream versioning
+        // takes the event's Version, MultiStream takes its Sequence.
+        versioning.GetVersion(aggregate).ShouldBe(expected);
     }
 }
 

@@ -49,14 +49,14 @@ public class DeadLetterCountDefaultsTests
     [Fact]
     public async Task count_dead_letters_default_returns_zero()
     {
-        var count = await theDatabase.CountDeadLetterEventsAsync(new ShardName("Fake"));
+        var count = await theDatabase.CountDeadLetterEventsAsync(new ShardName("Fake"), TestContext.Current.CancellationToken);
         count.ShouldBe(0);
     }
 
     [Fact]
     public async Task fetch_dead_letter_counts_default_returns_empty()
     {
-        var counts = await theDatabase.FetchDeadLetterCountsAsync();
+        var counts = await theDatabase.FetchDeadLetterCountsAsync(TestContext.Current.CancellationToken);
         counts.ShouldBeEmpty();
     }
 
@@ -64,7 +64,7 @@ public class DeadLetterCountDefaultsTests
     public async Task fetch_dead_letter_counts_for_null_tenant_delegates_to_store_global()
     {
         // jasperfx#450: the tenant overload with a null tenant is store-global and reuses today's behavior.
-        var counts = await theDatabase.FetchDeadLetterCountsAsync(tenantId: null);
+        var counts = await theDatabase.FetchDeadLetterCountsAsync(tenantId: null, token: TestContext.Current.CancellationToken);
         counts.ShouldBeEmpty();
     }
 

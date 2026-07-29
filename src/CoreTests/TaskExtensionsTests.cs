@@ -55,7 +55,12 @@ public class TaskExtensionsTests
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var wrapped = ((Task)tcs.Task).TimeoutAfterAsync(30_000);
 
+        // The only xUnit1051 in the repo that is genuinely wrong. SetCanceled(CancellationToken)
+        // records which token DID cancel the task; it does not observe one. Passing the test's
+        // (uncancelled) token here would assert something false about why this task ended.
+#pragma warning disable xUnit1051
         tcs.SetCanceled();
+#pragma warning restore xUnit1051
 
         await Should.ThrowAsync<TaskCanceledException>(wrapped);
     }

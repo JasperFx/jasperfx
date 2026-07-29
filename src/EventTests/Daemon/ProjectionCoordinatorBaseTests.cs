@@ -200,7 +200,7 @@ public class ProjectionCoordinatorBaseTests
         await WaitFor(() => daemon.Started.Contains(TheShard.Identity));
 
         // Let several more leadership cycles run.
-        await Task.Delay(250);
+        await Task.Delay(250, TestContext.Current.CancellationToken);
 
         await coordinator.StopAsync(CancellationToken.None);
 
@@ -234,7 +234,7 @@ public class ProjectionCoordinatorBaseTests
         await WaitFor(() => distributor.AttainAttempts >= 1);
 
         // Give a re-polling loop ample opportunity to fire again (poll time is 10ms).
-        await Task.Delay(250);
+        await Task.Delay(250, TestContext.Current.CancellationToken);
         distributor.AttainAttempts.ShouldBe(1);
 
         // No agents were started against the dead data source.

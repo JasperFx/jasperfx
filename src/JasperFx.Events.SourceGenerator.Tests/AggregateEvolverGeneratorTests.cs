@@ -1174,7 +1174,7 @@ public class MyAggregate
     public void Apply(NewEvent e) { Count++; }
 }
 ";
-        var syntaxTree = CSharpSyntaxTree.ParseText(source);
+        var syntaxTree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
 
         var references = new List<MetadataReference>
         {
@@ -1194,7 +1194,7 @@ public class MyAggregate
 
         var generator = new AggregateEvolverGenerator();
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
-        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _, TestContext.Current.CancellationToken);
 
         // Generated trees are everything in the output compilation except the input source
         var generatedTrees = outputCompilation.SyntaxTrees.Where(t => t != syntaxTree).ToHashSet();
@@ -1205,7 +1205,7 @@ public class MyAggregate
             .ShouldBeTrue();
 
         // And no obsolete-usage diagnostic may originate from the generated code
-        var obsoleteFromGenerated = outputCompilation.GetDiagnostics()
+        var obsoleteFromGenerated = outputCompilation.GetDiagnostics(TestContext.Current.CancellationToken)
             .Where(d => d.Id is "CS0618" or "CS0612")
             .Where(d => d.Location.SourceTree != null && generatedTrees.Contains(d.Location.SourceTree!))
             .ToList();
@@ -1260,7 +1260,7 @@ public class Tally
 }
 ";
 
-        var syntaxTree = CSharpSyntaxTree.ParseText(source);
+        var syntaxTree = CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken);
 
         var references = new List<MetadataReference>
         {
@@ -1281,9 +1281,9 @@ public class Tally
         // Two instances of the same generator == the analyzer bundled in two referenced packages.
         GeneratorDriver driver = CSharpGeneratorDriver.Create(
             new AggregateEvolverGenerator(), new AggregateEvolverGenerator());
-        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _, TestContext.Current.CancellationToken);
 
-        var collisionErrors = outputCompilation.GetDiagnostics()
+        var collisionErrors = outputCompilation.GetDiagnostics(TestContext.Current.CancellationToken)
             .Where(d => d.Severity == DiagnosticSeverity.Error && d.Id is "CS0111" or "CS0101" or "CS0102")
             .Select(d => $"{d.Id}: {d.GetMessage()}")
             .ToArray();

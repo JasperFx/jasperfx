@@ -12,7 +12,7 @@ public class HealthCheckIntegrationTests
     {
         var services = new ServiceCollection();
         services.CheckEnvironmentHealthCheck<AlwaysHealthyCheck>();
-        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider());
+        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider(), TestContext.Current.CancellationToken);
 
         results.Succeeded().ShouldBeTrue();
         results.Successes.ShouldContain(s => s.Contains("AlwaysHealthyCheck"));
@@ -23,7 +23,7 @@ public class HealthCheckIntegrationTests
     {
         var services = new ServiceCollection();
         services.CheckEnvironmentHealthCheck<AlwaysUnhealthyCheck>();
-        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider());
+        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider(), TestContext.Current.CancellationToken);
 
         results.Succeeded().ShouldBeFalse();
         results.Failures.ShouldContain(f => f.Description.Contains("AlwaysUnhealthyCheck"));
@@ -34,7 +34,7 @@ public class HealthCheckIntegrationTests
     {
         var services = new ServiceCollection();
         services.CheckEnvironmentHealthCheck<DegradedCheck>();
-        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider());
+        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider(), TestContext.Current.CancellationToken);
 
         results.Succeeded().ShouldBeTrue();
         results.Successes.ShouldContain(s => s.Contains("degraded"));
@@ -47,7 +47,7 @@ public class HealthCheckIntegrationTests
         services.CheckEnvironment("Manual check", _ => { });
         services.CheckEnvironmentHealthCheck<AlwaysHealthyCheck>();
         services.CheckEnvironmentHealthCheck<AlwaysUnhealthyCheck>();
-        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider());
+        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider(), TestContext.Current.CancellationToken);
 
         results.Succeeded().ShouldBeFalse();
         results.Successes.Length.ShouldBeGreaterThanOrEqualTo(2);
@@ -59,7 +59,7 @@ public class HealthCheckIntegrationTests
     {
         var services = new ServiceCollection();
         services.CheckEnvironmentHealthCheck<ThrowingCheck>();
-        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider());
+        var results = await EnvironmentChecker.ExecuteAllEnvironmentChecks(services.BuildServiceProvider(), TestContext.Current.CancellationToken);
 
         results.Succeeded().ShouldBeFalse();
         results.Failures.ShouldContain(f => f.Description.Contains("ThrowingCheck"));

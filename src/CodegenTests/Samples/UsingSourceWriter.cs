@@ -32,7 +32,16 @@ END
 
         _output.WriteLine(writer.Code());
     }
+}
 
+/// <summary>
+/// Documentation samples only -- never executed. These live outside UsingSourceWriter because a
+/// public, attribute-less method on a test class is xUnit1013, and the analyzer is right to flag
+/// it: on a class that does hold [Fact]s, that shape is indistinguishable from a test someone
+/// forgot to attribute. Keeping the methods public here preserves the snippet text verbatim.
+/// </summary>
+public class SourceWriterSamples
+{
     public void other_methods()
     {
         #region sample_other-sourcewriter-basics

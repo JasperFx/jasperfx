@@ -20,7 +20,7 @@ public class dynamic_tenancy_admin_surface
     public async Task auto_assign_overload_is_used_when_a_source_supports_it()
     {
         var source = new AutoAssignTenantSource();
-        var resolved = await ((IDynamicTenantSource<string>)source).AddTenantAsync("acme");
+        var resolved = await ((IDynamicTenantSource<string>)source).AddTenantAsync("acme", TestContext.Current.CancellationToken);
         source.AutoAssigned.ShouldBe(["acme"]);
         resolved.ShouldBe("shard-acme"); // resolved database id / partition suffix
     }
@@ -42,7 +42,7 @@ public class dynamic_tenancy_admin_surface
         var source = new AutoAssignTenantSource();
         var services = provider(source);
 
-        var resolved = await services.AddTenantAsync("acme");
+        var resolved = await services.AddTenantAsync("acme", TestContext.Current.CancellationToken);
 
         source.AutoAssigned.ShouldBe(["acme"]);
         resolved.ShouldBe("shard-acme");
@@ -89,7 +89,7 @@ public class dynamic_tenancy_admin_surface
 
         // None of these should throw with no source registered
         await services.AddTenantAsync("acme", "Host=db1");
-        (await services.AddTenantAsync("acme")).ShouldBeNull(); // no source -> no resolved assignment
+        (await services.AddTenantAsync("acme", TestContext.Current.CancellationToken)).ShouldBeNull(); // no source -> no resolved assignment
         await services.DisableTenantAsync("acme");
         await services.EnableTenantAsync("acme");
         await services.RemoveTenantAsync("acme");

@@ -10,7 +10,7 @@ public class is_default_tenant
     [InlineData(null, true)]
     [InlineData("", true)]
     [InlineData("blue", false)]
-    public void has_default_tenant_id(string value, bool isDefault)
+    public void has_default_tenant_id(string? value, bool isDefault)
     {
         var hasTenant = new StubHasTenantId { TenantId = value };
         hasTenant.IsDefaultTenant().ShouldBe(isDefault);

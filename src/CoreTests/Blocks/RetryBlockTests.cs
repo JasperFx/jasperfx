@@ -41,7 +41,11 @@ public class RetryBlockTests
             .ShouldBe("Completed Name: Aubrey");
     }
 
-    //[Fact] -- unreliable in CI
+    // Was a bare commented-out [Fact], which left a public attribute-less method on a test class --
+    // xUnit1013, and indistinguishable from a test someone forgot to attribute. Skip states the
+    // same thing without hiding it: the test now shows up as skipped on every run rather than
+    // silently not existing.
+    [Fact(Skip = "Unreliable in CI - timing sensitive under load")]
     public async Task retry_within_threshold()
     {
         var theMessage = new SometimesFailingMessage(2, "Aubrey");
@@ -72,7 +76,7 @@ public class RetryBlockTests
         while (tries < 50 && !theLogger.Messages[LogLevel.Information].Any())
         {
             tries++;
-            await Task.Delay(100.Milliseconds());
+            await Task.Delay(100.Milliseconds(), TestContext.Current.CancellationToken);
         }
 
         theLogger.Messages[LogLevel.Information].Single()

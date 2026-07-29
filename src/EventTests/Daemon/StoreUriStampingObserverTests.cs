@@ -62,7 +62,7 @@ public class StoreUriStampingObserverTests
     }
 
     [Fact]
-    public void subscribe_with_store_uri_stamp_routes_through_tracker_and_stamps()
+    public async Task subscribe_with_store_uri_stamp_routes_through_tracker_and_stamps()
     {
         var tracker = new ShardStateTracker(new NulloLogger());
         var inner = new RecordingObserver();
@@ -75,9 +75,8 @@ public class StoreUriStampingObserverTests
 
         // Publish through the real Tracker; the stamper should run before
         // `inner` sees the state.
-        var task = tracker.PublishAsync(new ShardState("Trip:V1:All", 7)).AsTask();
-        task.Wait();
-        tracker.Complete().Wait();
+        await tracker.PublishAsync(new ShardState("Trip:V1:All", 7));
+        await tracker.Complete();
 
         inner.States.ShouldHaveSingleItem();
         inner.States[0].StoreUri.ShouldBe("marten://itarievenstore",
@@ -87,7 +86,7 @@ public class StoreUriStampingObserverTests
     }
 
     [Fact]
-    public void subscribe_with_store_uri_stamp_falls_back_to_direct_subscription_when_daemon_has_no_uri()
+    public async Task subscribe_with_store_uri_stamp_falls_back_to_direct_subscription_when_daemon_has_no_uri()
     {
         // Test scaffolding / very old client: StoreUri is null. The extension
         // should still hook the observer up so legacy callers don't lose
@@ -101,8 +100,8 @@ public class StoreUriStampingObserverTests
 
         using var subscription = daemon.SubscribeWithStoreUriStamp(inner);
 
-        tracker.PublishAsync(new ShardState("Trip:V1:All", 7)).AsTask().Wait();
-        tracker.Complete().Wait();
+        await tracker.PublishAsync(new ShardState("Trip:V1:All", 7));
+        await tracker.Complete();
 
         inner.States.ShouldHaveSingleItem();
         inner.States[0].StoreUri.ShouldBeNull();

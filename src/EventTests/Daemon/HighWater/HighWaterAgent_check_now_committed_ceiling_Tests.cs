@@ -32,7 +32,7 @@ public class HighWaterAgent_check_now_committed_ceiling_Tests
         var agent = buildAgent(detector, tracker, cts.Token, "jasperfx.tests.checknow.committed");
 
         var completed = agent.CheckNowAsync();
-        var winner = await Task.WhenAny(completed, Task.Delay(5.Seconds()));
+        var winner = await Task.WhenAny(completed, Task.Delay(5.Seconds(), TestContext.Current.CancellationToken));
 
         winner.ShouldBe(completed);
         tracker.HighWaterMark.ShouldBe(12);
@@ -50,7 +50,7 @@ public class HighWaterAgent_check_now_committed_ceiling_Tests
         var agent = buildAgent(detector, tracker, cts.Token, "jasperfx.tests.checknow.waits");
 
         var completed = agent.CheckNowAsync();
-        var winner = await Task.WhenAny(completed, Task.Delay(5.Seconds()));
+        var winner = await Task.WhenAny(completed, Task.Delay(5.Seconds(), TestContext.Current.CancellationToken));
 
         winner.ShouldBe(completed);
         tracker.HighWaterMark.ShouldBe(12);
@@ -70,7 +70,7 @@ public class HighWaterAgent_check_now_committed_ceiling_Tests
         agent.CheckNowTimeout = 300.Milliseconds();
 
         var completed = agent.CheckNowAsync();
-        var winner = await Task.WhenAny(completed, Task.Delay(5.Seconds()));
+        var winner = await Task.WhenAny(completed, Task.Delay(5.Seconds(), TestContext.Current.CancellationToken));
 
         winner.ShouldBe(completed);
         tracker.HighWaterMark.ShouldBe(8);

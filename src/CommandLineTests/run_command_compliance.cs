@@ -35,7 +35,7 @@ public class run_command_compliance
 
             // Do not shut down until any redundant start has happened, or a stopping host would
             // mask it. A correct run never signals, so bound the wait to prove the negative.
-            await Task.WhenAny(redundantStart.Task, Task.Delay(2.Seconds()));
+            await Task.WhenAny(redundantStart.Task, Task.Delay(2.Seconds(), TestContext.Current.CancellationToken));
 
             host.Services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
             await runTask.TimeoutAfterAsync(5000);

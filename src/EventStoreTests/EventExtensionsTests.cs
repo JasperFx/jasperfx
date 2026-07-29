@@ -15,7 +15,7 @@ public class EventExtensionsTests
     [InlineData(typeof(IEvent<AEvent>), typeof(AEvent))]
     [InlineData(typeof(Event<AEvent>), typeof(AEvent))]
     [InlineData(typeof(IEvent), null)]
-    public void unwrap_event_type(Type rawType, Type expectedType)
+    public void unwrap_event_type(Type rawType, Type? expectedType)
     {
         rawType.UnwrapEventType().ShouldBe(expectedType);
     }
@@ -58,11 +58,14 @@ public class EventExtensionsTests
         eventTypeFor(x => x.UseEventWrapperConcrete2(null, null)).ShouldBe(typeof(AEvent));
     }
     
-    public void UseConcreteEventType(AEvent e, MyAggregate aggregate){}
-    public void UseConcreteEventType2(MyAggregate aggregate, AEvent e){}
-    public void UseConcreteEventType3(MyAggregate aggregate, AEvent e, IEvent metadata){}
-    public void UseInterfaceEventType(ITabulator e, MyAggregate aggregate){}
-    
-    public void UseEventWrapperConcrete(IEvent<AEvent> e, MyAggregate aggregate){}
-    public void UseEventWrapperConcrete2(IEvent<AEvent> e, MyAggregate aggregate){}
+    // Reflection targets for get_event_type_from_method, not tests. Private keeps them out of
+    // xUnit1013's sights; the expression trees above still bind them because they are built inside
+    // this class, and GetEventType only reads the parameter list.
+    private void UseConcreteEventType(AEvent e, MyAggregate aggregate){}
+    private void UseConcreteEventType2(MyAggregate aggregate, AEvent e){}
+    private void UseConcreteEventType3(MyAggregate aggregate, AEvent e, IEvent metadata){}
+    private void UseInterfaceEventType(ITabulator e, MyAggregate aggregate){}
+
+    private void UseEventWrapperConcrete(IEvent<AEvent> e, MyAggregate aggregate){}
+    private void UseEventWrapperConcrete2(IEvent<AEvent> e, MyAggregate aggregate){}
 }

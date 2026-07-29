@@ -457,7 +457,7 @@ public class SliceGroupTests : IProjectionStorage<User, string>, IStorageOperati
                 }
 
                 return Task.CompletedTask;
-            });
+            }, TestContext.Current.CancellationToken);
 
         theGroup.Slices[id1].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Bill");
         theGroup.Slices[id2].Events().OfType<IEvent<AssignedToUser>>().Single().Data.User.UserName.ShouldBe("Tom");

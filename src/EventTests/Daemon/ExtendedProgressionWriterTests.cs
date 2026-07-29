@@ -231,7 +231,7 @@ public class ExtendedProgressionWriterTests
         var dispose = theWriter.DisposeAsync().AsTask();
 
         // The write is parked on the gate, so DisposeAsync cannot have completed yet
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         dispose.IsCompleted.ShouldBeFalse();
 
         // Let the write through; only now may DisposeAsync complete
