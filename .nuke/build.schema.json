@@ -32,12 +32,14 @@
         "SmokeTestAot",
         "SmokeTestCommands",
         "Test",
+        "TestAspire",
         "TestCodegen",
         "TestCodegenFSharp",
         "TestCommandLine",
         "TestCore",
         "TestEvents",
-        "TestEventStore"
+        "TestEventStore",
+        "TestSourceGenerators"
       ]
     },
     "Verbosity": {

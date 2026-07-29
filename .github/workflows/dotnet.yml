@@ -87,6 +87,19 @@ jobs:
         run: ./build.sh test-event-store
         shell: bash
 
+      # Covers both Roslyn source generator suites. These built in CI all along (they are in the
+      # solution, so `compile` catches compile breaks) but nothing ever ran them, so a generator
+      # could emit wrong code without failing the build.
+      - name: test-source-generators
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-source-generators
+        shell: bash
+
+      - name: test-aspire
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-aspire
+        shell: bash
+
       # End-to-end CLI smoke tests, including `codegen preview --language fsharp`: proves the F# flag
       # is wired through the CLI and the F# emit path runs without throwing. It does NOT prove the
       # output compiles -- `preview` only prints, and GeneratorTarget feeds codegen a raw C# CodeFrame
