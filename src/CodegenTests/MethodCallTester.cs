@@ -3,7 +3,6 @@ using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using NSubstitute;
 using Shouldly;
-using Xunit.Sdk;
 
 namespace CodegenTests;
 
@@ -478,5 +477,15 @@ public class MethodCallTarget
 
 public interface IMartenOp
 {
-    
+
+}
+
+/// <summary>
+///     A return type for the MethodCallTarget probes below. The tests only assert that
+///     MethodCall infers this exact type (and the argument name derived from it), so any reference
+///     type does; it previously borrowed Xunit.Sdk.ErrorMessage via a stray `using Xunit.Sdk`,
+///     which quietly tied a codegen test to xunit's internals and broke on the v3 upgrade.
+/// </summary>
+public class ErrorMessage
+{
 }

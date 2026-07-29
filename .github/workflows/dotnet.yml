@@ -21,9 +21,15 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
   pg_db: marten_testing
   pg_user: postgres
+  # CONFIGURATION binds to the Nuke [Parameter] of the same name (Nuke reads parameters from the
+  # environment), so it genuinely selects the Release build. FRAMEWORK and
+  # DISABLE_TEST_PARALLELIZATION used to sit here too but bound to nothing: there is no Framework
+  # parameter, and no test project, runner config, or build target ever read the latter. The two
+  # suites that actually must not run concurrently (CodegenTests mutates process-wide statics and
+  # compiles assemblies; CommandLineTests redirects Console) declare that in code via
+  # [assembly: CollectionBehavior(CollectionBehavior.CollectionPerAssembly)], which xunit v3 still
+  # honors, so the serialization is enforced where it can't be silently dropped.
   CONFIGURATION: Release
-  FRAMEWORK: net9.0
-  DISABLE_TEST_PARALLELIZATION: true
   NUKE_TELEMETRY_OPTOUT: true
 
 jobs:

@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.Logging;
-using Xunit.Abstractions;
 
 namespace EventTests.TestingSupport;
 

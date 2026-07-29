@@ -3,7 +3,6 @@ using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace CodegenTests.Samples;
 
