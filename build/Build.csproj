@@ -13,6 +13,23 @@
 
   <ItemGroup>
     <PackageReference Include="Nuke.Common" Version="10.1.0" />
+
+    <!--
+      Nuke.Common 10.1.0 (the latest release) pulls NuGet.Packaging 6.12.1, which in turn pulls
+      System.Security.Cryptography.Xml 9.0.0 - seven high-severity advisories (NU1903). Nuke can't
+      be bumped past this, so pin the transitive up to the patched floor directly. 9.0.15 clears
+      only four of the seven; 9.0.18 covers all of them.
+
+      Nothing is shipped from build/, so this has no consumer impact. Drop the pin once Nuke ships
+      against a NuGet.Packaging that doesn't drag in a vulnerable version.
+    -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.18" />
+
+    <!--
+      Same story one level up: NuGet.Packaging 6.12.1 carries the low-severity GHSA-g4vj-cjjj-v7hg
+      (NU1901). 6.12.5 is the patched release on the same 6.12.x line Nuke already builds against.
+    -->
+    <PackageReference Include="NuGet.Packaging" Version="6.12.5" />
   </ItemGroup>
 
 </Project>
