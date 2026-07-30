@@ -357,6 +357,86 @@ public class ProjectionCoordinatorBaseTests
         logger.Debugs.ShouldContain(x => x.Contains("already disposed"));
     }
 
+    // ---- #592: a second StartAsync must not orphan the previous leadership loop ----
+    //
+    // StartAsync used to do `_cancellation?.SafeDispose()` and build a fresh source + runner.
+    // Disposing a CancellationTokenSource does NOT cancel it, and _runner was overwritten, so the
+    // previous executeAsync kept polling forever over a task no drainRunner would ever await.
+    // ResumeAsync is StartAsync, so any resume that was not preceded by PauseAsync leaked a loop
+    // that outlived StopAsync — re-attaining leadership after ReleaseAllLocks, and stranding the
+    // advisory-lock handle it won after that lock had been disposed (JasperFx/weasel#396,
+    // JasperFx/marten#5090).
+
+    [Fact]
+    public async Task a_second_start_does_not_leave_an_orphaned_leadership_loop()
+    {
+        var set = new FakeProjectionSet("db1", [TheShard], 100);
+        var daemon = new FakeDaemon();
+        // Never "already held", always attainable => every poll calls TryAttainLockAsync, so
+        // AttainAttempts is a direct liveness counter for the loop.
+        var distributor = new FakeDistributor([set]);
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(10));
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => distributor.AttainAttempts >= 1);
+
+        // The orphaning call: resume with no PauseAsync in between.
+        await coordinator.ResumeAsync();
+        var afterResume = distributor.AttainAttempts;
+        await WaitFor(() => distributor.AttainAttempts > afterResume);
+
+        await coordinator.StopAsync(CancellationToken.None);
+
+        // Nothing may poll after the coordinator has stopped and released its locks.
+        var afterStop = distributor.AttainAttempts;
+        await Task.Delay(250, TestContext.Current.CancellationToken);
+        distributor.AttainAttempts.ShouldBe(afterStop);
+    }
+
+    [Fact]
+    public async Task pause_then_resume_still_restarts_the_leadership_loop()
+    {
+        var set = new FakeProjectionSet("db1", [TheShard], 100);
+        var daemon = new FakeDaemon();
+        var distributor = new FakeDistributor([set]);
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(10));
+        await coordinator.StartAsync(CancellationToken.None);
+        await WaitFor(() => distributor.AttainAttempts >= 1);
+
+        await coordinator.PauseAsync();
+
+        // Paused means paused: the loop is drained, so the counter stops moving.
+        var afterPause = distributor.AttainAttempts;
+        await Task.Delay(150, TestContext.Current.CancellationToken);
+        distributor.AttainAttempts.ShouldBe(afterPause);
+
+        await coordinator.ResumeAsync();
+        await WaitFor(() => distributor.AttainAttempts > afterPause);
+        distributor.AttainAttempts.ShouldBeGreaterThan(afterPause);
+
+        await coordinator.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task repeated_start_stop_cycles_never_throw_on_a_spent_cancellation_source()
+    {
+        var daemon = new FakeDaemon();
+        var distributor = new FakeDistributor([]);
+
+        var coordinator = BuildCoordinator(distributor, daemon, TimeSpan.FromMilliseconds(10));
+
+        for (var i = 0; i < 3; i++)
+        {
+            await Should.NotThrowAsync(() => coordinator.StartAsync(CancellationToken.None));
+            await Should.NotThrowAsync(() => coordinator.StopAsync(CancellationToken.None));
+        }
+
+        // And a pause over an already-stopped coordinator is inert rather than cancelling a
+        // disposed source.
+        await Should.NotThrowAsync(() => coordinator.PauseAsync());
+    }
+
     // #352: a coordinator can be legitimately constructed but never started when the async
     // daemon is Disabled — the store's BuildDistributor returns null because there is nothing
     // to coordinate. The ctor must not reject that; the lifecycle methods must no-op cleanly.
