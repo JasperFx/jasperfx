@@ -115,33 +115,62 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
     public abstract ValueTask<IReadOnlyList<IProjectionDaemon>> AllDaemonsAsync();
 
     /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         // No distributor means there is nothing to coordinate (e.g. a Disabled async daemon).
         // The coordinator was constructed but should never spin up its leadership loop. See #352.
         if (Distributor == null)
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        _cancellation?.SafeDispose();
+        // #592: cancel AND drain any existing loop before starting another one. Disposing a
+        // CancellationTokenSource does not cancel it, so the previous StartAsync used to leave
+        // executeAsync polling forever against a token that never trips, over a task that no
+        // drainRunner would ever await. A bare ResumeAsync (no preceding PauseAsync) orphaned a
+        // live loop for the rest of the process, and that orphan then:
+        //
+        //  * re-attained the leadership lock right after StopAsync released it, so a stopped
+        //    coordinator quietly held leadership again, and
+        //  * stranded the advisory-lock handle it won after the lock's DisposeAsync had drained
+        //    (JasperFx/weasel#396) — a permanent 'idle in transaction' session that Marten's
+        //    high-water gap detection reads as a live pre-gap reserver (JasperFx/marten#5090).
+        //
+        // Draining here makes a double StartAsync equivalent to PauseAsync + StartAsync, which is
+        // what every caller already assumes.
+        await stopRunnerAsync().ConfigureAwait(false);
 
         _cancellation = new CancellationTokenSource();
         _runner = Task.Run(() => executeAsync(_cancellation.Token), _cancellation.Token);
-
-        return Task.CompletedTask;
     }
 
-    /// <inheritdoc />
-    public async Task PauseAsync()
+    // Cancel the leadership loop, wait for it to actually exit, and clear the bookkeeping so
+    // nothing can await or cancel a dead runner twice.
+    private async Task stopRunnerAsync()
     {
-        _logger.LogInformation("Pausing ProjectionCoordinator");
+        if (_cancellation == null && _runner == null) return;
+
         if (_cancellation != null)
         {
             await _cancellation.CancelAsync().ConfigureAwait(false);
         }
 
         await drainRunner().ConfigureAwait(false);
+
+        _cancellation?.SafeDispose();
+        _cancellation = null;
+        _runner = null;
+    }
+
+    /// <inheritdoc />
+    public async Task PauseAsync()
+    {
+        _logger.LogInformation("Pausing ProjectionCoordinator");
+
+        // #592: same cancel-then-drain the start path uses, so the loop is provably gone before
+        // anything downstream (StopAsync's ReleaseAllLocks) runs, and the spent source is not left
+        // behind for a later call to cancel or dispose a second time.
+        await stopRunnerAsync().ConfigureAwait(false);
 
         foreach (var daemon in ResolvedDaemons())
         {
