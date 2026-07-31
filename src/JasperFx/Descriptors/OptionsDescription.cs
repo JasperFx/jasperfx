@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
@@ -107,54 +108,78 @@ public class OptionsDescription
         
         foreach (var property in type.GetProperties().Where(x => !x.HasAttribute<IgnoreDescriptionAttribute>()))
         {
-            if (property.HasAttribute<ChildDescriptionAttribute>())
+            // Neither of these can be read with PropertyInfo.GetValue(subject): a set-only property has no
+            // getter at all, and an indexer demands index arguments (TargetParameterCountException without
+            // them). Both are legal on a type that's being described, and neither is configuration data.
+            if (!property.CanRead || property.GetIndexParameters().Length > 0) continue;
+
+            // An OptionsDescription is a *diagnostic* view of somebody else's configuration object, built by
+            // calling arbitrary property getters. Any one of those getters can throw -- lazily connecting to
+            // a broker, asserting on state that isn't initialized yet, dereferencing a null connection string
+            // -- and losing the entire description (and everything built on top of it, e.g. Wolverine's
+            // ServiceCapabilities snapshot) over one bad property is a terrible trade. Report what couldn't be
+            // read, in place, and carry on.
+            try
             {
-                var child = property.GetValue(subject);
-                if (child == null) continue;
-
-                var childDescription = child is IDescribeMyself describes ? describes.ToDescription() : new OptionsDescription(child);
-                Children[property.Name] = childDescription;
-
-                continue;
+                readProperty(subject, type, property);
             }
-
-            if (property.HasAttribute<DescribeAsStringArrayAttribute>())
+            catch (Exception e)
             {
-                var value = property.GetValue(subject);
-                var items = value is IEnumerable enumerable
-                    ? enumerable.Cast<object?>().Select(x => x?.ToString() ?? string.Empty).ToArray()
-                    : Array.Empty<string>();
-
-                Properties.Add(new OptionsValue
-                {
-                    Subject = $"{type.FullNameInCode()}.{property.Name}",
-                    Name = property.Name,
-                    Type = PropertyType.StringArray,
-                    RawValue = items,
-                    Value = items.Join(", ")
-                });
-
-                continue;
+                Properties.Add(OptionsValue.Unreadable(property, subject, e));
             }
-
-            if (property.HasAttribute<DescribeAsConfigurationStateAttribute>())
-            {
-                var state = property.GetValue(subject) != null ? "Configured" : "Default";
-                Properties.Add(new OptionsValue
-                {
-                    Subject = $"{type.FullNameInCode()}.{property.Name}",
-                    Name = property.Name,
-                    Type = PropertyType.Text,
-                    RawValue = state,
-                    Value = state
-                });
-
-                continue;
-            }
-
-            if (property.PropertyType != typeof(string) && property.PropertyType.IsEnumerable()) continue;
-            Properties.Add(OptionsValue.Read(property, subject));
         }
+    }
+
+    [RequiresUnreferencedCode("Reads subject.GetType().GetProperties() reflectively.")]
+    private void readProperty(object subject, Type type, PropertyInfo property)
+    {
+        if (property.HasAttribute<ChildDescriptionAttribute>())
+        {
+            var child = property.GetValue(subject);
+            if (child == null) return;
+
+            var childDescription = child is IDescribeMyself describes ? describes.ToDescription() : new OptionsDescription(child);
+            Children[property.Name] = childDescription;
+
+            return;
+        }
+
+        if (property.HasAttribute<DescribeAsStringArrayAttribute>())
+        {
+            var value = property.GetValue(subject);
+            var items = value is IEnumerable enumerable
+                ? enumerable.Cast<object?>().Select(x => x?.ToString() ?? string.Empty).ToArray()
+                : Array.Empty<string>();
+
+            Properties.Add(new OptionsValue
+            {
+                Subject = $"{type.FullNameInCode()}.{property.Name}",
+                Name = property.Name,
+                Type = PropertyType.StringArray,
+                RawValue = items,
+                Value = items.Join(", ")
+            });
+
+            return;
+        }
+
+        if (property.HasAttribute<DescribeAsConfigurationStateAttribute>())
+        {
+            var state = property.GetValue(subject) != null ? "Configured" : "Default";
+            Properties.Add(new OptionsValue
+            {
+                Subject = $"{type.FullNameInCode()}.{property.Name}",
+                Name = property.Name,
+                Type = PropertyType.Text,
+                RawValue = state,
+                Value = state
+            });
+
+            return;
+        }
+
+        if (property.PropertyType != typeof(string) && property.PropertyType.IsEnumerable()) return;
+        Properties.Add(OptionsValue.Read(property, subject));
     }
 
 
