@@ -117,11 +117,32 @@ public class BatchingChannel<T> : BlockBase<T>
     public override async Task WaitForCompletionAsync()
     {
         await _inner.WaitForCompletionAsync();
-        // ReSharper disable once InconsistentlySynchronizedField
-        if (_current.Any())
+
+        // The trailing partial batch has to be drained under _syncLock, and the timer disarmed, or the
+        // same items can be delivered TWICE on shutdown: this method used to read and post _current
+        // unsynchronized and never clear it, while the flush timer armed by that batch's first item was
+        // still live. A timer firing concurrently ran TriggerBatch, which posts AND clears, so both paths
+        // shipped the same items. Reproduced as a duplicated trailing batch under a steady trickle
+        // (BatchingChannelTests.steady_trickle_faster_than_the_timeout_still_flushes_within_the_max_age).
+        // Disarming first also closes the window where the timer fires after this drain. A callback
+        // already parked on the lock is harmless — whichever side wins clears _current, and the other
+        // then sees it empty.
+        T[]? trailing = null;
+        lock (_syncLock)
         {
-            // ReSharper disable once InconsistentlySynchronizedField
-            await _downstream.PostAsync(_current.ToArray());
+            disarmTimer();
+
+            if (_current.Count > 0)
+            {
+                trailing = _current.ToArray();
+                _current.Clear();
+            }
+        }
+
+        // Deliberately outside the lock — _syncLock guards the buffer, never a downstream await.
+        if (trailing != null)
+        {
+            await _downstream.PostAsync(trailing);
         }
 
         await _downstream.WaitForCompletionAsync();
