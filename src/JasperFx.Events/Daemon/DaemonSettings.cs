@@ -50,6 +50,16 @@ public interface IReadOnlyDaemonSettings
     TimeSpan StopAndDrainTimeout { get; }
 
     /// <summary>
+    ///     How long the blue/green side-effect gate (see
+    ///     <c>AsyncOptions.GateSideEffectsBehindPriorVersion</c>) may spend on the bounded, side-effect-
+    ///     suppressed warm-up replay that runs before a new projection version starts continuous
+    ///     execution. The default is 5 minutes. <see cref="Timeout.InfiniteTimeSpan"/> or any
+    ///     non-positive value means "no separate bound" — the warm-up is then only limited by the
+    ///     daemon's own cancellation.
+    /// </summary>
+    TimeSpan SideEffectGateTimeout { get; }
+
+    /// <summary>
     ///     Projection Daemon mode. The default is Disabled
     /// </summary>
     DaemonMode AsyncMode { get; }
@@ -132,6 +142,22 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     ///     the drain is then only limited by the daemon's own cancellation.
     /// </summary>
     public TimeSpan StopAndDrainTimeout { get; set; } = 5.Seconds();
+
+    /// <summary>
+    ///     jasperfx#594: how long the blue/green side-effect gate (jasperfx#480,
+    ///     <c>AsyncOptions.GateSideEffectsBehindPriorVersion</c>) may spend on the bounded,
+    ///     side-effect-suppressed warm-up replay that runs before a new projection version starts
+    ///     continuous execution. Five minutes was hardcoded originally, which cannot suit both a small
+    ///     store and a database-per-tenant deployment: at 512 tenant databases a warm-up was measured at
+    ///     27s p50, 82s p95 and 288.5s max — twelve seconds inside the old ceiling, so start failures
+    ///     were the next sample rather than a tail risk. Raise it when a version bump has to replay a
+    ///     large backlog per shard. <see cref="Timeout.InfiniteTimeSpan"/> or any non-positive value
+    ///     means "no separate bound" — the warm-up is then only limited by the daemon's own
+    ///     cancellation. Note that exceeding the bound is no longer automatically a failure: the gate
+    ///     re-reads persisted progression first and treats a shard that reached the prior version's
+    ///     mark as warmed up regardless of the clock.
+    /// </summary>
+    public TimeSpan SideEffectGateTimeout { get; set; } = 5.Minutes();
 
     /// <summary>
     ///     Projection Daemon mode. The default is Disabled.

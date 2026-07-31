@@ -432,9 +432,19 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     }
 
     // jasperfx#480: the bounded warm-up replay is capped like any other rebuild; a timeout leaves the
-    // shard stopped with its partial progress persisted, and the next start resumes the warm-up from
+    // shard paused with its partial progress persisted, and the next start resumes the warm-up from
     // that floor (the gate triggers on progress < prior mark, not only on zero progress).
-    private static readonly TimeSpan SideEffectGateTimeout = 5.Minutes();
+    //
+    // jasperfx#594: the cap was a hardcoded 5 minutes, which cannot suit both a small store and a
+    // database-per-tenant deployment — at 512 tenant databases a warm-up measured 288.5s against the
+    // 300s ceiling. It is now DaemonSettings.SideEffectGateTimeout. A non-positive value or
+    // Timeout.InfiniteTimeSpan opts out of the separate bound entirely (the daemon's own _cancellation
+    // still applies), mirroring StopAndDrainTimeout.
+    private TimeSpan sideEffectGateTimeout()
+    {
+        var timeout = _projections.SideEffectGateTimeout;
+        return timeout > TimeSpan.Zero ? timeout : Timeout.InfiniteTimeSpan;
+    }
 
     // jasperfx#480: single entry point for starting a shard in Continuous mode so every start path
     // (StartAllAsync, StartAgentAsync by name, the per-tenant fan-outs) runs the opt-in blue/green
@@ -501,19 +511,59 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             var warmup = buildAgentForShard(shard);
             Tracker.MarkAsRestarted(warmup.Name);
 
+            var gateTimeout = sideEffectGateTimeout();
+
             try
             {
-                await rebuildAgent(warmup, prior, SideEffectGateTimeout, floor: current, disableOptimizedReplay: true)
+                await rebuildAgent(warmup, prior, gateTimeout, floor: current, disableOptimizedReplay: true)
                     .ConfigureAwait(false);
             }
-            catch (Exception e) when (e is not TimeoutException)
+            catch (TimeoutException)
+            {
+                // jasperfx#594: a timeout is NOT the same as a failure. The replay may well have reached
+                // the prior mark and only the wait expired — observed in the field on a shard whose
+                // progression sat at exactly its high-water mark while its start failed three times on
+                // this timeout, each retry re-running a warm-up that had nothing left to do. So re-read
+                // the PERSISTED progression before judging: warmup.LastCommitted is not trustworthy here
+                // because ReplayAsync disposes the agent in its finally block on the way out.
+                var reached = await Database.ProjectionProgressFor(name, _cancellation.Token)
+                    .ConfigureAwait(false);
+
+                if (reached >= prior)
+                {
+                    Logger.LogInformation(
+                        "The blue/green side-effect gate warm-up for projection shard {Name} exceeded the {Timeout} gate timeout but had already reached {Reached} of {Prior}; treating it as warmed up and enabling side effects. Consider raising DaemonSettings.SideEffectGateTimeout",
+                        name.Identity, gateTimeout, reached, prior);
+                    return true;
+                }
+
+                // A genuine timeout. Publish a Paused state so the shard is observably paused rather
+                // than silently stopped, and recovers on the next start without operator action — the
+                // gate resumes from the persisted floor, so the work already done is not repeated. The
+                // disposed warm-up agent itself is deliberately NOT registered: it would report Running.
+                Logger.LogError(
+                    "The blue/green side-effect gate warm-up for projection shard {Name} timed out after {Timeout} at {Reached} of {Prior}. The shard is left paused; restarting it will resume the suppressed warm-up from its persisted progress. Consider raising DaemonSettings.SideEffectGateTimeout",
+                    name.Identity, gateTimeout, reached, prior);
+
+                await Tracker.PublishAsync(new ShardState(name, reached)
+                {
+                    Action = ShardAction.Paused,
+                    AgentStatus = "Paused",
+                    PauseReason =
+                        $"The blue/green side-effect gate warm-up timed out after {gateTimeout} at {reached} of {prior}",
+                    LastHeartbeat = DateTimeOffset.UtcNow
+                }).ConfigureAwait(false);
+
+                return false;
+            }
+            catch (Exception e)
             {
                 // A failed replay faults ReplayAsync: the agent pauses itself via
                 // ReportCriticalFailureAsync and faults the rebuild completion, which rebuildAgent
                 // propagates — skipping its registration step. Register the paused agent here so the
                 // shard is observably Paused and carries the failure for observers, and do not start
                 // continuous execution over history the prior version already covered. A TimeoutException
-                // is NOT an agent failure and falls through to the outer catch: the wedged agent is
+                // never reaches here — it is handled above (jasperfx#594), because the wedged agent is
                 // disposed but never paused, so registering it would misreport the shard as Running.
                 Logger.LogError(e,
                     "The blue/green side-effect gate warm-up for projection shard {Name} failed at {Position}. The shard is left paused; restarting it will resume the suppressed warm-up from its persisted progress",
