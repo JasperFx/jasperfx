@@ -240,7 +240,8 @@ public class JasperFxOptions : SystemPartBase
                 continue;
             }
 
-            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft") || assemblyName.StartsWith("ReSharperTestRunner"))
+            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft") ||
+                IsTestRunnerAssembly(assemblyName))
             {
                 continue;
             }
@@ -249,6 +250,27 @@ public class JasperFxOptions : SystemPartBase
         }
 
         return Assembly.GetEntryAssembly();
+    }
+
+    // GH-600: under an async test fixture the frames between JasperFx and the test class belong to the
+    // test *runner*, not the test assembly, so the walk above would otherwise adopt something like
+    // "xunit.v3.core" as the application assembly and every consumer would scan an assembly holding none
+    // of the suite's types. The symptom is entirely downstream (a handler/document/projection type simply
+    // not being discovered) and it is intermittent rather than consistently wrong, because a stack walk
+    // over async continuations is sensitive to frame layout. Skipping the runner lets the walk continue
+    // out to the test assembly; where nothing else matches, the Assembly.GetEntryAssembly() fallback is
+    // the test assembly anyway. "ReSharperTestRunner" was here first -- this class of problem was already
+    // known, xUnit and friends were simply never added.
+    internal static bool IsTestRunnerAssembly(string assemblyName)
+    {
+        return assemblyName.StartsWith("xunit", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("nunit", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("TUnit", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("MSTest", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("testhost", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("ReSharperTestRunner", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("JetBrains.", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("NCrunch.", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
