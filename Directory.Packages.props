@@ -97,6 +97,12 @@
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <!--
+      The extensibility core only, for JasperFx.Events.ComplianceTests: a shared library must never
+      reference xunit.v3 itself, which forces OutputType=Exe onto every consuming project.
+    -->
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3.assert" Version="3.2.2" />
   </ItemGroup>
 
 </Project>

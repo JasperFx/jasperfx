@@ -54,6 +54,7 @@
   <Project Path="src/ExtensionCommands/ExtensionCommands.csproj" />
   <Project Path="src/FakeApp/FakeApp.csproj" />
   <Project Path="src/FakeTool/FakeTool.csproj" />
+  <Project Path="src/JasperFx.Events.ComplianceTests/JasperFx.Events.ComplianceTests.csproj" />
   <Project Path="src/JasperFx.Events/JasperFx.Events.csproj" />
   <Project Path="src/JasperFx.RuntimeCompiler/JasperFx.RuntimeCompiler.csproj" />
   <Project Path="src/JasperFx/JasperFx.csproj" />
