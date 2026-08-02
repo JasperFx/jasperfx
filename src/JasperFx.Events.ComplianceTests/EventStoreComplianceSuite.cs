@@ -1,8 +1,10 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Tags;
+using Shouldly;
 using Xunit;
 
 namespace JasperFx.Events.ComplianceTests;
@@ -61,6 +63,35 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
 
     protected Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout)
         => theFixture.WaitForNonStaleProjectionDataAsync(timeout);
+
+    /// <summary>
+    /// Assert that an operation fails with <typeparamref name="TException"/>, whether the store
+    /// throws it directly or wrapped in an <see cref="AggregateException"/>.
+    /// </summary>
+    /// <remarks>
+    /// A real cross-store divergence rather than test convenience: Marten surfaces
+    /// DcbConcurrencyException straight out of SaveChangesAsync, while Polecat runs its unit of work
+    /// in parallel and aggregates. The failure semantics are identical, so the suites assert the
+    /// semantics and let the exception shape vary.
+    /// </remarks>
+    protected static async Task ShouldFailWithAsync<TException>(Func<Task> action) where TException : Exception
+    {
+        var exception = await Should.ThrowAsync<Exception>(action).ConfigureAwait(false);
+
+        if (exception is TException)
+        {
+            return;
+        }
+
+        if (exception is AggregateException aggregate &&
+            aggregate.Flatten().InnerExceptions.Any(x => x is TException))
+        {
+            return;
+        }
+
+        throw new ShouldAssertException(
+            $"Expected {typeof(TException).Name}, directly or aggregated, but got {exception.GetType().FullName}: {exception.Message}");
+    }
 
     /// <summary>
     /// Convenience for the DCB suites: build an event envelope, stamp tags on it, append it and save.

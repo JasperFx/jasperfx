@@ -385,7 +385,7 @@ public abstract class DcbTagQueryAndConsistencyCompliance<TFixture, TOperations,
         assignment.WithTag(studentId, courseId);
         boundary.AppendOne(assignment);
 
-        await Should.ThrowAsync<DcbConcurrencyException>(async () => await SaveChangesAsync(session1));
+        await ShouldFailWithAsync<DcbConcurrencyException>(async () => await SaveChangesAsync(session1));
     }
 
     [Fact]
@@ -489,7 +489,7 @@ public abstract class DcbTagQueryAndConsistencyCompliance<TFixture, TOperations,
         e.WithTag(studentId, courseId);
         boundary.AppendOne(e);
 
-        await Should.ThrowAsync<DcbConcurrencyException>(async () => await SaveChangesAsync(session1));
+        await ShouldFailWithAsync<DcbConcurrencyException>(async () => await SaveChangesAsync(session1));
     }
 
     [Fact]
@@ -544,7 +544,7 @@ public abstract class DcbTagQueryAndConsistencyCompliance<TFixture, TOperations,
         assignment.WithTag(studentId, courseId);
         boundary.AppendOne(assignment);
 
-        await Should.ThrowAsync<DcbConcurrencyException>(async () => await SaveChangesAsync(session1));
+        await ShouldFailWithAsync<DcbConcurrencyException>(async () => await SaveChangesAsync(session1));
     }
 
     #region sample_compliance_dcb_events_exist_async
