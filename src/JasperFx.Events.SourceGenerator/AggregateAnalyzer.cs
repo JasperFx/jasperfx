@@ -120,10 +120,35 @@ internal sealed class CandidateInfo
     /// See https://github.com/JasperFx/marten/issues/4166
     /// </summary>
     public List<ITypeSymbol> DiscoveredPublishedTypes { get; set; } = new();
+
+    /// <summary>
+    /// Document operations that bound to the projection's own session but whose document type is
+    /// not registrable (object, dynamic, an open type parameter). Reported as JFXEVT005 rather than
+    /// silently skipped, because nothing at the call site tells the user it was skipped.
+    /// </summary>
+    public List<UnresolvedDocumentOperation> UnresolvedDocumentOperations { get; set; } = new();
     // SelfAggregatingEvolve-specific
     public EvolveMethodInfo? EvolveMethod { get; set; }
     // Natural key discovery
     public bool HasNaturalKey { get; set; }
+}
+
+/// <summary>
+/// A document operation that bound to an EventProjection's own session but whose document type
+/// could not be turned into a published-type registration.
+/// </summary>
+internal sealed class UnresolvedDocumentOperation
+{
+    public UnresolvedDocumentOperation(string methodName, string documentTypeDisplay, Location location)
+    {
+        MethodName = methodName;
+        DocumentTypeDisplay = documentTypeDisplay;
+        Location = location;
+    }
+
+    public string MethodName { get; }
+    public string DocumentTypeDisplay { get; }
+    public Location Location { get; }
 }
 
 internal static class AggregateAnalyzer
@@ -161,7 +186,8 @@ internal static class AggregateAnalyzer
         var eventProjBaseInfo = FindEventProjectionBase(classSymbol);
         if (eventProjBaseInfo != null)
         {
-            return AnalyzeEventProjectionSubclass(classDecl, classSymbol, eventProjBaseInfo.Value, ct);
+            return AnalyzeEventProjectionSubclass(classDecl, classSymbol, eventProjBaseInfo.Value,
+                context.SemanticModel, ct);
         }
 
         // Not a projection subclass - check if self-aggregating
@@ -895,6 +921,7 @@ internal static class AggregateAnalyzer
         TypeDeclarationSyntax classDecl,
         INamedTypeSymbol classSymbol,
         (INamedTypeSymbol operationsType, INamedTypeSymbol querySessionType) baseInfo,
+        SemanticModel? semanticModel,
         CancellationToken ct)
     {
         var isPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword);
@@ -907,8 +934,12 @@ internal static class AggregateAnalyzer
             // See https://github.com/JasperFx/marten/issues/4166
             if (!isPartial) return null;
 
-            var discoveredTypes = DiscoverDocumentTypesFromMethodBodies(classDecl, classSymbol);
-            if (discoveredTypes.Count == 0) return null;
+            var unresolved = new List<UnresolvedDocumentOperation>();
+            var discoveredTypes = DiscoverDocumentTypesFromMethodBodies(classDecl, classSymbol,
+                baseInfo.operationsType, semanticModel, unresolved);
+
+            // A class with nothing registrable AND nothing to warn about is not a candidate at all.
+            if (discoveredTypes.Count == 0 && unresolved.Count == 0) return null;
 
             return new CandidateInfo
             {
@@ -919,6 +950,7 @@ internal static class AggregateAnalyzer
                 OperationsType = baseInfo.operationsType,
                 QuerySessionType = baseInfo.querySessionType,
                 DiscoveredPublishedTypes = discoveredTypes,
+                UnresolvedDocumentOperations = unresolved,
                 HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
             };
         }
@@ -945,65 +977,176 @@ internal static class AggregateAnalyzer
     }
 
     /// <summary>
+    /// Operation methods on a document session that carry the document type as their single
+    /// generic argument, whether it was written explicitly or inferred from the argument.
+    /// </summary>
+    private static readonly HashSet<string> DocumentOperationMethodNames = new()
+        { "Store", "Insert", "Delete", "Update", "HardDelete" };
+
+    /// <summary>
     /// Scans method bodies in an EventProjection class for calls to Store&lt;T&gt;, Insert&lt;T&gt;,
     /// Delete&lt;T&gt;, Update&lt;T&gt; on document operations to discover published document types.
     /// This handles the case where users override ApplyAsync directly and call operations
     /// methods with document types that are not otherwise registered.
     /// See https://github.com/JasperFx/marten/issues/4166
     /// </summary>
+    /// <remarks>
+    /// Resolution is SEMANTIC, deliberately. This used to match only <c>GenericNameSyntax</c>, which
+    /// meant <c>ops.Store&lt;Doc&gt;(x)</c> registered the published type and the equally valid
+    /// <c>ops.Store(x)</c> compiled and registered nothing at all — a silent trap, since the store
+    /// then provisions that document's storage on demand and only the schema-ahead-of-time and
+    /// known-document-type surfaces come up short. Binding the invocation gives the same answer for
+    /// both spellings, because the type argument is on the symbol whether or not it was written down.
+    /// The syntactic path stays as a fallback for code that does not bind (mid-edit, broken trees).
+    /// </remarks>
     private static List<ITypeSymbol> DiscoverDocumentTypesFromMethodBodies(
         TypeDeclarationSyntax classDecl,
-        INamedTypeSymbol classSymbol)
+        INamedTypeSymbol classSymbol,
+        INamedTypeSymbol operationsType,
+        SemanticModel? semanticModel,
+        List<UnresolvedDocumentOperation>? unresolved = null)
     {
         var documentTypes = new List<ITypeSymbol>();
         var typeNames = new HashSet<string>();
+        var seen = new HashSet<string>();
 
-        // Operation methods that accept a document type as a generic argument
-        var operationMethodNames = new HashSet<string>
-            { "Store", "Insert", "Delete", "Update", "HardDelete" };
-
-        // Scan all method bodies in the class for generic invocations
         foreach (var node in classDecl.DescendantNodes())
         {
-            if (node is InvocationExpressionSyntax invocation)
-            {
-                // Look for patterns like: operations.Store<T>(...) or ops.Insert<T>(...)
-                var methodName = invocation.Expression switch
-                {
-                    MemberAccessExpressionSyntax memberAccess => memberAccess.Name,
-                    _ => null
-                };
+            if (node is not InvocationExpressionSyntax invocation) continue;
+            if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess) continue;
 
-                if (methodName is GenericNameSyntax genericName &&
-                    operationMethodNames.Contains(genericName.Identifier.ValueText) &&
-                    genericName.TypeArgumentList.Arguments.Count == 1)
+            var simpleName = memberAccess.Name;
+            if (!DocumentOperationMethodNames.Contains(simpleName.Identifier.ValueText)) continue;
+
+            if (semanticModel != null &&
+                TryResolveDocumentOperation(semanticModel, invocation, memberAccess, operationsType,
+                    out var resolvedType, out var isOnOperations))
+            {
+                if (IsRegistrableDocumentType(resolvedType))
                 {
-                    var typeArg = genericName.TypeArgumentList.Arguments[0];
-                    var typeName = ExtractTypeNameFromTypeSyntax(typeArg);
-                    if (typeName != null)
+                    if (seen.Add(resolvedType!.ToDisplayString()))
                     {
-                        typeNames.Add(typeName);
+                        documentTypes.Add(resolvedType);
                     }
                 }
+                else if (isOnOperations && unresolved != null)
+                {
+                    // Bound to the operations session but the document type is not something we can
+                    // register -- object, dynamic, an open type parameter. Nothing to emit, and the
+                    // user cannot tell from the call site, so it is worth a diagnostic.
+                    unresolved.Add(new UnresolvedDocumentOperation(
+                        simpleName.Identifier.ValueText,
+                        resolvedType?.ToDisplayString() ?? "?",
+                        simpleName.GetLocation()));
+                }
+
+                continue;
             }
 
-            // Also detect: new SomeType(...) passed to operations.Insert(new SomeType(...))
-            // This is handled by looking for non-generic overloads like Insert(entity) where
-            // the entity is a new expression. But this is harder to detect without semantic analysis.
-            // For now, focus on the generic overload pattern which is the most common.
+            // Fallback: unbindable code. Only the explicit spelling is recoverable from syntax alone.
+            if (simpleName is GenericNameSyntax genericName &&
+                genericName.TypeArgumentList.Arguments.Count == 1)
+            {
+                var typeName = ExtractTypeNameFromTypeSyntax(genericName.TypeArgumentList.Arguments[0]);
+                if (typeName != null)
+                {
+                    typeNames.Add(typeName);
+                }
+            }
         }
 
-        // Resolve type names to symbols
         foreach (var tn in typeNames)
         {
             var resolved = FindTypeByName(tn, classSymbol);
-            if (resolved != null && !IsFrameworkType(resolved))
+            if (resolved != null && !IsFrameworkType(resolved) && seen.Add(resolved.ToDisplayString()))
             {
                 documentTypes.Add(resolved);
             }
         }
 
         return documentTypes;
+    }
+
+    /// <summary>
+    /// Bind a candidate document operation call and pull the document type off the method symbol.
+    /// </summary>
+    /// <param name="isOnOperations">
+    /// True when the receiver really is the projection's operations session, which is what separates
+    /// "we could not register this document type" from "this was somebody else's Store method".
+    /// </param>
+    private static bool TryResolveDocumentOperation(
+        SemanticModel semanticModel,
+        InvocationExpressionSyntax invocation,
+        MemberAccessExpressionSyntax memberAccess,
+        INamedTypeSymbol operationsType,
+        out ITypeSymbol? documentType,
+        out bool isOnOperations)
+    {
+        documentType = null;
+        isOnOperations = false;
+
+        var symbol = semanticModel.GetSymbolInfo(invocation).Symbol
+                     ?? semanticModel.GetSymbolInfo(invocation).CandidateSymbols.FirstOrDefault();
+
+        if (symbol is not IMethodSymbol method) return false;
+
+        var receiverType = semanticModel.GetTypeInfo(memberAccess.Expression).Type;
+        isOnOperations = receiverType != null && IsOrImplements(receiverType, operationsType);
+
+        // Extension methods hang the session off the first parameter rather than the receiver.
+        if (!isOnOperations && method.IsExtensionMethod && method.ReducedFrom == null &&
+            method.Parameters.Length > 0)
+        {
+            isOnOperations = IsOrImplements(method.Parameters[0].Type, operationsType);
+        }
+
+        if (!isOnOperations) return true;
+
+        if (method.TypeArguments.Length == 1)
+        {
+            var candidate = method.TypeArguments[0];
+            // Kept even when it is not registrable, so the diagnostic can name what was written.
+            documentType = candidate;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Can this type be named in a <c>RegisterPublishedType(typeof(...))</c> call and mean something?
+    /// </summary>
+    /// <remarks>
+    /// <c>SpecialType</c> is the check that matters and <see cref="IsFrameworkType"/> cannot stand in
+    /// for it: <c>object</c> and <c>string</c> render through <c>ToDisplayString()</c> as their C#
+    /// keywords, not as <c>System.Object</c> / <c>System.String</c>, so a name-prefix test lets them
+    /// through and the projection ends up registering <c>object</c> as a published document type.
+    /// </remarks>
+    private static bool IsRegistrableDocumentType(ITypeSymbol? type)
+    {
+        if (type == null) return false;
+        if (type.TypeKind is TypeKind.TypeParameter or TypeKind.Dynamic or TypeKind.Error) return false;
+        if (type.SpecialType != SpecialType.None) return false;
+
+        return !IsFrameworkType(type);
+    }
+
+    private static bool IsOrImplements(ITypeSymbol type, INamedTypeSymbol target)
+    {
+        if (SymbolEqualityComparer.Default.Equals(type, target)) return true;
+
+        foreach (var iface in type.AllInterfaces)
+        {
+            if (SymbolEqualityComparer.Default.Equals(iface, target)) return true;
+        }
+
+        var baseType = type.BaseType;
+        while (baseType != null)
+        {
+            if (SymbolEqualityComparer.Default.Equals(baseType, target)) return true;
+            baseType = baseType.BaseType;
+        }
+
+        return false;
     }
 
     private static List<ConventionalMethodInfo> DiscoverEventProjectionMethods(
