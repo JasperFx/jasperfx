@@ -62,21 +62,26 @@ public class SideEffectGateTimeoutTests
         // The genuine failure. Side effects must NOT be enabled over history the prior version already
         // covered, so no continuous agent starts — but the shard is published as Paused rather than left
         // silently stopped, so it is visible to a supervisor and resumes from its persisted floor.
-        var paused = new List<ShardState>();
+        // ShardStateTracker publishes through a Block<ShardState>, so an observer runs on the block's
+        // consumer thread and is NOT guaranteed to have run by the time StartAgentAsync returns.
+        // Collecting into a List and asserting straight after the call is a race, and CI lost it: the
+        // list was empty at the assertion and held the state by the time Shouldly rendered the failure
+        // message, which is why that failure read "should have single item but had 1 items".
+        var paused = new TaskCompletionSource<ShardState>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         await using var harness = new DaemonHarness(
             settings => settings.SideEffectGateTimeout = 250.Milliseconds(),
             progressReads: [0, PriorMark - 40],
             onShardState: state =>
             {
-                if (state.Action == ShardAction.Paused) paused.Add(state);
+                if (state.Action == ShardAction.Paused) paused.TrySetResult(state);
             });
 
         await harness.Daemon.StartAgentAsync("Trip:V2:All", CancellationToken.None);
 
         harness.Daemon.CurrentAgents().ShouldNotContain(x => x.Name.Identity == "Trip:V2:All");
 
-        var state = paused.ShouldHaveSingleItem();
+        var state = await paused.Task.WaitAsync(TestTimeout);
         state.ShardName.ShouldBe("Trip:V2:All");
         state.Sequence.ShouldBe(PriorMark - 40);
         state.PauseReason.ShouldContain("side-effect gate warm-up timed out");
