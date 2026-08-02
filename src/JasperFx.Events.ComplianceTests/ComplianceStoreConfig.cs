@@ -23,6 +23,24 @@ public sealed class ComplianceStoreConfig
     /// </summary>
     public string? SchemaName { get; set; }
 
+    /// <summary>
+    /// Optional explicit value for the per-database rebuild concurrency cap. Null leaves the store
+    /// on its derived default; zero or negative disables the cap.
+    /// </summary>
+    /// <remarks>
+    /// Not routed through <see cref="IComplianceStoreRegistrar"/> because the products hang the knob
+    /// off different option objects (Marten <c>Projections</c>, Polecat <c>DaemonSettings</c>) and
+    /// the fixture is already the place that knows which.
+    /// </remarks>
+    public int? MaxConcurrentRebuildsPerDatabase { get; set; }
+
+    /// <summary>
+    /// Optional connection pool ceiling, folded into the connection string by the fixture. Exists so
+    /// the rebuild-cap suite can exercise the pool-size-derived default without caring whether the
+    /// store speaks Npgsql or SqlClient.
+    /// </summary>
+    public int? MaxPoolSize { get; set; }
+
     public List<Type> EventTypes { get; } = new();
 
     public List<(Type Tag, string Suffix, Type? Aggregate)> TagTypes { get; } = new();
@@ -30,6 +48,8 @@ public sealed class ComplianceStoreConfig
     public List<(Type Doc, SnapshotLifecycle Lifecycle)> Snapshots { get; } = new();
 
     public List<Type> LiveAggregations { get; } = new();
+
+    public List<(ProjectionBase Projection, ProjectionLifecycle Lifecycle)> Projections { get; } = new();
 
     public ComplianceStoreConfig AddEventType<T>()
     {
@@ -65,6 +85,18 @@ public sealed class ComplianceStoreConfig
     {
         LiveAggregations.Add(typeof(TDoc));
         _registrations.Add(registrar => registrar.LiveAggregation<TDoc>());
+        return this;
+    }
+
+    /// <summary>
+    /// Register an already-constructed projection instance. Used where the projection carries test
+    /// state (the enrichment suite's call-order recorder) or where the point of the test is what the
+    /// source generator emitted onto a concrete projection type.
+    /// </summary>
+    public ComplianceStoreConfig AddProjection(ProjectionBase projection, ProjectionLifecycle lifecycle)
+    {
+        Projections.Add((projection, lifecycle));
+        _registrations.Add(registrar => registrar.AddProjection(projection, lifecycle));
         return this;
     }
 
