@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <!-- GH-601: like TestRunnerStandIn, the point of this project is its assembly NAME. It stands in
+             for a Critter Stack extension that calls services.AddJasperFx() on the application's behalf,
+             which is what UseWolverine() and AddMarten() both do. -->
+        <AssemblyName>Wolverine.StackWalkStandIn</AssemblyName>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+    </ItemGroup>
+</Project>
