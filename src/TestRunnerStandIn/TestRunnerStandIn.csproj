@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <!-- GH-600: the point of this project is its assembly NAME. DetermineCallingAssembly walks the
+             stack out of JasperFx and adopts the first frame that isn't System*/Microsoft*/a test runner,
+             and the bug was that a real runner ("xunit.v3.core") satisfied that filter. Reproducing the
+             frame layout deterministically means having a frame whose assembly is named like a runner
+             sitting between JasperFx and the test assembly, which is exactly what this stand-in is. -->
+        <AssemblyName>xunit.v3.stackwalk.standin</AssemblyName>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+</Project>

@@ -337,4 +337,62 @@ public class JasperFxOptionsTests
         options.RegistrationCallingAssembly.ShouldBe(GetType().Assembly);
         options.ApplicationAssemblyReuseWarning.ShouldBeNull();
     }
+
+    // GH-600: DetermineCallingAssembly walks out from JasperFx to the first frame that isn't System*,
+    // Microsoft* or a test runner. Under an async fixture the intervening frames belong to the runner, so
+    // without the runner filter the walk adopts something like "xunit.v3.core" and every consumer scans an
+    // assembly containing none of the suite's types.
+
+    [Theory]
+    [InlineData("xunit.v3.core")]
+    [InlineData("xunit.execution.dotnet")]
+    [InlineData("xunit.runner.utility.netcoreapp10")]
+    [InlineData("nunit.framework")]
+    [InlineData("NUnit3.TestAdapter")]
+    [InlineData("TUnit.Engine")]
+    [InlineData("MSTest.TestAdapter")]
+    [InlineData("testhost")]
+    [InlineData("ReSharperTestRunner64")]
+    [InlineData("JetBrains.ReSharper.TestRunner.Merged")]
+    [InlineData("NCrunch.TestHost")]
+    public void recognizes_test_runner_assemblies(string assemblyName)
+    {
+        JasperFxOptions.IsTestRunnerAssembly(assemblyName).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("CoreTests")]
+    [InlineData("MyApp")]
+    [InlineData("MyApp.Tests")]
+    [InlineData("Wolverine")]
+    [InlineData("Marten")]
+    // Guard against over-eager prefixes: an ordinary application assembly must never be mistaken for a
+    // runner just because its name happens to start with a runner-ish word.
+    [InlineData("JetBrainsFanClub")]
+    [InlineData("NCrunchyGranola")]
+    public void does_not_mistake_application_assemblies_for_test_runners(string assemblyName)
+    {
+        JasperFxOptions.IsTestRunnerAssembly(assemblyName).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void walks_past_a_test_runner_frame_out_to_the_test_assembly()
+    {
+        // RunnerFrame lives in an assembly named "xunit.v3.stackwalk.standin", so calling through it puts
+        // a runner-named frame between JasperFx and this test -- the layout an async test fixture produces
+        // for real, where the frames above JasperFx belong to the runner rather than the test assembly.
+        // Before the fix the walk stopped on that frame and adopted the runner.
+        var assembly = TestRunnerStandIn.RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
+
+        assembly.ShouldBe(GetType().Assembly);
+    }
+
+    [Fact]
+    public void never_adopts_a_test_runner_as_the_calling_assembly()
+    {
+        var assembly = TestRunnerStandIn.RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
+
+        assembly.ShouldNotBeNull();
+        JasperFxOptions.IsTestRunnerAssembly(assembly.GetName().Name!).ShouldBeFalse();
+    }
 }
