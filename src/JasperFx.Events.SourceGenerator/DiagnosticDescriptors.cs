@@ -28,6 +28,21 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true);
 
+    /// <summary>
+    /// An EventProjection's explicit ApplyAsync writes a document whose type the generator cannot
+    /// name, so no published-type registration is emitted for it. Silent otherwise: the store will
+    /// still provision that document's storage on demand, and only the ahead-of-time surfaces
+    /// (schema creation, known document types, rebuild teardown) come up short.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnregistrableDocumentOperation = new(
+        id: "JFXEVT005",
+        title: "Document type cannot be registered from this operation",
+        messageFormat:
+            "'{0}' calls {1} on its session with document type '{2}', which cannot be registered as a published type; call it with a concrete document type so the projection registers it",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true);
+
     public static readonly DiagnosticDescriptor HasLambdaRegistrations = new(
         id: "JFXEVT004",
         title: "Has lambda registrations",

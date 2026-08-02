@@ -482,6 +482,16 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     private static void EmitEventProjectionTypeRegistration(SourceProductionContext context, CandidateInfo info)
     {
+        foreach (var unresolved in info.UnresolvedDocumentOperations)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.UnregistrableDocumentOperation,
+                unresolved.Location,
+                info.ClassSymbol.Name,
+                unresolved.MethodName,
+                unresolved.DocumentTypeDisplay));
+        }
+
         if (info.DiscoveredPublishedTypes.Count == 0) return;
 
         var source = EvolverCodeEmitter.EmitEventProjectionTypeRegistrationPartial(info);
