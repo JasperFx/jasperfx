@@ -1,0 +1,50 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Description>Shared behavioral compliance test suites for Critter Stack event stores. Ships as C# source, not a compiled assembly.</Description>
+        <PackageId>JasperFx.Events.ComplianceTests</PackageId>
+        <Version>$(JasperFxVersion)</Version>
+        <PackageTags>eventsourcing;testing;compliance;critterstack</PackageTags>
+
+        <!--
+          Source-only package, and that is forced rather than preferred.
+
+          JasperFx.Events.SourceGenerator emits aggregate dispatchers per *consuming assembly* and
+          binds each product's own session type (it matches the session parameter of
+          EvolveAsync by type name). Aggregates compiled into one shared DLL could never dispatch for
+          both Marten and Polecat. Compiling in the consumer also sidesteps JasperFx/Weasel version
+          skew between the repos and their LangVersion/ImplicitUsings differences; these sources are
+          authored to the C# 13 / explicit-usings floor.
+        -->
+        <IncludeBuildOutput>false</IncludeBuildOutput>
+        <SuppressDependenciesWhenPacking>false</SuppressDependenciesWhenPacking>
+        <NoPackageAnalysis>true</NoPackageAnalysis>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+        <!-- Authored to the floor the consumers share, not to this repo's conveniences. -->
+        <ImplicitUsings>false</ImplicitUsings>
+        <LangVersion>13</LangVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
+
+        <!--
+          Never reference xunit.v3 itself from a shared library, since it forces OutputType=Exe onto
+          consumers. The extensibility core carries [Fact], IAsyncLifetime, TestContext and Assert.
+        -->
+        <PackageReference Include="xunit.v3.extensibility.core" />
+        <PackageReference Include="xunit.v3.assert" />
+        <PackageReference Include="Shouldly" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The payload: every compliance source, compiled inside the consumer. -->
+        <Content Include="**\*.cs"
+                 Exclude="bin\**\*.cs;obj\**\*.cs;Local\**\*.cs"
+                 Pack="true"
+                 BuildAction="Compile"
+                 PackagePath="contentFiles\cs\any\JasperFx.Events.ComplianceTests\" />
+    </ItemGroup>
+
+</Project>

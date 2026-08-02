@@ -207,6 +207,7 @@ partial class Build : NukeBuild
                 Solution.JasperFx,
                 Solution.JasperFx_RuntimeCompiler,
                 Solution.JasperFx_Events,
+                Solution.JasperFx_Events_ComplianceTests,
                 Solution.src.JasperFx_Events_SourceGenerator,
                 Solution.src.JasperFx_SourceGenerator,
                 Solution.src.JasperFx_Aspire
