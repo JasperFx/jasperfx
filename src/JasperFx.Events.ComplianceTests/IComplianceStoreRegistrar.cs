@@ -37,4 +37,16 @@ public interface IComplianceStoreRegistrar
     /// build live aggregators automatically.
     /// </summary>
     void LiveAggregation<TDoc>() where TDoc : notnull;
+
+    /// <summary>
+    /// Register an already-constructed projection instance.
+    /// </summary>
+    /// <remarks>
+    /// Typed as the shared <see cref="ProjectionBase"/> rather than
+    /// <c>IProjectionSource&lt;TOperations, TQuerySession&gt;</c> because this interface is not
+    /// generic over the session pair; the implementing fixture casts down to its own closure. Every
+    /// projection a suite can build derives from the product's own EventProjection base, so the cast
+    /// is total in practice.
+    /// </remarks>
+    void AddProjection(ProjectionBase projection, ProjectionLifecycle lifecycle);
 }

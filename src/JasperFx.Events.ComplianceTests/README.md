@@ -15,13 +15,19 @@ differences between the repos.
 Reference the package from a test project that already has xunit v3 and Shouldly, then supply two
 things.
 
-**1. A global alias naming your store's read session.** The shared self-aggregating fixtures declare
-`EvolveAsync(IEvent, ComplianceQuerySession)`; the source generator resolves the parameter by type
-name, so an alias is enough:
+**1. Three global aliases naming your store's own types.** The shared suites declare aggregates and
+projections at file scope, so they cannot reach the `<TOperations, TQuerySession>` pair the suite
+classes are generic over. The source generator resolves these by type name, so aliases are enough:
 
 ```csharp
 global using ComplianceQuerySession = Marten.IQuerySession;
+global using ComplianceOperations = Marten.IDocumentOperations;
+global using ComplianceEventProjection = Marten.Events.Projections.EventProjection;
 ```
+
+`ComplianceQuerySession` binds the `EvolveAsync(IEvent, …)` convention on the self-aggregating
+fixtures; the other two bind the EventProjection suites to your product's own projection base and
+writable session.
 
 **2. A concrete fixture** closing `EventStoreComplianceFixture<TOperations, TQuerySession>` over your
 store's session pair. Everything portable in the suites runs through the shared JasperFx surfaces

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Events.Daemon;
@@ -80,9 +81,32 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         where T : class;
 
     /// <summary>
+    /// Store a plain document — not an event. Only needed where a suite has to seed state the event
+    /// store itself did not produce, such as the lookup document an enrichment projection reads.
+    /// </summary>
+    public abstract void StoreDocument<T>(TOperations session, T document) where T : notnull;
+
+    /// <summary>
     /// The payoff member — everything portable in the suites runs off the shared JasperFx surface.
     /// </summary>
     public abstract IEventStoreOperations EventsFor(TOperations session);
+
+    /// <summary>
+    /// The store itself, as the shared <see cref="IEventStore"/> surface. Suites reach for this on
+    /// store-level contracts — the rebuild concurrency cap, usage descriptors — never for anything
+    /// session-scoped.
+    /// </summary>
+    public abstract IEventStore EventStore { get; }
+
+    /// <summary>
+    /// Aggregate types the store knows about, including ones discovered from source-generated
+    /// evolvers rather than explicit registration.
+    /// </summary>
+    /// <remarks>
+    /// <c>ProjectionGraph.AllAggregateTypes()</c> is shared, but the graph hangs off each product's
+    /// own options type, so reaching it costs one line of fixture code.
+    /// </remarks>
+    public abstract IEnumerable<Type> AllAggregateTypes();
 
     public abstract IComplianceBatch CreateBatch(TQuerySession session);
 

@@ -51,6 +51,11 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
     protected Task<T?> LoadDocumentAsync<T>(TQuerySession session, object id) where T : class
         => theFixture.LoadDocumentAsync<T>(session, id, Cancellation);
 
+    protected void StoreDocument<T>(TOperations session, T document) where T : notnull
+        => theFixture.StoreDocument(session, document);
+
+    protected IEventStore EventStore => theFixture.EventStore;
+
     protected IComplianceBatch CreateBatch(TQuerySession session) => theFixture.CreateBatch(session);
 
     /// <summary>
