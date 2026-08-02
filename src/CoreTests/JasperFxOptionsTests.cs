@@ -8,6 +8,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
 using Shouldly;
+using RunnerFrame = xunit.v3.stackwalk.standin.RunnerFrame;
 
 namespace CoreTests;
 
@@ -383,7 +384,7 @@ public class JasperFxOptionsTests
         // a runner-named frame between JasperFx and this test -- the layout an async test fixture produces
         // for real, where the frames above JasperFx belong to the runner rather than the test assembly.
         // Before the fix the walk stopped on that frame and adopted the runner.
-        var assembly = TestRunnerStandIn.RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
+        var assembly = RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
 
         assembly.ShouldBe(GetType().Assembly);
     }
@@ -391,7 +392,7 @@ public class JasperFxOptionsTests
     [Fact]
     public void never_adopts_a_test_runner_as_the_calling_assembly()
     {
-        var assembly = TestRunnerStandIn.RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
+        var assembly = RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
 
         assembly.ShouldNotBeNull();
         JasperFxOptions.IsTestRunnerAssembly(assembly.GetName().Name!).ShouldBeFalse();

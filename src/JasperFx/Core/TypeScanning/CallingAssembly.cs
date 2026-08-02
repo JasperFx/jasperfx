@@ -1,49 +1,44 @@
-﻿using System.Globalization;
+using System.Diagnostics;
 using System.Reflection;
-using JasperFx.Core.TypeScanning;
 
 namespace JasperFx.Core.TypeScanning;
 
 /// <summary>
 ///     Use to walk up the execution stack and "find" the assembly
-///     that originates the call. Ignores system assemblies and any
-///     assembly marked with the [IgnoreOnScanning] attribute
+///     that originates the call. Ignores system assemblies, test runner
+///     assemblies, and any assembly marked with the [IgnoreAssembly] attribute
 /// </summary>
 public class CallingAssembly
 {
     private static readonly string[] _prefixesToIgnore = { "System.", "Microsoft." };
 
-    private static readonly IList<string> _misses = new List<string>();
-
-    /// <summary>
-    ///     Method is used to get the stack trace in english
-    /// </summary>
-    /// <returns>Stack trace in english</returns>
-    private static string GetStackTraceInEnglish()
-    {
-        var currentUiCulture = Thread.CurrentThread.CurrentUICulture;
-        Thread.CurrentThread.CurrentUICulture = CultureInfo.InvariantCulture;
-        var trace = System.Environment.StackTrace;
-        Thread.CurrentThread.CurrentUICulture = currentUiCulture;
-        return trace;
-    }
-
-
     public static Assembly? Find()
     {
-        var trace = GetStackTraceInEnglish();
+        // GH-600: this used to render the stack as TEXT (Environment.StackTrace) and then guess each
+        // frame's assembly by trying to Assembly.Load progressively shorter dotted prefixes of the method
+        // name. That could only ever resolve an assembly whose name lined up with its namespace, so it
+        // missed some frames outright and adopted others it should have skipped -- NUnit's NUnit.Framework
+        // namespace matches its nunit.framework assembly exactly, for instance, so a scan configured from
+        // an async test adopted the runner. Reading the assembly off the frame is exact, needs no
+        // speculative loads, and drops a static List<string> cache that was being mutated from every
+        // thread that ever called in here.
+        var frames = new StackTrace().GetFrames();
 
-
-        var parts = trace.Split('\n');
-
-        for (var i = 0; i < parts.Length; i++)
+        foreach (var frame in frames)
         {
-            var line = parts[i];
-            var assembly = findAssembly(line);
-            if (assembly != null && !isSystemAssembly(assembly))
+            var assembly = frame.GetMethod()?.DeclaringType?.Assembly;
+
+            if (assembly is null)
             {
-                return assembly;
+                continue;
             }
+
+            if (isSystemAssembly(assembly))
+            {
+                continue;
+            }
+
+            return assembly;
         }
 
         return Assembly.GetEntryAssembly();
@@ -63,47 +58,17 @@ public class CallingAssembly
 
         var assemblyName = assembly.GetName().Name;
 
-        return isSystemAssembly(assemblyName!);
+        return assemblyName != null && isSystemAssembly(assemblyName);
     }
 
     private static bool isSystemAssembly(string assemblyName)
     {
-        return _prefixesToIgnore.Any(x => assemblyName.StartsWith(x));
-    }
-
-    private static Assembly? findAssembly(string stacktraceLine)
-    {
-        var candidate = stacktraceLine.Trim().Substring(3);
-
-        // Short circuit this
-        if (isSystemAssembly(candidate))
-        {
-            return null;
-        }
-
-        Assembly? assembly = null;
-        var names = candidate.Split('.');
-        for (var i = names.Length - 2; i > 0; i--)
-        {
-            var possibility = string.Join(".", names.Take(i).ToArray());
-
-            if (_misses.Contains(possibility))
-            {
-                continue;
-            }
-
-            try
-            {
-                assembly = Assembly.Load(new AssemblyName(possibility));
-                break;
-            }
-            catch
-            {
-                _misses.Add(possibility);
-            }
-        }
-
-        return assembly;
+        // GH-600: the frames between JasperFx and the code that configured the scan belong to the test
+        // runner under an async fixture, and adopting one means scanning an assembly that holds none of
+        // the application's types. Shares JasperFxOptions' list so the two stack walks agree on what a
+        // runner is.
+        return _prefixesToIgnore.Any(x => assemblyName.StartsWith(x, StringComparison.Ordinal))
+               || JasperFxOptions.IsTestRunnerAssembly(assemblyName);
     }
 
     /// <summary>
