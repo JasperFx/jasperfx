@@ -28,6 +28,7 @@
         <ProjectReference Include="..\FSharpTypes\FSharpTypes.fsproj" />
         <ProjectReference Include="..\Widgets5\Widgets5.csproj" />
         <ProjectReference Include="..\TestRunnerStandIn\TestRunnerStandIn.csproj" />
+        <ProjectReference Include="..\ExtensionStandIn\ExtensionStandIn.csproj" />
     </ItemGroup>
 
 </Project>
