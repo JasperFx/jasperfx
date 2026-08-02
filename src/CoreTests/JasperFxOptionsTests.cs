@@ -1,3 +1,4 @@
+using ExtensionStandIn;
 using JasperFx;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine.Descriptions;
@@ -394,5 +395,98 @@ public class JasperFxOptionsTests
 
         assembly.ShouldNotBeNull();
         JasperFxOptions.IsTestRunnerAssembly(assembly.GetName().Name!).ShouldBeFalse();
+    }
+
+    // GH-601: UseWolverine() and AddMarten() both call services.AddJasperFx() from inside their own
+    // assembly, so the first frame outside JasperFx belongs to the extension rather than the application.
+
+    [Theory]
+    [InlineData("JasperFx")]
+    [InlineData("JasperFx.Events")]
+    [InlineData("JasperFx.RuntimeCompiler")]
+    [InlineData("Wolverine")]
+    [InlineData("Wolverine.SqlServer")]
+    [InlineData("WolverineFx.RabbitMQ")]
+    [InlineData("Marten")]
+    [InlineData("Marten.AspNetCore")]
+    [InlineData("Weasel.Postgresql")]
+    [InlineData("Polecat")]
+    [InlineData("CritterWatch.Server")]
+    [InlineData("Oakton")]
+    public void recognizes_critter_stack_framework_assemblies(string assemblyName)
+    {
+        JasperFxOptions.IsCritterStackAssembly(assemblyName).ShouldBeTrue();
+    }
+
+    [Theory]
+    // An application is not framework code just because it is named for a product. Matching is by exact
+    // name or dotted prefix, never a bare StartsWith.
+    [InlineData("MartenPlayground")]
+    [InlineData("WolverineDemo")]
+    [InlineData("JasperFxSamples")]
+    [InlineData("MyApp")]
+    [InlineData("CoreTests")]
+    // And the Critter Stack repos' own test assemblies ARE the application under test -- their handlers
+    // and documents are the types discovery has to find.
+    [InlineData("Wolverine.RabbitMQ.Tests")]
+    [InlineData("Marten.Testing")]
+    [InlineData("JasperFx.Events.Tests")]
+    public void does_not_mistake_applications_or_suites_for_framework_assemblies(string assemblyName)
+    {
+        JasperFxOptions.IsCritterStackAssembly(assemblyName).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task registration_is_attributed_to_the_app_not_the_extension_that_registered_for_it()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = null;
+
+            // AddSomeCritterStackTool lives in an assembly named "Wolverine.StackWalkStandIn" and calls
+            // AddJasperFx() on our behalf, which is exactly what UseWolverine()/AddMarten() do.
+            using var host = await Host.CreateDefaultBuilder()
+                .ConfigureServices(s => s.AddSomeCritterStackTool())
+                .UseEnvironment("Development")
+                .StartAsync(TestContext.Current.CancellationToken);
+
+            var options = host.Services.GetRequiredService<JasperFxOptions>();
+
+            options.RegistrationCallingAssembly.ShouldBe(GetType().Assembly);
+
+            // ...and because registration is now attributed correctly, the GH-3521 divergence warning
+            // stays quiet on a host where nothing is actually wrong.
+            options.ApplicationAssemblyReuseWarning.ShouldBeNull();
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void an_extension_registration_does_not_pin_the_extension_as_the_application_assembly()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = null;
+
+            // No meaningful IHostEnvironment.ApplicationName here, so establishApplicationAssembly falls
+            // through to the process-wide pin that AddJasperFx seeded from the same stack walk. Before the
+            // fix that pin -- and therefore type discovery -- was the extension assembly.
+            var services = new ServiceCollection();
+            services.AddSomeCritterStackTool();
+
+            var options = services.BuildServiceProvider().GetRequiredService<JasperFxOptions>();
+
+            options.ApplicationAssembly.ShouldBe(GetType().Assembly);
+            JasperFxOptions.RememberedApplicationAssembly.ShouldBe(GetType().Assembly);
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
     }
 }
