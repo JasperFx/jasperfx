@@ -92,6 +92,26 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public abstract IEventStoreOperations EventsFor(TOperations session);
 
     /// <summary>
+    /// The session's correlation id, which both products seed from <c>Activity.Current.RootId</c>
+    /// when the session opens.
+    /// </summary>
+    /// <remarks>
+    /// Session-scoped correlation/causation is one of the few genuinely shared behaviors that no
+    /// shared interface declares: both products hang the pair off their own query session type, and
+    /// <see cref="IStorageOperations"/> deliberately stays narrow. Three fixture members are cheaper
+    /// than widening that contract. The <em>event</em> side of the same behavior needs nothing here,
+    /// because <see cref="IEvent.CorrelationId"/> is already shared.
+    /// </remarks>
+    public abstract string? CorrelationIdFor(TOperations session);
+
+    public abstract string? CausationIdFor(TOperations session);
+
+    /// <summary>
+    /// Assign the correlation id explicitly, which must beat whatever the ambient activity seeded.
+    /// </summary>
+    public abstract void SetCorrelationId(TOperations session, string? correlationId);
+
+    /// <summary>
     /// The store itself, as the shared <see cref="IEventStore"/> surface. Suites reach for this on
     /// store-level contracts — the rebuild concurrency cap, usage descriptors — never for anything
     /// session-scoped.

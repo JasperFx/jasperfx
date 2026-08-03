@@ -41,6 +41,29 @@ public sealed class ComplianceStoreConfig
     /// </summary>
     public int? MaxPoolSize { get; set; }
 
+    /// <summary>
+    /// Optional stream identity style. Null leaves the store on its own default, which is
+    /// <see cref="Events.StreamIdentity.AsGuid"/> in both products.
+    /// </summary>
+    /// <remarks>
+    /// A plain property rather than an <see cref="IComplianceStoreRegistrar"/> call for the same
+    /// reason as <see cref="MaxConcurrentRebuildsPerDatabase"/>: the value is the shared
+    /// <see cref="Events.StreamIdentity"/> enum, but the options object it hangs off is the product's
+    /// own event graph, and the fixture is already the place that knows which.
+    /// </remarks>
+    public StreamIdentity? StreamIdentity { get; set; }
+
+    /// <summary>
+    /// Persist correlation and causation metadata onto appended events. Off by default in both
+    /// products, and spelled differently in each — Marten's <c>Events.MetadataConfig</c>, Polecat's
+    /// <c>Events.EnableCorrelationId</c>/<c>EnableCausationId</c>.
+    /// </summary>
+    /// <remarks>
+    /// One flag rather than two because no suite needs correlation without causation, and the pair
+    /// is what distributed tracing actually populates.
+    /// </remarks>
+    public bool EnableCorrelationTracking { get; set; }
+
     public List<Type> EventTypes { get; } = new();
 
     public List<(Type Tag, string Suffix, Type? Aggregate)> TagTypes { get; } = new();
