@@ -1411,4 +1411,113 @@ public partial class CartProjection : SingleStreamProjection<Cart, Guid>
         allGenerated.ShouldContain("return s.Apply(data);");
         allGenerated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.Cart)).Apply(");
     }
+
+    // Published-type discovery from an explicit ApplyAsync override (marten#4166). The document type
+    // is read off the bound method symbol, so the explicit and inferred spellings of the same call
+    // must produce the same registration -- see the remarks on
+    // AggregateAnalyzer.DiscoverDocumentTypesFromMethodBodies.
+    private const string EventProjectionPreamble = @"
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using JasperFx.Events;
+using JasperFx.Events.Projections;
+
+namespace Test;
+
+public interface ITestQuerySession { }
+
+public interface ITestOperations : ITestQuerySession, IStorageOperations
+{
+    void Store<T>(T entity) where T : notnull;
+}
+
+public abstract class TestEventProjection : JasperFxEventProjectionBase<ITestOperations, ITestQuerySession>
+{
+    protected override void storeEntity<T>(ITestOperations ops, T entity) => ops.Store(entity);
+}
+
+public class AuditRecord { public Guid Id { get; set; } }
+public class AuditableEvent { }
+";
+
+    [Fact]
+    public void registers_published_type_from_an_explicit_store_type_argument()
+    {
+        var (_, generatedSources) = RunGenerator(EventProjectionPreamble + @"
+public partial class ExplicitStoreProjection : TestEventProjection
+{
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        operations.Store<AuditRecord>(new AuditRecord());
+        return default;
+    }
+}
+");
+
+        string.Join("\n", generatedSources)
+            .ShouldContain("RegisterPublishedType(typeof(global::Test.AuditRecord));");
+    }
+
+    [Fact]
+    public void registers_published_type_when_the_store_type_argument_is_inferred()
+    {
+        // The trap this closes: discovery used to be syntactic, so this spelling compiled and
+        // registered nothing at all, while the explicit one above worked.
+        var (_, generatedSources) = RunGenerator(EventProjectionPreamble + @"
+public partial class InferredStoreProjection : TestEventProjection
+{
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        operations.Store(new AuditRecord());
+        return default;
+    }
+}
+");
+
+        string.Join("\n", generatedSources)
+            .ShouldContain("RegisterPublishedType(typeof(global::Test.AuditRecord));");
+    }
+
+    [Fact]
+    public void reports_a_diagnostic_when_the_document_type_cannot_be_registered()
+    {
+        var (diagnostics, generatedSources) = RunGenerator(EventProjectionPreamble + @"
+public partial class ObjectStoreProjection : TestEventProjection
+{
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        operations.Store<object>(new AuditRecord());
+        return default;
+    }
+}
+");
+
+        diagnostics.ShouldContain(d => d.Id == "JFXEVT005");
+        string.Join("\n", generatedSources).ShouldNotContain("RegisterPublishedType");
+    }
+
+    [Fact]
+    public void ignores_a_store_call_that_is_not_on_the_projection_session()
+    {
+        // A same-named method on an unrelated object is not a document operation, and must produce
+        // neither a registration nor a diagnostic.
+        var (diagnostics, generatedSources) = RunGenerator(EventProjectionPreamble + @"
+public class SomethingElse { public void Store<T>(T thing) { } }
+
+public partial class UnrelatedStoreProjection : TestEventProjection
+{
+    private readonly SomethingElse _other = new();
+
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        _other.Store(new AuditRecord());
+        return default;
+    }
+}
+");
+
+        diagnostics.ShouldNotContain(d => d.Id == "JFXEVT005");
+        string.Join("\n", generatedSources).ShouldNotContain("RegisterPublishedType");
+    }
 }

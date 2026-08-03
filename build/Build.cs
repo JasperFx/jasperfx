@@ -1,5 +1,9 @@
 using System;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
+using System.Xml.Linq;
 using Nuke.Common;
 using Nuke.Common.CI;
 using Nuke.Common.Execution;
@@ -207,6 +211,7 @@ partial class Build : NukeBuild
                 Solution.JasperFx,
                 Solution.JasperFx_RuntimeCompiler,
                 Solution.JasperFx_Events,
+                Solution.JasperFx_Events_ComplianceTests,
                 Solution.src.JasperFx_Events_SourceGenerator,
                 Solution.src.JasperFx_SourceGenerator,
                 Solution.src.JasperFx_Aspire
@@ -224,8 +229,79 @@ partial class Build : NukeBuild
     
     [Parameter("Nuget Api Key")] [Secret] readonly string NugetApiKey;
 
+    [Parameter(
+        "Push even when the line version is already on nuget.org. Only for retrying a publish that failed partway.")]
+    readonly bool AllowRepublish;
+
+    /// <summary>
+    /// Fail before pushing if $(JasperFxVersion) is already published.
+    /// </summary>
+    /// <remarks>
+    /// NugetPush uses --skip-duplicate, which is correct -- JasperFx.RuntimeCompiler is deliberately
+    /// pinned off the line and skips every time, and a publish that failed partway has to be safe to
+    /// retry. The cost is that running the workflow WITHOUT bumping the version skips all seven
+    /// packages and still exits 0, so a shippable merge can "release" nothing and report success. The
+    /// only signal is a consumer restore resolving the old version, a long way from the cause.
+    ///
+    /// Checks the JasperFx package alone: it carries the line version, whereas RuntimeCompiler
+    /// intentionally does not. A network failure warns rather than fails -- this is a safety net, and
+    /// an unreachable nuget.org should not block a release.
+    /// </remarks>
+    Target AssertVersionIsUnpublished => _ => _
+        .OnlyWhenDynamic(() => !AllowRepublish)
+        .Executes(() =>
+        {
+            var version = XDocument.Load(RootDirectory / "Directory.Build.props")
+                .Descendants("JasperFxVersion")
+                .Select(x => x.Value.Trim())
+                .FirstOrDefault();
+
+            if (string.IsNullOrEmpty(version))
+            {
+                throw new Exception("Could not read JasperFxVersion from Directory.Build.props");
+            }
+
+            string[] published;
+            try
+            {
+                using var client = new HttpClient();
+                var response = client
+                    .GetAsync("https://api.nuget.org/v3-flatcontainer/jasperfx/index.json")
+                    .GetAwaiter().GetResult();
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return;
+                }
+
+                response.EnsureSuccessStatusCode();
+
+                var json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                published = JsonDocument.Parse(json).RootElement.GetProperty("versions")
+                    .EnumerateArray().Select(x => x.GetString()).ToArray();
+            }
+            catch (Exception e)
+            {
+                Serilog.Log.Warning(e,
+                    "Could not reach nuget.org to check whether {Version} is already published; pushing anyway",
+                    version);
+                return;
+            }
+
+            if (published.Contains(version, StringComparer.OrdinalIgnoreCase))
+            {
+                throw new Exception(
+                    $"JasperFx {version} is already published to nuget.org. Every package would be skipped as a "
+                    + "duplicate and this run would still report success. Bump JasperFxVersion in "
+                    + "Directory.Build.props, or pass --allow-republish to retry a publish that failed partway.");
+            }
+
+            Serilog.Log.Information("JasperFx {Version} is not yet published; proceeding", version);
+        });
+
     Target NugetPush => _ => _
         .DependsOn(NugetPack)
+        .DependsOn(AssertVersionIsUnpublished)
         .Requires(() => !string.IsNullOrEmpty(NugetApiKey))
         .Executes(() =>
         {

@@ -40,6 +40,8 @@
     <Project Path="src/Widgets3/Widgets3.csproj" />
     <Project Path="src/Widgets4/Widgets4.csproj" />
     <Project Path="src/Widgets5/Widgets5.csproj" />
+    <Project Path="src/TestRunnerStandIn/TestRunnerStandIn.csproj" />
+    <Project Path="src/ExtensionStandIn/ExtensionStandIn.csproj" />
   </Folder>
   <Project Path="build/Build.csproj">
     <Build Project="false" />
@@ -52,6 +54,7 @@
   <Project Path="src/ExtensionCommands/ExtensionCommands.csproj" />
   <Project Path="src/FakeApp/FakeApp.csproj" />
   <Project Path="src/FakeTool/FakeTool.csproj" />
+  <Project Path="src/JasperFx.Events.ComplianceTests/JasperFx.Events.ComplianceTests.csproj" />
   <Project Path="src/JasperFx.Events/JasperFx.Events.csproj" />
   <Project Path="src/JasperFx.RuntimeCompiler/JasperFx.RuntimeCompiler.csproj" />
   <Project Path="src/JasperFx/JasperFx.csproj" />

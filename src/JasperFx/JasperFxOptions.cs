@@ -240,7 +240,8 @@ public class JasperFxOptions : SystemPartBase
                 continue;
             }
 
-            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft") || assemblyName.StartsWith("ReSharperTestRunner"))
+            if (assemblyName.StartsWith("System") || assemblyName.StartsWith("Microsoft") ||
+                IsTestRunnerAssembly(assemblyName) || IsCritterStackAssembly(assemblyName))
             {
                 continue;
             }
@@ -249,6 +250,78 @@ public class JasperFxOptions : SystemPartBase
         }
 
         return Assembly.GetEntryAssembly();
+    }
+
+    // GH-600: under an async test fixture the frames between JasperFx and the test class belong to the
+    // test *runner*, not the test assembly, so the walk above would otherwise adopt something like
+    // "xunit.v3.core" as the application assembly and every consumer would scan an assembly holding none
+    // of the suite's types. The symptom is entirely downstream (a handler/document/projection type simply
+    // not being discovered) and it is intermittent rather than consistently wrong, because a stack walk
+    // over async continuations is sensitive to frame layout. Skipping the runner lets the walk continue
+    // out to the test assembly; where nothing else matches, the Assembly.GetEntryAssembly() fallback is
+    // the test assembly anyway. "ReSharperTestRunner" was here first -- this class of problem was already
+    // known, xUnit and friends were simply never added.
+    internal static bool IsTestRunnerAssembly(string assemblyName)
+    {
+        return assemblyName.StartsWith("xunit", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("nunit", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("TUnit", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("MSTest", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("testhost", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("ReSharperTestRunner", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("JetBrains.", StringComparison.OrdinalIgnoreCase)
+               || assemblyName.StartsWith("NCrunch.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    // GH-601: a Critter Stack extension registers JasperFx on the application's behalf --
+    // UseWolverine() and AddMarten() both call services.AddJasperFx() from inside their own assembly --
+    // so the first frame outside JasperFx belongs to the EXTENSION, not the app. RegistrationCallingAssembly
+    // then stopped meaning what its name says, and checkForDivergentApplicationAssembly compared the
+    // extension against the (correctly resolved) application assembly and warned on healthy hosts. That
+    // inverts the warning's whole value: it trains readers to ignore it, and its absence stops being
+    // evidence -- on JasperFx/wolverine#3776 "zero occurrences of the warning" was explicitly recorded as
+    // grounds for ruling out an application-assembly problem, which was exactly the bug.
+    //
+    // Matched as an exact name or a dotted prefix rather than a bare StartsWith, so an application named
+    // "MartenPlayground" or "WolverineDemo" is left alone.
+    private static readonly string[] _critterStackAssemblies =
+    [
+        "JasperFx",
+        "Wolverine",
+        "WolverineFx",
+        "Marten",
+        "Weasel",
+        "Polecat",
+        "CritterWatch",
+        "Oakton"
+    ];
+
+    internal static bool IsCritterStackAssembly(string assemblyName)
+    {
+        // The test assemblies inside the Critter Stack repos themselves -- Wolverine.RabbitMQ.Tests,
+        // Marten.Testing and friends -- ARE the application as far as discovery is concerned, because the
+        // handlers and documents under test live in them. Skipping those would reintroduce GH-600's defect
+        // from the other direction.
+        if (assemblyName.EndsWith("Tests", StringComparison.OrdinalIgnoreCase)
+            || assemblyName.EndsWith("Testing", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        foreach (var name in _critterStackAssemblies)
+        {
+            if (assemblyName.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (assemblyName.StartsWith(name + ".", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
