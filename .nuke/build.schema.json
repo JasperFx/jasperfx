@@ -24,6 +24,7 @@
     "ExecutableTarget": {
       "type": "string",
       "enum": [
+        "AssertVersionIsUnpublished",
         "Clean",
         "Compile",
         "NugetPack",
@@ -113,6 +114,10 @@
   "allOf": [
     {
       "properties": {
+        "AllowRepublish": {
+          "type": "boolean",
+          "description": "Push even when the line version is already on nuget.org. Only for retrying a publish that failed partway"
+        },
         "Configuration": {
           "type": "string",
           "description": "Configuration to build - Default is 'Debug' (local) or 'Release' (server)",
