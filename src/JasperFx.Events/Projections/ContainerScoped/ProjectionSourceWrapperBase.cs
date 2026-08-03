@@ -30,6 +30,16 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         var sp = scope.ServiceProvider;
         var source = sp.GetRequiredService<TSource>();
 
+        // ProjectionGraph.Add(TProjection, ...) validates a directly registered projection, but a
+        // container-scoped projection reaches the graph as *this wrapper* and only the wrapper gets
+        // validated -- so an invalid projection that a Singleton registration rejects at startup was
+        // silently accepted when registered Scoped/Transient. Validate the real thing here, which is
+        // the one choke point every scoped wrapper passes through. See marten#5095.
+        if (source is ProjectionBase projectionBase)
+        {
+            projectionBase.AssembleAndAssertValidity();
+        }
+
         base.Name = source.Name;
         base.Version = source.Version;
         ProjectionType = source.ImplementationType;
