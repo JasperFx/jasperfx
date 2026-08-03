@@ -15,7 +15,7 @@ differences between the repos.
 Reference the package from a test project that already has xunit v3 and Shouldly, then supply two
 things.
 
-**1. Three global aliases naming your store's own types.** The shared suites declare aggregates and
+**1. Four global aliases naming your store's own types.** The shared suites declare aggregates and
 projections at file scope, so they cannot reach the `<TOperations, TQuerySession>` pair the suite
 classes are generic over. The source generator resolves these by type name, so aliases are enough:
 
@@ -23,11 +23,16 @@ classes are generic over. The source generator resolves these by type name, so a
 global using ComplianceQuerySession = Marten.IQuerySession;
 global using ComplianceOperations = Marten.IDocumentOperations;
 global using ComplianceEventProjection = Marten.Events.Projections.EventProjection;
+global using ComplianceStringPartyProjectionBase =
+    Marten.Events.Aggregation.SingleStreamProjection<
+        JasperFx.Events.ComplianceTests.StringQuestParty, string>;
 ```
 
 `ComplianceQuerySession` binds the `EvolveAsync(IEvent, …)` convention on the self-aggregating
-fixtures; the other two bind the EventProjection suites to your product's own projection base and
-writable session.
+fixtures; the next two bind the EventProjection suites to your product's own projection base and
+writable session. The last one is a *closed* generic, because the single stream projection base is
+generic over both the document and its identity — it binds the string-identity suite's custom
+projection to your product's `SingleStreamProjection<TDoc, TId>`.
 
 **2. A concrete fixture** closing `EventStoreComplianceFixture<TOperations, TQuerySession>` over your
 store's session pair. Everything portable in the suites runs through the shared JasperFx surfaces
