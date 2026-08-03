@@ -50,14 +50,21 @@ public interface IReadOnlyDaemonSettings
     TimeSpan StopAndDrainTimeout { get; }
 
     /// <summary>
-    ///     How long the blue/green side-effect gate (see
-    ///     <c>AsyncOptions.GateSideEffectsBehindPriorVersion</c>) may spend on the bounded, side-effect-
-    ///     suppressed warm-up replay that runs before a new projection version starts continuous
-    ///     execution. The default is 5 minutes. <see cref="Timeout.InfiniteTimeSpan"/> or any
-    ///     non-positive value means "no separate bound" — the warm-up is then only limited by the
-    ///     daemon's own cancellation.
+    ///     No longer used. The blue/green side-effect gate's warm-up no longer runs as a bounded replay
+    ///     inside the agent start path, so there is nothing left for a start-blocking timeout to bound.
+    ///     See <see cref="DaemonSettings.SideEffectGateTimeout"/>.
     /// </summary>
+    [Obsolete(
+        "jasperfx#598/#610: the side-effect gate warm-up no longer blocks the agent start, so this timeout is ignored. Use MaxConcurrentSideEffectGateWarmupsPerDatabase to pace warm-ups instead.")]
     TimeSpan SideEffectGateTimeout { get; }
+
+    /// <summary>
+    ///     jasperfx#598/#610: cap on how many shards may be inside the blue/green side-effect gate's
+    ///     warm-up window AND actively loading against one database at the same time. Zero or negative
+    ///     (the default) is unbounded. See
+    ///     <see cref="DaemonSettings.MaxConcurrentSideEffectGateWarmupsPerDatabase"/>.
+    /// </summary>
+    int MaxConcurrentSideEffectGateWarmupsPerDatabase { get; }
 
     /// <summary>
     ///     Projection Daemon mode. The default is Disabled
@@ -144,20 +151,43 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     public TimeSpan StopAndDrainTimeout { get; set; } = 5.Seconds();
 
     /// <summary>
-    ///     jasperfx#594: how long the blue/green side-effect gate (jasperfx#480,
-    ///     <c>AsyncOptions.GateSideEffectsBehindPriorVersion</c>) may spend on the bounded,
-    ///     side-effect-suppressed warm-up replay that runs before a new projection version starts
-    ///     continuous execution. Five minutes was hardcoded originally, which cannot suit both a small
-    ///     store and a database-per-tenant deployment: at 512 tenant databases a warm-up was measured at
-    ///     27s p50, 82s p95 and 288.5s max — twelve seconds inside the old ceiling, so start failures
-    ///     were the next sample rather than a tail risk. Raise it when a version bump has to replay a
-    ///     large backlog per shard. <see cref="Timeout.InfiniteTimeSpan"/> or any non-positive value
-    ///     means "no separate bound" — the warm-up is then only limited by the daemon's own
-    ///     cancellation. Note that exceeding the bound is no longer automatically a failure: the gate
-    ///     re-reads persisted progression first and treats a shard that reached the prior version's
-    ///     mark as warmed up regardless of the clock.
+    ///     jasperfx#594, retired by jasperfx#598/#610 and now IGNORED. It bounded the side-effect gate's
+    ///     warm-up replay while that replay still ran synchronously inside the agent start path. The
+    ///     warm-up now runs as ordinary continuous catch-up on an already-started, already-assignable
+    ///     agent (with side effects suppressed until it reaches the prior version's mark), so there is
+    ///     no start-blocking wait left to time out and nothing that a timeout could usefully abandon.
+    ///     Left in place so existing configuration still compiles. To pace warm-up load, use
+    ///     <see cref="MaxConcurrentSideEffectGateWarmupsPerDatabase"/>.
     /// </summary>
+    [Obsolete(
+        "jasperfx#598/#610: the side-effect gate warm-up no longer blocks the agent start, so this timeout is ignored. Use MaxConcurrentSideEffectGateWarmupsPerDatabase to pace warm-ups instead.")]
     public TimeSpan SideEffectGateTimeout { get; set; } = 5.Minutes();
+
+    /// <summary>
+    ///     jasperfx#598/#610: cap on how many shards may be inside the blue/green side-effect gate's
+    ///     warm-up window (jasperfx#480, <c>AsyncOptions.GateSideEffectsBehindPriorVersion</c>) AND
+    ///     actively loading against one database at the same time. Zero or negative (the default) is
+    ///     unbounded.
+    ///
+    ///     <para>
+    ///     Before #598 the number of simultaneous warm-ups was emergent rather than chosen: it was
+    ///     however many gate-needing shards happened to land in whatever chunk the distribution layer
+    ///     was starting, which made it a function of the host's agent-start batch size and of what
+    ///     fraction of the fleet belonged to the bumped projection. A field deployment measured 65
+    ///     concurrent warm-ups that way, with no setting an operator could turn.
+    ///     </para>
+    ///
+    ///     <para>
+    ///     Unbounded is a reasonable default now that a warm-up is ordinary catch-up work, already
+    ///     paced by <see cref="MaxConcurrentEventLoadsPerDatabase"/> and
+    ///     <see cref="MaxConcurrentBatchWritesPerDatabase"/>. Set it when you would rather warm-ups
+    ///     converged shard by shard than crept forward together: with a bound of N, N shards reach the
+    ///     prior version's mark and start emitting side effects promptly while the rest wait their
+    ///     turn, instead of every shard finishing at roughly the same late moment. Waiting for a slot
+    ///     never blocks the agent — it is started, assigned and observable throughout.
+    ///     </para>
+    /// </summary>
+    public int MaxConcurrentSideEffectGateWarmupsPerDatabase { get; set; } = 0;
 
     /// <summary>
     ///     Projection Daemon mode. The default is Disabled.

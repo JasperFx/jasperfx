@@ -40,7 +40,11 @@ public class SubscriptionExecution<T> : SubscriptionExecutionBase
     protected override Task executeRangeAsync(IEventDatabase database, EventRange range, ShardExecutionMode mode,
         CancellationToken cancellationToken)
     {
-        return _runner!.ExecuteAsync(_subscription, database, range, Mode, cancellationToken);
+        // Deliberately the mode the base passed in, not this.Mode: jasperfx#598/#610 hands down Rebuild
+        // for a range inside the blue/green side-effect gate's warm-up window even though the execution
+        // itself is running Continuous, so a subscription sees the same "this is replayed history, do
+        // not act on it" signal the pre-#598 warm-up replay gave it.
+        return _runner!.ExecuteAsync(_subscription, database, range, mode, cancellationToken);
     }
 }
 
@@ -178,7 +182,13 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
 
         try
         {
-            await executeRangeAsync(_database, range, Mode, _cancellation.Token);
+            // jasperfx#598/#610: a range inside the side-effect gate's warm-up window covers events the
+            // PRIOR version of this subscription already processed, so it is handed down as Rebuild even
+            // though this execution is running Continuous. The execution's own bookkeeping below (logging,
+            // metrics, completion) keeps using the real Mode.
+            var mode = range.Agent.SideEffectsSuppressed ? ShardExecutionMode.Rebuild : Mode;
+
+            await executeRangeAsync(_database, range, mode, _cancellation.Token);
 
             await range.Agent.MarkSuccessAsync(range.SequenceCeiling);
 

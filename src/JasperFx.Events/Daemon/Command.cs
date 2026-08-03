@@ -35,6 +35,13 @@ public class Command
         return new Command { LastCommitted = ceiling, Type = CommandType.RangeBuffered };
     }
 
+    // jasperfx#598/#610: the daemon's warm-up throttle granted this agent a slot, so the side-effect
+    // gate's suppressed catch-up may start loading. Carries no sequence.
+    internal static Command WarmupSlotGranted()
+    {
+        return new Command { Type = CommandType.WarmupSlotGranted };
+    }
+
     public static Command Started(long highWater, long lastCommitted)
     {
         return new Command { HighWaterMark = highWater, LastCommitted = lastCommitted };

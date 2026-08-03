@@ -50,11 +50,21 @@ public class AsyncOptions
     /// <summary>
     /// jasperfx#480, opt-in for blue/green projection deploys. When a NEW version of this projection
     /// (ShardName.Version > 1) starts continuous execution and a PRIOR version's progression row is
-    /// ahead of this version's own progress, the daemon first replays up to the prior version's mark
-    /// with side effects suppressed (rebuild semantics), then hands off to continuous execution — so
-    /// RaiseSideEffects (raised events / published messages) only fires for events the previous
-    /// version never processed. Default is false, i.e. the new version emits side effects over the
-    /// whole replay exactly as before.
+    /// ahead of this version's own progress, the new version catches up to the prior version's mark
+    /// with side effects suppressed and only emits them past that mark — so RaiseSideEffects (raised
+    /// events / published messages) only fires for events the previous version never processed.
+    /// Default is false, i.e. the new version emits side effects over the whole replay exactly as
+    /// before.
+    ///
+    /// <para>
+    /// jasperfx#598/#610: the suppressed catch-up runs on a normally started, normally assignable
+    /// agent rather than as a replay inside the start path. A gated shard therefore starts in
+    /// milliseconds like any other and reports its warm-up through the usual channels —
+    /// <see cref="ShardState.SideEffectsSuppressed"/> and <see cref="ShardState.SideEffectGateMark"/>
+    /// say "running, but not emitting side effects yet". Use
+    /// <c>DaemonSettings.MaxConcurrentSideEffectGateWarmupsPerDatabase</c> to pace how many shards
+    /// warm up at once.
+    /// </para>
     /// </summary>
     public bool GateSideEffectsBehindPriorVersion { get; set; }
 
