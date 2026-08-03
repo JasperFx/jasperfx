@@ -59,7 +59,7 @@ public class BlueGreenSideEffectGateTests
 
         // ...and an operator can tell this apart from a shard running normally, which before #598 was
         // impossible without reading pod logs: the shard simply did not exist yet.
-        var started = harness.StatesFor("Trips:V3:All").Last(x => x.Action == ShardAction.Started);
+        var started = await harness.NextStateAsync("Trips:V3:All", x => x.Action == ShardAction.Started);
         started.SideEffectsSuppressed.ShouldBeTrue();
         started.SideEffectGateMark.ShouldBe(1000);
     }
@@ -358,8 +358,27 @@ public class BlueGreenSideEffectGateTests
 
         public void FailPriorVersionLookup() => _failPriorVersionLookup = true;
 
-        public IReadOnlyList<ShardState> StatesFor(string shardIdentity)
-            => _states.Where(x => x.ShardName == shardIdentity).ToList();
+        // jasperfx#609: ShardStateTracker publishes through a Block<ShardState>, so a subscribed observer
+        // runs on the block's consumer thread and is NOT guaranteed to have run by the time the start
+        // call returns. Reading the collected states straight after the call is a race — one CI run lost
+        // it on the retired timeout suite — so wait for the state instead of snapshotting.
+        public async Task<ShardState> NextStateAsync(string shardIdentity, Func<ShardState, bool> match)
+        {
+            using var timeout = new CancellationTokenSource(TestTimeout);
+            while (true)
+            {
+                var hit = _states.FirstOrDefault(x => x.ShardName == shardIdentity && match(x));
+                if (hit != null) return hit;
+
+                if (timeout.IsCancellationRequested)
+                {
+                    throw new TimeoutException(
+                        $"Timed out waiting for a matching ShardState for '{shardIdentity}'");
+                }
+
+                await Task.Delay(20, CancellationToken.None);
+            }
+        }
 
         public async ValueTask DisposeAsync()
         {
