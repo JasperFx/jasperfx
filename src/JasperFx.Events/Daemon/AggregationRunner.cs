@@ -90,6 +90,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             }
         }
 
+        // jasperfx#598/#610: the blue/green side-effect gate's warm-up now runs as ORDINARY Continuous
+        // catch-up on a started agent rather than as a bounded Rebuild replay inside the start path. The
+        // mode therefore stays Continuous for everything the execution decides for itself — deferred
+        // rebuild writes, error handling, batch semantics — and only the per-slice side-effect decision
+        // sees Rebuild, which is the one thing the gate ever meant to suppress. Read once per range: the
+        // agent clamps its loading to the gate mark, so no range ever straddles the flip.
+        var applyMode = range.Agent.SideEffectsSuppressed ? ShardExecutionMode.Rebuild : mode;
+
         var batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
         if (SliceBehavior == SliceBehavior.JustInTime)
@@ -107,7 +115,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 return;
             }
 
-            await ApplyChangesAsync(mode, batch, execution.Operations, execution.Slice, execution.Storage,
+            await ApplyChangesAsync(applyMode, batch, execution.Operations, execution.Slice, execution.Storage,
                 execution.Cache, cancellation);
         });
 

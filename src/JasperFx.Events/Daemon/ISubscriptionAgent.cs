@@ -66,4 +66,19 @@ public interface ISubscriptionAgent : ISubscriptionController
     /// share the daemon-wide bound.
     /// </summary>
     SemaphoreSlim? BatchWriteThrottle => null;
+
+    /// <summary>
+    /// jasperfx#598/#610: true while this agent is inside the blue/green side-effect gate's warm-up
+    /// window — running normally in Continuous mode, but over events the PRIOR version of the
+    /// projection already processed, so <c>RaiseSideEffects</c> must not fire for them. The agent
+    /// clears this the moment its committed progression reaches the prior version's mark.
+    ///
+    /// <para>
+    /// Read by the executions at range-execution time (they only see the agent through
+    /// <see cref="EventRange.Agent"/>), which is why it lives here rather than on the execution.
+    /// Defaulted to false so wrappers and test doubles are unaffected; a wrapper around a live inner
+    /// agent should delegate this the same way it delegates <see cref="Status"/>.
+    /// </para>
+    /// </summary>
+    bool SideEffectsSuppressed => false;
 }

@@ -80,6 +80,33 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public SemaphoreSlim? BatchWriteThrottle => _batchWriteThrottle;
 
+    // jasperfx#598/#610: bounds how many shards are simultaneously loading inside the blue/green
+    // side-effect gate's warm-up window. Reaches the agents through IDaemonRuntime. Null = unbounded.
+    private SemaphoreSlim? _warmupThrottle;
+    private int _maxConcurrentWarmups;
+
+    public SemaphoreSlim? SideEffectGateWarmupThrottle => _warmupThrottle;
+
+    /// <summary>
+    /// jasperfx#598/#610: the per-database cap on how many shards may be inside the blue/green
+    /// side-effect gate's warm-up window and actively loading at once. Before #598 this number was
+    /// emergent — whatever fraction of the distribution layer's in-flight agent-start chunk happened to
+    /// need a gate — and an operator had no way to choose it. Null or a non-positive value is
+    /// unbounded, which is the default now that a warm-up is ordinary catch-up work already paced by
+    /// <see cref="MaxConcurrentEventLoadsPerDatabase"/> and <see cref="MaxConcurrentBatchWritesPerDatabase"/>.
+    /// Like the other governors here, the previous semaphore is deliberately not disposed, since agents
+    /// may still be waiting on it.
+    /// </summary>
+    public int MaxConcurrentSideEffectGateWarmupsPerDatabase
+    {
+        get => _maxConcurrentWarmups;
+        set
+        {
+            _maxConcurrentWarmups = value;
+            _warmupThrottle = value > 0 ? new SemaphoreSlim(value) : null;
+        }
+    }
+
     /// <summary>
     /// The per-database cap on concurrent event loads. Setting it replaces the throttle for agent
     /// loaders built AFTER the change — a running agent captured its loader's throttle when it was
@@ -168,6 +195,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
         MaxConcurrentBatchWritesPerDatabase = _projections.MaxConcurrentBatchWritesPerDatabase;
+        MaxConcurrentSideEffectGateWarmupsPerDatabase = _projections.MaxConcurrentSideEffectGateWarmupsPerDatabase;
 
         // jasperfx#497: explicit DaemonSettings knob wins, then the store-derived default. Concrete
         // stores typically fold the settings knob into their override already; the double-consult is
@@ -202,6 +230,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
         MaxConcurrentBatchWritesPerDatabase = _projections.MaxConcurrentBatchWritesPerDatabase;
+        MaxConcurrentSideEffectGateWarmupsPerDatabase = _projections.MaxConcurrentSideEffectGateWarmupsPerDatabase;
 
         // jasperfx#497: see the ILoggerFactory constructor overload for the resolution rationale
         MaxConcurrentRebuildsPerDatabase =
@@ -250,6 +279,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _deadLetterBlock.Dispose();
         _loadThrottle?.Dispose();
         _batchWriteThrottle?.Dispose();
+        _warmupThrottle?.Dispose();
         _rebuildBudget?.Dispose();
     }
 
@@ -267,7 +297,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     public bool IsRunning => _highWater.IsRunning;
 
 
-    private async Task<bool> tryStartAgentAsync(ISubscriptionAgent agent, ShardExecutionMode mode)
+    private async Task<bool> tryStartAgentAsync(ISubscriptionAgent agent, ShardExecutionMode mode,
+        long sideEffectGateMark = 0)
     {
         // Be idempotent, don't start an agent that is already running
         if (_agents.TryFind(agent.Name.Identity, out var running) && running.Status == AgentStatus.Running)
@@ -327,6 +358,22 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 request = request with { StartingHighWater = highWaterMark };
             }
 
+            // jasperfx#598/#610: the blue/green side-effect gate is now armed ON the agent instead of
+            // being run to completion before it. The agent starts here and now — assignable, observable,
+            // heartbeating — and carries the suppressed warm-up to the prior version's mark as ordinary
+            // catch-up work. The mark is only meaningful if it is actually ahead of where this version
+            // resumes from; the daemon deliberately does not re-read progression to check that itself,
+            // because position.Floor is the authoritative answer and it was just computed above.
+            if (sideEffectGateMark > position.Floor)
+            {
+                request = request with { SideEffectGateMark = sideEffectGateMark };
+
+                Logger.LogInformation(
+                    "Projection shard {Name} v{Version} is behind the prior version's progression ({Current} < {Prior}); it starts continuous execution immediately with side effects suppressed and enables them on reaching {Prior} (blue/green side-effect gate)",
+                    agent.Name.Identity, agent.Name.Version, position.Floor, sideEffectGateMark,
+                    sideEffectGateMark);
+            }
+
             await agent.StartAsync(request).ConfigureAwait(false);
             agent.MarkHighWater(highWaterMark);
 
@@ -380,11 +427,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // (_semaphore) is now held only around the registry mutations, NOT across the replay itself —
     // holding it across the replay (the pre-#497 shape) serialized every rebuild cell in the daemon at
     // an effective concurrency of one, making any cap > 1 unreachable.
-    // The optional floor/disableOptimizedReplay parameters exist for the jasperfx#480 side-effect
-    // version gate: its bounded replay resumes from the new version's own persisted progress (not 0)
-    // and must not route through a store replay executor that ignores the custom ceiling.
-    private async Task rebuildAgent(ISubscriptionAgent agent, long highWaterMark, TimeSpan shardTimeout,
-        long floor = 0, bool disableOptimizedReplay = false)
+    private async Task rebuildAgent(ISubscriptionAgent agent, long highWaterMark, TimeSpan shardTimeout)
     {
         var budget = _rebuildBudget;
         if (budget != null)
@@ -408,10 +451,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             var errorOptions = _store.RebuildErrors;
 
-            var request = new SubscriptionExecutionRequest(floor, ShardExecutionMode.Rebuild, errorOptions, this)
-            {
-                DisableOptimizedReplay = disableOptimizedReplay
-            };
+            var request = new SubscriptionExecutionRequest(0, ShardExecutionMode.Rebuild, errorOptions, this);
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
 
             await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
@@ -431,35 +471,40 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
 
-    // jasperfx#480: the bounded warm-up replay is capped like any other rebuild; a timeout leaves the
-    // shard paused with its partial progress persisted, and the next start resumes the warm-up from
-    // that floor (the gate triggers on progress < prior mark, not only on zero progress).
+    // jasperfx#480/#598/#610: single entry point for starting a shard in Continuous mode so every start
+    // path (StartAllAsync, StartAgentAsync by name, the per-tenant fan-outs) applies the opt-in blue/green
+    // side-effect gate. Returns true when the continuous agent was actually started.
     //
-    // jasperfx#594: the cap was a hardcoded 5 minutes, which cannot suit both a small store and a
-    // database-per-tenant deployment — at 512 tenant databases a warm-up measured 288.5s against the
-    // 300s ceiling. It is now DaemonSettings.SideEffectGateTimeout. A non-positive value or
-    // Timeout.InfiniteTimeSpan opts out of the separate bound entirely (the daemon's own _cancellation
-    // still applies), mirroring StopAndDrainTimeout.
-    private TimeSpan sideEffectGateTimeout()
-    {
-        var timeout = _projections.SideEffectGateTimeout;
-        return timeout > TimeSpan.Zero ? timeout : Timeout.InfiniteTimeSpan;
-    }
-
-    // jasperfx#480: single entry point for starting a shard in Continuous mode so every start path
-    // (StartAllAsync, StartAgentAsync by name, the per-tenant fan-outs) runs the opt-in blue/green
-    // side-effect gate first. Returns true when the continuous agent was actually started.
+    // Until #598 this method BLOCKED on the gate: it ran a bounded, side-effect-suppressed replay to the
+    // prior version's mark and only started the agent afterwards. At scale that made a start that normally
+    // costs milliseconds cost tens of seconds to minutes — 27s p50 / 82s p95 / 215s tail across 993 tenant
+    // shards, ~200 minutes before every shard had started once — and, because an agent does not count as
+    // assigned until its start returns, it made the whole cluster's assignment table a progress bar for the
+    // catch-up rather than for the distribution. Now the gate only RESOLVES the mark here (one read) and
+    // hands it to the agent, which starts immediately and carries the suppressed catch-up itself.
     private async Task<bool> startContinuousShardAsync(AsyncShard<TOperations, TQuerySession> shard)
     {
-        if (!await tryApplySideEffectVersionGateAsync(shard).ConfigureAwait(false))
+        long gateMark;
+        try
         {
-            // The warm-up replay failed; leave the shard stopped rather than starting continuous
-            // execution that would emit side effects over history the prior version already covered.
+            gateMark = await resolveSideEffectGateMarkAsync(shard).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            // Without the prior version's mark there is no way to tell which events the previous version
+            // already covered, and starting continuous execution anyway would emit side effects over all
+            // of them — the exact bug the opt-in exists to prevent. Leave the shard stopped; the next
+            // start resolves the mark again and resumes from this version's persisted progress.
+            Logger.LogError(e,
+                "Error resolving the blue/green side-effect gate mark for projection shard {Name}. The shard is left stopped rather than started with side effects enabled over history the prior version already covered",
+                shard.Name.Identity);
+            _lastStartFailures = _lastStartFailures.AddOrUpdate(shard.Name.Identity, e);
             return false;
         }
 
         var agent = buildAgentForShard(shard);
-        var started = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous).ConfigureAwait(false);
+        var started = await tryStartAgentAsync(agent, ShardExecutionMode.Continuous, gateMark)
+            .ConfigureAwait(false);
 
         if (!started && agent is IAsyncDisposable d)
         {
@@ -469,18 +514,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return started;
     }
 
-    // jasperfx#480: opt-in blue/green side-effect gate. When a projection opts in and a NEW version of
-    // it starts behind the highest PRIOR version's persisted progression mark N, first run a bounded
-    // replay to N in Rebuild mode (side effects suppressed, aggregate state correct), then let the
-    // caller hand off to Continuous — DetermineStartingPositionAsync reads the persisted progress (now
-    // N) so side effects only fire for events the previous version never processed. Returns false ONLY
-    // when the warm-up replay was attempted and failed; every not-triggered case returns true.
-    private async Task<bool> tryApplySideEffectVersionGateAsync(AsyncShard<TOperations, TQuerySession> shard)
+    // jasperfx#480: opt-in blue/green side-effect gate. When a projection opts in and a NEW version of it
+    // starts behind the highest PRIOR version's persisted progression mark N, the agent runs from its own
+    // progress to N with side effects suppressed and only emits them past N — so RaiseSideEffects fires
+    // only for events the previous version never processed. Returns N, or 0 when the gate does not apply.
+    //
+    // Crash safety is unchanged from the pre-#598 shape and comes from the same place: the trigger is
+    // "persisted progress < N", not "no progress at all", so an interrupted warm-up resumes suppressed
+    // over whatever is left of (progress, N] instead of re-emitting what it already covered.
+    private async Task<long> resolveSideEffectGateMarkAsync(AsyncShard<TOperations, TQuerySession> shard)
     {
         var name = shard.Name;
         if (!shard.Options.GateSideEffectsBehindPriorVersion || name.Version <= 1)
         {
-            return true;
+            return 0;
         }
 
         if (shard.Options.UsesFromPresent(Database))
@@ -488,137 +535,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             Logger.LogWarning(
                 "Projection shard {Name} opts into GateSideEffectsBehindPriorVersion but subscribes from 'present', which ignores persisted progression. The side-effect gate is skipped",
                 name.Identity);
-            return true;
+            return 0;
         }
 
-        try
-        {
-            var current = await Database.ProjectionProgressFor(name, _cancellation.Token).ConfigureAwait(false);
-            var prior = await resolvePriorVersionProgressAsync(name, _cancellation.Token).ConfigureAwait(false);
-
-            // Triggering on current < prior (rather than only current == 0) makes an interrupted
-            // warm-up resumable: a crash mid-replay leaves progress at M < N, and the next start
-            // suppresses side effects for the remaining (M, N] instead of re-emitting them.
-            if (prior <= current)
-            {
-                return true;
-            }
-
-            Logger.LogInformation(
-                "Projection shard {Name} v{Version} is behind the prior version's progression ({Current} < {Prior}); replaying to {Prior} with side effects suppressed before continuous execution starts (blue/green side-effect gate)",
-                name.Identity, name.Version, current, prior, prior);
-
-            var warmup = buildAgentForShard(shard);
-            Tracker.MarkAsRestarted(warmup.Name);
-
-            var gateTimeout = sideEffectGateTimeout();
-
-            try
-            {
-                await rebuildAgent(warmup, prior, gateTimeout, floor: current, disableOptimizedReplay: true)
-                    .ConfigureAwait(false);
-            }
-            catch (TimeoutException)
-            {
-                // jasperfx#594: a timeout is NOT the same as a failure. The replay may well have reached
-                // the prior mark and only the wait expired — observed in the field on a shard whose
-                // progression sat at exactly its high-water mark while its start failed three times on
-                // this timeout, each retry re-running a warm-up that had nothing left to do. So re-read
-                // the PERSISTED progression before judging: warmup.LastCommitted is not trustworthy here
-                // because ReplayAsync disposes the agent in its finally block on the way out.
-                var reached = await Database.ProjectionProgressFor(name, _cancellation.Token)
-                    .ConfigureAwait(false);
-
-                if (reached >= prior)
-                {
-                    Logger.LogInformation(
-                        "The blue/green side-effect gate warm-up for projection shard {Name} exceeded the {Timeout} gate timeout but had already reached {Reached} of {Prior}; treating it as warmed up and enabling side effects. Consider raising DaemonSettings.SideEffectGateTimeout",
-                        name.Identity, gateTimeout, reached, prior);
-                    return true;
-                }
-
-                // A genuine timeout. Publish a Paused state so the shard is observably paused rather
-                // than silently stopped, and recovers on the next start without operator action — the
-                // gate resumes from the persisted floor, so the work already done is not repeated. The
-                // disposed warm-up agent itself is deliberately NOT registered: it would report Running.
-                Logger.LogError(
-                    "The blue/green side-effect gate warm-up for projection shard {Name} timed out after {Timeout} at {Reached} of {Prior}. The shard is left paused; restarting it will resume the suppressed warm-up from its persisted progress. Consider raising DaemonSettings.SideEffectGateTimeout",
-                    name.Identity, gateTimeout, reached, prior);
-
-                await Tracker.PublishAsync(new ShardState(name, reached)
-                {
-                    Action = ShardAction.Paused,
-                    AgentStatus = "Paused",
-                    PauseReason =
-                        $"The blue/green side-effect gate warm-up timed out after {gateTimeout} at {reached} of {prior}",
-                    LastHeartbeat = DateTimeOffset.UtcNow
-                }).ConfigureAwait(false);
-
-                return false;
-            }
-            catch (Exception e)
-            {
-                // A failed replay faults ReplayAsync: the agent pauses itself via
-                // ReportCriticalFailureAsync and faults the rebuild completion, which rebuildAgent
-                // propagates — skipping its registration step. Register the paused agent here so the
-                // shard is observably Paused and carries the failure for observers, and do not start
-                // continuous execution over history the prior version already covered. A TimeoutException
-                // never reaches here — it is handled above (jasperfx#594), because the wedged agent is
-                // disposed but never paused, so registering it would misreport the shard as Running.
-                Logger.LogError(e,
-                    "The blue/green side-effect gate warm-up for projection shard {Name} failed at {Position}. The shard is left paused; restarting it will resume the suppressed warm-up from its persisted progress",
-                    name.Identity, warmup.LastCommitted);
-
-                await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
-                try
-                {
-                    _agents = _agents.AddOrUpdate(warmup.Name.Identity, warmup);
-                }
-                finally
-                {
-                    _semaphore.Release();
-                }
-
-                return false;
-            }
-
-            // Belt and braces: a replay that returned normally should have left the agent Running at
-            // the target mark, but judge the warm-up by the agent's own state anyway before enabling
-            // side effects. On failure, leave the agent registered and do not start continuous execution.
-            if (warmup.Status != AgentStatus.Running || warmup.LastCommitted < prior)
-            {
-                Logger.LogError(
-                    "The blue/green side-effect gate warm-up for projection shard {Name} stopped at {Position} in status {Status} before reaching {Prior}. The shard is left in that state; restarting it will resume the suppressed warm-up from its persisted progress",
-                    name.Identity, warmup.LastCommitted, warmup.Status, prior);
-                return false;
-            }
-
-            using var cancellation = new CancellationTokenSource(5.Seconds());
-            try
-            {
-                // Marks the warm-up agent Stopped so the continuous start below is not mistaken
-                // for a duplicate of a running agent (mirrors the rebuildProjection sequence).
-                await warmup.StopAndDrainAsync(cancellation.Token).ConfigureAwait(false);
-            }
-            catch (Exception e)
-            {
-                Logger.LogError(e, "Error trying to stop and drain the side-effect gate warm-up agent {Name}",
-                    warmup.Name.Identity);
-            }
-
-            Logger.LogInformation(
-                "Projection shard {Name} v{Version} finished its side-effect-suppressed warm-up at {Prior}; side effects are enabled from here on",
-                name.Identity, name.Version, prior);
-
-            return true;
-        }
-        catch (Exception e)
-        {
-            Logger.LogError(e,
-                "Error running the blue/green side-effect gate for projection shard {Name}. The shard is left stopped; restarting it will resume the suppressed warm-up from its persisted progress",
-                name.Identity);
-            return false;
-        }
+        return await resolvePriorVersionProgressAsync(name, _cancellation.Token).ConfigureAwait(false);
     }
 
     // jasperfx#480: the one genuinely new read — resolve the HIGHEST prior version's persisted
@@ -759,12 +679,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // wolverine#3519: turn the "agent not registered after a start that did not throw" miss into an
     // actionable message. The usual causes are a startup race on multi-store / Wolverine-managed hosts
     // (high-water detection still coming up, or a concurrent stop/replace evicting the just-registered
-    // agent) and a blue/green side-effect gate leaving the shard paused rather than continuous.
+    // agent) and, less often since jasperfx#598 moved the warm-up off the start path, a failure to
+    // resolve the blue/green side-effect gate mark.
     private string describeStartFailure(ShardName name)
     {
         if (_agents.TryFind(name.Identity, out var existing))
         {
-            return $"An agent is registered for this shard in status '{existing.Status}' rather than running. It may have been paused by an error or a blue/green side-effect gate warm-up; check the log for the pause reason and restart the shard once resolved.";
+            return $"An agent is registered for this shard in status '{existing.Status}' rather than running. It was most likely paused by an error; check the log for the pause reason and restart the shard once resolved.";
         }
 
         if (!_highWater.IsRunning)

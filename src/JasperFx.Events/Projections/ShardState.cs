@@ -174,6 +174,28 @@ public class ShardState
     /// </summary>
     public string? DatabaseIdentifier { get; set; }
 
+    /// <summary>
+    /// jasperfx#598/#610: true while this shard is running inside the blue/green side-effect gate's
+    /// warm-up window (see <c>AsyncOptions.GateSideEffectsBehindPriorVersion</c>) — it is genuinely
+    /// running and advancing, but over events the PRIOR version of the projection already processed,
+    /// so its side effects are deliberately suppressed until it reaches that version's mark.
+    ///
+    /// <para>
+    /// Before #598 this distinction was invisible: the warm-up ran inside the start path, so the shard
+    /// simply did not exist yet as far as any observer was concerned. Now that it starts immediately,
+    /// an operator needs to be able to tell "running, but not yet emitting side effects" from "running
+    /// normally" without reading pod logs.
+    /// </para>
+    /// </summary>
+    public bool SideEffectsSuppressed { get; set; }
+
+    /// <summary>
+    /// jasperfx#598/#610: when <see cref="SideEffectsSuppressed"/> is true, the prior version's
+    /// progression mark this shard is catching up to before its side effects are enabled. Together
+    /// with <see cref="Sequence"/> this is the warm-up's progress bar. Null otherwise.
+    /// </summary>
+    public long? SideEffectGateMark { get; set; }
+
     public override string ToString()
     {
         return $"{nameof(ShardName)}: {ShardName}, {nameof(Sequence)}: {Sequence}, {nameof(Action)}: {Action}";

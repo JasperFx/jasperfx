@@ -27,6 +27,21 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     private bool _replaying;
     private Task? _replayTask;
 
+    // jasperfx#598/#610: blue/green side-effect gate state. _sideEffectGateMark is the highest PRIOR
+    // version's persisted progression (0 = no gate); while committed progression sits below it this
+    // agent runs normally but suppresses side effects, and clamps its loading ceiling to the mark so
+    // no page ever straddles it. Both are only WRITTEN on the command-loop thread; the suppression
+    // flag is volatile because the executions read it from their own threads through
+    // EventRange.Agent.SideEffectsSuppressed.
+    private long _sideEffectGateMark;
+    private volatile bool _sideEffectsSuppressed;
+
+    // jasperfx#598/#610: the daemon's warm-up governor and this agent's standing on it.
+    // 0 = no slot wanted or held, 1 = a waiter is queued, 2 = a slot is held. Interlocked rather than
+    // command-loop-only because the release has to be safe from DisposeAsync racing the waiter.
+    private SemaphoreSlim? _warmupThrottle;
+    private int _warmupSlot;
+
     public SubscriptionAgent(ShardName name, AsyncOptions options, TimeProvider timeProvider, IEventLoader loader,
         ISubscriptionExecution execution, ShardStateTracker tracker, ISubscriptionMetrics metrics, ILogger logger)
     {
@@ -95,7 +110,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     // pumping pages instead of stalling. Only touched on the command-loop thread.
     private long _bufferedCeiling;
 
-    private bool _disposed;
+    // Volatile: the warm-up slot waiter (jasperfx#598) runs off the command loop and reads this to
+    // decide whether the slot it just won still has an owner.
+    private volatile bool _disposed;
 
     public async ValueTask DisposeAsync()
     {
@@ -109,6 +126,10 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }
 
         _disposed = true;
+
+        // jasperfx#598: hand back the warm-up slot before anything else, so a shard torn down mid
+        // warm-up cannot starve the next one out of the throttle for the daemon's lifetime.
+        releaseWarmupSlot();
 
         if (_heartbeatTimer != null)
         {
@@ -219,6 +240,11 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }
         finally
         {
+            // jasperfx#598: a graceful stop does NOT dispose the agent (the daemon just drops it from its
+            // registry), so this is the only place a shard stopped mid warm-up can hand its throttle slot
+            // back. Without it, one stopped shard starves the warm-up throttle for the daemon's lifetime.
+            releaseWarmupSlot();
+
             _logger.LogInformation("Stopped projection agent {Name}", ProjectionShardIdentity);
             Status = AgentStatus.Stopped;
             await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
@@ -254,17 +280,158 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // failure the operator already recovered from.
         Failure = null;
 
+        // jasperfx#598/#610: arm the blue/green side-effect gate BEFORE the Start command is posted, so the
+        // very first page the command loop loads is already clamped to the gate mark and already suppressed.
+        // Only meaningful for a Continuous start: a Rebuild suppresses side effects wholesale anyway.
+        if (request.Mode == ShardExecutionMode.Continuous && request.SideEffectGateMark > request.Floor)
+        {
+            _sideEffectGateMark = request.SideEffectGateMark;
+            _sideEffectsSuppressed = true;
+            _warmupThrottle = request.Runtime.SideEffectGateWarmupThrottle;
+
+            _logger.LogInformation(
+                "Projection agent {Name} is starting inside the blue/green side-effect gate: it runs from {Floor} with side effects SUPPRESSED and enables them on reaching the prior version's mark of {Mark}",
+                ProjectionShardIdentity, request.Floor, _sideEffectGateMark);
+        }
+
         await _commandBlock.PostAsync(Command.Started(request.StartingHighWater ?? _tracker.HighWaterMark, request.Floor));
-        await _tracker.PublishAsync(new ShardState(Name, request.Floor)
+        await _tracker.PublishAsync(stampSideEffectGate(new ShardState(Name, request.Floor)
         {
             Action = ShardAction.Started,
             AgentStatus = "Running",
             LastHeartbeat = _timeProvider.GetUtcNow()
-        });
+        }));
 
         startHeartbeatTimer();
 
         _logger.LogInformation("Started projection agent {Name}", ProjectionShardIdentity);
+    }
+
+    /// <summary>
+    /// jasperfx#598/#610: true while this agent is catching up over events the PRIOR version of the
+    /// projection already processed, so <c>RaiseSideEffects</c> must not fire for them. Read by the
+    /// executions off their own threads via <see cref="EventRange.Agent"/>.
+    /// </summary>
+    public bool SideEffectsSuppressed => _sideEffectsSuppressed;
+
+    // jasperfx#598/#610: stamp the warm-up window onto every state this agent publishes, so an operator
+    // watching the shard can tell "running, but not emitting side effects yet" from "running normally"
+    // — the distinction that was invisible while the warm-up hid inside the start path.
+    private ShardState stampSideEffectGate(ShardState state)
+    {
+        // Mark first, flag second: completeSideEffectGateAsync clears the flag before zeroing the mark, so
+        // a publisher on another thread (MarkSuccessAsync, the heartbeat timer) racing the flip either
+        // stamps a consistent pair or stamps nothing — never "suppressed, gated on 0".
+        var mark = Interlocked.Read(ref _sideEffectGateMark);
+        if (mark > 0 && _sideEffectsSuppressed)
+        {
+            state.SideEffectsSuppressed = true;
+            state.SideEffectGateMark = mark;
+        }
+
+        return state;
+    }
+
+    // jasperfx#598/#610: the ceiling this agent may load up to. Inside the gate's warm-up window that is
+    // the gate mark rather than the real high water, so no page ever STRADDLES the mark — a straddling
+    // page would force a choice between re-emitting side effects the prior version already emitted and
+    // dropping the ones only this version owes. The real high water still drives the reported gap.
+    private long loadingCeiling()
+    {
+        var mark = Interlocked.Read(ref _sideEffectGateMark);
+        return mark > 0 ? Math.Min(HighWaterMark, mark) : HighWaterMark;
+    }
+
+    // jasperfx#598/#610: committed progression has reached the prior version's mark, so everything from
+    // here on is history the prior version never covered. Enable side effects, give the warm-up slot back,
+    // and say so on the tracker and in the log. Runs on the command-loop thread only.
+    private async Task completeSideEffectGateAsync()
+    {
+        _sideEffectsSuppressed = false;
+        var mark = Interlocked.Exchange(ref _sideEffectGateMark, 0);
+        releaseWarmupSlot();
+
+        _logger.LogInformation(
+            "Projection agent {Name} finished its side-effect-suppressed warm-up at {Mark}; side effects are enabled from here on",
+            ProjectionShardIdentity, mark);
+
+        await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+        {
+            Action = ShardAction.Updated,
+            AgentStatus = Status.ToString(),
+            LastHeartbeat = _timeProvider.GetUtcNow()
+        });
+    }
+
+    // jasperfx#598/#610: admission to the daemon's warm-up throttle. Returns true when this agent may
+    // load — either the throttle is unset (unbounded) or a slot is already held. Otherwise it queues a
+    // waiter OFF the command loop and returns false; the loop resumes on Command.WarmupSlotGranted.
+    // Waiting inline would wedge this agent's high-water and completion bookkeeping for the whole queue
+    // time, which at hundreds of gated shards is exactly the stall this issue exists to remove.
+    private bool tryEnterWarmup()
+    {
+        var throttle = _warmupThrottle;
+        if (throttle == null)
+        {
+            return true;
+        }
+
+        var standing = Interlocked.CompareExchange(ref _warmupSlot, 1, 0);
+        if (standing == 2) return true;   // already holding a slot
+        if (standing == 1) return false;  // a waiter is already queued
+
+        _ = Task.Run(() => awaitWarmupSlotAsync(throttle));
+        return false;
+    }
+
+    private async Task awaitWarmupSlotAsync(SemaphoreSlim throttle)
+    {
+        try
+        {
+            await throttle.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Torn down while queued. A cancelled wait never took a permit, and the standing was
+            // already reset to 0 by DisposeAsync's release, so there is nothing to hand back.
+            return;
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _warmupSlot, 2);
+
+        // The agent may have been disposed between the permit being granted and this line. Check AFTER
+        // publishing the standing so the release below and DisposeAsync's release cannot both fire:
+        // whichever runs second sees a standing of 0 from the other's Interlocked.Exchange.
+        if (_disposed || _cancellation.IsCancellationRequested)
+        {
+            releaseWarmupSlot();
+            return;
+        }
+
+        try
+        {
+            await _commandBlock.PostAsync(Command.WarmupSlotGranted()).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            // The grant will never be consumed (the block is completed, the agent is going away), so
+            // the slot would sit held forever. Hand it straight back.
+            _logger.LogDebug(e, "Could not deliver a side-effect gate warm-up slot to {Name}; releasing it",
+                ProjectionShardIdentity);
+            releaseWarmupSlot();
+        }
+    }
+
+    private void releaseWarmupSlot()
+    {
+        if (Interlocked.Exchange(ref _warmupSlot, 0) == 2)
+        {
+            _warmupThrottle.SafeRelease();
+        }
     }
 
     public async Task ReplayAsync(SubscriptionExecutionRequest request, long highWaterMark, TimeSpan timeout)
@@ -337,13 +504,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     {
         var now = _timeProvider.GetUtcNow();
         await _commandBlock.PostAsync(Command.Completed(processedCeiling));
-        await _tracker.PublishAsync(new ShardState(Name, processedCeiling)
+        await _tracker.PublishAsync(stampSideEffectGate(new ShardState(Name, processedCeiling)
         {
             Action = ShardAction.Updated,
             LastAdvanced = now,
             LastHeartbeat = now,
             AgentStatus = "Running"
-        });
+        }));
     }
 
     // jasperfx#525: a deferred-rebuild execution buffered a range without committing. Advance the buffered
@@ -399,8 +566,17 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 // executor available — kicking off the executor here would overshoot the custom
                 // ceiling. Unreachable in Rebuild mode before #480 (ReplayAsync would have taken
                 // the optimized branch), so this is behavior-preserving for every other path.
-                if (Mode != ShardExecutionMode.Rebuild && LastCommitted == 0 && HighWaterMark > 0 &&
-                    _execution.TryBuildReplayExecutor(out var executor))
+                //
+                // jasperfx#598/#610: the suppression guard matters for the same reason, and this is the
+                // path that now needs it. A freshly deployed gated version starts Continuous at
+                // LastCommitted 0, which is exactly this branch's trigger — and a store-implemented
+                // replay executor replays to its OWN detected high-water, not to the gate mark, so it
+                // would run straight past the prior version's mark and then hand off to continuous
+                // execution with nothing left to suppress. Before #598 this could not happen because
+                // the warm-up had already pushed committed progression to the mark before Continuous
+                // ever started.
+                if (Mode != ShardExecutionMode.Rebuild && !_sideEffectsSuppressed && LastCommitted == 0 &&
+                    HighWaterMark > 0 && _execution.TryBuildReplayExecutor(out var executor))
                 {
                     _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
                         Name.Identity);
@@ -463,9 +639,25 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 }
 
                 break;
+
+            case CommandType.WarmupSlotGranted:
+                // jasperfx#598/#610: the throttle handed this shard a warm-up slot. Nothing to reconcile —
+                // the standing was already published by the waiter; fall through and start loading.
+                break;
         }
 
-        // Mind the gap!
+        // jasperfx#598/#610: the warm-up window closes the moment COMMITTED progression reaches the prior
+        // version's mark. Committed (not enqueued, not buffered) is the whole point: it is what the next
+        // start re-reads, so a crash anywhere inside the window resumes suppressed rather than replaying
+        // side effects the prior version already emitted. Checked before the early returns below so the
+        // agent flips and keeps loading in the same pass instead of stalling at its clamped ceiling.
+        if (_sideEffectsSuppressed && LastCommitted >= Interlocked.Read(ref _sideEffectGateMark))
+        {
+            await completeSideEffectGateAsync().ConfigureAwait(false);
+        }
+
+        // Mind the gap! Measured against the REAL high water even inside the warm-up window, so a
+        // suppressed shard still reports how far behind the store it genuinely is.
         Metrics.UpdateGap(HighWaterMark, LastCommitted);
 
         // #4721: while the off-consumer optimized rebuild is running we keep draining bookkeeping
@@ -475,6 +667,18 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         {
             return;
         }
+
+        // jasperfx#598/#610: while inside the gate's warm-up window, only load once the daemon's warm-up
+        // throttle has granted this shard a slot. Refusal is not a stall of the AGENT — it is started,
+        // assigned, heartbeating and observable throughout, which is the entire point of moving the
+        // warm-up out of the start path — it just isn't one of the N shards replaying right now.
+        if (_sideEffectsSuppressed && !tryEnterWarmup())
+        {
+            return;
+        }
+
+        // jasperfx#598/#610: clamped to the gate mark while suppressed, the real high water otherwise.
+        var ceiling = loadingCeiling();
 
         // jasperfx#525: measure in-flight (loaded-but-unprocessed) events against the buffered ceiling, not
         // committed progression. During a deferred rebuild LastCommitted lags until the next flush, so using it
@@ -491,18 +695,18 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // If all caught up, do nothing!
         // Not sure how either of these numbers could actually be higher than
         // the high water mark
-        if (LastCommitted >= HighWaterMark)
+        if (LastCommitted >= ceiling)
         {
             return;
         }
 
-        if (LastEnqueued >= HighWaterMark)
+        if (LastEnqueued >= ceiling)
         {
             return;
         }
 
         // You could maybe get a full size batch, so go get the next
-        if (HighWaterMark - LastEnqueued > Options.BatchSize)
+        if (ceiling - LastEnqueued > Options.BatchSize)
         {
             await loadNextAsync().ConfigureAwait(false);
         }
@@ -562,12 +766,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
             try
             {
-                var state = new ShardState(Name, LastCommitted)
+                var state = stampSideEffectGate(new ShardState(Name, LastCommitted)
                 {
                     Action = ShardAction.Updated,
                     LastHeartbeat = _timeProvider.GetUtcNow(),
                     AgentStatus = Status.ToString()
-                };
+                });
 
                 _tracker.PublishAsync(state).GetAwaiter().GetResult();
             }
@@ -582,7 +786,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     {
         var request = new EventRequest
         {
-            HighWater = HighWaterMark,
+            // jasperfx#598/#610: the clamped ceiling, so a page inside the side-effect gate's warm-up
+            // window stops exactly at the prior version's mark rather than straddling it
+            HighWater = loadingCeiling(),
             BatchSize = Options.BatchSize,
             Floor = LastEnqueued,
             ErrorOptions = ErrorOptions,

@@ -16,37 +16,114 @@ using Shouldly;
 
 namespace EventTests.Daemon;
 
-// jasperfx#480 acceptance: the opt-in blue/green side-effect gate. When a NEW version of a
-// projection (ShardName.Version > 1) starts continuous execution behind the highest PRIOR version's
-// persisted progression mark N, the daemon first replays to N in Rebuild mode (side effects
-// suppressed) and only then starts Continuous from N — so RaiseSideEffects only fires for events the
-// previous version never processed. These tests drive the REAL JasperFxAsyncDaemon (real
-// SubscriptionAgents, substituted store/database) with a recording execution: every page the daemon
-// enqueues is captured with the execution mode it ran under, so the [0..N] = Rebuild / (N..HWM] =
-// Continuous boundary is asserted directly.
+// jasperfx#480 acceptance, as reshaped by jasperfx#598/#610: the opt-in blue/green side-effect gate.
+// When a NEW version of a projection (ShardName.Version > 1) starts continuous execution behind the
+// highest PRIOR version's persisted progression mark N, it catches up over [current..N] with side
+// effects SUPPRESSED and only emits them past N — so RaiseSideEffects fires only for events the
+// previous version never processed.
+//
+// The #598 change is where that suppression lives. It used to be a bounded replay run to completion
+// INSIDE the agent start path, which meant a start that normally costs milliseconds cost tens of
+// seconds to minutes and — because a host does not consider an agent assigned until its start returns
+// — turned a whole cluster's assignment table into a progress bar for the catch-up. Now the agent
+// starts immediately and carries the suppressed catch-up itself as ordinary continuous work.
+//
+// These tests drive the REAL JasperFxAsyncDaemon (real SubscriptionAgents, substituted store/database)
+// with a recording execution: every page the daemon enqueues is captured along with whether the agent
+// had side effects suppressed while it ran, so the [0..N] suppressed / (N..HWM] live boundary is
+// asserted directly.
 public class BlueGreenSideEffectGateTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
 
     private const long HighWater = 1500;
 
+    // Recorded page: was the agent suppressing side effects while this page ran, and what did it span?
+    private record Page(bool Suppressed, long Floor, long Ceiling);
+
     [Fact]
-    public async Task fresh_deploy_replays_to_the_prior_version_mark_without_side_effects_then_continues()
+    public async Task a_gated_start_returns_immediately_with_the_agent_running_and_visibly_suppressed()
     {
-        // The issue's headline scenario: V3 is freshly deployed (no progression of its own), V2 left
-        // off at 1,000. Phase 1 must be a Rebuild-mode replay of [0..1000]; phase 2 Continuous from
-        // 1,000 to the high-water.
+        // THE issue (#598/#610). The warm-up has not run — the loader is held shut, so not one page has
+        // been processed — and the start has nevertheless returned with a Running, registered, assignable
+        // agent. Before #598 this call would not have returned until the entire replay to 1,000 finished.
+        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
+            options => options.GateSideEffectsBehindPriorVersion = true);
+        harness.SetProgress("Trips:V2:All", 1000);
+        harness.Loader.HoldPages();
+
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Running);
+        harness.Execution.RecordedPages.ShouldBeEmpty();
+
+        // ...and an operator can tell this apart from a shard running normally, which before #598 was
+        // impossible without reading pod logs: the shard simply did not exist yet.
+        var started = await harness.NextStateAsync("Trips:V3:All", x => x.Action == ShardAction.Started);
+        started.SideEffectsSuppressed.ShouldBeTrue();
+        started.SideEffectGateMark.ShouldBe(1000);
+    }
+
+    [Fact]
+    public async Task fresh_deploy_suppresses_side_effects_to_the_prior_version_mark_then_enables_them()
+    {
+        // V3 is freshly deployed (no progression of its own), V2 left off at 1,000. Everything up to
+        // 1,000 runs suppressed; everything past it runs live.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1000L));
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 0L, 1000L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1000L, HighWater));
 
         harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Running);
         harness.ProgressFor("Trips:V3:All").ShouldBe(HighWater);
+    }
+
+    [Fact]
+    public async Task no_page_ever_straddles_the_prior_version_mark()
+    {
+        // The correctness constraint that makes an in-flight suppression window work at all. With a mark
+        // that is NOT on a batch boundary, a page spanning it would force a choice between re-emitting
+        // side effects the prior version already emitted and dropping the ones only this version owes.
+        // The agent clamps its loading ceiling to the mark instead, so the flip lands exactly on it.
+        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
+            options =>
+            {
+                options.GateSideEffectsBehindPriorVersion = true;
+                options.BatchSize = 500;
+            });
+        harness.SetProgress("Trips:V2:All", 1234);
+
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 0L, 500L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 500L, 1000L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 1000L, 1234L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1234L, 1500L));
+    }
+
+    [Fact]
+    public async Task the_warm_up_never_routes_through_the_optimized_replay_executor()
+    {
+        // Store-implemented replay executors (Marten/Polecat) replay to their OWN detected high-water,
+        // not to a custom ceiling. A freshly deployed gated version starts Continuous at 0, which is
+        // exactly the trigger for the optimized-rebuild shortcut — so without a guard the shortcut would
+        // run straight past the prior version's mark and hand off with nothing left to suppress. Before
+        // jasperfx#598 this could not happen, because the warm-up had already pushed progression to the
+        // mark before Continuous ever started; on the new shape it has to be guarded explicitly.
+        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
+            options => options.GateSideEffectsBehindPriorVersion = true, withReplayExecutor: true);
+        harness.SetProgress("Trips:V2:All", 1000);
+
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 0L, 1000L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1000L, HighWater));
+
+        harness.Execution.ReplayExecutorInvocations.ShouldBe(0);
     }
 
     [Fact]
@@ -56,20 +133,22 @@ public class BlueGreenSideEffectGateTests
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
 
-        await harness.Daemon.StartAgentAsync("Trips:V3:All", TestContext.Current.CancellationToken).WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        await harness.Daemon.StartAgentAsync("Trips:V3:All", TestContext.Current.CancellationToken)
+            .WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1000L));
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 0L, 1000L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1000L, HighWater));
 
         harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Running);
     }
 
     [Fact]
-    public async Task an_interrupted_warm_up_resumes_the_suppressed_replay_from_its_own_progress()
+    public async Task an_interrupted_warm_up_resumes_the_suppressed_catch_up_from_its_own_progress()
     {
-        // A crash mid-warm-up leaves the new version's progression at 400 < N (1,000). The gate
-        // triggers on "behind the prior mark", not only on zero progress, so the restart suppresses
-        // side effects for the remaining (400..1000] instead of re-emitting them.
+        // A crash mid-warm-up leaves the new version's progression at 400 < N (1,000). The gate triggers
+        // on "behind the prior mark", not only on zero progress, so the restart suppresses side effects
+        // for the remaining (400..1000] instead of re-emitting them. Crash safety is why the flip keys
+        // off COMMITTED progression: it is exactly what this restart re-reads.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
@@ -77,21 +156,21 @@ public class BlueGreenSideEffectGateTests
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 400L, 1000L));
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 400L, 1000L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1000L, HighWater));
     }
 
     [Fact]
     public async Task no_gate_without_the_opt_in()
     {
-        // Same fresh-deploy state, but the projection did not opt in: today's behavior, one
-        // continuous catch-up over the whole history (side effects firing throughout).
+        // Same fresh-deploy state, but the projection did not opt in: today's behavior, one continuous
+        // catch-up over the whole history with side effects firing throughout.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3));
         harness.SetProgress("Trips:V2:All", 1000);
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 0L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 0L, HighWater));
     }
 
     [Fact]
@@ -102,14 +181,14 @@ public class BlueGreenSideEffectGateTests
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 0L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 0L, HighWater));
     }
 
     [Fact]
     public async Task no_gate_when_the_new_version_is_already_past_the_prior_mark()
     {
-        // Not a fresh deploy — V3 has its own progression ahead of V2's final mark, so this is a
-        // plain resume and the gate must not add a rebuild phase.
+        // Not a fresh deploy — V3 has its own progression ahead of V2's final mark, so this is a plain
+        // resume and nothing may be suppressed.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
@@ -117,7 +196,7 @@ public class BlueGreenSideEffectGateTests
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1200L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1200L, HighWater));
     }
 
     [Fact]
@@ -128,14 +207,14 @@ public class BlueGreenSideEffectGateTests
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 0L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 0L, HighWater));
     }
 
     [Fact]
     public async Task the_gate_resolves_the_highest_prior_version_and_ignores_other_shards()
     {
-        // V5 must warm up to V4's mark (the highest prior), not V2's — and rows for other tenants
-        // or other projections must not leak into the resolution.
+        // V5 must warm up to V4's mark (the highest prior), not V2's — and rows for other tenants or
+        // other projections must not leak into the resolution.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 5),
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 800);
@@ -145,16 +224,16 @@ public class BlueGreenSideEffectGateTests
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1200L));
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1200L, HighWater));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 0L, 1200L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1200L, HighWater));
     }
 
     [Fact]
     public async Task the_gate_is_skipped_for_from_present_subscriptions()
     {
-        // FromPresent ignores persisted progression entirely and jumps to the live high-water, which
-        // is incompatible with replaying to a persisted mark — the daemon skips the gate (warning)
-        // and the shard starts exactly as it does today.
+        // FromPresent ignores persisted progression entirely and jumps to the live high-water, which is
+        // incompatible with suppressing up to a persisted mark — the daemon skips the gate (warning) and
+        // the shard starts exactly as it does today.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
             options =>
             {
@@ -167,59 +246,55 @@ public class BlueGreenSideEffectGateTests
 
         harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Running);
 
-        // Give the command loop a beat: a wrongly-triggered warm-up would surface as a Rebuild page.
+        // Give the command loop a beat: a wrongly-triggered gate would surface as a suppressed page.
         await Task.Delay(100, TestContext.Current.CancellationToken);
-        harness.Execution.RecordedPages.ShouldBeEmpty();
+        harness.Execution.RecordedPages.ShouldNotContain(x => x.Suppressed);
     }
 
     [Fact]
-    public async Task the_warm_up_never_routes_through_the_optimized_replay_executor()
+    public async Task a_failed_gate_resolution_leaves_the_shard_stopped_instead_of_emitting_side_effects()
     {
-        // Store-implemented replay executors (Marten/Polecat) are not guaranteed to honor a custom
-        // ceiling — they replay to their own detected high-water, which would overshoot N and skip
-        // the (N..HWM] side effects. The warm-up must use the plain loader path even when an
-        // optimized executor is available.
-        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
-            options => options.GateSideEffectsBehindPriorVersion = true, withReplayExecutor: true);
-        harness.SetProgress("Trips:V2:All", 1000);
-
-        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
-
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Rebuild, 0L, 1000L));
-        (await harness.Execution.NextPageAsync()).ShouldBe((ShardExecutionMode.Continuous, 1000L, HighWater));
-
-        harness.Execution.ReplayExecutorInvocations.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task a_failed_warm_up_leaves_the_shard_stopped_instead_of_emitting_side_effects()
-    {
-        // If the suppressed warm-up fails, starting Continuous anyway would fire side effects over
-        // history the prior version already covered — the exact bug the opt-in exists to prevent.
-        // The shard stays paused (carrying the failure for observers); its partial progress makes
-        // the next start resume the warm-up.
+        // Without the prior version's mark there is no way to tell which events it already covered, and
+        // starting continuous execution anyway would fire side effects over all of them — the exact bug
+        // the opt-in exists to prevent. Nothing starts; the next start resolves the mark again.
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
             options => options.GateSideEffectsBehindPriorVersion = true);
         harness.SetProgress("Trips:V2:All", 1000);
-        harness.Loader.ThrowOnLoad = true;
+        harness.FailPriorVersionLookup();
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
 
-        harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Paused);
+        harness.Daemon.StatusFor("Trips:V3:All").ShouldBe(AgentStatus.Stopped);
         harness.Execution.RecordedPages.ShouldBeEmpty();
         harness.ProgressFor("Trips:V3:All").ShouldBe(0);
     }
 
+    [Fact]
+    public async Task a_failed_gate_resolution_surfaces_its_cause_from_the_ShardName_start_overload()
+    {
+        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
+            options => options.GateSideEffectsBehindPriorVersion = true);
+        harness.FailPriorVersionLookup();
+
+        var ex = await Should.ThrowAsync<ShardStartException>(() =>
+            harness.Daemon.StartAgentAsync(ShardName.Compose("Trips", version: 3),
+                TestContext.Current.CancellationToken));
+
+        ex.InnerException.ShouldBeOfType<DivideByZeroException>();
+    }
+
     // ---------------------------------------------------------------------------------------------
-    // Harness: a REAL JasperFxAsyncDaemon over a substituted store + database with a single
-    // registered shard. Progression is a mutable dictionary — the recording execution writes each
-    // acknowledged page's ceiling back to it, so the continuous hand-off reads the mark the warm-up
-    // replay just persisted, exactly as a real store would behave.
+    // Harness: a REAL JasperFxAsyncDaemon over a substituted store + database with a single registered
+    // shard. Progression is a mutable dictionary — the recording execution writes each acknowledged
+    // page's ceiling back to it, so a restart reads the mark the suppressed catch-up just persisted,
+    // exactly as a real store would behave.
     // ---------------------------------------------------------------------------------------------
 
     private sealed class GateHarness : IAsyncDisposable
     {
         private readonly ConcurrentDictionary<string, long> _progress = new();
+        private readonly ConcurrentBag<ShardState> _states = new();
+        private volatile bool _failPriorVersionLookup;
 
         public GateHarness(ShardName shardName, Action<AsyncOptions>? configureOptions = null,
             bool withReplayExecutor = false)
@@ -248,12 +323,24 @@ public class BlueGreenSideEffectGateTests
             var database = Substitute.For<IEventDatabase>();
             database.Identifier.Returns("db1");
             database.DatabaseUri.Returns(new Uri("fake://db1"));
-            database.Tracker.Returns(new ShardStateTracker(new NulloLogger()));
+
+            var tracker = new ShardStateTracker(new NulloLogger());
+            tracker.Subscribe(new RecordingObserver(_states));
+            database.Tracker.Returns(tracker);
+
             database.ProjectionProgressFor(Arg.Any<ShardName>(), Arg.Any<CancellationToken>())
                 .Returns(info => Task.FromResult(_progress.GetValueOrDefault(info.Arg<ShardName>().Identity)));
             database.AllProjectionProgress(Arg.Any<CancellationToken>())
-                .Returns(_ => Task.FromResult<IReadOnlyList<ShardState>>(
-                    _progress.Select(pair => new ShardState(pair.Key, pair.Value)).ToList()));
+                .Returns(_ =>
+                {
+                    if (_failPriorVersionLookup)
+                    {
+                        throw new DivideByZeroException("Configured progression lookup failure");
+                    }
+
+                    return Task.FromResult<IReadOnlyList<ShardState>>(
+                        _progress.Select(pair => new ShardState(pair.Key, pair.Value)).ToList());
+                });
 
             var projections = new FakeProjectionGraph { MaxConcurrentEventLoadsPerDatabase = 0 };
 
@@ -269,11 +356,53 @@ public class BlueGreenSideEffectGateTests
 
         public long ProgressFor(string shardIdentity) => _progress.GetValueOrDefault(shardIdentity);
 
+        public void FailPriorVersionLookup() => _failPriorVersionLookup = true;
+
+        // jasperfx#609: ShardStateTracker publishes through a Block<ShardState>, so a subscribed observer
+        // runs on the block's consumer thread and is NOT guaranteed to have run by the time the start
+        // call returns. Reading the collected states straight after the call is a race — one CI run lost
+        // it on the retired timeout suite — so wait for the state instead of snapshotting.
+        public async Task<ShardState> NextStateAsync(string shardIdentity, Func<ShardState, bool> match)
+        {
+            using var timeout = new CancellationTokenSource(TestTimeout);
+            while (true)
+            {
+                var hit = _states.FirstOrDefault(x => x.ShardName == shardIdentity && match(x));
+                if (hit != null) return hit;
+
+                if (timeout.IsCancellationRequested)
+                {
+                    throw new TimeoutException(
+                        $"Timed out waiting for a matching ShardState for '{shardIdentity}'");
+                }
+
+                await Task.Delay(20, CancellationToken.None);
+            }
+        }
+
         public async ValueTask DisposeAsync()
         {
+            Loader.ReleasePages();
             await Daemon.StopAllAsync();
             Daemon.Dispose();
         }
+    }
+
+    private sealed class RecordingObserver : IObserver<ShardState>
+    {
+        private readonly ConcurrentBag<ShardState> _states;
+
+        public RecordingObserver(ConcurrentBag<ShardState> states) => _states = states;
+
+        public void OnCompleted()
+        {
+        }
+
+        public void OnError(Exception error)
+        {
+        }
+
+        public void OnNext(ShardState value) => _states.Add(value);
     }
 
     private sealed class FakeProjectionGraph :
@@ -289,27 +418,39 @@ public class BlueGreenSideEffectGateTests
         }
     }
 
-    // Serves empty, already-caught-up pages spanning (request.Floor, request.HighWater] so a single
-    // load completes each phase; the recorded page boundaries ARE the assertion surface.
+    // Serves densely-numbered pages spanning (request.Floor, request.HighWater] capped at the batch size,
+    // so the recorded page boundaries ARE the assertion surface. The events are real (rather than empty
+    // pages) so that CalculateCeiling actually honors the batch size — which is what lets a test place the
+    // gate mark OFF a batch boundary and prove no page straddles it. HoldPages parks every load so a test
+    // can observe the started-but-not-yet-warmed-up state.
     private sealed class StubPageLoader : IEventLoader
     {
-        public bool ThrowOnLoad { get; set; }
+        private volatile TaskCompletionSource? _hold;
 
-        public Task<EventPage> LoadAsync(EventRequest request, CancellationToken token)
+        public void HoldPages() => _hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ReleasePages() => _hold?.TrySetResult();
+
+        public async Task<EventPage> LoadAsync(EventRequest request, CancellationToken token)
         {
-            if (ThrowOnLoad)
+            var hold = _hold;
+            if (hold != null)
             {
-                throw new DivideByZeroException("Configured loader failure");
+                await hold.Task.WaitAsync(token);
             }
 
             var page = new EventPage(request.Floor);
+            var target = Math.Min(request.Floor + request.BatchSize, request.HighWater);
+            for (var sequence = request.Floor + 1; sequence <= target; sequence++)
+            {
+                page.Add(new Event<AEvent>(new AEvent()) { Sequence = sequence });
+            }
+
             page.CalculateCeiling(request.BatchSize, request.HighWater);
-            return Task.FromResult(page);
+            return page;
         }
     }
 
-    // Hands the SAME execution to every agent the daemon builds for the shard (warm-up + continuous
-    // run sequentially, never concurrently), so one recorder observes the full phase sequence.
     private sealed class SingleExecutionFactory : ISubscriptionFactory<FakeOperations, FakeSession>
     {
         private readonly RecordingExecution _execution;
@@ -326,15 +467,14 @@ public class BlueGreenSideEffectGateTests
             IEventDatabase database, ILogger logger, ShardName shardName) => _execution;
     }
 
-    // Acknowledges every page immediately (posting RangeCompleted back to the agent), records the
-    // (mode, floor, ceiling) it ran under, and persists the ceiling as the shard's progression —
-    // the store-side behavior the continuous hand-off depends on.
+    // Acknowledges every page immediately (posting RangeCompleted back to the agent), records whether the
+    // agent had side effects suppressed while the page ran, and persists the ceiling as the shard's
+    // progression — the store-side behavior a restart depends on.
     private sealed class RecordingExecution : ISubscriptionExecution
     {
         private readonly GateHarness _harness;
         private readonly bool _withReplayExecutor;
-        private readonly Channel<(ShardExecutionMode, long, long)> _pages =
-            Channel.CreateUnbounded<(ShardExecutionMode, long, long)>();
+        private readonly Channel<Page> _pages = Channel.CreateUnbounded<Page>();
         private int _replayExecutorInvocations;
 
         public RecordingExecution(GateHarness harness, ShardName shardName, bool withReplayExecutor)
@@ -348,11 +488,11 @@ public class BlueGreenSideEffectGateTests
 
         public ShardExecutionMode Mode { get; set; } = ShardExecutionMode.Continuous;
 
-        public ConcurrentBag<(ShardExecutionMode, long, long)> RecordedPages { get; } = new();
+        public ConcurrentBag<Page> RecordedPages { get; } = new();
 
         public int ReplayExecutorInvocations => Volatile.Read(ref _replayExecutorInvocations);
 
-        public async Task<(ShardExecutionMode, long, long)> NextPageAsync()
+        public async Task<Page> NextPageAsync()
         {
             using var timeout = new CancellationTokenSource(TestTimeout);
             return await _pages.Reader.ReadAsync(timeout.Token);
@@ -360,7 +500,7 @@ public class BlueGreenSideEffectGateTests
 
         public ValueTask EnqueueAsync(EventPage page, ISubscriptionAgent subscriptionAgent)
         {
-            var entry = (Mode, page.Floor, page.Ceiling);
+            var entry = new Page(subscriptionAgent.SideEffectsSuppressed, page.Floor, page.Ceiling);
             RecordedPages.Add(entry);
             _pages.Writer.TryWrite(entry);
             _harness.SetProgress(subscriptionAgent.Name.Identity, page.Ceiling);
@@ -414,8 +554,8 @@ public class BlueGreenSideEffectGateTests
         }
     }
 
-    // A plain, non-partitioned detector pinned at Mark: the initial StartAsync detection publishes
-    // it, deterministically seeding Tracker.HighWaterMark before any agent starts.
+    // A plain, non-partitioned detector pinned at Mark: the initial StartAsync detection publishes it,
+    // deterministically seeding Tracker.HighWaterMark before any agent starts.
     private sealed class StubDetector : IHighWaterDetector
     {
         public long Mark { get; set; }
