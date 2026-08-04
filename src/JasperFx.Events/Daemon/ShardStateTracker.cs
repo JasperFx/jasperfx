@@ -114,9 +114,44 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     private void addListener(IObserver<ShardState> observer)
     {
-        if (!_listeners.Contains(observer))
+        if (_listeners.Contains(observer)) return;
+
+        if (observer is IExclusiveTrackerObserver exclusive)
         {
-            _listeners = _listeners.Add(observer);
+            warnIfDuplicate(exclusive);
+        }
+
+        _listeners = _listeners.Add(observer);
+    }
+
+    /// <summary>
+    /// marten#5167: this tracker is shared by every daemon on its database, and building a daemon does
+    /// not go through a cache, so a lifecycle bug can leave two STARTED daemons on one database — each
+    /// arming its own <see cref="ExtendedProgressionWriter"/> against these same rows. That used to
+    /// announce itself as lock contention; per-row ordered writes made it harmless and therefore
+    /// silent, so it is announced deliberately instead. Not an error and not refused — the duplicate
+    /// observer is the symptom, not the bug.
+    /// </summary>
+    private void warnIfDuplicate(IExclusiveTrackerObserver arriving)
+    {
+        // Called under _lock, so the listener list cannot move underneath this
+        var existing = _listeners.OfType<IExclusiveTrackerObserver>().Count(x => x.Role == arriving.Role);
+        if (existing == 0) return;
+
+        _logger.LogWarning(
+            "{Count} {Role}s are now attached to the shard state tracker for database {Database}. The tracker is shared per database, so they will each persist the same rows on their own connection — duplicated work, and a sign that more than one projection daemon has been started for this database. A daemon built only to READ state does not arm one.",
+            existing + 1, arriving.Role, DatabaseIdentifier ?? "(unidentified)");
+    }
+
+    /// <summary>
+    /// How many <see cref="IExclusiveTrackerObserver"/>s of <paramref name="role"/> are attached. More
+    /// than one is the condition <see cref="warnIfDuplicate"/> reports on.
+    /// </summary>
+    internal int CountExclusiveObservers(string role)
+    {
+        lock (_lock)
+        {
+            return _listeners.OfType<IExclusiveTrackerObserver>().Count(x => x.Role == role);
         }
     }
 
