@@ -134,6 +134,34 @@ public class ExtendedProgressionWriterTests
         writes.Count.ShouldBe(3);
     }
 
+    // marten#5167: the batch is a lock-acquisition order. A store writes it one row per transaction, so
+    // a single writer never holds more than one row lock -- but two writers racing over the same rows
+    // must not be free to take their locks in opposite orders, and the pending dictionary's enumeration
+    // order is an implementation detail, not an agreement between them.
+    [Fact]
+    public async Task a_flushed_batch_is_ordered_by_shard_name()
+    {
+        enablePeriodicHeartbeats();
+
+        // Seed a flush so the interval throttle is active and the rest coalesce into one batch
+        theWriter.OnNext(heartbeat("Zebras:All", sequence: 1));
+        await theDatabase.WaitForWrites(1);
+
+        // Published in deliberately reverse order
+        theWriter.OnNext(heartbeat("Zebras:All", sequence: 2));
+        theWriter.OnNext(heartbeat("Middles:All", sequence: 3));
+        theWriter.OnNext(heartbeat("Alphas:All", sequence: 4));
+
+        theTime.Advance(theWriter.HeartbeatWriteInterval + TimeSpan.FromMilliseconds(1));
+        theWriter.OnNext(heartbeat("Alphas:All", sequence: 5));
+
+        await theDatabase.WaitForWrites(4);
+        var batches = await theDatabase.Batches();
+
+        batches.Count.ShouldBe(2);
+        batches[1].Select(x => x.ShardName).ShouldBe(["Alphas:All", "Middles:All", "Zebras:All"]);
+    }
+
     [Fact]
     public async Task a_transition_flushes_immediately_and_carries_the_pending_heartbeats_along()
     {

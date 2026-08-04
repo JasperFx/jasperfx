@@ -228,22 +228,45 @@ public interface IEventDatabase
         => Task.CompletedTask;
 
     /// <summary>
-    ///     Persist the extended progression telemetry for a batch of shards in as few database
-    ///     round-trips as the store can manage — ideally one. The <see cref="Daemon.ExtendedProgressionWriter" />
-    ///     coalesces the heartbeat publications of every shard on a database into one batch per flush
-    ///     interval and drives this overload, because the per-shard single-row write does not scale
-    ///     under per-tenant agent fan-out: agents = projections × tenants, and one connection
-    ///     rent + round-trip per agent per heartbeat interval drove a sharded multi-tenant deployment
-    ///     to its database server's connection ceiling (jasperfx#553).
+    ///     Persist the extended progression telemetry for a batch of shards on ONE rented connection.
+    ///     The <see cref="Daemon.ExtendedProgressionWriter" /> coalesces the heartbeat publications of
+    ///     every shard on a database into one batch per flush interval and drives this overload, because
+    ///     renting a connection per shard does not scale under per-tenant agent fan-out:
+    ///     agents = projections × tenants, and one connection rent per agent per heartbeat interval drove
+    ///     a sharded multi-tenant deployment to its database server's connection ceiling (jasperfx#553).
     ///     <para>
     ///     Same contract as the single-state overload: best-effort telemetry, never advance or
     ///     regress progression, missing rows no-op. The batch is at-most-one-state-per-shard
-    ///     (the writer keeps only the latest state per shard between flushes).
+    ///     (the writer keeps only the latest state per shard between flushes), and it arrives ordered by
+    ///     shard name so that two writers racing over the same rows can never take their locks in
+    ///     opposite orders.
     ///     </para>
-    ///     The default implementation degrades to the single-state overload per shard so existing
-    ///     stores keep working unchanged until they implement a true batched write.
+    ///     <para>
+    ///     <b>One row per transaction — required, not an optimization.</b> Implementations MUST NOT fold
+    ///     the batch into a single multi-row statement (an <c>UPDATE … FROM unnest(…)</c>, a
+    ///     <c>VALUES</c> join, or several statements inside one explicit transaction). Such a statement
+    ///     takes a row lock on every shard in the batch and holds all of them until it commits, so one
+    ///     slow projection batch sitting on one row stalls the telemetry write of every OTHER shard on
+    ///     the database behind it — and, transitively, whatever those shards were waiting to do. It was
+    ///     measured (marten#5167): an unrelated shard's progress write, contending with nothing, timed
+    ///     out after 4s queued behind a telemetry statement that had locked its row on the way to a
+    ///     different, genuinely contended one. Rewritten as one autocommit statement per row the same
+    ///     collision clears in ~1ms and only the genuinely contended row waits. Amortize the CONNECTION,
+    ///     not the transaction: N single-row statements on one rented connection cost one rent and N
+    ///     round trips, and answer jasperfx#553 in full.
+    ///     </para>
+    ///     <para>
+    ///     Implementations should also skip rows whose telemetry is unchanged (e.g. a
+    ///     <c>… AND (col IS DISTINCT FROM $n OR …)</c> guard). The progression table is small and hot,
+    ///     and an unconditional <c>SET</c> gives every matched row a new tuple version on every flush;
+    ///     each avoided rewrite is also an avoided row lock.
+    ///     </para>
+    ///     The default implementation degrades to the single-state overload per shard, which already
+    ///     satisfies the one-row-per-transaction rule.
     /// </summary>
-    /// <param name="states">The latest published state per shard, at most one entry per shard name.</param>
+    /// <param name="states">
+    ///     The latest published state per shard, at most one entry per shard name, ordered by shard name.
+    /// </param>
     /// <param name="token"></param>
     async Task WriteExtendedProgressionAsync(IReadOnlyList<ShardState> states, CancellationToken token = default)
     {
