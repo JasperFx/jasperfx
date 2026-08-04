@@ -41,6 +41,18 @@ public interface IReadOnlyDaemonSettings
     TimeSpan HighWaterStalenessThreshold { get; }
 
     /// <summary>
+    ///     jasperfx#622: cadence of the PERIODIC per-shard extended progression heartbeat write.
+    ///     Null (the default) or any non-positive value means no periodic write at all — only agent
+    ///     status transitions (Started/Paused/Stopped) are persisted, which is what the extended
+    ///     columns are actually read for. A positive value restores the pre-#622 behavior at that
+    ///     cadence and is a compatibility hatch, not the recommended shape: the periodic beat costs
+    ///     one pooled connection and one transaction per database per node per interval, and nothing
+    ///     in JasperFx, Marten or CritterWatch reads the persisted heartbeat (marten#5167).
+    ///     Only consulted when <c>IEventStore.ExtendedProgressionEnabled</c> is on.
+    /// </summary>
+    TimeSpan? ExtendedProgressionHeartbeatInterval { get; }
+
+    /// <summary>
     ///     How long the daemon will wait for a single subscription or projection shard to gracefully
     ///     finish its in-flight page and flush its progression when that agent is stopped. Exceeding
     ///     this bound cancels the drain mid-flight, which abandons the progression flush. The default
@@ -110,6 +122,15 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     ///     if the daemon detects low activity. The default is 1 second.
     /// </summary>
     public TimeSpan SlowPollingTime { get; set; } = 1.Seconds();
+
+    /// <summary>
+    ///     jasperfx#622: cadence of the PERIODIC per-shard extended progression heartbeat write. Null
+    ///     (the default) or any non-positive value means no periodic write at all — only agent status
+    ///     transitions are persisted. A positive value restores the pre-#622 5 second beat at that
+    ///     cadence; see <see cref="IReadOnlyDaemonSettings.ExtendedProgressionHeartbeatInterval" />
+    ///     for why that is a compatibility hatch rather than a recommendation.
+    /// </summary>
+    public TimeSpan? ExtendedProgressionHeartbeatInterval { get; set; }
 
     /// <summary>
     ///     Polling time between looking for a new high water sequence mark

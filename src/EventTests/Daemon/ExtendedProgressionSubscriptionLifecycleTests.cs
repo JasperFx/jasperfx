@@ -55,8 +55,13 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
         return daemon;
     }
 
-    private static ShardState heartbeat(string shardName) =>
-        new(shardName, 5) { AgentStatus = "Running", LastHeartbeat = DateTimeOffset.UtcNow };
+    // jasperfx#622: only status transitions are persisted by default, so the probe publication that
+    // proves "this daemon is writing" has to be one
+    private static ShardState startedState(string shardName) =>
+        new(shardName, 5)
+        {
+            Action = ShardAction.Started, AgentStatus = "Running", LastHeartbeat = DateTimeOffset.UtcNow
+        };
 
     // Publications are delivered asynchronously through the tracker's block, so both the positive and
     // the negative assertion have to be given the same chance to happen
@@ -84,7 +89,7 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
         // every 15 seconds purely to read CurrentAgents()
         var daemon = buildDaemon();
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 0)).ShouldBe(0);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 0)).ShouldBe(0);
     }
 
     [Fact]
@@ -95,7 +100,7 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
             buildDaemon();
         }
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 0)).ShouldBe(0);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 0)).ShouldBe(0);
     }
 
     [Fact]
@@ -104,7 +109,7 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
         var daemon = buildDaemon();
         await daemon.StartHighWaterDetectionAsync();
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 1)).ShouldBe(1);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 1)).ShouldBe(1);
     }
 
     [Fact]
@@ -119,7 +124,7 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
 
         await owner.StartHighWaterDetectionAsync();
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 1)).ShouldBe(1);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 1)).ShouldBe(1);
     }
 
     [Fact]
@@ -129,7 +134,7 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
         await daemon.StartHighWaterDetectionAsync();
         await daemon.StartHighWaterDetectionAsync();
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 1)).ShouldBe(1);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 1)).ShouldBe(1);
     }
 
     [Fact]
@@ -137,11 +142,11 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
     {
         var daemon = buildDaemon();
         await daemon.StartHighWaterDetectionAsync();
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 1)).ShouldBe(1);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 1)).ShouldBe(1);
 
         await daemon.StopAllAsync();
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 2)).ShouldBe(1);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 2)).ShouldBe(1);
     }
 
     [Fact]
@@ -154,7 +159,7 @@ public class ExtendedProgressionSubscriptionLifecycleTests : IDisposable
         await daemon.StopAllAsync();
         await daemon.StartHighWaterDetectionAsync();
 
-        (await writeCountAfterPublishing(heartbeat("Trip:All"), 1)).ShouldBe(1);
+        (await writeCountAfterPublishing(startedState("Trip:All"), 1)).ShouldBe(1);
     }
 
     [Fact]
