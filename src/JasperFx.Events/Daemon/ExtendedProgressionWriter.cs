@@ -29,11 +29,15 @@ namespace JasperFx.Events.Daemon;
 /// <c>DaemonSettings.ExtendedProgressionHeartbeatInterval</c>) to a positive value to restore the
 /// old behavior — that is the compatibility hatch, not the recommended shape.</item>
 /// <item>When periodic beats ARE enabled, they are coalesced per shard (latest state wins) and
-/// flushed as ONE batched database write per <see cref="HeartbeatWriteInterval"/> for the whole
-/// database. The write rate is therefore constant per database instead of O(shards): under
-/// per-tenant agent fan-out (agents = projections × tenants) the previous
+/// flushed as ONE batch per <see cref="HeartbeatWriteInterval"/> for the whole database, ordered by
+/// shard name. The connection rent rate is therefore constant per database instead of O(shards):
+/// under per-tenant agent fan-out (agents = projections × tenants) the previous
 /// one-connection-rent-per-shard-per-interval write path drove a sharded multi-tenant deployment
-/// to its database server's connection ceiling (jasperfx#553).</item>
+/// to its database server's connection ceiling (jasperfx#553). What a batch is NOT is one
+/// transaction — see the one-row-per-transaction requirement on
+/// <see cref="IEventDatabase.WriteExtendedProgressionAsync(System.Collections.Generic.IReadOnlyList{ShardState},System.Threading.CancellationToken)"/>,
+/// which is what keeps a slow projection batch on one row from stalling every other shard's
+/// telemetry behind it (marten#5167).</item>
 /// <item>Agent status transitions (<see cref="ShardAction.Started"/>, <see cref="ShardAction.Paused"/>,
 /// <see cref="ShardAction.Stopped"/>) flush immediately — a paused/stopped shard is exactly when the
 /// persisted status matters most, and these writes are rare, so they keep the "durable across a
@@ -135,7 +139,13 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IAsyncDis
     {
         if (_pending.Count == 0) return;
 
-        var batch = _pending.Values.ToArray();
+        // Ordered by shard name because the batch is a lock-acquisition order (marten#5167). A store
+        // writes these one row per transaction, so the batch never holds more than one row lock at a
+        // time -- but two writers racing over the same rows (the tracker is per-database and shared, and
+        // building a daemon does not go through a cache) would still be free to take their locks in
+        // opposite orders if the batch order were the dictionary's. Sorting removes that hazard for
+        // every store at zero cost; nothing downstream may reorder it.
+        var batch = _pending.Values.OrderBy(x => x.ShardName, StringComparer.Ordinal).ToArray();
         _pending.Clear();
         _lastFlush = now;
 
