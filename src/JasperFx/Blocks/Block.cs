@@ -287,14 +287,27 @@ public class Block<T> : BlockBase<T>
         }
     }
 
-    public override ValueTask PostAsync(T item)
+    public override async ValueTask PostAsync(T item)
     {
         assertNotFaulted();
 
-        if (_latched) return ValueTask.CompletedTask;
+        if (_latched) return;
 
         Interlocked.Increment(ref _count);
-        return _channel.Writer.WriteAsync(item, _cancellation.Token);
+
+        try
+        {
+            await _channel.Writer.WriteAsync(item, _cancellation.Token);
+        }
+        catch
+        {
+            // A failed write (closed/faulted channel, shutdown cancellation) never enqueued the item,
+            // so it must not be counted — a leaked increment permanently inflates Count, which
+            // consumers read as "work still pending" (e.g. a back-pressured listener deciding whether
+            // it may resume). The sync Post() has always decremented on failure; this is its async twin.
+            Interlocked.Decrement(ref _count);
+            throw;
+        }
     }
 
     public override uint Count => _count;

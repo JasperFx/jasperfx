@@ -37,7 +37,10 @@ public class BatchingChannel<T> : BlockBase<T>
         }, null, Timeout.Infinite, Timeout.Infinite);
     }
 
-    public override uint Count => (uint)_current.Count + _inner.Count;
+    // The downstream block is part of this chain: an item that has left the batching stage but is
+    // still buffered downstream is work-not-yet-finished, and consumers of Count (back-pressure,
+    // drain decisions) need to see it. Mirrors the same accounting fix in BlockSet.Count.
+    public override uint Count => (uint)_current.Count + _inner.Count + _downstream.Count;
 
     public override Action<T, Exception> OnError
     {

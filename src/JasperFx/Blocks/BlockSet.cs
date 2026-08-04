@@ -11,16 +11,24 @@ public class BlockSet<T> : IBlock<T>
 
     public BlockSet(IBlock<T> top, List<IBlock> previous)
     {
-        previous.Insert(0, top);
-        _blocks = previous;
+        // Copy rather than mutate: the caller may be an existing BlockSet handing over its own
+        // _blocks list, and inserting into that shared list would corrupt the original set.
+        _blocks = new List<IBlock>(previous.Count + 1) { top };
+        _blocks.AddRange(previous);
         _top = top;
     }
 
+    /// <summary>
+    /// The total number of items buffered or in flight across the WHOLE chain — the top stage plus
+    /// every downstream block. Consumers (e.g. Wolverine's back-pressure agent reading a listener's
+    /// QueueCount) treat this as "work not yet finished", so an item that has moved from the top
+    /// stage into a downstream block must still be counted.
+    /// </summary>
     public uint Count
     {
         get
         {
-            return _top.Count + (uint)_blocks.Sum(x => x.Count);
+            return (uint)_blocks.Sum(x => (long)x.Count);
         }
     }
 
