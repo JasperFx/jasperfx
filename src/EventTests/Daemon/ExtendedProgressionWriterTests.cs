@@ -21,6 +21,14 @@ public class ExtendedProgressionWriterTests
         theWriter = new ExtendedProgressionWriter(theStore, theDatabase, theTime, NullLogger.Instance);
     }
 
+    // jasperfx#622: the periodic per-shard beat is OFF by default now. The machinery is unchanged and
+    // still shipped behind DaemonSettings.ExtendedProgressionHeartbeatInterval, so the tests that pin
+    // its coalescing/flush behavior opt into it explicitly.
+    private void enablePeriodicHeartbeats()
+    {
+        theWriter.HeartbeatWriteInterval = TimeSpan.FromSeconds(5);
+    }
+
     private static ShardState transition(ShardAction action, string status, string? pauseReason = null,
         string shardName = "Counters:All")
     {
@@ -100,6 +108,8 @@ public class ExtendedProgressionWriterTests
     [Fact]
     public async Task coalesces_heartbeats_into_one_batched_write_per_flush_interval()
     {
+        enablePeriodicHeartbeats();
+
         // The very first heartbeat flushes immediately (nothing to wait for)
         theWriter.OnNext(heartbeat(sequence: 1));
         var writes = await theDatabase.WaitForWrites(1);
@@ -127,6 +137,8 @@ public class ExtendedProgressionWriterTests
     [Fact]
     public async Task a_transition_flushes_immediately_and_carries_the_pending_heartbeats_along()
     {
+        enablePeriodicHeartbeats();
+
         // Seed a flush so the interval throttle is active
         theWriter.OnNext(heartbeat(sequence: 1));
         await theDatabase.WaitForWrites(1);
@@ -148,6 +160,8 @@ public class ExtendedProgressionWriterTests
     [Fact]
     public async Task a_transition_replaces_a_pending_heartbeat_for_the_same_shard()
     {
+        enablePeriodicHeartbeats();
+
         theWriter.OnNext(heartbeat(sequence: 1));
         await theDatabase.WaitForWrites(1);
 
@@ -205,6 +219,8 @@ public class ExtendedProgressionWriterTests
     [Fact]
     public async Task disposing_flushes_the_pending_batch()
     {
+        enablePeriodicHeartbeats();
+
         theWriter.OnNext(heartbeat(sequence: 1));
         await theDatabase.WaitForWrites(1);
 
@@ -240,6 +256,54 @@ public class ExtendedProgressionWriterTests
 
         var writes = await theDatabase.WaitForWrites(1);
         writes[0].AgentStatus.ShouldBe("Stopped");
+    }
+
+    // jasperfx#622
+    [Fact]
+    public async Task no_periodic_heartbeat_write_by_default()
+    {
+        // The whole point: a heartbeat nobody reads costs a connection + a transaction per database
+        // per node per interval (marten#5167). Off unless asked for.
+        theWriter.PeriodicHeartbeatsEnabled.ShouldBeFalse();
+
+        theWriter.OnNext(heartbeat(sequence: 1));
+        theWriter.OnNext(heartbeat(sequence: 2));
+        theWriter.OnNext(heartbeat("Others:All", sequence: 7));
+        theTime.Advance(TimeSpan.FromMinutes(5));
+        theWriter.OnNext(heartbeat(sequence: 3));
+
+        await theDatabase.AssertNoWrites();
+    }
+
+    // jasperfx#622: the transitional columns are exactly what survives -- rare writes, and the data
+    // the "durable across a crash" story was actually about
+    [Fact]
+    public async Task transitions_are_still_written_with_the_periodic_beat_off()
+    {
+        theWriter.OnNext(heartbeat(sequence: 1));
+        theWriter.OnNext(transition(ShardAction.Paused, "Paused", "boom"));
+
+        var writes = await theDatabase.WaitForWrites(1);
+        var batches = await theDatabase.Batches();
+
+        // ...and the dropped heartbeat does NOT ride along on the transition's write
+        batches.Count.ShouldBe(1);
+        batches[0].Length.ShouldBe(1);
+        writes[0].AgentStatus.ShouldBe("Paused");
+        writes[0].PauseReason.ShouldBe("boom");
+    }
+
+    // jasperfx#622: the compatibility hatch the interval never had
+    [Fact]
+    public async Task a_positive_interval_restores_the_periodic_beat()
+    {
+        enablePeriodicHeartbeats();
+        theWriter.PeriodicHeartbeatsEnabled.ShouldBeTrue();
+
+        theWriter.OnNext(heartbeat(sequence: 1));
+
+        var writes = await theDatabase.WaitForWrites(1);
+        writes[0].Sequence.ShouldBe(1);
     }
 
     [Fact]

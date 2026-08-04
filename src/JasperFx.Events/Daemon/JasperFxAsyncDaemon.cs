@@ -256,7 +256,14 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // StopAllAsync drained it, exactly as it rebuilds the dead-letter block (jasperfx#557).
     private ExtendedProgressionWriter buildExtendedProgressionWriter()
         => new(_store, Database, _store.TimeProvider,
-            _loggerFactory?.CreateLogger<ExtendedProgressionWriter>() ?? Logger);
+            _loggerFactory?.CreateLogger<ExtendedProgressionWriter>() ?? Logger)
+        {
+            // jasperfx#622: off unless the application asks for it. This is the configuration path
+            // the interval never had -- before #622 it was a hardcoded 5 seconds that no
+            // DaemonSettings knob could reach.
+            HeartbeatWriteInterval =
+                _projections.ExtendedProgressionHeartbeatInterval ?? TimeSpan.Zero
+        };
 
     /// <summary>
     /// jasperfx#621: arm the extended progression writer. Called from every path that actually starts
@@ -1189,10 +1196,15 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await _tenantHighWater.PollAndRouteAsync(CurrentAgents(), _cancellation.Token).ConfigureAwait(false);
 
             // jasperfx#539: publish the per-cycle liveness heartbeat for Path B. The coordinator has already
-            // stamped its in-memory LastPolledAt; this surfaces the same beat on the live Tracker (and the
-            // ExtendedProgression columns) so remote consumers can tell "no new events" from "the tenant
-            // high-water poll died". Carries the store-global mark unchanged, so it never advances it and,
-            // by the OnNext guard above, never re-triggers a poll.
+            // stamped its in-memory LastPolledAt; this surfaces the same beat on the live Tracker so
+            // in-process consumers can tell "no new events" from "the tenant high-water poll died".
+            // Carries the store-global mark unchanged, so it never advances it and, by the OnNext guard
+            // above, never re-triggers a poll.
+            //
+            // jasperfx#622: this beat does NOT reach the ExtendedProgression columns, and never did --
+            // ExtendedProgressionWriter.OnNext drops HighWaterMark and AllProjections states outright
+            // (pinned by skips_high_water_mark_and_all_projections_states). The live Tracker is the only
+            // place it shows up.
             await publishHighWaterStatusAsync(ShardAction.Updated, "Running").ConfigureAwait(false);
         }
         catch (Exception e)

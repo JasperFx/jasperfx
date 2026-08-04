@@ -17,16 +17,28 @@ namespace JasperFx.Events.Daemon;
 /// <list type="bullet">
 /// <item>Gated on <see cref="IEventStore.ExtendedProgressionEnabled"/>, read live per publication —
 /// nothing is written (or even queued) for stores that have not opted in.</item>
-/// <item>Heartbeat/telemetry publications (<see cref="ShardAction.Updated"/> — the ~10s heartbeat
-/// timer ticks and the per-batch commit publications) are coalesced per shard (latest state wins)
-/// and flushed as ONE batched database write per <see cref="HeartbeatWriteInterval"/> for the whole
+/// <item>jasperfx#622: heartbeat/telemetry publications (<see cref="ShardAction.Updated"/>) are
+/// DROPPED by default. The periodic per-shard beat had no reader anywhere — not in JasperFx, not
+/// in Marten, and not in CritterWatch, which reads agent status and heartbeats off in-memory
+/// objects and drops the persisted columns on the floor — while costing one pooled connection and
+/// one transaction per database per node every 5 seconds. On a 512-shard-database deployment that
+/// was ~37 connection acquisitions/sec/node to keep 6-12 rows current, and it made a production web
+/// app unresponsive (marten#5167). Liveness is a node property and is tracked as one per node
+/// upstream; <c>last_updated</c> plus the agent assignment grid reconstructs what any consumer
+/// actually renders. Set <see cref="HeartbeatWriteInterval"/> (or
+/// <c>DaemonSettings.ExtendedProgressionHeartbeatInterval</c>) to a positive value to restore the
+/// old behavior — that is the compatibility hatch, not the recommended shape.</item>
+/// <item>When periodic beats ARE enabled, they are coalesced per shard (latest state wins) and
+/// flushed as ONE batched database write per <see cref="HeartbeatWriteInterval"/> for the whole
 /// database. The write rate is therefore constant per database instead of O(shards): under
 /// per-tenant agent fan-out (agents = projections × tenants) the previous
 /// one-connection-rent-per-shard-per-interval write path drove a sharded multi-tenant deployment
 /// to its database server's connection ceiling (jasperfx#553).</item>
 /// <item>Agent status transitions (<see cref="ShardAction.Started"/>, <see cref="ShardAction.Paused"/>,
 /// <see cref="ShardAction.Stopped"/>) flush immediately — a paused/stopped shard is exactly when the
-/// persisted status matters most. The pending heartbeat batch rides along in the same write.</item>
+/// persisted status matters most, and these writes are rare, so they keep the "durable across a
+/// crash" story for the data where it means something. The pending heartbeat batch, if periodic
+/// beats are enabled, rides along in the same write.</item>
 /// <item>Writes are best-effort and serialized on a background block: a failed write is logged at
 /// debug and can never fail or stall the shard, and a slow database can never back up the
 /// tracker's publication loop.</item>
@@ -64,11 +76,24 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IAsyncDis
     /// <summary>
     /// Spacing between two batched heartbeat/telemetry flushes for the database. All shard states
     /// that arrive within the interval are coalesced (latest state per shard) into the next flush,
-    /// so no heartbeat is ever more than one interval stale. Status transitions flush immediately,
-    /// carrying any pending batch with them. Defaults to 5 seconds so every tick of the agents'
-    /// 10 second heartbeat timer lands.
+    /// so no heartbeat is ever more than one interval stale. Status transitions always flush
+    /// immediately, carrying any pending batch with them.
+    ///
+    /// <para>
+    /// jasperfx#622: defaults to <see cref="TimeSpan.Zero"/> — periodic heartbeat writes are OFF, and
+    /// only status transitions are persisted. Zero or negative disables them; any positive value
+    /// restores the periodic beat at that cadence. Before #622 this was hardcoded to 5 seconds with
+    /// no configuration path at all (the field was private on the daemon, reachable from no
+    /// <c>DaemonSettings</c> knob), which is what made the cost impossible to opt out of.
+    /// </para>
     /// </summary>
-    public TimeSpan HeartbeatWriteInterval { get; set; } = TimeSpan.FromSeconds(5);
+    public TimeSpan HeartbeatWriteInterval { get; set; } = TimeSpan.Zero;
+
+    /// <summary>
+    /// Whether this writer persists the periodic per-shard heartbeat at all. False by default; see
+    /// <see cref="HeartbeatWriteInterval"/>.
+    /// </summary>
+    public bool PeriodicHeartbeatsEnabled => HeartbeatWriteInterval > TimeSpan.Zero;
 
     public void OnNext(ShardState value)
     {
@@ -79,6 +104,13 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IAsyncDis
 
         // Plain progress publications (e.g. rebuild range completions) carry no agent telemetry
         if (value.AgentStatus == null && value.LastHeartbeat == null) return;
+
+        var isTransition = value.Action is ShardAction.Started or ShardAction.Paused or ShardAction.Stopped;
+
+        // jasperfx#622: with the periodic beat off, a non-transition publication is dropped outright
+        // rather than queued -- there is no later flush to carry it, and letting it ride along on the
+        // next transition would write a stale heartbeat nobody reads.
+        if (!isTransition && !PeriodicHeartbeatsEnabled) return;
 
         // Carry the assigned node through to the persisted running_on_node column when a
         // distribution layer (e.g. Wolverine-managed subscription distribution) stamped it
@@ -91,7 +123,6 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IAsyncDis
         // simply replaces it
         _pending[value.ShardName] = value;
 
-        var isTransition = value.Action is ShardAction.Started or ShardAction.Paused or ShardAction.Stopped;
         var now = _timeProvider.GetUtcNow();
 
         if (isTransition || now - _lastFlush >= HeartbeatWriteInterval)
