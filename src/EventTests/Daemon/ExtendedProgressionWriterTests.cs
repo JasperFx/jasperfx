@@ -1,6 +1,8 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -374,6 +376,98 @@ public class ExtendedProgressionWriterTests
 
         writes = await theDatabase.WaitForWrites(2);
         writes[1].AgentStatus.ShouldBe("Stopped");
+    }
+
+    // marten#5167 — a second writer on one database used to announce itself as lock contention: two
+    // writers issuing multi-row UPDATEs over the same rows in plan-dependent order is a deadlock hazard.
+    // Per-row ordered writes made a duplicate writer harmless to correctness, and therefore SILENT: it
+    // just quietly does the same work twice on a second connection. The tracker is shared per database
+    // and building a daemon does not go through a cache, so the lifecycle bug that produces one is real.
+    [Fact]
+    public void a_second_writer_attaching_to_one_tracker_is_reported()
+    {
+        var logger = new CapturingLogger();
+        var tracker = new ShardStateTracker(logger) { DatabaseIdentifier = "tenant_db_7" };
+
+        tracker.Subscribe(theWriter);
+        logger.Warnings.ShouldBeEmpty();
+
+        tracker.Subscribe(new ExtendedProgressionWriter(theStore, theDatabase, theTime, NullLogger.Instance));
+
+        tracker.CountExclusiveObservers(ExtendedProgressionWriter.ExclusiveRole).ShouldBe(2);
+
+        var warning = logger.Warnings.ShouldHaveSingleItem();
+        warning.ShouldContain("tenant_db_7");
+        warning.ShouldContain(ExtendedProgressionWriter.ExclusiveRole);
+
+        // Reported, never refused -- the duplicate is the symptom, and swallowing the subscription
+        // would hide the lifecycle bug rather than surface it
+        tracker.As<IDisposable>().Dispose();
+    }
+
+    // The daemon-restart path: stop unsubscribes, so the next start must not look like a duplicate.
+    // Without this the warning would fire on every ordinary restart and be worth nothing.
+    [Fact]
+    public void a_writer_that_has_unsubscribed_is_not_counted_against_its_replacement()
+    {
+        var logger = new CapturingLogger();
+        var tracker = new ShardStateTracker(logger) { DatabaseIdentifier = "tenant_db_7" };
+
+        var subscription = tracker.Subscribe(theWriter);
+        subscription.Dispose();
+
+        tracker.Subscribe(new ExtendedProgressionWriter(theStore, theDatabase, theTime, NullLogger.Instance));
+
+        tracker.CountExclusiveObservers(ExtendedProgressionWriter.ExclusiveRole).ShouldBe(1);
+        logger.Warnings.ShouldBeEmpty();
+
+        tracker.As<IDisposable>().Dispose();
+    }
+
+    // Ordinary observers are none of this mechanism's business
+    [Fact]
+    public void plain_observers_are_never_reported_as_duplicates()
+    {
+        var logger = new CapturingLogger();
+        var tracker = new ShardStateTracker(logger);
+
+        tracker.Subscribe(new PlainObserver());
+        tracker.Subscribe(new PlainObserver());
+
+        tracker.CountExclusiveObservers(ExtendedProgressionWriter.ExclusiveRole).ShouldBe(0);
+        logger.Warnings.ShouldBeEmpty();
+
+        tracker.As<IDisposable>().Dispose();
+    }
+
+    private class PlainObserver : IObserver<ShardState>
+    {
+        public void OnCompleted() { }
+        public void OnError(Exception error) { }
+        public void OnNext(ShardState value) { }
+    }
+
+    private class CapturingLogger : ILogger
+    {
+        public List<string> Warnings { get; } = new();
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        private class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
     }
 
     private class SingleWriteOnlyDatabase : IEventDatabase

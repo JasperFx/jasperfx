@@ -49,8 +49,15 @@ namespace JasperFx.Events.Daemon;
 /// </list>
 /// </para>
 /// </summary>
-public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IAsyncDisposable
+public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiveTrackerObserver, IAsyncDisposable
 {
+    /// <summary>
+    /// One writer per database is the design. See <see cref="IExclusiveTrackerObserver"/>.
+    /// </summary>
+    public const string ExclusiveRole = "extended progression writer";
+
+    string IExclusiveTrackerObserver.Role => ExclusiveRole;
+
     private readonly IEventStore _store;
     private readonly IEventDatabase _database;
     private readonly TimeProvider _timeProvider;
