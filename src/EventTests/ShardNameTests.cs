@@ -128,6 +128,63 @@ public class ShardNameTests
         parsed!.Identity.ShouldBe(ShardState.HighWaterMark);
     }
 
+    // jasperfx#618
+    [Fact]
+    public void high_water_mark_for_tenant_round_trips()
+    {
+        var name = ShardName.HighWaterMarkFor("acme");
+
+        name.Name.ShouldBe(ShardState.HighWaterMark);
+        name.TenantId.ShouldBe("acme");
+        name.ShardKey.ShouldBe(ShardName.All);
+        name.Identity.ShouldBe("HighWaterMark:acme");
+
+        ShardName.TryParse(name.Identity, out var parsed).ShouldBeTrue();
+        parsed!.Name.ShouldBe(ShardState.HighWaterMark);
+        parsed.TenantId.ShouldBe("acme");
+        parsed.Identity.ShouldBe(name.Identity);
+        parsed.ShouldBe(name);
+    }
+
+    // jasperfx#618: the whole point of the fix -- the tenant must NOT land in the shard key slot,
+    // and two tenants' marks must not be the same value
+    [Fact]
+    public void per_tenant_high_water_marks_are_distinct_from_each_other_and_the_global_mark()
+    {
+        var global = ShardName.HighWaterMarkFor();
+        var acme = ShardName.HighWaterMarkFor("acme");
+        var other = ShardName.HighWaterMarkFor("other");
+
+        global.Identity.ShouldBe(ShardState.HighWaterMark);
+        global.TenantId.ShouldBeNull();
+
+        acme.ShouldNotBe(other);
+        acme.ShouldNotBe(global);
+        acme.ShardKey.ShouldBe(ShardName.All);
+        acme.ShardKey.ShouldNotBe("acme");
+    }
+
+    [Fact]
+    public void is_high_water_mark()
+    {
+        ShardName.HighWaterMarkFor().IsHighWaterMark.ShouldBeTrue();
+        ShardName.HighWaterMarkFor("acme").IsHighWaterMark.ShouldBeTrue();
+        ShardName.Compose("Trips", "All", "acme").IsHighWaterMark.ShouldBeFalse();
+    }
+
+    // jasperfx#618: anything else in the HighWaterMark namespace is bookkeeping we do not
+    // understand -- reject it rather than hand back a name whose Identity is a different string
+    [Theory]
+    [InlineData("HighWaterMark:")]
+    [InlineData("HighWaterMark:acme:extra")]
+    [InlineData("HighWaterMark:V2:All")]
+    [InlineData("HighWaterMark:V2:All:acme")]
+    public void try_parse_rejects_unrecognized_high_water_shapes(string text)
+    {
+        ShardName.TryParse(text, out var parsed).ShouldBeFalse();
+        parsed.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
