@@ -112,6 +112,60 @@ public interface IEventDatabase
                 "Per-tenant AllProjectionProgress is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
 
     /// <summary>
+    ///     How far behind each registered projection/subscription cell is on this database, at the
+    ///     version registered right now. This is the supported read behind "how far behind is
+    ///     projection X, at its current version, for tenant T?" — the correlation every readiness
+    ///     probe, status endpoint and lag explorer has otherwise had to re-derive from raw
+    ///     progression-row names. See jasperfx#619, marten#5170.
+    ///     <para>
+    ///     No new SQL: this is an in-memory correlation over the single
+    ///     <see cref="AllProjectionProgress(CancellationToken)" /> round trip plus the registry the
+    ///     caller passes in. Rules — anchored on the registry so prior-version rows and non-shard
+    ///     bookkeeping rows can never be mistaken for progress; a registered cell with NO row reports
+    ///     <c>HasProgressionRow == false</c> (fully behind, not caught up); tenants are discovered
+    ///     from the <c>HighWaterMark:{tenant}</c> rows and each cell is measured against its own
+    ///     tenant's mark. See <see cref="Daemon.ProjectionLagCalculator.Calculate" /> for the full set.
+    ///     </para>
+    ///     <para>
+    ///     <b>Documented limitation.</b> The tenant set is discovered from the high-water rows
+    ///     themselves. A tenant that exists but has never had a high-water row written produces no
+    ///     row, and therefore no result — invisible rather than "fully behind". For a readiness probe
+    ///     that is the same failure mode this API exists to eliminate, just relocated, so cross-check
+    ///     the results against a tenant list from the store when you have one.
+    ///     </para>
+    /// </summary>
+    /// <param name="registeredShards">
+    ///     The shards registered in the running application at their current versions — i.e. the
+    ///     <see cref="ShardName" />s of <c>IEventStore&lt;,&gt;.AllShards()</c>.
+    /// </param>
+    /// <param name="token"></param>
+    async Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(
+        IReadOnlyList<ShardName> registeredShards, CancellationToken token = default)
+    {
+        var progress = await AllProjectionProgress(token).ConfigureAwait(false);
+        return ProjectionLagCalculator.Calculate(registeredShards, progress, Identifier);
+    }
+
+    /// <summary>
+    ///     The lag of the cells addressed by <paramref name="name" />. The overload takes a
+    ///     <see cref="ShardName" /> rather than a <c>string? tenantId</c> because a tenant-scoped read
+    ///     is just a tenant-qualified shard name, and because suffix-matching a tenant onto a shard
+    ///     identity is how marten#5171 happened.
+    ///     <para>
+    ///     A <see cref="ShardName.ShardKey" /> of <see cref="ShardName.All" /> means every slice of a
+    ///     sliced projection, a null <see cref="ShardName.TenantId" /> means every tenant, and
+    ///     <see cref="ShardName.Version" /> is not matched at all — the read is anchored on the
+    ///     registry, which only holds the current version.
+    ///     </para>
+    /// </summary>
+    async Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(
+        IReadOnlyList<ShardName> registeredShards, ShardName name, CancellationToken token = default)
+    {
+        var all = await FetchProjectionLagAsync(registeredShards, token).ConfigureAwait(false);
+        return ProjectionLagCalculator.Filter(all, name);
+    }
+
+    /// <summary>
     ///     Delete a single projection-progression row by its raw shard-name
     ///     <see cref="ShardName.Identity" /> (e.g. <c>claim_lines:V9:All</c>), independent of whether a
     ///     matching projection is still registered in the running application. This is the store-agnostic,
