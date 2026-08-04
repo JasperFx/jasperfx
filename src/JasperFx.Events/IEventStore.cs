@@ -398,7 +398,29 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     ErrorHandlingOptions RebuildErrors { get; }
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> AllShards();
-    
+
+    /// <summary>
+    ///     jasperfx#619: how far behind each registered projection/subscription cell is on
+    ///     <paramref name="database" />, at the version registered right now. Supplies
+    ///     <see cref="AllShards" /> — "registered sources at their current version" — to
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},CancellationToken)" />,
+    ///     which is where the correlation and its caveats are documented.
+    /// </summary>
+    Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(IEventDatabase database, CancellationToken token = default)
+        => database.FetchProjectionLagAsync(registeredShardNames(), token);
+
+    /// <summary>
+    ///     jasperfx#619: the lag of the cells addressed by <paramref name="name" /> on
+    ///     <paramref name="database" />. A tenant-scoped read is a tenant-qualified shard name.
+    /// </summary>
+    Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(IEventDatabase database, ShardName name,
+        CancellationToken token = default)
+        => database.FetchProjectionLagAsync(registeredShardNames(), name, token);
+
+    private IReadOnlyList<ShardName> registeredShardNames()
+        => AllShards().Select(x => x.Name).ToList();
+
+
     /// <summary>
     /// TimeProvider used for event timestamping metadata. Replace for controlling the timestamps
     /// in testing
