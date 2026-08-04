@@ -64,6 +64,19 @@ public sealed class ComplianceStoreConfig
     /// </remarks>
     public bool EnableCorrelationTracking { get; set; }
 
+    /// <summary>
+    /// Persist per-event header dictionaries. Off by default in both products and spelled
+    /// differently in each — Marten's <c>Events.MetadataConfig.HeadersEnabled</c>, Polecat's
+    /// <c>Events.EnableHeaders</c> — so the fixture resolves it, exactly like
+    /// <see cref="EnableCorrelationTracking"/>.
+    /// </summary>
+    /// <remarks>
+    /// Setting the headers themselves needs nothing from the fixture: <see cref="IEvent.SetHeader"/>
+    /// and <see cref="IEvent.GetHeader"/> are on the shared event interface, so a suite builds an
+    /// envelope with <c>BuildEvent</c>, stamps it and appends it.
+    /// </remarks>
+    public bool EnableHeaders { get; set; }
+
     public List<Type> EventTypes { get; } = new();
 
     public List<(Type Tag, string Suffix, Type? Aggregate)> TagTypes { get; } = new();

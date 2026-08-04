@@ -27,15 +27,20 @@ public interface IEventStream<out T> where T : notnull
     T? Aggregate { get; }
 
     /// <summary>
-    /// The version of the stream at the moment it was fetched. Null when the stream
-    /// did not exist at fetch time.
+    /// The version of the stream at the moment it was fetched, and <c>0</c> when the stream did
+    /// not exist at fetch time.
     /// </summary>
+    /// <remarks>
+    /// Nullable for historical reasons only — a fetch of a missing stream reports 0, not null, on
+    /// every implementation. Verified across stores by
+    /// <c>FetchForWritingCompliance.fetch_for_writing_a_stream_that_does_not_exist_yet</c>; this
+    /// doc previously claimed null.
+    /// </remarks>
     long? StartingVersion { get; }
 
     /// <summary>
     /// The expected version after the events queued on this handle are persisted —
     /// equivalent to <see cref="StartingVersion"/> + the count of pending events.
-    /// Null when <see cref="StartingVersion"/> is null.
     /// </summary>
     long? CurrentVersion { get; }
 
