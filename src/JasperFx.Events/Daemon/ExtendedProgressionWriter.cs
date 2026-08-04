@@ -43,6 +43,12 @@ namespace JasperFx.Events.Daemon;
 /// persisted status matters most, and these writes are rare, so they keep the "durable across a
 /// crash" story for the data where it means something. The pending heartbeat batch, if periodic
 /// beats are enabled, rides along in the same write.</item>
+/// <item>jasperfx#631: a transition published at sequence 0 — which is every fresh shard's
+/// <see cref="ShardAction.Started"/>, since the agent starts before its first batch commits — has no
+/// progression row to decorate and every store's write is update-only, so it lands nowhere. Such a
+/// shard is remembered and written again on the first publication carrying a committed sequence,
+/// which is proof the row now exists. Without this the telemetry columns stay NULL for the entire
+/// life of a healthy agent once periodic beats are off.</item>
 /// <item>Writes are best-effort and serialized on a background block: a failed write is logged at
 /// debug and can never fail or stall the shard, and a slow database can never back up the
 /// tracker's publication loop.</item>
@@ -66,6 +72,10 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
 
     // Only ever touched from the tracker's single publication consumer, so no synchronization needed
     private readonly Dictionary<string, ShardState> _pending = new();
+
+    // jasperfx#631 — shards whose status transition was written while they had no progression row to
+    // decorate, and so must be written again as soon as one exists. See replayUnlandedTransition.
+    private readonly HashSet<string> _unlanded = new();
     private DateTimeOffset _lastFlush = DateTimeOffset.MinValue;
 
     public ExtendedProgressionWriter(IEventStore store, IEventDatabase database, TimeProvider timeProvider,
@@ -118,10 +128,38 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
 
         var isTransition = value.Action is ShardAction.Started or ShardAction.Paused or ShardAction.Stopped;
 
+        // jasperfx#631 -- a transition published before the shard has committed anything has no
+        // progression row to decorate, and every store's write is update-only, so it lands nowhere.
+        // That is the normal case for a fresh shard: SubscriptionAgent.StartAsync publishes Started at
+        // floor 0, and the row is not created until the first batch commits. Until jasperfx#622 the 5s
+        // periodic beat wrote again a moment later and covered for it; with the beat off, Started was
+        // the ONLY write, so agent_status / heartbeat / running_on_node stayed NULL for the whole life
+        // of a healthy agent -- which is precisely when a consumer polling the database (the case those
+        // columns exist for: the publishing node is down, so there is no in-memory state to read)
+        // needs them. Remember the shard and write it again the moment a publication proves the row
+        // exists.
+        //
+        // Lock cost (marten#5167 is the reason this file is careful): the replay is ONE single-row
+        // UPDATE per shard per agent start, one-shot -- not periodic, and nothing like the 5s beat
+        // #622 removed. It rides the same one-row-per-transaction, shard-name-ordered write path, so
+        // it takes one row lock briefly and cannot convoy. The sequence-0 write it compensates for
+        // takes NO lock at all when the row is absent, because it matches no rows. And the replay is
+        // ordered safely by construction: the store commits the batch (which creates the progression
+        // row) BEFORE the agent calls MarkSuccessAsync, so the publication that triggers the replay
+        // always follows the row write rather than contending with it.
+        if (isTransition && value.Sequence <= 0)
+        {
+            _unlanded.Add(value.ShardName);
+        }
+
+        // A publication carrying a committed sequence proves the progression row is there now.
+        var replaysUnlandedTransition = !isTransition && value.Sequence > 0 && _unlanded.Remove(value.ShardName);
+
         // jasperfx#622: with the periodic beat off, a non-transition publication is dropped outright
         // rather than queued -- there is no later flush to carry it, and letting it ride along on the
-        // next transition would write a stale heartbeat nobody reads.
-        if (!isTransition && !PeriodicHeartbeatsEnabled) return;
+        // next transition would write a stale heartbeat nobody reads. The one exception is the replay
+        // above, which is a status write that has not landed yet, not a heartbeat.
+        if (!isTransition && !PeriodicHeartbeatsEnabled && !replaysUnlandedTransition) return;
 
         // Carry the assigned node through to the persisted running_on_node column when a
         // distribution layer (e.g. Wolverine-managed subscription distribution) stamped it
@@ -136,7 +174,7 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
 
         var now = _timeProvider.GetUtcNow();
 
-        if (isTransition || now - _lastFlush >= HeartbeatWriteInterval)
+        if (isTransition || replaysUnlandedTransition || now - _lastFlush >= HeartbeatWriteInterval)
         {
             flush(now);
         }

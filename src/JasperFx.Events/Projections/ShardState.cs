@@ -76,7 +76,15 @@ public class ShardState
     public DateTimeOffset? LastAdvanced { get; set; }
 
     /// <summary>
-    /// Last heartbeat received from the shard's subscription agent
+    /// Last heartbeat received from the shard's subscription agent.
+    /// <para>
+    /// On a state published to the live tracker this beats every 10 seconds while the agent runs
+    /// (<c>SubscriptionAgent</c>'s heartbeat timer), so it is a usable liveness signal for an
+    /// <c>IObserver&lt;ShardState&gt;</c> subscribed to a running daemon. On a state HYDRATED FROM
+    /// THE PROGRESSION TABLE it is not: since jasperfx#622 the periodic beat is not persisted by
+    /// default, so the stored value freezes at the last Started / Paused / Stopped transition. See
+    /// <see cref="JasperFx.Events.ProjectionProgressRow.LastHeartbeat" />.
+    /// </para>
     /// </summary>
     public DateTimeOffset? LastHeartbeat { get; set; }
 

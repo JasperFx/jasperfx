@@ -505,6 +505,49 @@ public class ExtendedProgressionWriterTests
             => Task.FromResult<IReadOnlyList<ShardState>>([]);
     }
 
+    // jasperfx#631 -- a Started published at sequence 0 has no progression row to decorate (every
+    // store's extended-progression write is update-only), so it lands nowhere. That is the normal
+    // case: SubscriptionAgent.StartAsync publishes Started at floor 0 and the row is not created
+    // until the first batch commits. Before this, with jasperfx#622's periodic beat off, that lost
+    // write was the ONLY one and the telemetry columns stayed NULL for the life of a healthy agent.
+    [Fact]
+    public async Task replays_a_transition_that_had_no_progression_row_to_land_on()
+    {
+        theWriter.OnNext(new ShardState("Counters:All", 0)
+        {
+            Action = ShardAction.Started,
+            AgentStatus = "Running",
+            LastHeartbeat = DateTimeOffset.UtcNow
+        });
+
+        // The first publication carrying a committed sequence proves the row exists now.
+        theWriter.OnNext(heartbeat(sequence: 17));
+
+        var writes = await theDatabase.WaitForWrites(2);
+        writes[0].Sequence.ShouldBe(0);
+        writes[1].AgentStatus.ShouldBe("Running");
+        writes[1].Sequence.ShouldBe(17);
+
+        // ...and only once. Later heartbeats are dropped again, exactly as jasperfx#622 intends.
+        theWriter.OnNext(heartbeat(sequence: 18));
+        theWriter.OnNext(heartbeat(sequence: 19));
+        await Task.Delay(100);
+        (await theDatabase.Batches()).Count.ShouldBe(2);
+    }
+
+    // A shard resuming from a committed floor already HAS a row, so there is nothing to replay and the
+    // periodic-beat-off contract is untouched.
+    [Fact]
+    public async Task does_not_replay_when_the_transition_already_had_a_row()
+    {
+        theWriter.OnNext(transition(ShardAction.Started, "Running"));   // sequence 42
+        theWriter.OnNext(heartbeat(sequence: 43));
+
+        await theDatabase.WaitForWrites(1);
+        await Task.Delay(100);
+        (await theDatabase.Batches()).Count.ShouldBe(1);
+    }
+
     private class RecordingEventDatabase : IEventDatabase
     {
         private readonly List<ShardState[]> _batches = new();

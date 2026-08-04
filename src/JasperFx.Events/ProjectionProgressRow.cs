@@ -20,13 +20,28 @@ namespace JasperFx.Events;
 /// enum's Running/Stopped/Paused.
 /// <para>
 /// Nullable because agent state is only persisted where a store both models the column and writes
-/// it. Neither Marten nor Polecat writes it today — both create an <c>agent_status</c> column on the
-/// progression table and read it back, but no daemon path populates it, so it reads NULL. A store
-/// with nothing to report must be able to say so rather than invent a value. See jasperfx#435.
+/// it — a store with nothing to report must be able to say so rather than invent a value
+/// (jasperfx#435). Marten and Polecat do populate it, via
+/// <see cref="JasperFx.Events.Daemon.ExtendedProgressionWriter" />, but only when
+/// <c>EnableExtendedProgressionTracking</c> is on; with it off the column is not even selected and
+/// this reads NULL.
 /// </para>
 /// </param>
 /// <param name="LastHeartbeat">
-/// Timestamp the cell last reported progress; null when the store does not track a heartbeat for it.
+/// Timestamp the agent driving this cell last persisted telemetry; null when the store does not
+/// track a heartbeat for it.
+/// <para>
+/// ⚠️ <b>Not a liveness signal.</b> Since jasperfx#622 the periodic per-shard beat is OFF by default
+/// (<see cref="JasperFx.Events.Daemon.IReadOnlyDaemonSettings.ExtendedProgressionHeartbeatInterval" />),
+/// so <see cref="JasperFx.Events.Daemon.ExtendedProgressionWriter" /> persists this only on a
+/// Started / Paused / Stopped transition. On a healthy long-running agent it therefore freezes at
+/// the timestamp of the last transition and ages without bound — a monitor that thresholds
+/// <c>now - LastHeartbeat</c> will report every shard as dead shortly after startup. Take liveness
+/// from the in-memory <see cref="JasperFx.Events.Projections.ShardState" /> stream instead (an
+/// <c>IObserver&lt;ShardState&gt;</c> on the running daemon, which still beats every 10s), or set a
+/// positive <c>ExtendedProgressionHeartbeatInterval</c> and accept the write cost jasperfx#622 and
+/// marten#5167 removed.
+/// </para>
 /// </param>
 public record ProjectionProgressRow(
     string ProjectionName,
