@@ -62,9 +62,14 @@ public class ShardName
             RelativeUrl = $"{name}/{shardKey}{urlSuffix}".ToLowerInvariant();
         }
 
+        // The high-water mark is addressed by a bare, well-known identity rather than the
+        // Name:ShardKey grammar -- but ONLY when it is store-global. jasperfx#618: a per-tenant
+        // high-water row is a real, persisted row shape (Marten writes HighWaterMark:{tenant} on
+        // every vectorized per-tenant poll), and flattening those to the store-global constant made
+        // every tenant's mark claim to be the store's, silently.
         if (name == ShardState.HighWaterMark)
         {
-            Identity = ShardState.HighWaterMark;
+            Identity = TenantId == null ? ShardState.HighWaterMark : $"{ShardState.HighWaterMark}:{TenantId}";
         }
 
     }
@@ -92,11 +97,39 @@ public class ShardName
     }
 
     /// <summary>
+    ///     Compose the high-water progression identity for a tenant partition — <c>HighWaterMark</c>
+    ///     store-global, <c>HighWaterMark:{tenant}</c> for a tenant. This is the supported way to
+    ///     address the per-tenant high-water rows an event store writes under per-tenant event
+    ///     partitioning, and it round-trips through <see cref="TryParse" />. See jasperfx#618.
+    /// </summary>
+    /// <param name="tenantId">Tenant partition. Null/empty is the store-global mark.</param>
+    public static ShardName HighWaterMarkFor(string? tenantId = null)
+    {
+        return new ShardName(ShardState.HighWaterMark, All, 1, tenantId);
+    }
+
+    /// <summary>
+    ///     True when this name addresses a high-water progression row rather than a projection or
+    ///     subscription shard — either the store-global mark or one tenant's mark
+    ///     (<see cref="TenantId" /> tells them apart). High-water rows are bookkeeping: they never
+    ///     belong to a registered projection and never advance like a shard, so a consumer walking
+    ///     the progression table must exclude them. See jasperfx#618.
+    /// </summary>
+    public bool IsHighWaterMark => Name == ShardState.HighWaterMark;
+
+    /// <summary>
     ///     Parse a shard <see cref="Identity" /> string back into a <see cref="ShardName" />.
     ///     Understands every form produced by <see cref="Compose" />/<see cref="Identity" />:
     ///     <c>Name:ShardKey</c>, <c>Name:ShardKey:Tenant</c>, <c>Name:V{n}:ShardKey</c>, and
     ///     <c>Name:V{n}:ShardKey:Tenant</c>. A leading <c>V{digits}</c> segment is interpreted as a
     ///     version marker; otherwise the trailing segment of a 3-part identity is the tenant.
+    ///     <para>
+    ///     The high-water progression rows have their own grammar — <c>HighWaterMark</c> and
+    ///     <c>HighWaterMark:{tenant}</c> (see <see cref="HighWaterMarkFor" />) — and are the only
+    ///     names that do not carry a shard key. Any other <c>HighWaterMark</c>-prefixed string is
+    ///     rejected rather than forced into the generic grammar, because the result would not
+    ///     round-trip its own <see cref="Identity" />.
+    ///     </para>
     /// </summary>
     public static bool TryParse(string? text, out ShardName? shardName)
     {
@@ -113,6 +146,21 @@ public class ShardName
         }
 
         var parts = text.Split(':');
+
+        // jasperfx#618: HighWaterMark:{tenant} is a real persisted row shape. Parsing it through the
+        // generic Name:ShardKey branch put the tenant id in the ShardKey slot, left TenantId null,
+        // and collapsed Identity back to the bare store-global constant -- true, plus a wrong answer.
+        if (parts[0] == ShardState.HighWaterMark)
+        {
+            if (parts.Length != 2 || string.IsNullOrEmpty(parts[1]))
+            {
+                return false;
+            }
+
+            shardName = HighWaterMarkFor(parts[1]);
+            return true;
+        }
+
         switch (parts.Length)
         {
             case 2:
