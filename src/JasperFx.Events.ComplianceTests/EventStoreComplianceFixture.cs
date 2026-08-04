@@ -161,26 +161,6 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </summary>
     public virtual bool SupportsExplorerSurface => true;
 
-    /// <summary>
-    /// False where <c>TryCreateUsage</c> returns a descriptor that does not enumerate the store's
-    /// registered event types.
-    /// </summary>
-    /// <remarks>
-    /// Split from <see cref="SupportsExplorerSurface"/> because a store can implement stream
-    /// browsing without the usage descriptor, and the two are consumed separately by tooling.
-    /// </remarks>
-    public virtual bool SupportsUsageEventTypeDescriptors => true;
-
-    /// <summary>
-    /// False where <c>GetStreamMetadataAsync</c> returns a null <c>Tags</c> dictionary.
-    /// </summary>
-    /// <remarks>
-    /// <c>StreamMetadata.Tags</c> is declared as a non-nullable
-    /// <c>IReadOnlyDictionary&lt;string, string&gt;</c>, so null is a contract violation rather than
-    /// a legitimate "no tags" answer — an empty dictionary is how that is spelled. This gate exists
-    /// so a store with the defect can enroll while it is fixed, not so the assertion can be dropped.
-    /// </remarks>
-    public virtual bool SupportsStreamMetadataTags => true;
 
     public virtual ValueTask InitializeAsync() => default;
 

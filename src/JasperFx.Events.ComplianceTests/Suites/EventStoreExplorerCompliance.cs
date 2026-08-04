@@ -137,11 +137,9 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
         metadata.IsArchived.ShouldBeFalse();
         metadata.CreatedAt.ShouldNotBe(default);
 
-        if (theFixture.SupportsStreamMetadataTags)
-        {
-            // Non-nullable in the record's declaration: "no tags" is an empty dictionary, not null.
-            metadata.Tags.ShouldNotBeNull();
-        }
+        // Non-nullable in the record's declaration: "no tags" is an empty dictionary, not null.
+        // Polecat returned null here until polecat#412; this assertion is what found it.
+        metadata.Tags.ShouldNotBeNull();
     }
 
     [Fact]
@@ -167,11 +165,6 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
         if (usage == null)
         {
             return;
-        }
-
-        if (!theFixture.SupportsUsageEventTypeDescriptors)
-        {
-            Assert.Skip("This store's usage descriptor does not enumerate registered event types.");
         }
 
         var names = usage.Events.Select(x => x.EventTypeName).ToList();
