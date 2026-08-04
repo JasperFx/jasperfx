@@ -155,6 +155,13 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </summary>
     public virtual bool SupportsAsyncDaemon => true;
 
+    /// <summary>
+    /// False in a store that has not implemented the event store explorer default-interface methods
+    /// (<c>GetRecentStreamsAsync</c>, <c>GetStreamMetadataAsync</c>) at all.
+    /// </summary>
+    public virtual bool SupportsExplorerSurface => true;
+
+
     public virtual ValueTask InitializeAsync() => default;
 
     public virtual ValueTask DisposeAsync() => default;
