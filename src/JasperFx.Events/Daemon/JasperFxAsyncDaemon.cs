@@ -36,8 +36,15 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // progression columns when the store opts in via IEventStore.ExtendedProgressionEnabled
     // Not readonly: StopAllAsync drains (completes) the writer while the daemon is quiesced, then
     // rebuilds it so a subsequent StartAllAsync resumes persisting extended progression (jasperfx#557).
-    private ExtendedProgressionWriter _extendedProgression;
-    private IDisposable _extendedProgressionSubscription;
+    //
+    // jasperfx#621: NULL until this daemon is actually started. The Tracker is per-database and
+    // SHARED, so subscribing a writer in the constructor meant every daemon ever built for a database
+    // added another writer to the same publication stream -- each renting its own connection and
+    // issuing the same UPDATE against the same rows. Building a daemon is a documented way to *read*
+    // projection state (IDocumentStore.BuildProjectionDaemonAsync is a fresh instance per call, no
+    // caching), and such a daemon must not acquire a background write loop as an invisible side effect.
+    private ExtendedProgressionWriter? _extendedProgression;
+    private IDisposable? _extendedProgressionSubscription;
     private RetryBlock<DeadLetterEvent> _deadLetterBlock;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
@@ -188,9 +195,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
-        _extendedProgression = buildExtendedProgressionWriter();
-        _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
-
+        // jasperfx#621: the extended progression writer is armed on the start path, NOT here
         _deadLetterBlock = buildDeadLetterBlock();
 
         MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
@@ -223,9 +228,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         _breakSubscription = database.Tracker.Subscribe(this);
 
-        _extendedProgression = buildExtendedProgressionWriter();
-        _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
-
+        // jasperfx#621: the extended progression writer is armed on the start path, NOT here
         _deadLetterBlock = buildDeadLetterBlock();
 
         MaxConcurrentEventLoadsPerDatabase = _projections.MaxConcurrentEventLoadsPerDatabase;
@@ -248,12 +251,39 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }, Logger, _cancellation.Token);
     }
 
-    // jasperfx#537: subscribe unconditionally; the writer checks the store's ExtendedProgressionEnabled
-    // flag live per publication so runtime opt-in is honored. Built through a helper so StopAllAsync can
-    // rebuild it after draining, exactly as it rebuilds the dead-letter block (jasperfx#557).
+    // jasperfx#537: the writer checks the store's ExtendedProgressionEnabled flag live per publication
+    // so runtime opt-in is honored. Built through a helper so the start path can rebuild it after
+    // StopAllAsync drained it, exactly as it rebuilds the dead-letter block (jasperfx#557).
     private ExtendedProgressionWriter buildExtendedProgressionWriter()
         => new(_store, Database, _store.TimeProvider,
             _loggerFactory?.CreateLogger<ExtendedProgressionWriter>() ?? Logger);
+
+    /// <summary>
+    /// jasperfx#621: arm the extended progression writer. Called from every path that actually starts
+    /// this daemon's agents -- and from nowhere else, so a daemon built purely to inspect state
+    /// (CurrentAgents(), Tracker reads) never subscribes a telemetry writer to the database's SHARED
+    /// tracker, and never writes to the database at all. Idempotent: repeated starts re-use the
+    /// armed writer rather than stacking a second subscription on the same tracker.
+    /// </summary>
+    private void armExtendedProgressionWriter()
+    {
+        if (_disposed || _extendedProgressionSubscription != null) return;
+
+        _extendedProgression = buildExtendedProgressionWriter();
+        _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
+    }
+
+    // jasperfx#621: unsubscribe from the shared tracker and drain. Split out because Dispose() (sync)
+    // and StopAllAsync (async, where the drain can be awaited) both need it, and both must leave the
+    // daemon disarmed so a later start re-arms a fresh writer rather than resurrecting a completed one.
+    private ExtendedProgressionWriter? detachExtendedProgressionWriter()
+    {
+        var writer = _extendedProgression;
+        _extendedProgressionSubscription?.Dispose();
+        _extendedProgressionSubscription = null;
+        _extendedProgression = null;
+        return writer;
+    }
 
     public IEventDatabase Database { get; }
 
@@ -273,9 +303,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         _tenantHighWaterTimer?.Stop();
         _tenantHighWaterTimer?.Dispose();
         _breakSubscription.Dispose();
-        _extendedProgressionSubscription.Dispose();
-        // Completes the writer's queue so a final Stopped write can drain in the background
-        _ = _extendedProgression.DisposeAsync();
+        // Completes the writer's queue so a final Stopped write can drain in the background. Null
+        // when this daemon was never started (jasperfx#621) -- nothing to unsubscribe or drain.
+        var writer = detachExtendedProgressionWriter();
+        if (writer != null)
+        {
+            _ = writer.DisposeAsync();
+        }
         _deadLetterBlock.Dispose();
         _loadThrottle?.Dispose();
         _batchWriteThrottle?.Dispose();
@@ -300,6 +334,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     private async Task<bool> tryStartAgentAsync(ISubscriptionAgent agent, ShardExecutionMode mode,
         long sideEffectGateMark = 0)
     {
+        // jasperfx#621: this daemon is about to own a running agent, so it owns that agent's telemetry.
+        // Every continuous start path funnels through here; a daemon built only to read state does not.
+        armExtendedProgressionWriter();
+
         // Be idempotent, don't start an agent that is already running
         if (_agents.TryFind(agent.Name.Identity, out var running) && running.Status == AgentStatus.Running)
         {
@@ -429,6 +467,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // an effective concurrency of one, making any cap > 1 unreachable.
     private async Task rebuildAgent(ISubscriptionAgent agent, long highWaterMark, TimeSpan shardTimeout)
     {
+        // jasperfx#621: a rebuild agent publishes real status transitions for this daemon's shards
+        armExtendedProgressionWriter();
+
         var budget = _rebuildBudget;
         if (budget != null)
         {
@@ -925,8 +966,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // deliberate write to the same progression row.
             try
             {
-                _extendedProgressionSubscription.Dispose();
-                await _extendedProgression.DisposeAsync().ConfigureAwait(false);
+                var writer = detachExtendedProgressionWriter();
+                if (writer != null)
+                {
+                    await writer.DisposeAsync().ConfigureAwait(false);
+                }
             }
             catch (Exception e)
             {
@@ -939,10 +983,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             _cancellation.TryReset();
             _deadLetterBlock = buildDeadLetterBlock();
 
-            // Rebuild the drained writer + resubscribe so a subsequent StartAllAsync (e.g. resume after a
-            // rebuild) keeps persisting extended progression, mirroring the dead-letter block rebuild above.
-            _extendedProgression = buildExtendedProgressionWriter();
-            _extendedProgressionSubscription = Tracker.Subscribe(_extendedProgression);
+            // jasperfx#621: deliberately NOT resubscribed here. A stopped daemon writes no telemetry;
+            // the next start path re-arms a fresh writer (armExtendedProgressionWriter), which is where
+            // the dead-letter block's eager rebuild above and this part company.
         }
         finally
         {
@@ -952,6 +995,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public async Task StartHighWaterDetectionAsync()
     {
+        // jasperfx#621: this daemon is genuinely starting, so it owns its shards' telemetry
+        armExtendedProgressionWriter();
+
         if (_store.AutoCreateSchemaObjects != AutoCreate.None)
         {
             await Database.EnsureStorageExistsAsync(typeof(IEvent), _cancellation.Token).ConfigureAwait(false);
@@ -1722,6 +1768,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public async Task PrepareForRebuildsAsync()
     {
+        // jasperfx#621: a rebuild runs real agents that publish real status transitions
+        armExtendedProgressionWriter();
+
         if (_highWater.IsRunning)
         {
             await _highWater.StopAsync().ConfigureAwait(false);
