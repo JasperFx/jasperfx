@@ -52,3 +52,45 @@ public class dcb_tag_query_and_consistency_compliance
 Where a store genuinely cannot support a behavior, override the `virtual bool Supports...` flags on
 the fixture; the affected tests skip rather than fail. Gates are meant to be temporary and tracked —
 a suite failing on your store is usually a product bug, not a test to soften.
+
+## Local dev loop
+
+Both current consumers accept a `ComplianceSourceDir` property that swaps the published suites for a
+working copy, so a new wave can be validated against a real store before the JasperFx release:
+
+```bash
+dotnet test src/EventSourcingTests/EventSourcingTests.csproj -f net9.0 \
+    -p:ComplianceSourceDir=/path/to/jasperfx/src/JasperFx.Events.ComplianceTests
+```
+
+## What is in scope
+
+The library asserts behavior that every `JasperFx.Events` store owes its users, reached through the
+shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`, `IEventStore`,
+`IProjectionDaemon`). Covered today:
+
+| Area | Suite |
+|---|---|
+| Self-aggregating `EvolveAsync` conventions | `SelfAggregatingEvolveCompliance` |
+| DCB tag queries and consistency | `DcbTagQueryAndConsistencyCompliance` |
+| `AssignTagWhere` | `AssignTagWhereCompliance` |
+| Async daemon smoke + rebuild | `AsyncDaemonCompliance` |
+| Aggregate type auto-discovery | `AutoDiscoveredAggregateCompliance` |
+| `EventProjection` registration and enrichment | `EventProjectionRegistrationCompliance`, `EventProjectionEnrichmentCompliance` |
+| Rebuild concurrency cap resolution | `RebuildConcurrencyCapCompliance` |
+| Session correlation / causation from `Activity` | `ActivityCorrelationCompliance` |
+| String stream identity | `StringIdentitySingleStreamCompliance` |
+| Write handles and stream concurrency | `FetchForWritingCompliance` |
+| Stream reads, time travel, stream state | `StreamReadCompliance` |
+| The `IEvent` envelope contract | `EventMetadataCompliance` |
+| Live aggregation, including last-known | `LiveAggregationCompliance` |
+
+## What is deliberately out of scope
+
+Storage layout and DDL, table partitioning, node distribution / HotCold, high-water detection
+internals, and anything on the document-db side (LINQ, patching, session semantics) — the last
+because no shared document store contract exists yet. If a behavior only makes sense in terms of one
+engine's storage, it belongs in that product's own test suite, not here.
+
+New cross-store event sourcing behavior should land as a compliance suite first, and only then be
+enrolled by each product.
