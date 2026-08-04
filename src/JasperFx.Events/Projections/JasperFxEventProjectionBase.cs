@@ -150,8 +150,45 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
 
     protected abstract void storeEntity<T>(TOperations ops, T entity) where T : notnull;
 
+    /// <summary>
+    /// jasperfx#626: whether the document types this projection publishes are automatically
+    /// registered as teardown targets (<see cref="AsyncOptions.DeleteViewTypeOnTeardown(Type)" />),
+    /// so a rebuild wipes the previous run's documents before re-projecting. True by default, which
+    /// matches what aggregation projections have always done for their single view type.
+    ///
+    /// <para>
+    /// Set to false when this projection writes into storage that must NOT be truncated on rebuild —
+    /// an append-only audit table, or documents another projection owns. With it off, nothing is
+    /// registered automatically and <see cref="ProjectionBase.Options" />'s teardown rules are
+    /// entirely yours to declare. It is all-or-nothing: to keep automatic registration for some
+    /// published types only, turn it off and call <c>Options.DeleteViewTypeOnTeardown&lt;T&gt;()</c>
+    /// for the ones you do want wiped.
+    /// </para>
+    /// </summary>
+    public bool DeletePublishedTypesOnTeardown { get; set; } = true;
+
+    // jasperfx#626: an EventProjection can publish several document types, so the base constructor
+    // cannot do what JasperFxAggregationProjectionBase does with its single TDoc -- and it could not
+    // do it there anyway, because the source generator emits its RegisterPublishedType calls into the
+    // subclass constructor, which runs AFTER this base one. Deferring to AssembleAndAssertValidity
+    // (registration time, via ProjectionGraph) sees the complete set and lets a subclass constructor
+    // turn the behavior off before it happens. Idempotent: a type the author already registered by
+    // hand, or a previous pass, is skipped rather than duplicated.
+    private void registerPublishedTypesForTeardown()
+    {
+        if (!DeletePublishedTypesOnTeardown) return;
+
+        foreach (var publishedType in PublishedTypes().ToArray())
+        {
+            if (Options.StorageTypes.Contains(publishedType)) continue;
+            Options.DeleteViewTypeOnTeardown(publishedType);
+        }
+    }
+
     public sealed override void AssembleAndAssertValidity()
     {
+        registerPublishedTypesForTeardown();
+
         var applyMethod = GetType()!.GetMethod(nameof(ApplyAsync))!;
         var isOverridden = applyMethod.DeclaringType!.Assembly != typeof(JasperFxEventProjectionBase<,>).Assembly;
         if (isOverridden)
