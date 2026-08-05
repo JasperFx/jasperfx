@@ -112,6 +112,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Archiving a stream and its consequences | `StreamArchivingCompliance` |
 | The event store explorer surface | `EventStoreExplorerCompliance` |
 | Flat-table event projections | `FlatTableProjectionCompliance` |
+| String stream identity, read and write surface | `StringStreamIdentityCompliance` |
 
 ## What is deliberately out of scope
 
