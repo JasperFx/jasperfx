@@ -174,6 +174,17 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         string tableName, CancellationToken token);
 
     /// <summary>
+    /// The store's <see cref="IEventStoreInstrumentation"/> surface — the opt-in monitoring toggles
+    /// a storage-agnostic consumer reaches for without referencing concrete store types.
+    /// </summary>
+    /// <remarks>
+    /// The interface is JasperFx-owned and both products implement it on their own event store
+    /// options object (Marten's <c>EventGraph</c>, Polecat's <c>EventStoreOptions</c>), so reaching
+    /// it costs one line of fixture code and no abstraction.
+    /// </remarks>
+    public abstract IEventStoreInstrumentation Instrumentation { get; }
+
+    /// <summary>
     /// False in stores that build live aggregators automatically and reject explicit registration.
     /// </summary>
     public virtual bool SupportsLiveAggregationRegistration => true;
