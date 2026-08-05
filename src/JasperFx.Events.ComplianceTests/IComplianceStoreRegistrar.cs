@@ -39,6 +39,18 @@ public interface IComplianceStoreRegistrar
     void LiveAggregation<TDoc>() where TDoc : notnull;
 
     /// <summary>
+    /// Register a strong-typed identifier wrapper — a type with a single public gettable property
+    /// and either a matching constructor or a static builder taking that property's type.
+    /// </summary>
+    /// <remarks>
+    /// Implement as a no-op where the store discovers value types automatically. The asymmetry is
+    /// real rather than incidental: Marten needs the type registered before it can use it in LINQ
+    /// and identity mapping, while Polecat derives the same information from
+    /// <c>ValueTypeInfo</c> when it builds the document mapping.
+    /// </remarks>
+    void RegisterValueType<TValue>() where TValue : notnull;
+
+    /// <summary>
     /// Register an already-constructed projection instance.
     /// </summary>
     /// <remarks>

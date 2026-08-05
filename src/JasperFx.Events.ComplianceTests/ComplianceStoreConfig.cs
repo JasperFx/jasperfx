@@ -85,6 +85,11 @@ public sealed class ComplianceStoreConfig
 
     public List<Type> LiveAggregations { get; } = new();
 
+    /// <summary>
+    /// Strong-typed identifier wrappers the suite asked the store to register.
+    /// </summary>
+    public List<Type> ValueTypes { get; } = new();
+
     public List<(ProjectionBase Projection, ProjectionLifecycle Lifecycle)> Projections { get; } = new();
 
     public ComplianceStoreConfig AddEventType<T>()
@@ -114,6 +119,23 @@ public sealed class ComplianceStoreConfig
     {
         Snapshots.Add((typeof(TDoc), lifecycle));
         _registrations.Add(registrar => registrar.Snapshot<TDoc>(lifecycle));
+        return this;
+    }
+
+    /// <summary>
+    /// Register a strong-typed identifier wrapper with the store.
+    /// </summary>
+    /// <remarks>
+    /// A no-op on stores that resolve value types automatically. Marten requires explicit
+    /// registration through <c>StoreOptions.RegisterValueType&lt;T&gt;()</c>; Polecat discovers the
+    /// same shape via <c>ValueTypeInfo</c> when the document mapping is built and exposes no
+    /// equivalent call. Same shape as <see cref="LiveAggregation{TDoc}"/>, which exists for the
+    /// mirror-image reason.
+    /// </remarks>
+    public ComplianceStoreConfig RegisterValueType<TValue>() where TValue : notnull
+    {
+        ValueTypes.Add(typeof(TValue));
+        _registrations.Add(registrar => registrar.RegisterValueType<TValue>());
         return this;
     }
 
