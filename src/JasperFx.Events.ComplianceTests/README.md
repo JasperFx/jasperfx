@@ -40,6 +40,30 @@ store's session pair. Everything portable in the suites runs through the shared 
 no shared interface declares — store construction from a `ComplianceStoreConfig`, session
 acquisition, `SaveChangesAsync`, document load-back, batched DCB queries, and teardown.
 
+**3. One partial class, for the flat-table suite only.** `FlatTableProjectionCompliance` is the one
+suite whose shared type cannot be reached by an alias: every product's flat-table projection base
+takes constructor arguments describing where the table lives, and those signatures genuinely differ,
+so no single `base(...)` call satisfies all of them. Declaring the primary key column is per-product
+for the same reason — that API hangs off each dialect's own `Table` type. The library owns the table
+name, the projection name and every event mapping; a consumer supplies the rest:
+
+```csharp
+namespace JasperFx.Events.ComplianceTests;
+
+public partial class ComplianceFlatTableProjection : FlatTableProjection
+{
+    public ComplianceFlatTableProjection() : base(TableName, SchemaNameSource.DocumentSchema)
+    {
+        Table.AddColumn<Guid>("id").AsPrimaryKey();   // your dialect's column API
+        ConfigureMappings();                          // everything portable
+    }
+}
+```
+
+If your base takes a literal schema name rather than resolving the store's, pass
+`ComplianceFlatTableProjection.SchemaName` — the suite configures its store with the same constant,
+and the two have to agree or the projection writes into a table the suite is not reading.
+
 Then enroll each suite with an empty subclass:
 
 ```csharp
@@ -84,6 +108,10 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Stream reads, time travel, stream state | `StreamReadCompliance` |
 | The `IEvent` envelope contract | `EventMetadataCompliance` |
 | Live aggregation, including last-known | `LiveAggregationCompliance` |
+| `FetchLatest` / `ProjectLatest` across lifecycles | `FetchLatestCompliance` |
+| Archiving a stream and its consequences | `StreamArchivingCompliance` |
+| The event store explorer surface | `EventStoreExplorerCompliance` |
+| Flat-table event projections | `FlatTableProjectionCompliance` |
 
 ## What is deliberately out of scope
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,6 +76,14 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
 
     protected Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout)
         => theFixture.WaitForNonStaleProjectionDataAsync(timeout);
+
+    /// <summary>
+    /// Every row of a flat-table projection's table. See
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.QueryTableAsync"/> for why
+    /// this is deliberately predicate-free.
+    /// </summary>
+    protected Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryTableAsync(string tableName)
+        => theFixture.QueryTableAsync(tableName, Cancellation);
 
     /// <summary>
     /// Assert that an operation fails with <typeparamref name="TException"/>, whether the store
