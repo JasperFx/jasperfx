@@ -12,10 +12,10 @@ differences between the repos.
 
 ## Using it
 
-Reference the package from a test project that already has xunit v3 and Shouldly, then supply two
+Reference the package from a test project that already has xunit v3 and Shouldly, then supply three
 things.
 
-**1. Four global aliases naming your store's own types.** The shared suites declare aggregates and
+**1. Five global aliases naming your store's own types.** The shared suites declare aggregates and
 projections at file scope, so they cannot reach the `<TOperations, TQuerySession>` pair the suite
 classes are generic over. The source generator resolves these by type name, so aliases are enough:
 
@@ -26,19 +26,47 @@ global using ComplianceEventProjection = Marten.Events.Projections.EventProjecti
 global using ComplianceStringPartyProjectionBase =
     Marten.Events.Aggregation.SingleStreamProjection<
         JasperFx.Events.ComplianceTests.StringQuestParty, string>;
+global using ComplianceMultiStreamProjectionBase =
+    Marten.Events.Projections.MultiStreamProjection<
+        JasperFx.Events.ComplianceTests.ComplianceDepartment, string>;
 ```
 
 `ComplianceQuerySession` binds the `EvolveAsync(IEvent, …)` convention on the self-aggregating
 fixtures; the next two bind the EventProjection suites to your product's own projection base and
-writable session. The last one is a *closed* generic, because the single stream projection base is
-generic over both the document and its identity — it binds the string-identity suite's custom
-projection to your product's `SingleStreamProjection<TDoc, TId>`.
+writable session. The last two are *closed* generics, because the single stream and multi stream
+projection bases are generic over both the document and its identity — they bind the string-identity
+and multi-stream suites' custom projections to your product's `SingleStreamProjection<TDoc, TId>`
+and `MultiStreamProjection<TDoc, TId>`.
 
 **2. A concrete fixture** closing `EventStoreComplianceFixture<TOperations, TQuerySession>` over your
 store's session pair. Everything portable in the suites runs through the shared JasperFx surfaces
 (`IEventStoreOperations`, `IEventRegistry`, `IProjectionDaemon`); the fixture only has to supply what
 no shared interface declares — store construction from a `ComplianceStoreConfig`, session
 acquisition, `SaveChangesAsync`, document load-back, batched DCB queries, and teardown.
+
+**3. One partial class, for the flat-table suite only.** `FlatTableProjectionCompliance` is the one
+suite whose shared type cannot be reached by an alias: every product's flat-table projection base
+takes constructor arguments describing where the table lives, and those signatures genuinely differ,
+so no single `base(...)` call satisfies all of them. Declaring the primary key column is per-product
+for the same reason — that API hangs off each dialect's own `Table` type. The library owns the table
+name, the projection name and every event mapping; a consumer supplies the rest:
+
+```csharp
+namespace JasperFx.Events.ComplianceTests;
+
+public partial class ComplianceFlatTableProjection : FlatTableProjection
+{
+    public ComplianceFlatTableProjection() : base(TableName, SchemaNameSource.DocumentSchema)
+    {
+        Table.AddColumn<Guid>("id").AsPrimaryKey();   // your dialect's column API
+        ConfigureMappings();                          // everything portable
+    }
+}
+```
+
+If your base takes a literal schema name rather than resolving the store's, pass
+`ComplianceFlatTableProjection.SchemaName` — the suite configures its store with the same constant,
+and the two have to agree or the projection writes into a table the suite is not reading.
 
 Then enroll each suite with an empty subclass:
 
@@ -79,11 +107,18 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | `EventProjection` registration and enrichment | `EventProjectionRegistrationCompliance`, `EventProjectionEnrichmentCompliance` |
 | Rebuild concurrency cap resolution | `RebuildConcurrencyCapCompliance` |
 | Session correlation / causation from `Activity` | `ActivityCorrelationCompliance` |
-| String stream identity | `StringIdentitySingleStreamCompliance` |
+| String stream identity, single stream projections | `StringIdentitySingleStreamCompliance` |
 | Write handles and stream concurrency | `FetchForWritingCompliance` |
 | Stream reads, time travel, stream state | `StreamReadCompliance` |
 | The `IEvent` envelope contract | `EventMetadataCompliance` |
 | Live aggregation, including last-known | `LiveAggregationCompliance` |
+| `FetchLatest` / `ProjectLatest` across lifecycles | `FetchLatestCompliance` |
+| Archiving a stream and its consequences | `StreamArchivingCompliance` |
+| The event store explorer surface | `EventStoreExplorerCompliance` |
+| Flat-table event projections | `FlatTableProjectionCompliance` |
+| String stream identity, read and write surface | `StringStreamIdentityCompliance` |
+| Multi-stream projection grouping and fan-out | `MultiStreamProjectionCompliance` |
+| Snapshot lifecycle equivalence (Inline / Async / Live) | `SnapshotLifecycleCompliance` |
 
 ## What is deliberately out of scope
 

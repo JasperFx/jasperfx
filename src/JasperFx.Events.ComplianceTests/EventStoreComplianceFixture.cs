@@ -146,6 +146,34 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public abstract Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout);
 
     /// <summary>
+    /// Read every row of a flat-table projection's table, as case-insensitive column/value maps.
+    /// </summary>
+    /// <param name="tableName">Unqualified table name. The fixture resolves the schema.</param>
+    /// <remarks>
+    /// <para>
+    /// The only raw data-access member on this seam, and deliberately the narrowest one that works:
+    /// a table name in, every row out. No predicates, no ordering, no SQL from the suite. A flat
+    /// table is by definition not a document, so there is no supported read path for its rows on
+    /// either product — asserting the result of a flat-table projection means reading the table, and
+    /// that is dialect-specific in a way nothing shared can absorb (schema resolution, identifier
+    /// quoting, parameter syntax).
+    /// </para>
+    /// <para>
+    /// Keeping it predicate-free is the point. Suites filter in memory on the identity they appended
+    /// under, so this never becomes a general query escape hatch — the moment it grows a where
+    /// clause it starts encoding one dialect's expression syntax and stops being portable.
+    /// </para>
+    /// <para>
+    /// Column keys must compare case-insensitively: PostgreSQL folds undelimited identifiers to
+    /// lower case while SQL Server preserves the declared casing, so a suite that asked for
+    /// <c>row["member_count"]</c> would otherwise pass on one store and fail on the other for
+    /// reasons that have nothing to do with the projection.
+    /// </para>
+    /// </remarks>
+    public abstract Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryTableAsync(
+        string tableName, CancellationToken token);
+
+    /// <summary>
     /// False in stores that build live aggregators automatically and reject explicit registration.
     /// </summary>
     public virtual bool SupportsLiveAggregationRegistration => true;
@@ -160,6 +188,26 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// (<c>GetRecentStreamsAsync</c>, <c>GetStreamMetadataAsync</c>) at all.
     /// </summary>
     public virtual bool SupportsExplorerSurface => true;
+
+    /// <summary>
+    /// False in a store that has no flat-table event projection — an <c>EventProjection</c> writing
+    /// into a plain relational table rather than a document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Unlike the other gates this one exists for a store that is still being built: a new consumer
+    /// can enroll <c>FlatTableProjectionCompliance</c> from day one, leave this false, and flip it
+    /// when the behavior lands, using the suite as the specification it is implementing against.
+    /// Both current consumers leave it true.
+    /// </para>
+    /// <para>
+    /// It gates <em>behavior</em>, not compilation. These suites compile inside the consumer, and
+    /// the shared projection's constructor shim has to name a real flat-table base class, so a store
+    /// still needs the type and its mapping API to exist before it can enroll at all. That ordering
+    /// is deliberate: declare the surface, gate off, then make the assertions pass one at a time.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsFlatTableProjections => true;
 
 
     public virtual ValueTask InitializeAsync() => default;

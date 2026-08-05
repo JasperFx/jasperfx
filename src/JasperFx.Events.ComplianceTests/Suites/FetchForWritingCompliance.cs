@@ -57,7 +57,7 @@ public partial class ComplianceAccount
 /// <para>
 /// Guid stream identity only: stream identity is a store-level setting, so the string-keyed
 /// equivalents live in
-/// <see cref="StringIdentitySingleStreamCompliance{TFixture,TOperations,TQuerySession}"/>.
+/// <see cref="StringStreamIdentityCompliance{TFixture,TOperations,TQuerySession}"/>.
 /// </para>
 /// </remarks>
 public abstract class FetchForWritingCompliance<TFixture, TOperations, TQuerySession>
