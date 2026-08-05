@@ -27,7 +27,7 @@ public abstract class BlockBase<T> : IBlock<T>
             }
         });
 
-        return new BlockSet<TBefore>(top, []);
+        return new BlockSet<TBefore>(top, [this]);
     }
 
     public IBlock<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, CancellationToken, Task<T>> transformation)
@@ -41,7 +41,7 @@ public abstract class BlockBase<T> : IBlock<T>
             }
         });
 
-        return new BlockSet<TBefore>(top, []);
+        return new BlockSet<TBefore>(top, [this]);
     }
 
     public IBlock<TBefore> PushUpstream<TBefore>(Func<TBefore, T> transformation)
@@ -55,7 +55,7 @@ public abstract class BlockBase<T> : IBlock<T>
             }
         });
 
-        return new BlockSet<TBefore>(top, []);
+        return new BlockSet<TBefore>(top, [this]);
     }
 
     public IBlock<TBefore> PushUpstream<TBefore>(int parallelCount, Func<TBefore, T> transformation)
@@ -69,7 +69,7 @@ public abstract class BlockBase<T> : IBlock<T>
             }
         });
 
-        return new BlockSet<TBefore>(top, []);
+        return new BlockSet<TBefore>(top, [this]);
     }
 
     public abstract uint Count { get; }
