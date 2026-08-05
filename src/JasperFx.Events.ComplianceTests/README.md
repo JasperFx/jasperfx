@@ -118,6 +118,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Flat-table event projections | `FlatTableProjectionCompliance` |
 | String stream identity, read and write surface | `StringStreamIdentityCompliance` |
 | Multi-stream projection grouping and fan-out | `MultiStreamProjectionCompliance` |
+| Snapshot lifecycle equivalence (Inline / Async / Live) | `SnapshotLifecycleCompliance` |
 
 ## What is deliberately out of scope
 
