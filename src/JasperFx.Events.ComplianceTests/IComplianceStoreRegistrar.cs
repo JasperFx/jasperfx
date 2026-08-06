@@ -51,6 +51,25 @@ public interface IComplianceStoreRegistrar
     void RegisterValueType<TValue>() where TValue : notnull;
 
     /// <summary>
+    /// Register a mutating masking rule for an event type — the in-place form, for events whose
+    /// protected members are settable.
+    /// </summary>
+    /// <remarks>
+    /// Both products spell this <c>Events.AddMaskingRuleForProtectedInformation&lt;T&gt;</c> with
+    /// identical signatures, but on their own event options rather than on any shared interface, so
+    /// it has to come through the registrar. Rules are contravariant on both: a rule registered
+    /// against an interface applies to every event type implementing it.
+    /// </remarks>
+    void AddMaskingRule<TEvent>(Action<TEvent> rule) where TEvent : notnull;
+
+    /// <summary>
+    /// Register a replacing masking rule for an event type — the functional form, which is what a
+    /// <c>record</c> with init-only members needs.
+    /// </summary>
+    /// <inheritdoc cref="AddMaskingRule{TEvent}(Action{TEvent})" path="/remarks"/>
+    void AddMaskingRule<TEvent>(Func<TEvent, TEvent> rule) where TEvent : notnull;
+
+    /// <summary>
     /// Register an already-constructed projection instance.
     /// </summary>
     /// <remarks>

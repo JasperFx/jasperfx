@@ -120,6 +120,8 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Multi-stream projection grouping and fan-out | `MultiStreamProjectionCompliance` |
 | Snapshot lifecycle equivalence (Inline / Async / Live) | `SnapshotLifecycleCompliance` |
 | Strong-typed identifiers on aggregates | `StrongTypedIdentityCompliance` |
+| Stream compacting into a `Compacted<T>` snapshot | `StreamCompactingCompliance` |
+| Batch data masking of stored events | `EventDataMaskingCompliance` |
 
 ## What is deliberately out of scope
 

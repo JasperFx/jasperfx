@@ -174,6 +174,26 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         string tableName, CancellationToken token);
 
     /// <summary>
+    /// Execute a batch data-masking operation against already-stored events.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Protected.IEventDataMasking"/> itself is shared — it was lifted into
+    /// <c>JasperFx.Events.Protected</c> in jasperfx#635 — but the entry point that hands one out is
+    /// not. Both products spell it <c>Advanced.ApplyEventDataMasking(Action&lt;IEventDataMasking&gt;,
+    /// CancellationToken)</c>, and both <c>Advanced</c> surfaces are store-specific types that share
+    /// no interface, so the lift alone did not make masking reachable from a shared suite. This is
+    /// the one member that closes that gap.
+    /// </para>
+    /// <para>
+    /// Deliberately not typed as "give me the store's advanced operations" — that would drag an
+    /// unbounded product surface into the seam. The suite asks for the one operation it needs.
+    /// </para>
+    /// </remarks>
+    public abstract Task ApplyEventDataMaskingAsync(
+        Action<Protected.IEventDataMasking> configure, CancellationToken token);
+
+    /// <summary>
     /// False in stores that build live aggregators automatically and reject explicit registration.
     /// </summary>
     public virtual bool SupportsLiveAggregationRegistration => true;

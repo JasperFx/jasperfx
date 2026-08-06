@@ -139,6 +139,30 @@ public sealed class ComplianceStoreConfig
         return this;
     }
 
+    /// <summary>
+    /// Register a mutating masking rule for an event type.
+    /// </summary>
+    /// <remarks>
+    /// Both products spell this <c>Events.AddMaskingRuleForProtectedInformation&lt;T&gt;</c> with
+    /// identical signatures, but on their own event options rather than on any shared interface,
+    /// which is the whole reason this seam member exists.
+    /// </remarks>
+    public ComplianceStoreConfig AddMaskingRule<TEvent>(Action<TEvent> rule) where TEvent : notnull
+    {
+        _registrations.Add(registrar => registrar.AddMaskingRule(rule));
+        return this;
+    }
+
+    /// <summary>
+    /// Register a replacing masking rule for an event type — the form a <c>record</c> needs.
+    /// </summary>
+    /// <inheritdoc cref="AddMaskingRule{TEvent}(Action{TEvent})" path="/remarks"/>
+    public ComplianceStoreConfig AddMaskingRule<TEvent>(Func<TEvent, TEvent> rule) where TEvent : notnull
+    {
+        _registrations.Add(registrar => registrar.AddMaskingRule(rule));
+        return this;
+    }
+
     public ComplianceStoreConfig LiveAggregation<TDoc>() where TDoc : notnull
     {
         LiveAggregations.Add(typeof(TDoc));
