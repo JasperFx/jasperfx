@@ -1,5 +1,6 @@
 using JasperFx.Core;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Daemon.HighWater;
 
 namespace JasperFx.Events.TestSupport;
 
@@ -29,15 +30,37 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
 
     private IProjectionDaemon? Daemon { get; set; }
 
+    private ScenarioDaemonWakeup? _wakeup;
+    private IDaemonWakeup? _previousWakeup;
+    private bool _wakeupInstalled;
+
+    /// <summary>
+    ///     The daemon settings the scenario's own daemon will run under, when the store exposes them.
+    ///     Returning them lets the scenario borrow <see cref="DaemonSettings.Wakeup" /> for the duration of a
+    ///     run so that its appends wake the high-water agent immediately instead of waiting out
+    ///     <see cref="DaemonSettings.SlowPollingTime" /> at every batch boundary (marten#5195). The previous
+    ///     value is always restored when the run finishes.
+    ///     <para>
+    ///     Null — the default — opts out entirely, and the scenario behaves exactly as it did before. A store
+    ///     that already supplies its own wakeup keeps it: the scenario never displaces one.
+    ///     </para>
+    /// </summary>
+    protected virtual DaemonSettings? DaemonSettings => null;
+
     internal ScenarioStep<TOperations, TQuerySession>? NextStep => _steps.Count != 0 ? _steps.Peek() : null;
 
     internal IEventOperations SessionEvents => EventsFor(_session!);
 
     internal TQuerySession QuerySession => _session!;
 
-    internal Task CommitAsync(CancellationToken ct)
+    internal async Task CommitAsync(CancellationToken ct)
     {
-        return SaveChangesAsync(_session!, ct);
+        await SaveChangesAsync(_session!, ct).ConfigureAwait(false);
+
+        // marten#5195: the events are committed, so tell the high-water agent to look NOW rather than
+        // sleeping out the rest of its polling interval. Null whenever the store did not opt into the
+        // wakeup seam, in which case the scenario polls exactly as it always did.
+        _wakeup?.Pulse();
     }
 
     internal Task AwaitNonStaleDataAsync(CancellationToken ct)
@@ -148,6 +171,10 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
 
         if (HasAnyAsyncProjections)
         {
+            // Must happen BEFORE the daemon is built: HighWaterAgent captures settings.Wakeup in its
+            // constructor, so installing it afterwards would have no effect on this run.
+            installWakeup();
+
             Daemon = await BuildDaemonAsync(TenantId).ConfigureAwait(false);
             await Daemon.StartAllAsync().ConfigureAwait(false);
         }
@@ -233,10 +260,46 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
                 Daemon.SafeDispose();
             }
 
+            // After the daemon is down, so no poll loop is still holding the wakeup we are removing.
+            restoreWakeup();
+
             if (_session is not null)
             {
                 await _session.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Borrow <see cref="DaemonSettings.Wakeup"/> for this run. Deliberately conservative: a store that
+    /// opted out, or that already carries its own wakeup (a real LISTEN/NOTIFY implementation, say), is
+    /// left completely alone -- that wakeup already does this job, and displacing it would change what
+    /// the scenario is testing.
+    /// </summary>
+    private void installWakeup()
+    {
+        var settings = DaemonSettings;
+        if (settings is null || settings.Wakeup is not null) return;
+
+        _wakeup = new ScenarioDaemonWakeup();
+        _previousWakeup = settings.Wakeup;
+        settings.Wakeup = _wakeup;
+        _wakeupInstalled = true;
+    }
+
+    private void restoreWakeup()
+    {
+        if (!_wakeupInstalled) return;
+
+        // Only take it back out if it is still ours. Anything else means something outside the scenario
+        // changed the setting mid-run, and stomping that would be worse than leaving it.
+        var settings = DaemonSettings;
+        if (settings is not null && ReferenceEquals(settings.Wakeup, _wakeup))
+        {
+            settings.Wakeup = _previousWakeup;
+        }
+
+        _wakeupInstalled = false;
+        _wakeup = null;
     }
 }
