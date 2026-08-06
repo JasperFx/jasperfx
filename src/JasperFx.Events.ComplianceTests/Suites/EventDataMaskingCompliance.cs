@@ -279,13 +279,17 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
         var events = await eventsForAsync(streamId);
 
         var contacted = events.Single(x => x.Data is SubjectContacted);
-        contacted.Headers.ShouldNotBeNull();
-        contacted.Headers!["erasure"].ShouldBe("case-17");
+
+        // Through GetHeader and compared as a string, following EventMetadataCompliance: header
+        // values do not round-trip as the same runtime type on both stores (one rehydrates them as
+        // the CLR type, the other as a JsonElement), and that divergence is out of scope here.
+        contacted.GetHeader("erasure").ShouldNotBeNull();
+        contacted.GetHeader("erasure")!.ToString().ShouldBe("case-17");
 
         // Every other event in the same stream is left without the header.
         foreach (var @event in events.Where(x => x.Data is not SubjectContacted))
         {
-            (@event.Headers?.ContainsKey("erasure") ?? false).ShouldBeFalse();
+            @event.GetHeader("erasure").ShouldBeNull();
         }
     }
 
