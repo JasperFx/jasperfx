@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using JasperFx.Core;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.TestSupport;
 using NSubstitute;
 using Shouldly;
@@ -211,6 +213,149 @@ public interface IFakeOperations: IFakeQuerySession, IStorageOperations;
 /// Closes the scenario over throwaway session interfaces so the sequencing, flushing, and
 /// failure-handling logic can be exercised without a running store.
 /// </summary>
+/// <summary>
+/// marten#5195. A scenario wipes the event store and then starts the daemon, so the high-water agent's
+/// first look sees an empty store, reads CaughtUp, and settles into SlowPollingTime -- and lands back
+/// there after every batch drains. Rather than slow the store down, the scenario signals the agent
+/// directly: it owns both the appends and the daemon, so it knows activity is coming.
+/// </summary>
+public class projection_scenario_wakeup_tests
+{
+    private readonly FakeProjectionScenario theScenario = new();
+    private readonly DaemonSettings theSettings = new();
+
+    public projection_scenario_wakeup_tests()
+    {
+        theScenario.Settings = theSettings;
+        theScenario.HasAsync = true;
+    }
+
+    [Fact]
+    public async Task installs_an_in_process_wakeup_while_the_scenario_runs()
+    {
+        theScenario.Append(Guid.NewGuid(), new AEvent());
+        await theScenario.ExecuteAsync();
+
+        theScenario.WakeupDuringCommit.ShouldBeOfType<ScenarioDaemonWakeup>();
+    }
+
+    [Fact]
+    public async Task restores_the_previous_wakeup_when_the_run_finishes()
+    {
+        theScenario.Append(Guid.NewGuid(), new AEvent());
+        await theScenario.ExecuteAsync();
+
+        theSettings.Wakeup.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task never_displaces_a_wakeup_the_store_already_configured()
+    {
+        // A store that wired up a real wakeup -- Marten's LISTEN/NOTIFY, say -- already does this job,
+        // and swapping it out would change what the scenario is exercising.
+        var existing = new TaskDelayDaemonWakeup();
+        theSettings.Wakeup = existing;
+
+        theScenario.Append(Guid.NewGuid(), new AEvent());
+        await theScenario.ExecuteAsync();
+
+        theScenario.WakeupDuringCommit.ShouldBeSameAs(existing);
+        theSettings.Wakeup.ShouldBeSameAs(existing);
+    }
+
+    [Fact]
+    public async Task leaves_the_settings_alone_when_there_are_no_async_projections()
+    {
+        // No daemon is built at all, so there is nothing to wake.
+        theScenario.HasAsync = false;
+
+        theScenario.Append(Guid.NewGuid(), new AEvent());
+        await theScenario.ExecuteAsync();
+
+        theScenario.WakeupDuringCommit.ShouldBeNull();
+        theSettings.Wakeup.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task a_store_that_opts_out_is_untouched()
+    {
+        theScenario.Settings = null;
+
+        theScenario.Append(Guid.NewGuid(), new AEvent());
+        await theScenario.ExecuteAsync();
+
+        theScenario.WakeupDuringCommit.ShouldBeNull();
+    }
+}
+
+public class scenario_daemon_wakeup_tests
+{
+    private readonly ScenarioDaemonWakeup theWakeup = new();
+
+    [Fact]
+    public async Task a_pulse_releases_the_wait_well_inside_the_timeout()
+    {
+        theWakeup.Pulse();
+
+        var stopwatch = Stopwatch.StartNew();
+        await theWakeup.WaitAsync(30.Seconds(), CancellationToken.None);
+        stopwatch.Stop();
+
+        stopwatch.Elapsed.ShouldBeLessThan(5.Seconds());
+    }
+
+    [Fact]
+    public async Task the_signal_is_sticky_across_an_idle_gap()
+    {
+        // An append that lands while the agent is busy detecting, rather than waiting, must still wake
+        // the wait that follows -- otherwise the scenario stalls exactly when it is doing work.
+        theWakeup.Pulse();
+        await Task.Yield();
+
+        var stopwatch = Stopwatch.StartNew();
+        await theWakeup.WaitAsync(30.Seconds(), CancellationToken.None);
+        stopwatch.Stop();
+
+        stopwatch.Elapsed.ShouldBeLessThan(5.Seconds());
+    }
+
+    [Fact]
+    public async Task without_a_pulse_it_waits_out_the_timeout()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        await theWakeup.WaitAsync(250.Milliseconds(), CancellationToken.None);
+        stopwatch.Stop();
+
+        stopwatch.Elapsed.ShouldBeGreaterThanOrEqualTo(150.Milliseconds());
+    }
+
+    [Fact]
+    public async Task repeated_pulses_collapse_into_one_pending_wake()
+    {
+        // The agent re-reads the real high-water mark every cycle, so one wake already covers every
+        // append committed so far. Queueing more would only spin the loop against an unchanged sequence.
+        for (var i = 0; i < 25; i++) theWakeup.Pulse();
+
+        await theWakeup.WaitAsync(30.Seconds(), CancellationToken.None);
+
+        var stopwatch = Stopwatch.StartNew();
+        await theWakeup.WaitAsync(250.Milliseconds(), CancellationToken.None);
+        stopwatch.Stop();
+
+        stopwatch.Elapsed.ShouldBeGreaterThanOrEqualTo(150.Milliseconds());
+    }
+
+    [Fact]
+    public async Task a_cancelled_wait_throws_rather_than_hanging()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => theWakeup.WaitAsync(30.Seconds(), cancellation.Token));
+    }
+}
+
 public class FakeProjectionScenario: ProjectionScenario<IFakeOperations, IFakeQuerySession>
 {
     public IFakeOperations Operations { get; } = Substitute.For<IFakeOperations>();
@@ -221,6 +366,14 @@ public class FakeProjectionScenario: ProjectionScenario<IFakeOperations, IFakeQu
 
     public bool HasAsync { get; set; }
     public bool Cleaned { get; private set; }
+
+    /// <summary>marten#5195: the settings the scenario borrows Wakeup from. Null opts out.</summary>
+    public DaemonSettings? Settings { get; set; }
+
+    protected override DaemonSettings? DaemonSettings => Settings;
+
+    /// <summary>Whatever wakeup was installed at the moment the scenario last committed.</summary>
+    public IDaemonWakeup? WakeupDuringCommit { get; private set; }
     public int SaveCount { get; private set; }
     public string? OpenedTenant { get; private set; }
     public string? DaemonTenant { get; private set; }
@@ -248,6 +401,7 @@ public class FakeProjectionScenario: ProjectionScenario<IFakeOperations, IFakeQu
     protected override Task SaveChangesAsync(IFakeOperations session, CancellationToken ct)
     {
         SaveCount++;
+        WakeupDuringCommit = Settings?.Wakeup;
         return Task.CompletedTask;
     }
 
