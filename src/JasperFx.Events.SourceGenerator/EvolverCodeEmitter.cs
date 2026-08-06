@@ -556,8 +556,8 @@ internal static class EvolverCodeEmitter
         sb.AppendLine($"partial class {className}{typeParams}");
         sb.AppendLine("{");
 
-        // Emit constructor that registers published document types from Create/Transform methods
-        EmitEventProjectionConstructor(sb, info, className);
+        // Register the document types published by Create/Transform methods
+        EmitConventionalPublishedTypes(sb, info);
 
         EmitEventProjectionApplyAsync(sb, info);
 
@@ -573,7 +573,7 @@ internal static class EvolverCodeEmitter
     }
 
     /// <summary>
-    /// Emits a partial class with only a constructor that registers published document types.
+    /// Emits a partial class that registers published document types and nothing else.
     /// Used for EventProjection subclasses that have an explicit ApplyAsync override and
     /// call Store/Insert/Delete with document types that need to be registered.
     /// See https://github.com/JasperFx/marten/issues/4166
@@ -609,17 +609,8 @@ internal static class EvolverCodeEmitter
         sb.AppendLine($"partial class {className}{typeParams}");
         sb.AppendLine("{");
 
-        if (!info.HasExistingParameterlessConstructor && info.DiscoveredPublishedTypes.Count > 0)
-        {
-            sb.AppendLine($"    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-            sb.AppendLine($"    public {className}()");
-            sb.AppendLine("    {");
-            foreach (var docType in info.DiscoveredPublishedTypes.Select(t => Fqn(t)).Distinct())
-            {
-                sb.AppendLine($"        RegisterPublishedType(typeof({docType}));");
-            }
-            sb.AppendLine("    }");
-        }
+        EmitPublishedTypesOverride(sb, info,
+            info.DiscoveredPublishedTypes.Select(Fqn).Distinct().ToList());
 
         sb.AppendLine("}");
 
@@ -646,15 +637,12 @@ internal static class EvolverCodeEmitter
     }
 
     /// <summary>
-    /// Emits a constructor that registers document types published by Create/Transform methods
-    /// as published types, so that the document storage is generated for code-gen scenarios.
+    /// Registers the document types published by Create/Transform methods, so that the document
+    /// storage is generated for code-gen scenarios.
     /// See https://github.com/JasperFx/marten/issues/4166
     /// </summary>
-    private static void EmitEventProjectionConstructor(StringBuilder sb, CandidateInfo info, string className)
+    private static void EmitConventionalPublishedTypes(StringBuilder sb, CandidateInfo info)
     {
-        // Skip if the class already has an explicit parameterless constructor
-        if (info.HasExistingParameterlessConstructor) return;
-
         // Collect distinct entity return types from Create/Transform methods
         var publishedTypes = info.Methods
             .Where(m => m.EntityReturnType != null && (m.MethodName == "Create" || m.MethodName == "Transform"))
@@ -662,15 +650,44 @@ internal static class EvolverCodeEmitter
             .Distinct()
             .ToList();
 
-        if (publishedTypes.Count == 0) return;
+        EmitPublishedTypesOverride(sb, info, publishedTypes);
+    }
 
-        sb.AppendLine($"    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public {className}()");
+    /// <summary>
+    /// Declares the discovered published document types by overriding
+    /// <c>ProjectionBase.PublishedTypes()</c> in the user's partial class.
+    ///
+    /// <para>This used to be emitted as a parameterless constructor calling
+    /// <c>RegisterPublishedType</c>, which was wrong on two counts (marten#5192). A constructor is
+    /// illegal on a type that declares a primary constructor —
+    /// <c>partial class MyProjection(ILogger logger) : EventProjection</c> — because C# requires
+    /// every other constructor to chain through it, so the generated file broke the build with
+    /// CS8862. And when the projection is container-built (Marten's
+    /// <c>AddProjectionWithServices&lt;T&gt;</c>, which is precisely what a projection taking an
+    /// <c>ILogger</c> has to use), the container calls the dependency-taking constructor, so the
+    /// generated parameterless one never ran and the published types were silently never
+    /// registered at all.</para>
+    ///
+    /// <para>An override is immune to both: it does not care how the instance was constructed, and
+    /// chaining through <c>base.PublishedTypes()</c> keeps hand-written <c>RegisterPublishedType</c>
+    /// calls and <c>Options.StorageTypes</c> flowing. Skipped when the author already wrote their
+    /// own override — theirs wins.</para>
+    /// </summary>
+    private static void EmitPublishedTypesOverride(StringBuilder sb, CandidateInfo info, List<string> publishedTypes)
+    {
+        if (publishedTypes.Count == 0) return;
+        if (info.HasExistingPublishedTypesOverride) return;
+
+        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
+        sb.AppendLine("    public override global::System.Collections.Generic.IEnumerable<global::System.Type> PublishedTypes()");
         sb.AppendLine("    {");
+        sb.AppendLine("        var publishedTypes = new global::System.Collections.Generic.List<global::System.Type>(base.PublishedTypes());");
         foreach (var typeName in publishedTypes)
         {
-            sb.AppendLine($"        RegisterPublishedType(typeof({typeName}));");
+            sb.AppendLine($"        if (!publishedTypes.Contains(typeof({typeName}))) publishedTypes.Add(typeof({typeName}));");
         }
+
+        sb.AppendLine("        return publishedTypes;");
         sb.AppendLine("    }");
         sb.AppendLine();
     }

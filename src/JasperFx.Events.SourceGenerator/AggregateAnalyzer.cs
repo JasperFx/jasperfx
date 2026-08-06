@@ -112,6 +112,14 @@ internal sealed class CandidateInfo
     public List<EventConstructorInfo> EventConstructors { get; set; } = new();
     public bool HasDefaultConstructor { get; set; }
     public bool HasExistingParameterlessConstructor { get; set; } // On the projection class itself
+
+    /// <summary>
+    /// True when the projection — or a user-written base class between it and ProjectionBase —
+    /// already overrides PublishedTypes(). The generator yields to a hand-written override rather
+    /// than emitting a second one and tripping CS0111. See marten#5192.
+    /// </summary>
+    public bool HasExistingPublishedTypesOverride { get; set; }
+
     // EventProjection-specific
     public INamedTypeSymbol? OperationsType { get; set; } // TOperations from JasperFxEventProjectionBase<TOperations, TQuerySession>
     /// <summary>
@@ -240,7 +248,8 @@ internal static class AggregateAnalyzer
             QuerySessionType = baseInfo.querySessionType,
             Methods = methods,
             HasDefaultConstructor = HasParameterlessConstructor(baseInfo.docType),
-            HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
+            HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol),
+            HasExistingPublishedTypesOverride = HasPublishedTypesOverride(classSymbol)
         };
     }
 
@@ -951,7 +960,8 @@ internal static class AggregateAnalyzer
                 QuerySessionType = baseInfo.querySessionType,
                 DiscoveredPublishedTypes = discoveredTypes,
                 UnresolvedDocumentOperations = unresolved,
-                HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
+                HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol),
+            HasExistingPublishedTypesOverride = HasPublishedTypesOverride(classSymbol)
             };
         }
 
@@ -972,7 +982,8 @@ internal static class AggregateAnalyzer
             OperationsType = baseInfo.operationsType,
             QuerySessionType = baseInfo.querySessionType,
             Methods = methods,
-            HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol)
+            HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol),
+            HasExistingPublishedTypesOverride = HasPublishedTypesOverride(classSymbol)
         };
     }
 
@@ -1551,6 +1562,27 @@ internal static class AggregateAnalyzer
         return type.InstanceConstructors.Any(c =>
             c.Parameters.Length == 0 &&
             !c.IsImplicitlyDeclared);
+    }
+
+    /// <summary>
+    /// Does this projection, or a user-written base class beneath ProjectionBase, already override
+    /// <c>ProjectionBase.PublishedTypes()</c>? The generator defers to it rather than emitting a
+    /// competing override. See marten#5192.
+    /// </summary>
+    private static bool HasPublishedTypesOverride(INamedTypeSymbol type)
+    {
+        var current = type;
+        while (current != null && current.Name != "ProjectionBase")
+        {
+            foreach (var member in current.GetMembers("PublishedTypes"))
+            {
+                if (member is IMethodSymbol { IsOverride: true, Parameters.Length: 0 }) return true;
+            }
+
+            current = current.BaseType;
+        }
+
+        return false;
     }
 
     /// <summary>
