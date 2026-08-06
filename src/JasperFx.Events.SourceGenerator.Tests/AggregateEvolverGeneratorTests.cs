@@ -1456,7 +1456,7 @@ public partial class ExplicitStoreProjection : TestEventProjection
 ");
 
         string.Join("\n", generatedSources)
-            .ShouldContain("RegisterPublishedType(typeof(global::Test.AuditRecord));");
+            .ShouldContain("typeof(global::Test.AuditRecord)");
     }
 
     [Fact]
@@ -1476,7 +1476,7 @@ public partial class InferredStoreProjection : TestEventProjection
 ");
 
         string.Join("\n", generatedSources)
-            .ShouldContain("RegisterPublishedType(typeof(global::Test.AuditRecord));");
+            .ShouldContain("typeof(global::Test.AuditRecord)");
     }
 
     [Fact]
@@ -1494,7 +1494,7 @@ public partial class ObjectStoreProjection : TestEventProjection
 ");
 
         diagnostics.ShouldContain(d => d.Id == "JFXEVT005");
-        string.Join("\n", generatedSources).ShouldNotContain("RegisterPublishedType");
+        string.Join("\n", generatedSources).ShouldNotContain("typeof(global::Test.AuditRecord)");
     }
 
     [Fact]
@@ -1518,6 +1518,115 @@ public partial class UnrelatedStoreProjection : TestEventProjection
 ");
 
         diagnostics.ShouldNotContain(d => d.Id == "JFXEVT005");
-        string.Join("\n", generatedSources).ShouldNotContain("RegisterPublishedType");
+        string.Join("\n", generatedSources).ShouldNotContain("typeof(global::Test.AuditRecord)");
+    }
+
+    [Fact]
+    public void registers_published_types_on_a_projection_with_a_primary_constructor()
+    {
+        // marten#5192: registration used to be emitted as a parameterless constructor, which is
+        // illegal on a type declaring a primary constructor -- C# requires every other constructor
+        // to chain through it -- so the generated file failed the whole build with CS8862.
+        var source = EventProjectionPreamble + @"
+public class Recorder { }
+
+public partial class PrimaryCtorProjection(Recorder recorder) : TestEventProjection
+{
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        operations.Store(new AuditRecord());
+        return default;
+    }
+}
+";
+
+        CompileWithGenerator(source)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.ToString())
+            .ShouldBeEmpty();
+
+        var (_, generatedSources) = RunGenerator(source);
+        string.Join("\n", generatedSources).ShouldContain("typeof(global::Test.AuditRecord)");
+    }
+
+    [Fact]
+    public void registers_published_types_on_a_projection_built_by_a_container()
+    {
+        // marten#5192: a projection taking dependencies has to be registered through Marten's
+        // AddProjectionWithServices, so the container calls the dependency-taking constructor. The
+        // old generated parameterless constructor compiled here but never ran, and the published
+        // types went silently unregistered. An override does not care how the instance was built.
+        var (_, generatedSources) = RunGenerator(EventProjectionPreamble + @"
+public class Recorder { }
+
+public partial class InjectedProjection : TestEventProjection
+{
+    private readonly Recorder _recorder;
+
+    public InjectedProjection(Recorder recorder) => _recorder = recorder;
+
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        operations.Store(new AuditRecord());
+        return default;
+    }
+}
+");
+
+        var generated = string.Join("\n", generatedSources);
+        generated.ShouldContain(
+            "public override global::System.Collections.Generic.IEnumerable<global::System.Type> PublishedTypes()");
+        generated.ShouldContain("typeof(global::Test.AuditRecord)");
+        generated.ShouldNotContain("public InjectedProjection()");
+    }
+
+    [Fact]
+    public void defers_to_a_hand_written_published_types_override()
+    {
+        // The author took control of PublishedTypes(); a generated second override would be CS0111.
+        var source = EventProjectionPreamble + @"
+public partial class HandWrittenProjection : TestEventProjection
+{
+    public override System.Collections.Generic.IEnumerable<Type> PublishedTypes() => new[] { typeof(AuditRecord) };
+
+    public override ValueTask ApplyAsync(ITestOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        operations.Store(new AuditRecord());
+        return default;
+    }
+}
+";
+
+        CompileWithGenerator(source)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.ToString())
+            .ShouldBeEmpty();
+
+        string.Join("\n", RunGenerator(source).generatedSources)
+            .ShouldNotContain(
+                "public override global::System.Collections.Generic.IEnumerable<global::System.Type> PublishedTypes()");
+    }
+
+    [Fact]
+    public void registers_published_types_from_conventional_create_methods_with_a_primary_constructor()
+    {
+        // Same marten#5192 break on the other emission site: a conventional-method EventProjection
+        // gets its registration in <T>.EventProjection.g.cs rather than <T>.TypeRegistration.g.cs.
+        var source = EventProjectionPreamble + @"
+public class Recorder { }
+
+public partial class ConventionalPrimaryCtorProjection(Recorder recorder) : TestEventProjection
+{
+    public AuditRecord Create(AuditableEvent e) => new AuditRecord();
+}
+";
+
+        CompileWithGenerator(source)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.ToString())
+            .ShouldBeEmpty();
+
+        string.Join("\n", RunGenerator(source).generatedSources)
+            .ShouldContain("typeof(global::Test.AuditRecord)");
     }
 }
