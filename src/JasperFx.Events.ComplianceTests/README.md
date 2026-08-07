@@ -122,6 +122,8 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Strong-typed identifiers on aggregates | `StrongTypedIdentityCompliance` |
 | Stream compacting into a `Compacted<T>` snapshot | `StreamCompactingCompliance` |
 | Batch data masking of stored events | `EventDataMaskingCompliance` |
+| Projection rebuild and catch-up semantics | `RebuildAndCatchUpCompliance` |
+| The projection error path and dead letters | `DeadLetterCompliance` |
 
 ## What is deliberately out of scope
 
