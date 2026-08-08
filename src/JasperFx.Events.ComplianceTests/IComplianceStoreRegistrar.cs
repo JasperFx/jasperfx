@@ -80,4 +80,19 @@ public interface IComplianceStoreRegistrar
     /// is total in practice.
     /// </remarks>
     void AddProjection(ProjectionBase projection, ProjectionLifecycle lifecycle);
+
+    /// <summary>
+    /// Register the shared compliance subscription with the store's async daemon.
+    /// </summary>
+    /// <remarks>
+    /// Typed as the concrete <see cref="ComplianceSubscription"/>, which is unusual for this
+    /// interface and is deliberate. Neither product exposes a public <c>Subscribe</c> overload
+    /// taking the shared <c>ISubscriptionSource&lt;TOperations, TQuerySession&gt;</c> — both take
+    /// their own <c>ISubscription</c>, and their <c>registerSubscription</c> is private — so there
+    /// is no shared type to accept here. The library owns <c>ComplianceSubscription</c> and each
+    /// consumer completes it as a partial implementing its own interface, so naming the concrete
+    /// type is the one spelling that works on both. Implementations should pin the subscription
+    /// name to <see cref="ComplianceSubscription.SubscriptionName"/>.
+    /// </remarks>
+    void Subscribe(ComplianceSubscription subscription);
 }

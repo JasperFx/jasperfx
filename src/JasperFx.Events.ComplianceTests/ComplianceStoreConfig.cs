@@ -77,6 +77,25 @@ public sealed class ComplianceStoreConfig
     /// </remarks>
     public bool EnableHeaders { get; set; }
 
+    /// <summary>
+    /// Slice the event store by tenant within one database — "conjoined" tenancy, where every
+    /// stream and event carries a tenant id and reads are scoped to one tenant.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The only seam this needs. Both products spell the setting identically —
+    /// <c>Events.TenancyStyle = TenancyStyle.Conjoined</c>, over the <em>shared</em>
+    /// <c>JasperFx.MultiTenancy.TenancyStyle</c> enum — but on their own event options rather than
+    /// on any shared interface, so it has to come through the registrar.
+    /// </para>
+    /// <para>
+    /// Opening a tenant-scoped session needs nothing: <c>IEventStore&lt;TOperations,
+    /// TQuerySession&gt;.OpenSession(IEventDatabase, string tenantId)</c> is already on the shared
+    /// generic interface and implemented by both stores.
+    /// </para>
+    /// </remarks>
+    public bool ConjoinedEventTenancy { get; set; }
+
     public List<Type> EventTypes { get; } = new();
 
     public List<(Type Tag, string Suffix, Type? Aggregate)> TagTypes { get; } = new();
@@ -160,6 +179,16 @@ public sealed class ComplianceStoreConfig
     public ComplianceStoreConfig AddMaskingRule<TEvent>(Func<TEvent, TEvent> rule) where TEvent : notnull
     {
         _registrations.Add(registrar => registrar.AddMaskingRule(rule));
+        return this;
+    }
+
+    /// <summary>
+    /// Register the shared compliance subscription with the store's async daemon.
+    /// </summary>
+    /// <inheritdoc cref="IComplianceStoreRegistrar.Subscribe" path="/remarks"/>
+    public ComplianceStoreConfig Subscribe(ComplianceSubscription subscription)
+    {
+        _registrations.Add(registrar => registrar.Subscribe(subscription));
         return this;
     }
 
