@@ -44,11 +44,12 @@ store's session pair. Everything portable in the suites runs through the shared 
 no shared interface declares — store construction from a `ComplianceStoreConfig`, session
 acquisition, `SaveChangesAsync`, document load-back, batched DCB queries, and teardown.
 
-**3. One partial class, for the flat-table suite only.** `FlatTableProjectionCompliance` is the one
-suite whose shared type cannot be reached by an alias: every product's flat-table projection base
-takes constructor arguments describing where the table lives, and those signatures genuinely differ,
-so no single `base(...)` call satisfies all of them. Declaring the primary key column is per-product
-for the same reason — that API hangs off each dialect's own `Table` type. The library owns the table
+**3. Two partial classes**, for the two suites whose shared type cannot be reached by an alias.
+
+`FlatTableProjectionCompliance` is the first: every product's flat-table projection base takes
+constructor arguments describing where the table lives, and those signatures genuinely differ, so no
+single `base(...)` call satisfies all of them. Declaring the primary key column is per-product for
+the same reason — that API hangs off each dialect's own `Table` type. The library owns the table
 name, the projection name and every event mapping; a consumer supplies the rest:
 
 ```csharp
@@ -67,6 +68,29 @@ public partial class ComplianceFlatTableProjection : FlatTableProjection
 If your base takes a literal schema name rather than resolving the store's, pass
 `ComplianceFlatTableProjection.SchemaName` — the suite configures its store with the same constant,
 and the two have to agree or the projection writes into a table the suite is not reading.
+
+`SubscriptionCompliance` is the second, for a subtler reason. Both products declare `ISubscription`
+with an *identical* member — `Task<IChangeListener> ProcessEventsAsync(EventRange,
+ISubscriptionController, IDocumentOperations, CancellationToken)` — but `IChangeListener` is a
+per-product type, so the signature cannot be written once. The library owns the recording, the
+waiting and the subscription name; a consumer supplies only the interface implementation:
+
+```csharp
+namespace JasperFx.Events.ComplianceTests;
+
+public partial class ComplianceSubscription : ISubscription   // your product's ISubscription
+{
+    public Task<IChangeListener> ProcessEventsAsync(EventRange page, ISubscriptionController controller,
+        IDocumentOperations operations, CancellationToken cancellationToken)
+    {
+        Record(page.Events);
+        return Task.FromResult<IChangeListener>(NullChangeListener.Instance);
+    }
+}
+```
+
+Your registrar's `Subscribe` should pin the name to `ComplianceSubscription.SubscriptionName`;
+progression is keyed on it and the products disagree on what an unnamed subscription defaults to.
 
 Then enroll each suite with an empty subclass:
 
@@ -124,6 +148,8 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Batch data masking of stored events | `EventDataMaskingCompliance` |
 | Projection rebuild and catch-up semantics | `RebuildAndCatchUpCompliance` |
 | The projection error path and dead letters | `DeadLetterCompliance` |
+| Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
+| Subscriptions | `SubscriptionCompliance` |
 
 ## What is deliberately out of scope
 

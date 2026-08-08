@@ -199,6 +199,11 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsLiveAggregationRegistration => true;
 
     /// <summary>
+    /// False where the store cannot slice one database by tenant.
+    /// </summary>
+    public virtual bool SupportsConjoinedEventTenancy => true;
+
+    /// <summary>
     /// False where the store cannot run the async projection daemon in the test environment.
     /// </summary>
     public virtual bool SupportsAsyncDaemon => true;
