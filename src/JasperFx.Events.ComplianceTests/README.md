@@ -153,10 +153,20 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 
 ## What is deliberately out of scope
 
-Storage layout and DDL, table partitioning, node distribution / HotCold, high-water detection
-internals, and anything on the document-db side (LINQ, patching, session semantics) — the last
-because no shared document store contract exists yet. If a behavior only makes sense in terms of one
-engine's storage, it belongs in that product's own test suite, not here.
+Storage layout and DDL, table partitioning, node distribution / HotCold, and high-water detection
+internals. If a behavior only makes sense in terms of one engine's storage, it belongs in that
+product's own test suite, not here.
+
+**LINQ and query-provider behavior are out of scope permanently**, not pending a contract. The
+stores' query languages diverge structurally enough that a shared suite would pin coincidence rather
+than contract. This has been the position since the library was designed; it is restated here
+because it had drifted into "blocked until a shared document store contract exists", which wrongly
+reads as deferred work. It is not deferred. A file like `Polecat.Tests/Linq/additional_linq_operator_tests.cs`
+is a product-owned test file, not a port awaiting absorption (marten#5155).
+
+The rest of the document-db side — patching, session semantics — stays out for the different reason
+that no shared document store contract exists yet. That one genuinely is an open question rather
+than a settled exclusion.
 
 New cross-store event sourcing behavior should land as a compliance suite first, and only then be
 enrolled by each product.
