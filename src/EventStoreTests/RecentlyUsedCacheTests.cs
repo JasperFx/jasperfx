@@ -38,10 +38,18 @@ public class RecentlyUsedCacheTests
 
         theCache.CompactIfNecessary();
 
-        // The first 10 should have removed
+        // The first 10 should have been removed...
         for (int i = 0; i < 10; i++)
         {
-            theCache.TryFind(items[0].Id, out var _).ShouldBeFalse();
+            theCache.TryFind(items[i].Id, out var _).ShouldBeFalse();
+        }
+
+        // ...and ONLY the first 10 — gh-640: the old Remove-based compaction
+        // could silently drop extra survivors while still reporting a
+        // plausible Count.
+        for (int i = 10; i < 110; i++)
+        {
+            theCache.TryFind(items[i].Id, out var _).ShouldBeTrue();
         }
 
         theCache.Count.ShouldBe(theCache.Limit);
