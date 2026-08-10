@@ -63,7 +63,6 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // against the OnNext-driven fast path so an active system still polls once per global tick.
     private readonly Timer? _tenantHighWaterTimer;
     private DateTimeOffset _lastTenantHighWaterPoll;
-    private int _tenantHighWaterPollInFlight;
 
     // jasperfx#539: highest store-global mark that has already driven a per-tenant poll. OnNext re-triggers a
     // tenant poll only on a genuine advance past this, so the per-cycle high-water HEARTBEAT publications
@@ -1175,13 +1174,50 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 _lastTenantPollTriggerMark = value.Sequence;
 
                 // Reuse the global high-water cadence to drive one vectorized per-tenant poll.
-                _ = pollTenantHighWaterAsync();
+                // jasperfx#644: through the coalesced path — this fire-and-forget used to start a brand-new
+                // full cycle per global-mark advance with no in-flight guard, and at thousands of tenants a
+                // cycle is slower than the advance rate, so concurrent cycles stacked up without bound.
+                _ = pollTenantHighWaterCoalescedAsync();
             }
         }
 
         _shardStateTracker?.Add(value);
     }
 
+    // jasperfx#644: the background-trigger flavor (OnNext fast path + cadence timer). Coalesces into the
+    // coordinator's single-flight cycle instead of stacking a concurrent full cycle per trigger. The
+    // heartbeat is published only by the call that actually ran a cycle — a coalesced trigger's work is
+    // covered by the in-flight cycle's own trailing rerun and heartbeat.
+    private async Task pollTenantHighWaterCoalescedAsync()
+    {
+        if (_tenantHighWater == null)
+        {
+            return;
+        }
+
+        _lastTenantHighWaterPoll = DateTimeOffset.UtcNow;
+
+        try
+        {
+            var ran = await _tenantHighWater
+                .PollAndRouteCoalescedAsync(CurrentAgents, _cancellation.Token)
+                .ConfigureAwait(false);
+
+            if (ran)
+            {
+                await publishHighWaterStatusAsync(ShardAction.Updated, "Running").ConfigureAwait(false);
+            }
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e, "Error polling per-tenant high water for database {Name}", Database.Identifier);
+        }
+    }
+
+    // The awaited flavor for priming paths (StartAgentAsync/StartAllAsync/rebuild ceilings) that need a
+    // COMPLETED poll covering a just-activated tenant — these must not coalesce into a cycle that took its
+    // tenant snapshot before the activation. jasperfx#644: bounded by their callers (operator/startup
+    // driven); an overlapping background cycle is retired by the coordinator's epoch supersession.
     private async Task pollTenantHighWaterAsync()
     {
         if (_tenantHighWater == null)
@@ -1228,7 +1264,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     // jasperfx#539: Path B restart seam. The per-tenant path is timer-driven, so remediation is a stop/re-arm
     // of the cadence timer plus clearing any wedged in-flight guard so a fresh poll can start. A hung poll is
-    // abandoned (its result is ignored on completion), mirroring HighWaterAgent's non-blocking restart.
+    // abandoned, mirroring HighWaterAgent's non-blocking restart — and jasperfx#644: "abandoned" now means
+    // the coordinator bumps its cycle epoch so the wedged cycle actually retires itself when it wakes,
+    // instead of grinding on as a leaked concurrent full cycle (one per staleness window was the OOM).
     private void restartTenantHighWater()
     {
         if (_tenantHighWaterTimer == null)
@@ -1236,7 +1274,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             return;
         }
 
-        Volatile.Write(ref _tenantHighWaterPollInFlight, 0);
+        _tenantHighWater?.AbandonInFlightPoll();
         _tenantHighWaterTimer.Stop();
 
         if (!_cancellation.IsCancellationRequested)
@@ -1343,19 +1381,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             return;
         }
 
-        if (Interlocked.CompareExchange(ref _tenantHighWaterPollInFlight, 1, 0) == 1)
-        {
-            return;
-        }
-
-        try
-        {
-            await pollTenantHighWaterAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            Volatile.Write(ref _tenantHighWaterPollInFlight, 0);
-        }
+        // jasperfx#644: single-flight (plus one trailing rerun) now lives in the coordinator, shared with
+        // the OnNext fast path, so no trigger source can stack a concurrent full cycle.
+        await pollTenantHighWaterCoalescedAsync().ConfigureAwait(false);
     }
 
     // Keep the vectorized monitor's polled-tenant set in step with the shards currently assigned to this
