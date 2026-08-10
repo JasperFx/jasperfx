@@ -140,21 +140,14 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
             var extraCount = _items.Count() - Limit;
             if (extraCount <= 0) return;
 
-            var toRemove = _times
+            var doomed = _times
                 .Enumerate()
                 .OrderBy(x => x.Value)
                 .Select(x => x.Key)
                 .Take(extraCount)
-                .ToArray();
+                .ToHashSet();
 
-            foreach (var key in toRemove)
-            {
-                // Drop from BOTH maps. Earlier code redundantly removed
-                // from `_items` twice and never touched `_times`, leaving
-                // it to grow unboundedly across the cache's lifetime.
-                _items = _items.Remove(key);
-                _times = _times.Remove(key);
-            }
+            rebuildWithout(doomed);
         }
     }
 
@@ -162,8 +155,42 @@ public class RecentlyUsedCache<TKey, TItem>: IAggregateCache<TKey, TItem> where 
     {
         lock (_lock)
         {
-            _items = _items.Remove(key);
-            _times = _times.Remove(key);
+            if (!_items.Contains(key) && !_times.Contains(key)) return;
+
+            rebuildWithout([key]);
         }
+    }
+
+    // gh-640: NEVER call ImHashMap.Remove here. ImTools 4.0.0's Remove
+    // corrupts the tree when it is applied to a map that has already
+    // absorbed a previous Remove — survivors that were never removed
+    // become unreachable to TryFind while Count() may still include
+    // them (a pure-ImTools repro shows ~1% of seeded 110-key rounds
+    // losing up to 6 extra entries after 10 sequential Removes; a
+    // single Remove on an add-only tree never corrupts). Latest stable
+    // ImTools is 4.0.0, so there is no upgrade path. Instead of
+    // removing, rebuild both maps from the survivors so every tree in
+    // this class is only ever built by AddOrUpdate from Empty. O(n)
+    // per removal, but n is bounded by Limit + the between-compaction
+    // overflow, so the cost is trivial next to the aggregate fetches
+    // this cache exists to avoid.
+    private void rebuildWithout(IReadOnlyCollection<TKey> doomed)
+    {
+        var items = ImHashMap<TKey, TItem>.Empty;
+        foreach (var entry in _items.Enumerate())
+        {
+            if (doomed.Contains(entry.Key)) continue;
+            items = items.AddOrUpdate(entry.Key, entry.Value);
+        }
+
+        var times = ImHashMap<TKey, long>.Empty;
+        foreach (var entry in _times.Enumerate())
+        {
+            if (doomed.Contains(entry.Key)) continue;
+            times = times.AddOrUpdate(entry.Key, entry.Value);
+        }
+
+        _items = items;
+        _times = times;
     }
 }
