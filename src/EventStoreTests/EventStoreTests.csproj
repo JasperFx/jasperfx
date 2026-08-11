@@ -22,6 +22,14 @@
     <ItemGroup>
         <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
         <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
+        <!--
+          The document compliance suites (jasperfx#647) are enrolled here against an in-memory
+          reference implementation so the shared suite is actually executed in this repo rather than
+          shipping unrun to Marten / Polecat / Fisher. A plain ProjectReference is enough for the
+          *document* suites: unlike the event suites they involve no source-generated dispatchers, so
+          none of the reasons the package ships as source apply to compiling them here.
+        -->
+        <ProjectReference Include="..\JasperFx.Events.ComplianceTests\JasperFx.Events.ComplianceTests.csproj" />
     </ItemGroup>
 
 </Project>

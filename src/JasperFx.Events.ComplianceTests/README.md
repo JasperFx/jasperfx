@@ -151,22 +151,72 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | Subscriptions | `SubscriptionCompliance` |
 
+### The document contract (jasperfx#647)
+
+A second, independent family covers the small *document* slice that `JasperFx.Events` now abstracts
+alongside the event store — `JasperFx.Events.Documents`:
+
+| Area | Suite |
+|---|---|
+| Session opening and the transaction boundary | `DocumentSessionCompliance` |
+| `Store` and `LoadAsync`, both identity styles | `DocumentLoadAndStoreCompliance` |
+| `Delete`, its identity overloads, and `DeleteWhere` | `DocumentDeleteCompliance` |
+| `Query<T>()`, its minimum translatable operator set, and the async terminators | `DocumentQueryCompliance` |
+
+Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
+**three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
+and is **not generic** over the store's session pair, because everything the document suites do runs
+through the shared contracts. That asymmetry is the result being demonstrated, not an inconsistency:
+if a document suite ever needs a fixture member that reaches past the interfaces, the contract has a
+hole and the contract is what should change.
+
+```csharp
+public class my_document_fixture : DocumentStorageComplianceFixture
+{
+    protected override Task BuildStoreAsync(DocumentComplianceConfig config) { /* ... */ }
+    public override IDocumentSessionFactory Sessions => _store;
+    public override Task CleanDocumentDataAsync() { /* ... */ }
+}
+
+public class document_query_compliance : DocumentQueryCompliance<my_document_fixture>;
+```
+
+These suites are the one part of the library that is executed inside this repo as well as by its
+consumers: `EventStoreTests` enrolls an in-memory reference implementation, so the shared definition
+is known to be satisfiable before three products are held to it. That reference implementation is a
+test double, not a product — it exists to keep the suite honest.
+
+Note that a consumer whose test project carries a global `using Marten;` (or the Polecat equivalent)
+will hit an ambiguity between that product's async LINQ terminators and
+`JasperFx.Events.Documents.DocumentQueryableExtensions`, which share names and receiver types.
+Scoping or removing the global using for the compliance compile resolves it.
+
 ## What is deliberately out of scope
 
 Storage layout and DDL, table partitioning, node distribution / HotCold, and high-water detection
 internals. If a behavior only makes sense in terms of one engine's storage, it belongs in that
 product's own test suite, not here.
 
-**LINQ and query-provider behavior are out of scope permanently**, not pending a contract. The
+**General LINQ and query-provider behavior is out of scope permanently**, not pending a contract. The
 stores' query languages diverge structurally enough that a shared suite would pin coincidence rather
 than contract. This has been the position since the library was designed; it is restated here
 because it had drifted into "blocked until a shared document store contract exists", which wrongly
 reads as deferred work. It is not deferred. A file like `Polecat.Tests/Linq/additional_linq_operator_tests.cs`
 is a product-owned test file, not a port awaiting absorption (marten#5155).
 
-The rest of the document-db side — patching, session semantics — stays out for the different reason
-that no shared document store contract exists yet. That one genuinely is an open question rather
-than a settled exclusion.
+`DocumentQueryCompliance` is not a counter-example to that, and must not be allowed to grow into
+one. It pins a closed **minimum translatable set** — `Where`, `Select`, `OrderBy` /
+`OrderByDescending`, `ThenBy` / `ThenByDescending`, `Take`, `Skip`, `Distinct` — because a consumer
+holding only an `IQueryable<T>` has no way to discover whether a store translates those or silently
+does not. That set is closed by measurement (the operators `CritterWatch.Services` actually applies
+to a `Query<T>()` chain), not open by principle. Operators outside it stay product-owned however many
+stores happen to support them.
+
+Session semantics *are* now in scope, via the document contract above. The rest of the document-db
+side — patching, bulk insert, LINQ joins / grouping / `Include`, soft-delete semantics, document
+metadata, session listeners, the stores' `Advanced` surfaces and schema management — stays out, and
+that exclusion is now a settled boundary rather than an open question: those are the surfaces
+jasperfx#647 deliberately declined to abstract.
 
 New cross-store event sourcing behavior should land as a compliance suite first, and only then be
 enrolled by each product.

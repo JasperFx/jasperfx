@@ -9,6 +9,7 @@ Provides:
 - **Slicing & grouping** — `SliceGroup`, `EventSlice`, `IEventSlicer` for fan-out projection topologies.
 - **Event metadata** — `IEvent`, `IEventRegistry`, type registry primitives.
 - **Descriptors** — `EventStoreUsage` and friends, surfaced through `IEventStoreUsageSource` to monitoring tools (CritterWatch).
+- **Documents** (`JasperFx.Events.Documents`) — the small document-session slice a store-agnostic consumer needs alongside the event store: `IDocumentReadOperations` / `IDocumentWriteOperations` / `IDocumentSessionOperations`, `IDocumentSessionFactory`, and async LINQ terminators over `IQueryable<T>`. Seven operations, not a document store facade.
 
 ## Quick start
 
