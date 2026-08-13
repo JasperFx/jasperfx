@@ -405,39 +405,6 @@ public class MembersJoined { public int Count { get; set; } }
     }
 
     [Fact]
-    public void skips_non_partial_projection()
-    {
-        var source = @"
-using System;
-using JasperFx.Events;
-using JasperFx.Events.Aggregation;
-using JasperFx.Events.Projections;
-
-namespace Test;
-
-public class MyAggregate { public int Count { get; set; } }
-public class MyEvent { }
-
-public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
-    where TDoc : notnull where TId : notnull
-{
-    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
-}
-
-public class NonPartial : SingleStreamProjection<MyAggregate, Guid>
-{
-    public void Apply(MyEvent e, MyAggregate agg) { agg.Count++; }
-}
-";
-        var (diagnostics, generatedSources) = RunGenerator(source);
-
-        // Should not generate any override for non-partial class
-        generatedSources.ShouldBeEmpty();
-        // Should have JFXEVT003 info diagnostic
-        diagnostics.Any(d => d.Id == "JFXEVT003").ShouldBeTrue();
-    }
-
-    [Fact]
     public void emits_async_evolver_for_async_self_aggregating_apply()
     {
         // Async self-aggregating Apply/Create handlers are now supported via

@@ -227,7 +227,11 @@ internal static class AggregateAnalyzer
             {
                 Mode = CandidateMode.None,
                 ClassSymbol = classSymbol,
-                ClassSyntax = classDecl
+                ClassSyntax = classDecl,
+                // Carried so the CandidateMode.None diagnostic path can tell "opted out via lambda
+                // registrations" from "not partial" — otherwise a *partial* projection using the
+                // lambda API reports JFXEVT003 ("is not partial"), which is simply false.
+                IsPartial = isPartial
             };
         }
 
@@ -238,7 +242,15 @@ internal static class AggregateAnalyzer
 
         return new CandidateInfo
         {
-            Mode = isPartial ? CandidateMode.PartialProjection : CandidateMode.None,
+            // NOT gated on `partial`. The dispatcher for an aggregation projection subclass is emitted
+            // as a standalone `file sealed class` registered through [assembly: GeneratedEvolver(...)]
+            // (#462) — it calls the projection's public conventional methods from the outside and never
+            // needs a second declaration of the user's type. The only emission that still injects members
+            // into the user's class is the DI-override path (marten#4787), which checks IsPartial itself
+            // and reports JFXEVT003 when the modifier is missing. Gating candidacy on the modifier was
+            // left over from the pre-#462 member-injection emission and silently skipped every
+            // non-partial projection, surfacing much later as "No source-generated dispatcher found".
+            Mode = CandidateMode.PartialProjection,
             ClassSymbol = classSymbol,
             ClassSyntax = classDecl,
             IsPartial = isPartial,

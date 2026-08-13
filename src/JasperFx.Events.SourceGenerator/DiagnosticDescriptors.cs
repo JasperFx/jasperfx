@@ -20,12 +20,22 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    /// <summary>
+    /// The projection has conventional methods the generator cannot dispatch without a second
+    /// declaration of the user's class. There is no runtime fallback for this — the projection throws
+    /// <c>InvalidProjectionException</c> when the store is built (see
+    /// <c>JasperFxAggregationProjectionBase.AssembleAndAssertValidity</c>) — so this is an error rather
+    /// than the Info-level "falling back to runtime expression compilation" note it used to be. That
+    /// message described the pre-2.0 FEC fallback, which the 9.0 projections rework deleted, and Info
+    /// severity kept it out of CLI builds entirely.
+    /// </summary>
     public static readonly DiagnosticDescriptor NotPartial = new(
         id: "JFXEVT003",
-        title: "Projection is not partial",
-        messageFormat: "Projection '{0}' is not partial; falling back to runtime expression compilation",
+        title: "Projection must be declared partial",
+        messageFormat:
+            "No dispatcher can be generated for projection '{0}' because {1} — {2}. Conventional Apply/Create/ShouldDelete methods are dispatched by the compile-time source generator and there is no runtime fallback.",
         category: "JasperFx.Events",
-        defaultSeverity: DiagnosticSeverity.Info,
+        defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
     /// <summary>

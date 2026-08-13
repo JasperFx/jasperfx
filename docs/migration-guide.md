@@ -79,27 +79,35 @@ public Task ApplyAsync(TOperations operations,
 
 > `ProjectionLifecycle` (the `Inline` / `Async` / `Live` enum passed to `Projections.Add<T>(...)`) moved to the same `JasperFx.Events.Projections` namespace for the same reason. `using JasperFx.Events.Projections;` covers both.
 
-#### Convention-based projection subclasses must be declared `partial`
+#### Convention-based projections are dispatched by the source generator
 
-Conventional `Apply` / `Create` / `ShouldDelete` methods on a **projection subclass** — one that derives from `SingleStreamProjection<TDoc, TId>`, `MultiStreamProjection<TDoc, TId>`, or `EventProjection` — are now dispatched by the compile-time `JasperFx.Events.SourceGenerator`. Pre-2.0 they were dispatched by runtime reflection; **in 2.0 there is no runtime reflection fallback.** For the generator to emit its `[GeneratedEvolver]` dispatcher, the projection class must be declared `partial`, and its convention methods must be `public`.
+Conventional `Apply` / `Create` / `ShouldDelete` methods on a **projection subclass** — one that derives from `SingleStreamProjection<TDoc, TId>`, `MultiStreamProjection<TDoc, TId>`, or `EventProjection` — are now dispatched by the compile-time `JasperFx.Events.SourceGenerator`. Pre-2.0 they were dispatched by runtime reflection; **in 2.0 there is no runtime reflection fallback.** The convention methods must be `public` so the generated dispatcher can call them.
 
 ```csharp
-// before (JasperFx.Events 1.x) — reflection dispatched the conventional methods
 public class TripProjection : SingleStreamProjection<Trip, Guid>
-{
-    public Trip Create(IEvent<TripStarted> e) => new() { Id = e.StreamId };
-    public void Apply(Travel e, Trip trip) => trip.Traveled += e.TotalDistance();
-}
-
-// after (JasperFx.Events 2.0) — `partial` lets the source generator emit the dispatcher
-public partial class TripProjection : SingleStreamProjection<Trip, Guid>
 {
     public Trip Create(IEvent<TripStarted> e) => new() { Id = e.StreamId };
     public void Apply(Travel e, Trip trip) => trip.Traveled += e.TotalDistance();
 }
 ```
 
-A non-`partial` subclass with conventional methods fails fast at projection registration (e.g. inside `AddMarten(opts => opts.Projections.Add<TripProjection>(...))`) rather than on first event dispatch:
+**Most projections do not need to be `partial`.** The dispatcher for an aggregation projection is emitted as a separate, file-scoped type registered through `[assembly: GeneratedEvolver(...)]`, so it needs nothing from your declaration. This covers self-aggregating snapshot types registered via `Snapshot<T>` (or the single-arg `SingleStreamProjection<T>` / `AggregateStream<T>` forms) as well as `SingleStreamProjection<TDoc, TId>` / `MultiStreamProjection<TDoc, TId>` subclasses.
+
+`partial` is required only where the dispatcher has to be generated **into the projection class itself**, which the generator reports as `JFXEVT003` at build time:
+
+- an **`EventProjection`** subclass using conventional methods — its dispatcher is an `ApplyAsync` override on your class;
+- a projection whose conventional methods are **instance** methods and which has **no public parameterless constructor** — a DI-activated projection, or an abstract projection base class. Dispatch has to run on the real instance so injected dependencies are populated;
+- a **generic** projection, or one nested behind `private` / `protected`, which a separate type cannot name. Every containing type has to be `partial` too.
+
+```csharp
+// needs `partial`: dispatch must run on the DI-built instance
+public partial class TripProjection(ILogger<TripProjection> logger) : SingleStreamProjection<Trip, Guid>
+{
+    public void Apply(Travel e, Trip trip) => logger.LogInformation("...");
+}
+```
+
+When a projection needs `partial` and does not have it, the build fails with `JFXEVT003` naming the declaration that is missing the modifier. If the generator never ran at all — for instance because the project reference excludes the `analyzers` asset — the failure instead surfaces at projection registration:
 
 ```
 JasperFx.Events.Projections.InvalidProjectionException:
@@ -107,8 +115,6 @@ No source-generated dispatcher found for TripProjection. Conventional
 Apply/Create/ShouldDelete methods are dispatched by the compile-time
 JasperFx.Events.SourceGenerator; there is no runtime fallback.
 ```
-
-**Self-aggregating snapshot types do _not_ need `partial`.** A type that carries its own `Apply`/`Create` methods and is registered via `Snapshot<T>` (or the single-arg `SingleStreamProjection<T>` / `AggregateStream<T>` self-aggregation forms) is handled without a projection subclass and needs no `partial` keyword.
 
 Two escape hatches if the generated dispatcher is not what you want:
 

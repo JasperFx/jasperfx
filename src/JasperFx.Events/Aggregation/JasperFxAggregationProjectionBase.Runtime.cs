@@ -153,9 +153,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             "JasperFx.Events.SourceGenerator; there is no runtime fallback. Ensure that analyzer runs in the " +
             $"assembly that defines {typeof(TDoc).FullNameInCode()} (for Marten consumers the generator ships inside " +
             "the Marten NuGet package, so verify the project reference does not exclude the 'analyzers' asset). " +
-            "A self-aggregating type registered via Snapshot<T> / SingleStreamProjection<T> / AggregateStream<T> does " +
-            "NOT need to be `partial`; a projection subclass that uses convention methods DOES need to be declared " +
-            "`partial`. Alternatively, override Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly.");
+            "Most projections do NOT need to be `partial` — neither a self-aggregating type registered via " +
+            "Snapshot<T> / SingleStreamProjection<T> / AggregateStream<T>, nor an aggregation projection subclass, " +
+            "whose dispatcher is generated as a separate type. `partial` is required only where the dispatcher has " +
+            "to be generated into the projection class itself: an EventProjection, or a projection whose conventional " +
+            "methods are instance methods and which has no public parameterless constructor (a DI-activated " +
+            "projection, for instance). The generator reports JFXEVT003 in those cases. Alternatively, override " +
+            "Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly.");
     }
 
     /// <summary>
