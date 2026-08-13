@@ -482,6 +482,28 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     private static void EmitEventProjectionTypeRegistration(SourceProductionContext context, CandidateInfo info)
     {
+        // A non-partial projection cannot receive the generated PublishedTypes() override. Say so once,
+        // naming what went unregistered, rather than skipping in silence. The per-operation JFXEVT005
+        // notes are suppressed here — nothing at all is being registered for this projection, so
+        // pointing at individual unregistrable calls would only add noise. See #654.
+        if (!info.IsPartial)
+        {
+            if (info.DiscoveredPublishedTypes.Count > 0)
+            {
+                var typeList = string.Join(", ", info.DiscoveredPublishedTypes
+                    .Select(t => $"'{t.Name}'")
+                    .Distinct());
+
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.UnregisteredPublishedTypes,
+                    info.ClassSyntax.Identifier.GetLocation(),
+                    info.ClassSymbol.Name,
+                    typeList));
+            }
+
+            return;
+        }
+
         foreach (var unresolved in info.UnresolvedDocumentOperations)
         {
             context.ReportDiagnostic(Diagnostic.Create(
