@@ -169,12 +169,6 @@ internal static class AggregateAnalyzer
 
     private const string ProjectionBaseFullName = "JasperFx.Events.Projections.ProjectionBase";
 
-    private static readonly string[] LambdaMethodNames =
-        { "ProjectEvent", "CreateEvent", "DeleteEvent" };
-
-    private static readonly string[] EventProjectionLambdaMethodNames =
-        { "Project<", "ProjectAsync<" };
-
     public static CandidateInfo? Analyze(GeneratorSyntaxContext context, CancellationToken ct)
     {
         var classDecl = context.Node as TypeDeclarationSyntax;
@@ -219,17 +213,6 @@ internal static class AggregateAnalyzer
         // Check if it already overrides Evolve/EvolveAsync/DetermineAction/DetermineActionAsync
         if (HasExplicitOverride(classSymbol))
             return null;
-
-        // Check if constructor has lambda registrations
-        if (HasLambdaRegistrations(classDecl))
-        {
-            return new CandidateInfo
-            {
-                Mode = CandidateMode.None,
-                ClassSymbol = classSymbol,
-                ClassSyntax = classDecl
-            };
-        }
 
         var methods = DiscoverConventionalMethods(classSymbol, baseInfo.docType, classSymbol);
         var ctorDeleteTypes = DiscoverConstructorDeleteEventTypes(classDecl, semanticModel, ct);
@@ -965,10 +948,6 @@ internal static class AggregateAnalyzer
             };
         }
 
-        // Check if constructor has lambda registrations (Project<T> / ProjectAsync<T>)
-        if (HasEventProjectionLambdaRegistrations(classDecl))
-            return null;
-
         var methods = DiscoverEventProjectionMethods(classSymbol, baseInfo.operationsType);
 
         if (methods.Count == 0) return null;
@@ -1302,23 +1281,6 @@ internal static class AggregateAnalyzer
             .Any(m => m.IsOverride && m.Name == "ApplyAsync");
     }
 
-    private static bool HasEventProjectionLambdaRegistrations(TypeDeclarationSyntax classDecl)
-    {
-        var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
-        foreach (var ctor in constructors)
-        {
-            if (ctor.Body == null) continue;
-            var text = ctor.Body.ToFullString();
-            foreach (var name in EventProjectionLambdaMethodNames)
-            {
-                if (text.Contains(name))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
     private static bool HasExplicitOverride(INamedTypeSymbol classSymbol)
     {
         return classSymbol.GetMembers()
@@ -1375,47 +1337,6 @@ internal static class AggregateAnalyzer
         }
 
         return result;
-    }
-
-    private static bool HasLambdaRegistrations(TypeDeclarationSyntax classDecl)
-    {
-        // Only ProjectEvent / CreateEvent / DeleteEvent invocations that *take
-        // an argument* (a handler / predicate lambda) opt the projection out of
-        // SG dispatch — those were the inline-lambda APIs JasperFx 2.0 removed.
-        // The parameterless variant `DeleteEvent<T>()` is still a supported way
-        // to declare delete-on events from the constructor and must NOT block
-        // dispatcher emission. See #297. A plain substring match on the body
-        // (previous implementation) misclassified `DeleteEvent<T>()` as a
-        // lambda registration and silently skipped dispatcher emission.
-        var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
-        foreach (var ctor in constructors)
-        {
-            if (ctor.Body == null) continue;
-            foreach (var invocation in ctor.Body.DescendantNodes().OfType<InvocationExpressionSyntax>())
-            {
-                if (invocation.ArgumentList.Arguments.Count == 0) continue;
-
-                var simpleName = invocation.Expression switch
-                {
-                    MemberAccessExpressionSyntax m => m.Name,
-                    GenericNameSyntax g => g,
-                    IdentifierNameSyntax i => (SimpleNameSyntax?)i,
-                    _ => null
-                };
-
-                var name = (simpleName as GenericNameSyntax)?.Identifier.ValueText
-                           ?? (simpleName as IdentifierNameSyntax)?.Identifier.ValueText;
-
-                if (name == null) continue;
-
-                foreach (var lambdaName in LambdaMethodNames)
-                {
-                    if (name == lambdaName) return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
