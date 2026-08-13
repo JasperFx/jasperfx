@@ -460,11 +460,13 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     {
         if (info.Methods.Count == 0) return;
 
-        // Most projections are dispatched by a standalone file-scoped evolver that needs nothing from
-        // the user's declaration. The shapes that DO need the dispatcher written into the projection
-        // class itself need `partial` there — and on every containing type. Fail loudly when it is
-        // missing; the alternative is the runtime's "No source-generated dispatcher found" at store
-        // construction, or CS0260 inside a file the consumer cannot edit.
+        // Nearly every projection is dispatched by a standalone file-scoped evolver that needs nothing
+        // from the user's declaration — including the DI-activated shape, which since #653 receives the
+        // registered projection through the evolver's constructor. What is left needing the dispatcher
+        // written into the projection class itself is what a separate file cannot name: a generic
+        // projection, or one behind private/protected. Those need `partial` there and on every
+        // containing type. Fail loudly when it is missing; the alternative is CS0260 inside a file the
+        // consumer cannot edit.
         if (EvolverCodeEmitter.RequiresMemberInjection(info))
         {
             var missing = EvolverCodeEmitter.DescribeMissingPartialDeclaration(info);
@@ -486,18 +488,14 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     /// <summary>
     /// The half of JFXEVT003 that tells the user WHY the dispatcher has to live in their own class,
-    /// so "declare it partial" does not read as an arbitrary framework demand.
+    /// so "declare it partial" does not read as an arbitrary framework demand. Only one reason remains
+    /// since #653 handed the evolver the registered projection: the generator cannot name the
+    /// projection from a separate file.
     /// </summary>
     private static string DescribeWhyMemberInjectionIsNeeded(CandidateInfo info)
     {
-        var notNameable = EvolverCodeEmitter.DescribeWhyNotNameableFromFileScope(info.ClassSymbol);
-        if (notNameable != null)
-        {
-            return $"{notNameable}, so the dispatcher cannot be generated as a separate type";
-        }
-
-        return "its conventional methods are instance methods and it has no public parameterless constructor, "
-               + "so the dispatcher has to run on the projection instance itself";
+        return $"{EvolverCodeEmitter.DescribeWhyNotNameableFromFileScope(info.ClassSymbol)}, "
+               + "so the dispatcher cannot be generated as a separate type";
     }
 
     private static void EmitEventProjection(SourceProductionContext context, CandidateInfo info)

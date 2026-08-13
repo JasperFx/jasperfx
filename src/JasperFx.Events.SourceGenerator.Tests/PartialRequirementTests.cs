@@ -98,10 +98,12 @@ public class NonPartialStatic : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
-    public void reports_error_for_non_partial_projection_that_needs_a_di_built_instance()
+    public void non_partial_di_activated_projection_dispatches_through_the_registered_instance()
     {
-        // The one aggregation shape that still requires `partial`: dispatch has to run on the
-        // DI-resolved instance (marten#4787), which means an override injected into the user's class.
+        // #650 alone required `partial` here, because dispatch had to be injected into the user's class
+        // to reach a DI-built instance (marten#4787). #653 removed that reason — the evolver takes the
+        // projection through its constructor and the runtime passes the registered one — so this shape
+        // needs nothing from the declaration either.
         var (diagnostics, generatedSources) = GeneratorHarness.Run(Preamble + @"
 public class NonPartialDi : SingleStreamProjection<MyAggregate, Guid>
 {
@@ -111,13 +113,12 @@ public class NonPartialDi : SingleStreamProjection<MyAggregate, Guid>
     public void Apply(MyEvent e, MyAggregate agg) { agg.Count++; }
 }
 ");
+        var generated = string.Join("\n", generatedSources);
 
-        generatedSources.ShouldBeEmpty();
-
-        var notPartial = diagnostics.Single(d => d.Id == "JFXEVT003");
-        notPartial.Severity.ShouldBe(DiagnosticSeverity.Error);
-        notPartial.GetMessage().ShouldContain("'NonPartialDi' is not declared partial");
-        notPartial.GetMessage().ShouldContain("no public parameterless constructor");
+        generated.ShouldContain("file sealed class NonPartialDi_GuidEvolver");
+        generated.ShouldContain("public NonPartialDi_GuidEvolver(global::Test.NonPartialDi projection)");
+        generated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.NonPartialDi))");
+        diagnostics.ShouldBeEmpty();
     }
 
     [Fact]

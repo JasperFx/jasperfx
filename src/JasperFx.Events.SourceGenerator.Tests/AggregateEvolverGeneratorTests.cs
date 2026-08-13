@@ -117,74 +117,6 @@ public partial class AllSync : SingleStreamProjection<MyAggregate, Guid>
     }
 
     [Fact]
-    public void di_activated_projection_without_parameterless_ctor_dispatches_through_partial_override()
-    {
-        // marten#4787: a projection registered via AddProjectionWithServices has only a constructor
-        // with injected dependencies (no parameterless ctor). The pre-fix emission built the
-        // evolver's private shadow projection via RuntimeHelpers.GetUninitializedObject — which
-        // compiled (closing the original #4185 CS7036 hole) but left injected fields null at runtime,
-        // NREing the first time a convention method dereferenced one.
-        // The fix emits a [GeneratedCode]-attributed override (Evolve / EvolveAsync /
-        // DetermineActionAsync) directly into the user's partial class. Dispatch binds to `this`
-        // (the DI-built instance), so injected fields are populated. The file-scoped Evolver and the
-        // [assembly: GeneratedEvolver(...)] attribute are NOT emitted for this case.
-        var source = @"
-using System;
-using JasperFx.Events;
-using JasperFx.Events.Aggregation;
-using JasperFx.Events.Projections;
-
-namespace Test;
-
-public class MyAggregate { public int Count { get; set; } }
-public class MyEvent { }
-public class CreateEvent { }
-public interface ISecondaryStore { }
-
-public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamProjectionBase<TDoc, TId, object, object>
-    where TDoc : notnull where TId : notnull
-{
-    protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
-}
-
-public partial class DiActivated : SingleStreamProjection<MyAggregate, Guid>
-{
-    private readonly ISecondaryStore _secondaryStore;
-    public DiActivated(ISecondaryStore secondaryStore) { _secondaryStore = secondaryStore; }
-
-    public MyAggregate Create(CreateEvent e) => new MyAggregate();
-    public void Apply(MyEvent e, MyAggregate agg) { agg.Count++; }
-}
-";
-        var (_, generatedSources) = RunGenerator(source);
-        var generated = string.Join("\n", generatedSources);
-
-        // No shadow-instance escape hatch — the override dispatches on `this`.
-        generated.ShouldNotContain("GetUninitializedObject(typeof(global::Test.DiActivated))");
-        generated.ShouldNotContain("new global::Test.DiActivated()");
-        generated.ShouldNotContain("_projection.Create");
-        generated.ShouldNotContain("_projection.Apply");
-
-        // No file-scoped Evolver class and no GeneratedEvolver assembly attribute — the runtime
-        // selects the partial-class override via isOverridden() before tryUseAssemblyRegisteredEvolver
-        // ever runs, so the file-scoped path is unreachable for this case.
-        generated.ShouldNotContain("file sealed class");
-        generated.ShouldNotContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver");
-
-        // Partial-class override on the user's class, marked [GeneratedCode] so
-        // AssembleAndAssertValidity's isSourceGeneratedOverride() accepts it.
-        generated.ShouldContain("partial class DiActivated");
-        generated.ShouldContain("[global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        // Either Evolve (sync, no session/ShouldDelete) or EvolveAsync would do — the projection
-        // here is sync with no ShouldDelete, so expect the sync Evolve override.
-        generated.ShouldContain("public override global::Test.MyAggregate? Evolve(");
-
-        // The generated override must compile — no CS7036 "no argument for required parameter".
-        var diagnostics = CompileWithGenerator(source);
-        diagnostics.ShouldNotContain(d => d.Id == "CS7036");
-    }
-
-    [Fact]
     public void partial_projection_for_required_member_aggregate_suppresses_snapshot_fallback()
     {
         var source = @"
@@ -743,7 +675,10 @@ public class HostTests
         var (_, generatedSources) = RunGenerator(source);
         var allGenerated = string.Join("\n", generatedSources);
         allGenerated.ShouldContain("file sealed class HostTests_NestedProjectionEvolver");
-        allGenerated.ShouldContain("new global::Test.HostTests.NestedProjection()");
+        // The projection arrives through the evolver's constructor — the runtime passes the
+        // registered instance rather than the evolver building a shadow with `new`. See #653.
+        allGenerated.ShouldContain(
+            "public HostTests_NestedProjectionEvolver(global::Test.HostTests.NestedProjection projection)");
         allGenerated.ShouldContain(
             "[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.Counted), typeof(global::Test.HostTests_NestedProjectionEvolver), typeof(global::Test.HostTests.NestedProjection))]");
     }
@@ -1352,7 +1287,7 @@ public abstract class SingleStreamProjection<TDoc, TId> : JasperFxSingleStreamPr
     protected SingleStreamProjection() : base(AggregationScope.SingleStream) { }
 }
 
-// DI-only constructor forces the partial-class override path (marten#4787).
+// DI-only constructor: dispatch has to run on the registered instance (marten#4787, #653).
 public partial class CartProjection : SingleStreamProjection<Cart, Guid>
 {
     private readonly ICartPricing _pricing;
@@ -1372,7 +1307,10 @@ public partial class CartProjection : SingleStreamProjection<Cart, Guid>
 
         var (_, generatedSources) = RunGenerator(source);
         var allGenerated = string.Join("\n", generatedSources);
-        allGenerated.ShouldContain("public override global::Test.Cart? Evolve(");
+        // The dispatcher is a file-scoped evolver handed the registered projection (#653); the
+        // GetUninitializedObject below is for the AGGREGATE, which has no parameterless constructor.
+        allGenerated.ShouldContain("public global::Test.Cart? Evolve(");
+        allGenerated.ShouldContain("public CartProjectionEvolver(global::Test.CartProjection projection)");
         allGenerated.ShouldContain(
             "var s = (global::Test.Cart)global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(global::Test.Cart));");
         allGenerated.ShouldContain("return s.Apply(data);");

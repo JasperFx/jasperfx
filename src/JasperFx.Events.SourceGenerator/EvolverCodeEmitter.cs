@@ -103,19 +103,23 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("{");
 
         // The dispatcher invokes the projection's own instance Apply/Create/ShouldDelete methods through
-        // a private projection instance. Aggregate-side and static methods are invoked directly, so the
-        // instance is only needed (and only emitted) when at least one method lives on the projection
-        // instance — avoiding a CS0169 "field never used" warning in warnings-as-errors consumer builds.
+        // a projection instance. Aggregate-side and static methods are invoked directly, so the instance
+        // is only needed (and only emitted) when at least one method lives on the projection instance —
+        // avoiding a CS0169 "field never used" warning in warnings-as-errors consumer builds.
         //
-        // The instance is created lazily, NOT in a field initializer: the projection's own constructor
-        // resolves this very evolver (via tryUseAssemblyRegisteredEvolver), so eagerly constructing the
-        // projection here would recurse projection -> evolver -> projection -> ... and StackOverflow. By
-        // the time a handler actually runs, the evolver's own construction has long completed, so the
-        // lazy create is safe and happens once.
+        // The instance is the projection the store actually registered, handed over by the runtime's
+        // activateEvolver through this constructor. The evolver used to build its own shadow instead —
+        // `new TProjection()`, or GetUninitializedObject when there was no public parameterless
+        // constructor — which meant injected dependencies were null (marten#4787) and anything the real
+        // constructor set was missing. See #653.
         if (NeedsProjectionInstance(info))
         {
-            sb.AppendLine($"    private {projectionFullName}? _projectionInstance;");
-            sb.AppendLine($"    private {projectionFullName} _projection => _projectionInstance ??= {BuildProjectionInstanceExpression(info.ClassSymbol, projectionFullName)};");
+            sb.AppendLine($"    private readonly {projectionFullName} _projection;");
+            sb.AppendLine();
+            sb.AppendLine($"    public {evolverName}({projectionFullName} projection)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        _projection = projection;");
+            sb.AppendLine("    }");
             sb.AppendLine();
         }
 
@@ -147,26 +151,19 @@ internal static class EvolverCodeEmitter
 
     /// <summary>
     /// True when dispatch cannot be a standalone file-scoped evolver and has to be injected into the
-    /// user's own class instead. Two shapes qualify:
+    /// user's own class instead — which is now purely a naming problem: a generic projection, or one
+    /// behind <c>private</c>/<c>protected</c>, cannot be referenced from a separate file at all. See
+    /// <see cref="DescribeWhyNotNameableFromFileScope"/>.
     ///
-    /// <list type="number">
-    /// <item>marten#4787 — at least one conventional method lives on the projection instance and the
-    /// projection has no public parameterless constructor, so the evolver's shadow instance (built with
-    /// <c>RuntimeHelpers.GetUninitializedObject</c>, skipping the constructor) would NRE on the first
-    /// deref of an injected field. Also catches an abstract projection base class, whose implicit
-    /// constructor is protected. Dispatching on <c>this</c> instead gives the DI-built instance.</item>
-    /// <item>The evolver could not name the projection at all from its own file — see
-    /// <see cref="DescribeWhyNotNameableFromFileScope"/>.</item>
-    /// </list>
-    ///
-    /// Everything else (static-only, aggregate-side, or instance methods on a projection with a public
-    /// parameterless constructor) keeps the file-scoped evolver, which is the emission that makes the
-    /// double-load scenario in <see cref="EmitPartialProjection"/> safe.
+    /// <para>Needing a projection instance is no longer a reason. The evolver takes the projection
+    /// through its constructor and the runtime hands it the registered one (#653), so the marten#4787
+    /// shape — instance conventional methods with no public parameterless constructor — keeps the
+    /// file-scoped evolver like everything else, and with it the double-load safety described on
+    /// <see cref="EmitPartialProjection"/>.</para>
     /// </summary>
     public static bool RequiresMemberInjection(CandidateInfo info)
     {
-        return (NeedsProjectionInstance(info) && !HasPublicParameterlessCtor(info.ClassSymbol))
-               || DescribeWhyNotNameableFromFileScope(info.ClassSymbol) != null;
+        return DescribeWhyNotNameableFromFileScope(info.ClassSymbol) != null;
     }
 
     /// <summary>
@@ -614,45 +611,6 @@ internal static class EvolverCodeEmitter
             sb.AppendLine($"        return (snapshot, global::JasperFx.Events.Daemon.ActionType.Store);");
         }
         sb.AppendLine("    }");
-    }
-
-    /// <summary>
-    /// Builds the expression that creates the evolver's private "shadow" projection instance
-    /// (used only to invoke the projection's stateless instance Apply/Create/ShouldDelete event
-    /// methods). When the projection has a public parameterless constructor we just <c>new</c> it.
-    /// A DI-activated projection (registered via <c>AddProjectionWithServices</c>) has only a
-    /// constructor with injected dependencies and therefore no parameterless ctor — <c>new T()</c>
-    /// would not compile (#4185 / CS7036). In that case instantiate without running the constructor
-    /// (mirrors the aggregate no-parameterless-ctor fallback in
-    /// <see cref="BuildAggregateConstructorExpression"/>). Note: the DI-projection path is no longer
-    /// reached for partial projections — see <see cref="EmitPartialProjectionWithDIOverride"/> for the
-    /// alternative emission used when convention methods need DI-injected dependencies at runtime
-    /// (marten#4787). This shadow-instance path is preserved only as a defensive fallback (e.g. a
-    /// non-partial projection that somehow reaches this branch) — generated dispatch through such a
-    /// shadow would still NRE on any deref of an injected service, but the new emission path
-    /// covers the supported partial-projection case correctly.
-    /// </summary>
-    private static string BuildProjectionInstanceExpression(INamedTypeSymbol projectionType, string projectionFullName)
-    {
-        if (HasPublicParameterlessCtor(projectionType))
-        {
-            return $"new {projectionFullName}()";
-        }
-
-        return $"({projectionFullName})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({projectionFullName}))";
-    }
-
-    /// <summary>
-    /// True when the projection class declares a <c>public</c> parameterless constructor (or has no
-    /// explicit constructors, so the implicit default counts). The opposite (a projection whose only
-    /// public ctor takes DI-resolved parameters) is the trigger for the partial-class override emission
-    /// path that fixes marten#4787 — dispatching events through a <c>RuntimeHelpers.GetUninitializedObject</c>
-    /// shadow leaves injected fields null and NREs the first time a convention method dereferences one.
-    /// </summary>
-    private static bool HasPublicParameterlessCtor(INamedTypeSymbol projectionType)
-    {
-        return projectionType.InstanceConstructors.Any(c =>
-            c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
     }
 
     /// <summary>
@@ -2267,10 +2225,9 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            // Instance Apply on the projection — dispatched through the evolver's held projection
-            // instance for the file-scoped dispatcher (default path, #462) or directly on `this` when
-            // the override lives on the user's partial projection class (the DI-safe path,
-            // marten#4787, see EmitPartialProjectionWithDIOverride).
+            // Instance Apply on the projection — dispatched through the projection the runtime handed
+            // the evolver at construction (#653), or directly on `this` when the override lives on the
+            // user's own class because a file-scoped type could not name it.
             sb.Append($"{InstanceCallPrefix(dispatchOnThis)}{method.MethodName}({args})");
         }
     }
