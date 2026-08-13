@@ -51,18 +51,10 @@ internal static class EvolverCodeEmitter
     /// </summary>
     public static string EmitPartialProjection(CandidateInfo info)
     {
-        // marten#4787: when a projection requires a DI-resolved instance for its conventional
-        // Apply/Create/ShouldDelete methods (it has at least one instance-on-projection handler AND
-        // no public parameterless constructor), the file-scoped Evolver dispatcher silently NREs on
-        // any deref of an injected field — its shadow projection is built via
-        // RuntimeHelpers.GetUninitializedObject, which skips the constructor. Route to the alternative
-        // emission that adds an override directly to the user's partial class so `this` (the DI-built
-        // instance) handles dispatch and injected fields are populated. Stateless / parameterless-ctor
-        // / aggregate-only / static-only projections keep the file-scoped Evolver — no perf regression
-        // for the cases that don't need DI.
-        if (NeedsProjectionInstance(info)
-            && !HasPublicParameterlessCtor(info.ClassSymbol)
-            && info.IsPartial)
+        // Two shapes cannot be dispatched from a file-scoped evolver and fall back to injecting the
+        // override into the user's own partial class — see RequiresMemberInjection. The caller has
+        // already verified the required `partial` modifiers are in place (JFXEVT003 otherwise).
+        if (RequiresMemberInjection(info))
         {
             return EmitPartialProjectionWithDIOverride(info);
         }
@@ -152,6 +144,102 @@ internal static class EvolverCodeEmitter
     {
         return info.Methods.Any(m => !m.IsStatic && !m.IsOnAggregate);
     }
+
+    /// <summary>
+    /// True when dispatch cannot be a standalone file-scoped evolver and has to be injected into the
+    /// user's own class instead. Two shapes qualify:
+    ///
+    /// <list type="number">
+    /// <item>marten#4787 — at least one conventional method lives on the projection instance and the
+    /// projection has no public parameterless constructor, so the evolver's shadow instance (built with
+    /// <c>RuntimeHelpers.GetUninitializedObject</c>, skipping the constructor) would NRE on the first
+    /// deref of an injected field. Also catches an abstract projection base class, whose implicit
+    /// constructor is protected. Dispatching on <c>this</c> instead gives the DI-built instance.</item>
+    /// <item>The evolver could not name the projection at all from its own file — see
+    /// <see cref="DescribeWhyNotNameableFromFileScope"/>.</item>
+    /// </list>
+    ///
+    /// Everything else (static-only, aggregate-side, or instance methods on a projection with a public
+    /// parameterless constructor) keeps the file-scoped evolver, which is the emission that makes the
+    /// double-load scenario in <see cref="EmitPartialProjection"/> safe.
+    /// </summary>
+    public static bool RequiresMemberInjection(CandidateInfo info)
+    {
+        return (NeedsProjectionInstance(info) && !HasPublicParameterlessCtor(info.ClassSymbol))
+               || DescribeWhyNotNameableFromFileScope(info.ClassSymbol) != null;
+    }
+
+    /// <summary>
+    /// Why a <c>file</c>-scoped evolver cannot name <paramref name="projectionType"/>, or <c>null</c>
+    /// when it can. The evolver lives in its own generated file and <c>file</c>-scoped types cannot be
+    /// nested, so a projection behind <c>private</c> / <c>protected</c> is unreachable (CS0122) and an
+    /// open generic projection cannot be named from a non-generic type (CS0246). Both shapes emitted
+    /// uncompilable code before these were routed to member injection instead.
+    /// </summary>
+    public static string? DescribeWhyNotNameableFromFileScope(INamedTypeSymbol projectionType)
+    {
+        for (INamedTypeSymbol? current = projectionType; current != null; current = current.ContainingType)
+        {
+            var self = ReferenceEquals(current, projectionType);
+
+            if (current.TypeParameters.Length > 0)
+            {
+                return self
+                    ? "it is generic"
+                    : $"it is nested inside the generic type '{current.Name}'";
+            }
+
+            switch (current.DeclaredAccessibility)
+            {
+                case Accessibility.Private:
+                case Accessibility.Protected:
+                case Accessibility.ProtectedAndInternal:
+                    var how = Describe(current.DeclaredAccessibility);
+                    return self
+                        ? $"it is declared {how}"
+                        : $"its containing type '{current.Name}' is declared {how}";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The declaration that blocks member injection, or <c>null</c> when every declaration that has to
+    /// carry <c>partial</c> does. The generated override is written into the projection's own class, so
+    /// the projection and — because the generated file has to re-open them — each of its containing
+    /// types must be <c>partial</c>; a non-partial container fails the consumer build with CS0260.
+    /// </summary>
+    public static string? DescribeMissingPartialDeclaration(CandidateInfo info)
+    {
+        if (!info.IsPartial) return $"'{info.ClassSymbol.Name}' is not declared partial";
+
+        for (var container = info.ClassSymbol.ContainingType; container != null; container = container.ContainingType)
+        {
+            if (!IsDeclaredPartial(container))
+            {
+                return $"its containing type '{container.Name}' is not declared partial";
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsDeclaredPartial(INamedTypeSymbol type)
+    {
+        return type.DeclaringSyntaxReferences
+            .Select(r => r.GetSyntax())
+            .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax>()
+            .Any(d => d.Modifiers.Any(m => m.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PartialKeyword)));
+    }
+
+    private static string Describe(Accessibility accessibility) => accessibility switch
+    {
+        Accessibility.Private => "private",
+        Accessibility.Protected => "protected",
+        Accessibility.ProtectedAndInternal => "private protected",
+        _ => accessibility.ToString().ToLowerInvariant()
+    };
 
     /// <summary>
     /// marten#4787 alternative dispatch: emit the projection's Evolve / EvolveAsync /
