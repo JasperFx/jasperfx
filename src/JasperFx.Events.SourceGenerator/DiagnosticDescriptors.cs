@@ -34,4 +34,21 @@ internal static class DiagnosticDescriptors
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// An EventProjection with an explicit <c>ApplyAsync</c> writes documents the generator can name,
+    /// but the registration is a <c>PublishedTypes()</c> override emitted into the projection class, so
+    /// a non-partial projection cannot receive one. Warning rather than error: nothing fails at runtime,
+    /// the store provisions that document's storage on demand, and only the ahead-of-time surfaces
+    /// (schema creation, known document types, rebuild teardown) come up short. Before this the skip was
+    /// entirely silent. See #654.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnregisteredPublishedTypes = new(
+        id: "JFXEVT006",
+        title: "Published document types cannot be registered",
+        messageFormat:
+            "'{0}' writes document type(s) {1} from its ApplyAsync override, but is not declared partial, so they are not registered as published types; declare the projection partial, or register them with RegisterPublishedType",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }

@@ -924,8 +924,12 @@ internal static class AggregateAnalyzer
             // Even with an explicit override, we should still discover document types
             // used in Store/Insert/Delete calls so they can be registered as published types.
             // See https://github.com/JasperFx/marten/issues/4166
-            if (!isPartial) return null;
-
+            //
+            // Discovery runs whether or not the class is `partial`. The registration itself is a
+            // PublishedTypes() override emitted into the user's class, so a non-partial projection
+            // genuinely cannot have one — but bailing out here made that the one skip in the whole
+            // generator that produced no diagnostic at all. The candidate is built either way and
+            // EmitEventProjectionTypeRegistration reports JFXEVT006 instead of emitting. See #654.
             var unresolved = new List<UnresolvedDocumentOperation>();
             var discoveredTypes = DiscoverDocumentTypesFromMethodBodies(classDecl, classSymbol,
                 baseInfo.operationsType, semanticModel, unresolved);
