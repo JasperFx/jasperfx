@@ -395,6 +395,173 @@ internal static class EvolverCodeEmitter
     /// dispatches DetermineActionAsync as a single call (no <c>evolveDefaultAsync</c>-style per-event
     /// catch wrapper above us).
     /// </summary>
+    /// <summary>
+    /// Emits the per-event switch arms shared by both DetermineAction dispatch shapes — the file-scoped
+    /// evolver and the override injected into the user's class. They differ only in whether conventional
+    /// methods bind to <c>this</c> or to the evolver's projection instance.
+    ///
+    /// <para>Delete arms come first and own their event type outright. Their <c>case T data:</c> is
+    /// unguarded, so a separate Create/Apply arm for the same type would be an unreachable duplicate case
+    /// (CS8120) and the consumer build would fail on generated code — see #652. A <c>ShouldDelete</c>
+    /// predicate that returns <c>false</c> still has to fold the event in, so the Create/Apply body moves
+    /// inside the delete arm's <c>else</c>. A constructor-registered <c>DeleteEvent&lt;T&gt;()</c> is
+    /// unconditional — it mirrors the runtime's <c>MatchesAnyDeleteType</c> short circuit in
+    /// <c>buildActionAsync</c> — so those event types drop their Create/Apply entirely.</para>
+    /// </summary>
+    private static void EmitDetermineActionSwitchArms(StringBuilder sb, CandidateInfo info, bool isAsync,
+        bool dispatchOnThis)
+    {
+        // ShouldDelete overloads sharing an event type are coalesced into one arm and OR'd together, so
+        // the snapshot is dropped if any overload returns true.
+        var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
+        var shouldDeleteByEventType = shouldDeleteMethods
+            .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
+            .OrderByDescending(g => GetTypeDepth(g.Key))
+            .ToList();
+        var shouldDeleteEventTypes = new HashSet<ITypeSymbol>(
+            shouldDeleteMethods.Select(m => m.EventType), SymbolEqualityComparer.Default);
+        var ctorDeleteEventTypes = info.ConstructorDeleteEventTypes
+            .Where(t => !shouldDeleteEventTypes.Contains(t))
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
+            .OrderByDescending(t => GetTypeDepth(t))
+            .ToList();
+
+        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
+        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
+
+        var deleteHandledTypes = new HashSet<ITypeSymbol>(shouldDeleteEventTypes, SymbolEqualityComparer.Default);
+        foreach (var eventType in ctorDeleteEventTypes) deleteHandledTypes.Add(eventType);
+
+        foreach (var group in shouldDeleteByEventType)
+        {
+            const string dataVar = "data";
+            sb.AppendLine($"                case {Fqn(group.Key)} {dataVar}:");
+            sb.Append("                    if (snapshot != null && (");
+            var first = true;
+            foreach (var method in group)
+            {
+                if (!first) sb.Append(" || ");
+                first = false;
+                EmitShouldDeleteCall(sb, method, dataVar, dispatchOnThis: dispatchOnThis);
+            }
+
+            sb.AppendLine("))");
+            sb.AppendLine("                    {");
+            sb.AppendLine("                        snapshot = null;");
+            sb.AppendLine("                    }");
+
+            var create = createMethods.FirstOrDefault(m =>
+                SymbolEqualityComparer.Default.Equals(m.EventType, group.Key));
+            var apply = applyMethods.FirstOrDefault(m =>
+                SymbolEqualityComparer.Default.Equals(m.EventType, group.Key));
+
+            if (create != null || apply != null)
+            {
+                sb.AppendLine("                    else");
+                sb.AppendLine("                    {");
+                EmitCreateApplyStatements(sb, info, create, apply, isAsync, "                        ",
+                    dispatchOnThis);
+                sb.AppendLine("                    }");
+            }
+
+            sb.AppendLine("                    break;");
+        }
+
+        foreach (var eventType in ctorDeleteEventTypes)
+        {
+            sb.AppendLine($"                case {Fqn(eventType)}:");
+            sb.AppendLine("                    snapshot = null;");
+            sb.AppendLine("                    break;");
+        }
+
+        foreach (var method in createMethods)
+        {
+            if (deleteHandledTypes.Contains(method.EventType)) continue;
+
+            sb.AppendLine($"                case {Fqn(method.EventType)} data when snapshot == null:");
+            sb.Append("                    snapshot = ");
+            EmitCreateCall(sb, method, "data", "e", isAsync, dispatchOnThis: dispatchOnThis);
+            sb.AppendLine(";");
+            sb.AppendLine("                    break;");
+        }
+
+        foreach (var method in applyMethods)
+        {
+            if (deleteHandledTypes.Contains(method.EventType)) continue;
+
+            var eventTypeName = Fqn(method.EventType);
+            var hasCreateForType = createMethods.Any(c =>
+                SymbolEqualityComparer.Default.Equals(c.EventType, method.EventType));
+
+            if (hasCreateForType)
+            {
+                // Create already owns the null-snapshot half of this event type.
+                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
+            }
+            else if (info.HasDefaultConstructor)
+            {
+                sb.AppendLine($"                case {eventTypeName} data:");
+                sb.AppendLine($"                    snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
+            }
+            else
+            {
+                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
+            }
+
+            sb.Append("                    ");
+            EmitApplyCallStatement(sb, method, "data", "e", isAsync, dispatchOnThis: dispatchOnThis);
+            sb.AppendLine("                    break;");
+        }
+    }
+
+    /// <summary>
+    /// Emits Create/Apply for a single event type as plain statements at <paramref name="indent"/>,
+    /// for use inside a delete arm where the guarded <c>when snapshot == null</c> / <c>when snapshot
+    /// != null</c> arms are not available. Create and Apply for the same event type stay mutually
+    /// exclusive — one or the other runs for a single event, never both, matching the guarded arms.
+    /// </summary>
+    private static void EmitCreateApplyStatements(StringBuilder sb, CandidateInfo info,
+        ConventionalMethodInfo? create, ConventionalMethodInfo? apply, bool isAsync, string indent,
+        bool dispatchOnThis)
+    {
+        if (create != null)
+        {
+            sb.AppendLine($"{indent}if (snapshot == null)");
+            sb.AppendLine($"{indent}{{");
+            sb.Append($"{indent}    snapshot = ");
+            EmitCreateCall(sb, create, "data", "e", isAsync, dispatchOnThis: dispatchOnThis);
+            sb.AppendLine(";");
+            sb.AppendLine($"{indent}}}");
+
+            if (apply != null)
+            {
+                sb.AppendLine($"{indent}else");
+                sb.AppendLine($"{indent}{{");
+                sb.Append($"{indent}    ");
+                EmitApplyCallStatement(sb, apply, "data", "e", isAsync, dispatchOnThis: dispatchOnThis);
+                sb.AppendLine($"{indent}}}");
+            }
+
+            return;
+        }
+
+        if (apply == null) return;
+
+        if (info.HasDefaultConstructor)
+        {
+            sb.AppendLine($"{indent}snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
+            sb.Append(indent);
+            EmitApplyCallStatement(sb, apply, "data", "e", isAsync, dispatchOnThis: dispatchOnThis);
+            return;
+        }
+
+        sb.AppendLine($"{indent}if (snapshot != null)");
+        sb.AppendLine($"{indent}{{");
+        sb.Append($"{indent}    ");
+        EmitApplyCallStatement(sb, apply, "data", "e", isAsync, dispatchOnThis: dispatchOnThis);
+        sb.AppendLine($"{indent}}}");
+    }
+
     private static void EmitDetermineActionAsOverride(StringBuilder sb, CandidateInfo info)
     {
         var docType = Fqn(info.AggregateType!);
@@ -420,79 +587,7 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("            switch (e.Data)");
         sb.AppendLine("            {");
 
-        var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
-        var shouldDeleteByEventType = shouldDeleteMethods
-            .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
-            .OrderByDescending(g => GetTypeDepth(g.Key))
-            .ToList();
-        var shouldDeleteEventTypes = new HashSet<ITypeSymbol>(
-            shouldDeleteMethods.Select(m => m.EventType), SymbolEqualityComparer.Default);
-        var ctorDeleteEventTypes = info.ConstructorDeleteEventTypes
-            .Where(t => !shouldDeleteEventTypes.Contains(t))
-            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
-            .OrderByDescending(t => GetTypeDepth(t))
-            .ToList();
-
-        foreach (var group in shouldDeleteByEventType)
-        {
-            var eventTypeName = Fqn(group.Key);
-            var dataVar = "data";
-            sb.AppendLine($"                case {eventTypeName} {dataVar}:");
-            sb.Append("                    if (snapshot != null && (");
-            bool first = true;
-            foreach (var method in group)
-            {
-                if (!first) sb.Append(" || ");
-                first = false;
-                EmitShouldDeleteCall(sb, method, dataVar, dispatchOnThis: true);
-            }
-            sb.AppendLine("))");
-            sb.AppendLine("                        snapshot = null;");
-            sb.AppendLine("                    break;");
-        }
-        foreach (var eventType in ctorDeleteEventTypes)
-        {
-            sb.AppendLine($"                case {Fqn(eventType)}:");
-            sb.AppendLine("                    snapshot = null;");
-            sb.AppendLine("                    break;");
-        }
-
-        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
-        foreach (var method in createMethods)
-        {
-            var eventTypeName = Fqn(method.EventType);
-            sb.AppendLine($"                case {eventTypeName} data when snapshot == null:");
-            sb.Append("                    snapshot = ");
-            EmitCreateCall(sb, method, "data", "e", isAsync, dispatchOnThis: true);
-            sb.AppendLine(";");
-            sb.AppendLine("                    break;");
-        }
-
-        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
-        foreach (var method in applyMethods)
-        {
-            var eventTypeName = Fqn(method.EventType);
-            bool hasCreateForType = createMethods.Any(c =>
-                SymbolEqualityComparer.Default.Equals(c.EventType, method.EventType));
-
-            if (hasCreateForType)
-            {
-                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
-            }
-            else if (info.HasDefaultConstructor)
-            {
-                sb.AppendLine($"                case {eventTypeName} data:");
-                sb.AppendLine($"                    snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
-            }
-            else
-            {
-                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
-            }
-
-            sb.Append("                    ");
-            EmitApplyCallStatement(sb, method, "data", "e", isAsync, dispatchOnThis: true);
-            sb.AppendLine("                    break;");
-        }
+        EmitDetermineActionSwitchArms(sb, info, isAsync, dispatchOnThis: true);
 
         sb.AppendLine("            }");
         sb.AppendLine("            }");
@@ -1459,92 +1554,7 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("            switch (e.Data)");
         sb.AppendLine("            {");
 
-        // ShouldDelete cases first — coalesce overloads sharing the same event
-        // type into a single switch arm so the compiler doesn't flag duplicate
-        // arms as unreachable (CS8120). Multiple ShouldDelete overloads on the
-        // same event type are OR'd together so the snapshot is dropped if any
-        // overload returns true.
-        var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
-        var shouldDeleteByEventType = shouldDeleteMethods
-            .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
-            .OrderByDescending(g => GetTypeDepth(g.Key))
-            .ToList();
-        // Constructor-side `DeleteEvent<T>()` registrations — the kept Marten
-        // 9.0 API for "this event type always deletes the aggregate." Emit one
-        // arm per event type that sets `snapshot = null` unconditionally.
-        // Skip types that already have a ShouldDelete handler so we don't emit
-        // duplicate switch arms (CS8120). See #297.
-        var shouldDeleteEventTypes = new HashSet<ITypeSymbol>(
-            shouldDeleteMethods.Select(m => m.EventType), SymbolEqualityComparer.Default);
-        var ctorDeleteEventTypes = info.ConstructorDeleteEventTypes
-            .Where(t => !shouldDeleteEventTypes.Contains(t))
-            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
-            .OrderByDescending(t => GetTypeDepth(t))
-            .ToList();
-        foreach (var group in shouldDeleteByEventType)
-        {
-            var eventTypeName = Fqn(group.Key);
-            var dataVar = "data";
-            sb.AppendLine($"                case {eventTypeName} {dataVar}:");
-            sb.Append("                    if (snapshot != null && (");
-            bool first = true;
-            foreach (var method in group)
-            {
-                if (!first) sb.Append(" || ");
-                first = false;
-                EmitShouldDeleteCall(sb, method, dataVar);
-            }
-            sb.AppendLine("))");
-            sb.AppendLine("                        snapshot = null;");
-            sb.AppendLine("                    break;");
-        }
-        foreach (var eventType in ctorDeleteEventTypes)
-        {
-            sb.AppendLine($"                case {Fqn(eventType)}:");
-            sb.AppendLine("                    snapshot = null;");
-            sb.AppendLine("                    break;");
-        }
-
-        // Create cases — coalesce by event type, prefer projection-defined over aggregate-defined.
-        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
-        foreach (var method in createMethods)
-        {
-            var eventTypeName = Fqn(method.EventType);
-            sb.AppendLine($"                case {eventTypeName} data when snapshot == null:");
-            sb.Append("                    snapshot = ");
-            EmitCreateCall(sb, method, "data", "e", isAsync);
-            sb.AppendLine(";");
-            sb.AppendLine("                    break;");
-        }
-
-        // Apply cases — coalesce by event type.
-        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
-        foreach (var method in applyMethods)
-        {
-            var eventTypeName = Fqn(method.EventType);
-            // For apply methods where there's no create, we need to handle null snapshot
-            bool hasCreateForType = createMethods.Any(c =>
-                SymbolEqualityComparer.Default.Equals(c.EventType, method.EventType));
-
-            if (hasCreateForType)
-            {
-                // Apply only when snapshot exists
-                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
-            }
-            else if (info.HasDefaultConstructor)
-            {
-                sb.AppendLine($"                case {eventTypeName} data:");
-                sb.AppendLine($"                    snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
-            }
-            else
-            {
-                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
-            }
-
-            sb.Append("                    ");
-            EmitApplyCallStatement(sb, method, "data", "e", isAsync);
-            sb.AppendLine("                    break;");
-        }
+        EmitDetermineActionSwitchArms(sb, info, isAsync, dispatchOnThis: false);
 
         sb.AppendLine("            }");
         sb.AppendLine("            }");
@@ -1873,7 +1883,15 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("            switch (e.Data)");
         sb.AppendLine("            {");
 
-        // ShouldDelete - set snapshot to null and continue processing (allows re-creation)
+        // Create + Apply
+        var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
+        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+
+        // ShouldDelete - set snapshot to null and continue processing (allows re-creation).
+        // The arm is unguarded, so it owns its event type: a separate Create/Apply arm for the same
+        // type would be an unreachable duplicate case (CS8120). A predicate that returns false still
+        // has to fold the event in, so that body goes in the else rather than being dropped — before
+        // #652 it was skipped entirely and declaring ShouldDelete(E) silently disabled Apply(E).
         var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
         foreach (var method in shouldDeleteMethods)
         {
@@ -1882,15 +1900,28 @@ internal static class EvolverCodeEmitter
             sb.Append("                    if (snapshot != null && ");
             EmitSelfAggregatingShouldDeleteCall(sb, method, "data");
             sb.AppendLine(")");
+            sb.AppendLine("                    {");
             sb.AppendLine("                        snapshot = null;");
+            sb.AppendLine("                    }");
+
+            var deleteCreate = createMethods.FirstOrDefault(m =>
+                SymbolEqualityComparer.Default.Equals(m.EventType, method.EventType));
+            var deleteApply = applyMethods.FirstOrDefault(m =>
+                SymbolEqualityComparer.Default.Equals(m.EventType, method.EventType));
+
+            if (deleteCreate != null || deleteApply != null)
+            {
+                sb.AppendLine("                    else");
+                sb.AppendLine("                    {");
+                EmitSelfAggregatingCreateApplyStatements(sb, info, deleteCreate, deleteApply,
+                    "                        ");
+                sb.AppendLine("                    }");
+            }
+
             sb.AppendLine("                    break;");
         }
 
-        // Create + Apply
-        var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
-
-        // Group by event type (excluding ShouldDelete events already handled)
+        // Group by event type (excluding ShouldDelete events already handled above)
         var handledDeleteTypes = new HashSet<ITypeSymbol>(shouldDeleteMethods.Select(m => m.EventType),
             SymbolEqualityComparer.Default);
 
@@ -1964,6 +1995,51 @@ internal static class EvolverCodeEmitter
             "            return exists ? (null, global::JasperFx.Events.Daemon.ActionType.Delete) : (null, global::JasperFx.Events.Daemon.ActionType.Nothing);");
         sb.AppendLine($"        return (snapshot, global::JasperFx.Events.Daemon.ActionType.Store);");
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Self-aggregating counterpart to <see cref="EmitCreateApplyStatements"/>: Create/Apply for one
+    /// event type as plain statements at <paramref name="indent"/>, for use inside a delete arm.
+    /// </summary>
+    private static void EmitSelfAggregatingCreateApplyStatements(StringBuilder sb, CandidateInfo info,
+        ConventionalMethodInfo? create, ConventionalMethodInfo? apply, string indent)
+    {
+        if (create != null)
+        {
+            sb.AppendLine($"{indent}if (snapshot == null)");
+            sb.AppendLine($"{indent}{{");
+            sb.Append($"{indent}    snapshot = ");
+            EmitSelfAggregatingCreateCall(sb, create, "data");
+            sb.AppendLine(";");
+            sb.AppendLine($"{indent}}}");
+
+            if (apply != null)
+            {
+                sb.AppendLine($"{indent}else");
+                sb.AppendLine($"{indent}{{");
+                sb.Append($"{indent}    ");
+                EmitSelfAggregatingApplyCall(sb, apply, "data");
+                sb.AppendLine($"{indent}}}");
+            }
+
+            return;
+        }
+
+        if (apply == null) return;
+
+        if (info.HasDefaultConstructor)
+        {
+            sb.AppendLine($"{indent}snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
+            sb.Append(indent);
+            EmitSelfAggregatingApplyCall(sb, apply, "data");
+            return;
+        }
+
+        sb.AppendLine($"{indent}if (snapshot != null)");
+        sb.AppendLine($"{indent}{{");
+        sb.Append($"{indent}    ");
+        EmitSelfAggregatingApplyCall(sb, apply, "data");
+        sb.AppendLine($"{indent}}}");
     }
 
     // --- Null snapshot case generation (sync) ---
