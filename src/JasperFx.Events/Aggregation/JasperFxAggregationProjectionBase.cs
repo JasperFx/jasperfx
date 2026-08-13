@@ -157,17 +157,57 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
     }
 
+    /// <summary>
+    /// True when the projection genuinely overrides one of the dispatch virtuals, in which case that
+    /// override owns event application and neither the generated evolver nor the conventional methods
+    /// are consulted.
+    ///
+    /// <para>Declaring the method without <c>override</c> — the compiler's CS0114 case, whether or not
+    /// the author added <c>new</c> — hides the base virtual instead of replacing it. It used to count
+    /// here, purely because it is declared outside JasperFx.Events, and the consequences were entirely
+    /// silent: with conventional methods alongside it, registration failed claiming the projection
+    /// "can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods, but
+    /// not both" — a conflict the author never wrote — and without them, dispatch reached the base
+    /// virtual and threw <c>NotImplementedException("Did you forget to implement this?")</c> at the
+    /// first event. <see cref="MethodInfo.GetBaseDefinition"/> separates the two: an override reports
+    /// the base-class declaration, a hiding member reports itself. See #656.</para>
+    /// </summary>
     private bool isOverridden(string methodName)
     {
-        return GetType().GetMethod(methodName)!.DeclaringType!.Assembly != typeof(IEvent).Assembly;
+        var method = findDispatchMethod(methodName);
+
+        return method != null
+               && method.DeclaringType!.Assembly != typeof(IEvent).Assembly
+               && method.GetBaseDefinition().DeclaringType!.Assembly == typeof(IEvent).Assembly;
     }
 
     private bool isSourceGeneratedOverride(string methodName)
     {
-        var method = GetType().GetMethod(methodName);
+        var method = findDispatchMethod(methodName);
         return method != null
                && method.DeclaringType!.Assembly != typeof(IEvent).Assembly
                && method.IsDefined(typeof(System.CodeDom.Compiler.GeneratedCodeAttribute), false);
+    }
+
+    /// <summary>
+    /// The dispatch virtual named <paramref name="methodName"/> as this projection sees it.
+    /// <c>Type.GetMethod(string)</c> throws <see cref="AmbiguousMatchException"/> as soon as the
+    /// projection declares any other method of the same name — a private <c>Evolve(string)</c> helper
+    /// was enough to break registration — so match on the base declaration's signature instead.
+    /// </summary>
+    private MethodInfo? findDispatchMethod(string methodName)
+    {
+        var baseDeclaration = typeof(JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>)
+            .GetMethods()
+            .FirstOrDefault(m => m.Name == methodName);
+
+        if (baseDeclaration == null) return null;
+
+        var parameterTypes = baseDeclaration.GetParameters().Select(p => p.ParameterType).ToArray();
+
+        return GetType().GetMethods()
+            .FirstOrDefault(m => m.Name == methodName
+                                 && m.GetParameters().Select(p => p.ParameterType).SequenceEqual(parameterTypes));
     }
 
     [MemberNotNullWhen(true, nameof(_evolve))]
