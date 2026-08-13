@@ -51,22 +51,6 @@ internal static class EvolverCodeEmitter
     /// </summary>
     public static string EmitPartialProjection(CandidateInfo info)
     {
-        // marten#4787: when a projection requires a DI-resolved instance for its conventional
-        // Apply/Create/ShouldDelete methods (it has at least one instance-on-projection handler AND
-        // no public parameterless constructor), the file-scoped Evolver dispatcher silently NREs on
-        // any deref of an injected field — its shadow projection is built via
-        // RuntimeHelpers.GetUninitializedObject, which skips the constructor. Route to the alternative
-        // emission that adds an override directly to the user's partial class so `this` (the DI-built
-        // instance) handles dispatch and injected fields are populated. Stateless / parameterless-ctor
-        // / aggregate-only / static-only projections keep the file-scoped Evolver — no perf regression
-        // for the cases that don't need DI.
-        if (NeedsProjectionInstance(info)
-            && !HasPublicParameterlessCtor(info.ClassSymbol)
-            && info.IsPartial)
-        {
-            return EmitPartialProjectionWithDIOverride(info);
-        }
-
         var sb = new StringBuilder();
         AppendGeneratedFileHeader(sb);
 
@@ -111,19 +95,23 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("{");
 
         // The dispatcher invokes the projection's own instance Apply/Create/ShouldDelete methods through
-        // a private projection instance. Aggregate-side and static methods are invoked directly, so the
-        // instance is only needed (and only emitted) when at least one method lives on the projection
-        // instance — avoiding a CS0169 "field never used" warning in warnings-as-errors consumer builds.
+        // a projection instance. Aggregate-side and static methods are invoked directly, so the instance
+        // is only needed (and only emitted) when at least one method lives on the projection instance —
+        // avoiding a CS0169 "field never used" warning in warnings-as-errors consumer builds.
         //
-        // The instance is created lazily, NOT in a field initializer: the projection's own constructor
-        // resolves this very evolver (via tryUseAssemblyRegisteredEvolver), so eagerly constructing the
-        // projection here would recurse projection -> evolver -> projection -> ... and StackOverflow. By
-        // the time a handler actually runs, the evolver's own construction has long completed, so the
-        // lazy create is safe and happens once.
+        // The instance is the projection the store actually registered, handed over by the runtime's
+        // activateEvolver through this constructor. The evolver used to build its own shadow instead —
+        // `new TProjection()`, or GetUninitializedObject when there was no public parameterless
+        // constructor — which meant injected dependencies were null (marten#4787) and anything the real
+        // constructor set was missing. See #653.
         if (NeedsProjectionInstance(info))
         {
-            sb.AppendLine($"    private {projectionFullName}? _projectionInstance;");
-            sb.AppendLine($"    private {projectionFullName} _projection => _projectionInstance ??= {BuildProjectionInstanceExpression(info.ClassSymbol, projectionFullName)};");
+            sb.AppendLine($"    private readonly {projectionFullName} _projection;");
+            sb.AppendLine();
+            sb.AppendLine($"    public {evolverName}({projectionFullName} projection)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        _projection = projection;");
+            sb.AppendLine("    }");
             sb.AppendLine();
         }
 
@@ -152,334 +140,6 @@ internal static class EvolverCodeEmitter
     {
         return info.Methods.Any(m => !m.IsStatic && !m.IsOnAggregate);
     }
-
-    /// <summary>
-    /// marten#4787 alternative dispatch: emit the projection's Evolve / EvolveAsync /
-    /// DetermineActionAsync as a [GeneratedCode]-attributed override directly into the user's
-    /// <em>partial</em> projection class. The body switches on event type and calls the conventional
-    /// methods bare (binding to <c>this</c>), so the DI-resolved projection instance handles
-    /// dispatch and every injected field is populated. We deliberately skip the
-    /// <c>[assembly: GeneratedEvolver(...)]</c> registration and the <c>file sealed class</c> Evolver
-    /// — the runtime's <c>isOverridden(...)</c> precedence (<c>JasperFxAggregationProjectionBase</c>
-    /// lines 82-114) prefers a user/SG override on the class over the assembly-registered Evolver,
-    /// so the dispatcher routes through this method and never recreates the shadow instance whose
-    /// null injected fields caused the regression.
-    /// </summary>
-    private static string EmitPartialProjectionWithDIOverride(CandidateInfo info)
-    {
-        var sb = new StringBuilder();
-        AppendGeneratedFileHeader(sb);
-
-        var ns = info.ClassSymbol.ContainingNamespace;
-        if (!ns.IsGlobalNamespace)
-        {
-            sb.AppendLine($"namespace {ns.ToDisplayString()};");
-            sb.AppendLine();
-        }
-
-        // Mirror EmitEventProjectionPartial: open containing-type partial declarations (handles
-        // a projection nested inside a record/class, e.g. `record Foo { partial class Projector ... }`).
-        var containingTypes = GetContainingTypes(info.ClassSymbol);
-        foreach (var container in containingTypes)
-        {
-            sb.AppendLine($"partial {ContainerKeyword(container)} {container.Name}{ContainerTypeParams(container)}");
-            sb.AppendLine("{");
-        }
-
-        var className = info.ClassSymbol.Name;
-        var typeParams = "";
-        if (info.ClassSymbol.TypeParameters.Length > 0)
-        {
-            typeParams = "<" + string.Join(", ", info.ClassSymbol.TypeParameters.Select(t => t.Name)) + ">";
-        }
-
-        sb.AppendLine($"partial class {className}{typeParams}");
-        sb.AppendLine("{");
-
-        if (info.HasShouldDelete)
-        {
-            EmitDetermineActionAsOverride(sb, info);
-        }
-        else if (info.HasAnyAsync)
-        {
-            EmitEvolveAsyncAsOverride(sb, info);
-        }
-        else
-        {
-            EmitEvolveAsOverride(sb, info);
-        }
-
-        sb.AppendLine("}");
-
-        foreach (var _ in containingTypes)
-        {
-            sb.AppendLine("}");
-        }
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// marten#4787: synchronous, no-ShouldDelete partial-class override. Matches the virtual at
-    /// <c>JasperFxAggregationProjectionBase.Runtime.cs:175</c>:
-    /// <c>public virtual TDoc? Evolve(TDoc? snapshot, TId id, IEvent e)</c>.
-    /// </summary>
-    private static void EmitEvolveAsOverride(StringBuilder sb, CandidateInfo info)
-    {
-        var docType = Fqn(info.AggregateType!);
-        var idType = Fqn(info.IdentityType!);
-
-        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public override {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
-        sb.AppendLine("    {");
-
-        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
-        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
-
-        sb.AppendLine("        if (snapshot == null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            switch (e.Data)");
-        sb.AppendLine("            {");
-        EmitNullSnapshotCases(sb, info, createMethods, applyMethods, "                ", dispatchOnThis: true);
-        sb.AppendLine("                default: return null;");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine("        switch (e.Data)");
-        sb.AppendLine("        {");
-        EmitNonNullSnapshotCases(sb, info, applyMethods, "            ", dispatchOnThis: true);
-        sb.AppendLine("            default: return snapshot;");
-        sb.AppendLine("        }");
-
-        sb.AppendLine("    }");
-    }
-
-    /// <summary>
-    /// marten#4787: async / session-using, no-ShouldDelete partial-class override. Matches the
-    /// virtual at <c>JasperFxAggregationProjectionBase.Runtime.cs:142</c>:
-    /// <c>public virtual ValueTask&lt;TDoc?&gt; EvolveAsync(TDoc? snapshot, TId id, TQuerySession session, IEvent e, CancellationToken cancellation)</c>.
-    /// The override binds the strongly-typed <c>TQuerySession</c> directly, so user handlers that
-    /// take an <c>IQuerySession</c> parameter consume <c>session</c> without a cast (no equivalent
-    /// of <see cref="EmitSessionLocalIfNeeded"/> required here).
-    /// </summary>
-    private static void EmitEvolveAsyncAsOverride(StringBuilder sb, CandidateInfo info)
-    {
-        var docType = Fqn(info.AggregateType!);
-        var idType = Fqn(info.IdentityType!);
-        var querySessionType = Fqn(info.QuerySessionType!);
-
-        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public override async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync(");
-        sb.AppendLine($"        {docType}? snapshot, {idType} id, {querySessionType} session, global::JasperFx.Events.IEvent e,");
-        sb.AppendLine($"        global::System.Threading.CancellationToken cancellation)");
-        sb.AppendLine("    {");
-
-        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
-        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
-
-        sb.AppendLine("        if (snapshot == null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            switch (e.Data)");
-        sb.AppendLine("            {");
-        EmitNullSnapshotCasesAsync(sb, info, createMethods, applyMethods, "                ", dispatchOnThis: true);
-        sb.AppendLine("                default: return null;");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine("        switch (e.Data)");
-        sb.AppendLine("        {");
-        EmitNonNullSnapshotCasesAsync(sb, info, applyMethods, "            ", dispatchOnThis: true);
-        sb.AppendLine("            default: return snapshot;");
-        sb.AppendLine("        }");
-
-        sb.AppendLine("    }");
-    }
-
-    /// <summary>
-    /// marten#4787: ShouldDelete-aware partial-class override. Matches the virtual at
-    /// <c>JasperFxAggregationProjectionBase.Runtime.cs:93</c>:
-    /// <c>public virtual ValueTask&lt;(TDoc?, ActionType)&gt; DetermineActionAsync(TQuerySession session, TDoc? snapshot, TId identity, IIdentitySetter&lt;TDoc, TId&gt; identitySetter, IReadOnlyList&lt;IEvent&gt; events, CancellationToken cancellation)</c>.
-    /// Body mirrors the file-scoped <see cref="EmitDetermineActionEvolverMethod"/> verbatim, with
-    /// <c>dispatchOnThis: true</c> swapping every <c>_projection.</c> instance call for a bare call
-    /// on <c>this</c>. Per-event ApplyEventException wrapping is preserved because the runtime
-    /// dispatches DetermineActionAsync as a single call (no <c>evolveDefaultAsync</c>-style per-event
-    /// catch wrapper above us).
-    /// </summary>
-    private static void EmitDetermineActionAsOverride(StringBuilder sb, CandidateInfo info)
-    {
-        var docType = Fqn(info.AggregateType!);
-        var idType = Fqn(info.IdentityType!);
-        var querySessionType = Fqn(info.QuerySessionType!);
-        var isAsync = info.HasAnyAsync;
-        var asyncKeyword = isAsync ? "async " : "";
-
-        sb.AppendLine("    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"JasperFx.Events.SourceGenerator\", \"1.0\")]");
-        sb.AppendLine($"    public override {asyncKeyword}global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)> DetermineActionAsync(");
-        sb.AppendLine($"        {querySessionType} session,");
-        sb.AppendLine($"        {docType}? snapshot,");
-        sb.AppendLine($"        {idType} identity,");
-        sb.AppendLine($"        global::JasperFx.Events.Aggregation.IIdentitySetter<{docType}, {idType}> identitySetter,");
-        sb.AppendLine($"        global::System.Collections.Generic.IReadOnlyList<global::JasperFx.Events.IEvent> events,");
-        sb.AppendLine($"        global::System.Threading.CancellationToken cancellation)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var exists = snapshot != null;");
-        sb.AppendLine("        foreach (var e in events)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            try");
-        sb.AppendLine("            {");
-        sb.AppendLine("            switch (e.Data)");
-        sb.AppendLine("            {");
-
-        var shouldDeleteMethods = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
-        var shouldDeleteByEventType = shouldDeleteMethods
-            .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
-            .OrderByDescending(g => GetTypeDepth(g.Key))
-            .ToList();
-        var shouldDeleteEventTypes = new HashSet<ITypeSymbol>(
-            shouldDeleteMethods.Select(m => m.EventType), SymbolEqualityComparer.Default);
-        var ctorDeleteEventTypes = info.ConstructorDeleteEventTypes
-            .Where(t => !shouldDeleteEventTypes.Contains(t))
-            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
-            .OrderByDescending(t => GetTypeDepth(t))
-            .ToList();
-
-        foreach (var group in shouldDeleteByEventType)
-        {
-            var eventTypeName = Fqn(group.Key);
-            var dataVar = "data";
-            sb.AppendLine($"                case {eventTypeName} {dataVar}:");
-            sb.Append("                    if (snapshot != null && (");
-            bool first = true;
-            foreach (var method in group)
-            {
-                if (!first) sb.Append(" || ");
-                first = false;
-                EmitShouldDeleteCall(sb, method, dataVar, dispatchOnThis: true);
-            }
-            sb.AppendLine("))");
-            sb.AppendLine("                        snapshot = null;");
-            sb.AppendLine("                    break;");
-        }
-        foreach (var eventType in ctorDeleteEventTypes)
-        {
-            sb.AppendLine($"                case {Fqn(eventType)}:");
-            sb.AppendLine("                    snapshot = null;");
-            sb.AppendLine("                    break;");
-        }
-
-        var createMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Create"));
-        foreach (var method in createMethods)
-        {
-            var eventTypeName = Fqn(method.EventType);
-            sb.AppendLine($"                case {eventTypeName} data when snapshot == null:");
-            sb.Append("                    snapshot = ");
-            EmitCreateCall(sb, method, "data", "e", isAsync, dispatchOnThis: true);
-            sb.AppendLine(";");
-            sb.AppendLine("                    break;");
-        }
-
-        var applyMethods = CoalesceByEventType(info.Methods.Where(m => m.MethodName == "Apply"));
-        foreach (var method in applyMethods)
-        {
-            var eventTypeName = Fqn(method.EventType);
-            bool hasCreateForType = createMethods.Any(c =>
-                SymbolEqualityComparer.Default.Equals(c.EventType, method.EventType));
-
-            if (hasCreateForType)
-            {
-                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
-            }
-            else if (info.HasDefaultConstructor)
-            {
-                sb.AppendLine($"                case {eventTypeName} data:");
-                sb.AppendLine($"                    snapshot ??= {BuildAggregateConstructorExpression(info.AggregateType!)};");
-            }
-            else
-            {
-                sb.AppendLine($"                case {eventTypeName} data when snapshot != null:");
-            }
-
-            sb.Append("                    ");
-            EmitApplyCallStatement(sb, method, "data", "e", isAsync, dispatchOnThis: true);
-            sb.AppendLine("                    break;");
-        }
-
-        sb.AppendLine("            }");
-        sb.AppendLine("            }");
-        sb.AppendLine("            catch (global::JasperFx.Events.Daemon.ApplyEventException)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                throw;");
-        sb.AppendLine("            }");
-        sb.AppendLine("            catch (global::System.Exception __ex)");
-        sb.AppendLine("                when (!global::JasperFx.Events.Projections.ProjectionExceptions.IsExceptionTransient(__ex))");
-        sb.AppendLine("            {");
-        sb.AppendLine("                throw new global::JasperFx.Events.Daemon.ApplyEventException(e, __ex);");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine("        if (snapshot == null)");
-        if (!isAsync)
-        {
-            sb.AppendLine($"            return exists ? new global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Delete)) : new global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)>((null, global::JasperFx.Events.Daemon.ActionType.Nothing));");
-            sb.AppendLine($"        return new global::System.Threading.Tasks.ValueTask<({docType}?, global::JasperFx.Events.Daemon.ActionType)>((snapshot, global::JasperFx.Events.Daemon.ActionType.Store));");
-        }
-        else
-        {
-            sb.AppendLine($"            return exists ? (null, global::JasperFx.Events.Daemon.ActionType.Delete) : (null, global::JasperFx.Events.Daemon.ActionType.Nothing);");
-            sb.AppendLine($"        return (snapshot, global::JasperFx.Events.Daemon.ActionType.Store);");
-        }
-        sb.AppendLine("    }");
-    }
-
-    /// <summary>
-    /// Builds the expression that creates the evolver's private "shadow" projection instance
-    /// (used only to invoke the projection's stateless instance Apply/Create/ShouldDelete event
-    /// methods). When the projection has a public parameterless constructor we just <c>new</c> it.
-    /// A DI-activated projection (registered via <c>AddProjectionWithServices</c>) has only a
-    /// constructor with injected dependencies and therefore no parameterless ctor — <c>new T()</c>
-    /// would not compile (#4185 / CS7036). In that case instantiate without running the constructor
-    /// (mirrors the aggregate no-parameterless-ctor fallback in
-    /// <see cref="BuildAggregateConstructorExpression"/>). Note: the DI-projection path is no longer
-    /// reached for partial projections — see <see cref="EmitPartialProjectionWithDIOverride"/> for the
-    /// alternative emission used when convention methods need DI-injected dependencies at runtime
-    /// (marten#4787). This shadow-instance path is preserved only as a defensive fallback (e.g. a
-    /// non-partial projection that somehow reaches this branch) — generated dispatch through such a
-    /// shadow would still NRE on any deref of an injected service, but the new emission path
-    /// covers the supported partial-projection case correctly.
-    /// </summary>
-    private static string BuildProjectionInstanceExpression(INamedTypeSymbol projectionType, string projectionFullName)
-    {
-        if (HasPublicParameterlessCtor(projectionType))
-        {
-            return $"new {projectionFullName}()";
-        }
-
-        return $"({projectionFullName})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({projectionFullName}))";
-    }
-
-    /// <summary>
-    /// True when the projection class declares a <c>public</c> parameterless constructor (or has no
-    /// explicit constructors, so the implicit default counts). The opposite (a projection whose only
-    /// public ctor takes DI-resolved parameters) is the trigger for the partial-class override emission
-    /// path that fixes marten#4787 — dispatching events through a <c>RuntimeHelpers.GetUninitializedObject</c>
-    /// shadow leaves injected fields null and NREs the first time a convention method dereferences one.
-    /// </summary>
-    private static bool HasPublicParameterlessCtor(INamedTypeSymbol projectionType)
-    {
-        return projectionType.InstanceConstructors.Any(c =>
-            c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
-    }
-
-    /// <summary>
-    /// Prefix used when emitting a call to an instance convention method on the projection. Inside the
-    /// file-scoped Evolver dispatcher it's <c>_projection.</c> (the shadow instance held by the Evolver).
-    /// Inside a partial-class override on the user's projection itself it's empty — the call binds to
-    /// <c>this</c> implicitly, which is the DI-resolved instance with injected fields populated. See
-    /// <see cref="EmitPartialProjectionWithDIOverride"/> and marten#4787.
-    /// </summary>
-    private static string InstanceCallPrefix(bool dispatchOnThis) => dispatchOnThis ? string.Empty : "_projection.";
 
     /// <summary>
     /// The IGeneratedAsyncEvolver / IGeneratedAsyncDetermineAction contracts type the session as
@@ -1881,8 +1541,7 @@ internal static class EvolverCodeEmitter
     // --- Null snapshot case generation (sync) ---
 
     private static void EmitNullSnapshotCases(StringBuilder sb, CandidateInfo info,
-        List<ConventionalMethodInfo> createMethods, List<ConventionalMethodInfo> applyMethods, string indent,
-        bool dispatchOnThis = false)
+        List<ConventionalMethodInfo> createMethods, List<ConventionalMethodInfo> applyMethods, string indent)
     {
         // For each event type with a Create method
         foreach (var method in createMethods)
@@ -1892,13 +1551,13 @@ internal static class EvolverCodeEmitter
             {
                 sb.AppendLine($"{indent}case {eventTypeName}:");
                 sb.Append($"{indent}    return ");
-                EmitCreateCallSync(sb, method, null, "e", dispatchOnThis);
+                EmitCreateCallSync(sb, method, null, "e");
             }
             else
             {
                 sb.AppendLine($"{indent}case {eventTypeName} data:");
                 sb.Append($"{indent}    return ");
-                EmitCreateCallSync(sb, method, "data", "e", dispatchOnThis);
+                EmitCreateCallSync(sb, method, "data", "e");
             }
 
             sb.AppendLine(";");
@@ -1932,7 +1591,7 @@ internal static class EvolverCodeEmitter
                 sb.AppendLine($"{indent}{{");
                 sb.AppendLine($"{indent}    var s = {ctorExpression};");
                 sb.Append($"{indent}    ");
-                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "s", dispatchOnThis);
+                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "s");
                 sb.AppendLine(";");
                 sb.AppendLine($"{indent}    return s;");
                 sb.AppendLine($"{indent}}}");
@@ -1946,7 +1605,7 @@ internal static class EvolverCodeEmitter
                 sb.AppendLine($"{indent}{{");
                 sb.AppendLine($"{indent}    var s = {ctorExpression};");
                 sb.Append($"{indent}    return ");
-                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "s", dispatchOnThis);
+                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "s");
                 sb.AppendLine(";");
                 sb.AppendLine($"{indent}}}");
             }
@@ -1956,8 +1615,7 @@ internal static class EvolverCodeEmitter
     // --- Null snapshot case generation (async) ---
 
     private static void EmitNullSnapshotCasesAsync(StringBuilder sb, CandidateInfo info,
-        List<ConventionalMethodInfo> createMethods, List<ConventionalMethodInfo> applyMethods, string indent,
-        bool dispatchOnThis = false)
+        List<ConventionalMethodInfo> createMethods, List<ConventionalMethodInfo> applyMethods, string indent)
     {
         foreach (var method in createMethods)
         {
@@ -1973,7 +1631,7 @@ internal static class EvolverCodeEmitter
                 sb.Append($"{indent}    return ");
             }
 
-            EmitCreateCall(sb, method, method.UsesIEventWrapper ? null : "data", "e", true, dispatchOnThis);
+            EmitCreateCall(sb, method, method.UsesIEventWrapper ? null : "data", "e", true);
             sb.AppendLine(";");
         }
 
@@ -1993,7 +1651,7 @@ internal static class EvolverCodeEmitter
             sb.AppendLine($"{indent}    var s = {BuildAggregateConstructorExpression(info.AggregateType!)};");
             var awaitPrefix = method.IsAsync ? "await " : "";
             sb.Append($"{indent}    {awaitPrefix}");
-            EmitApplyCallExpression(sb, method, "data", "e", true, "s", dispatchOnThis);
+            EmitApplyCallExpression(sb, method, "data", "e", true, "s");
             sb.AppendLine(";");
             sb.AppendLine($"{indent}    return s;");
             sb.AppendLine($"{indent}}}");
@@ -2003,7 +1661,7 @@ internal static class EvolverCodeEmitter
     // --- Non-null snapshot case generation (sync) ---
 
     private static void EmitNonNullSnapshotCases(StringBuilder sb, CandidateInfo info,
-        List<ConventionalMethodInfo> applyMethods, string indent, bool dispatchOnThis = false)
+        List<ConventionalMethodInfo> applyMethods, string indent)
     {
         foreach (var method in applyMethods)
         {
@@ -2021,14 +1679,14 @@ internal static class EvolverCodeEmitter
             if (method.IsVoid && !method.ReturnsAggregate)
             {
                 sb.Append($"{indent}    ");
-                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "snapshot", dispatchOnThis);
+                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "snapshot");
                 sb.AppendLine(";");
                 sb.AppendLine($"{indent}    return snapshot;");
             }
             else
             {
                 sb.Append($"{indent}    return ");
-                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "snapshot", dispatchOnThis);
+                EmitApplyCallExpression(sb, method, method.UsesIEventWrapper ? null : "data", "e", false, "snapshot");
                 sb.AppendLine(";");
             }
         }
@@ -2037,7 +1695,7 @@ internal static class EvolverCodeEmitter
     // --- Non-null snapshot case generation (async) ---
 
     private static void EmitNonNullSnapshotCasesAsync(StringBuilder sb, CandidateInfo info,
-        List<ConventionalMethodInfo> applyMethods, string indent, bool dispatchOnThis = false)
+        List<ConventionalMethodInfo> applyMethods, string indent)
     {
         foreach (var method in applyMethods)
         {
@@ -2049,13 +1707,13 @@ internal static class EvolverCodeEmitter
                 if (method.ReturnsAggregate)
                 {
                     sb.Append($"{indent}    return await ");
-                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot", dispatchOnThis);
+                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot");
                     sb.AppendLine(";");
                 }
                 else
                 {
                     sb.Append($"{indent}    await ");
-                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot", dispatchOnThis);
+                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot");
                     sb.AppendLine(";");
                     sb.AppendLine($"{indent}    return snapshot;");
                 }
@@ -2070,13 +1728,13 @@ internal static class EvolverCodeEmitter
                 if (method.ReturnsAggregate)
                 {
                     sb.Append($"{indent}    return ");
-                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot", dispatchOnThis);
+                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot");
                     sb.AppendLine(";");
                 }
                 else
                 {
                     sb.Append($"{indent}    ");
-                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot", dispatchOnThis);
+                    EmitApplyCallExpression(sb, method, "data", "e", true, "snapshot");
                     sb.AppendLine(";");
                     sb.AppendLine($"{indent}    return snapshot;");
                 }
@@ -2087,8 +1745,7 @@ internal static class EvolverCodeEmitter
     // --- Call expression helpers ---
 
     private static void EmitApplyCallExpression(StringBuilder sb, ConventionalMethodInfo method,
-        string? dataVar, string eventVar, bool includeSessionAndCancellation, string aggregateVar = "snapshot",
-        bool dispatchOnThis = false)
+        string? dataVar, string eventVar, bool includeSessionAndCancellation, string aggregateVar = "snapshot")
     {
         var args = BuildApplyArgs(method, dataVar, eventVar, includeSessionAndCancellation, aggregateVar);
 
@@ -2103,16 +1760,15 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            // Instance Apply on the projection — dispatched through the evolver's held projection
-            // instance for the file-scoped dispatcher (default path, #462) or directly on `this` when
-            // the override lives on the user's partial projection class (the DI-safe path,
-            // marten#4787, see EmitPartialProjectionWithDIOverride).
-            sb.Append($"{InstanceCallPrefix(dispatchOnThis)}{method.MethodName}({args})");
+            // Instance Apply on the projection — dispatched through the projection the runtime handed
+            // the evolver at construction, which is the registered instance with its dependencies
+            // (marten#4787, #653), not a shadow built here.
+            sb.Append($"_projection.{method.MethodName}({args})");
         }
     }
 
     private static void EmitCreateCallSync(StringBuilder sb, ConventionalMethodInfo method,
-        string? dataVar, string eventVar, bool dispatchOnThis = false)
+        string? dataVar, string eventVar)
     {
         var args = BuildCreateArgs(method, dataVar, eventVar, false);
 
@@ -2129,12 +1785,12 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            sb.Append($"{InstanceCallPrefix(dispatchOnThis)}{method.MethodName}({args})");
+            sb.Append($"_projection.{method.MethodName}({args})");
         }
     }
 
     private static void EmitCreateCall(StringBuilder sb, ConventionalMethodInfo method,
-        string? dataVar, string eventVar, bool isAsync, bool dispatchOnThis = false)
+        string? dataVar, string eventVar, bool isAsync)
     {
         var args = BuildCreateArgs(method, dataVar, eventVar, isAsync);
         var awaitPrefix = method.IsAsync && isAsync ? "await " : "";
@@ -2151,12 +1807,12 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            sb.Append($"{awaitPrefix}{InstanceCallPrefix(dispatchOnThis)}{method.MethodName}({args})");
+            sb.Append($"{awaitPrefix}_projection.{method.MethodName}({args})");
         }
     }
 
     private static void EmitApplyCallStatement(StringBuilder sb, ConventionalMethodInfo method,
-        string dataVar, string eventVar, bool isAsync, bool dispatchOnThis = false)
+        string dataVar, string eventVar, bool isAsync)
     {
         if (method.IsAsync && isAsync)
         {
@@ -2177,12 +1833,11 @@ internal static class EvolverCodeEmitter
             }
         }
 
-        EmitApplyCallExpression(sb, method, dataVar, eventVar, isAsync, dispatchOnThis: dispatchOnThis);
+        EmitApplyCallExpression(sb, method, dataVar, eventVar, isAsync);
         sb.AppendLine(";");
     }
 
-    private static void EmitShouldDeleteCall(StringBuilder sb, ConventionalMethodInfo method, string dataVar,
-        bool dispatchOnThis = false)
+    private static void EmitShouldDeleteCall(StringBuilder sb, ConventionalMethodInfo method, string dataVar)
     {
         var args = BuildShouldDeleteArgs(method, dataVar);
         var awaitKeyword = method.IsAsync ? "await " : "";
@@ -2197,7 +1852,7 @@ internal static class EvolverCodeEmitter
         }
         else
         {
-            sb.Append($"{awaitKeyword}{InstanceCallPrefix(dispatchOnThis)}{method.MethodName}({args})");
+            sb.Append($"{awaitKeyword}_projection.{method.MethodName}({args})");
         }
     }
 

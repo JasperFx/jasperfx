@@ -31,7 +31,7 @@ The SG emits one of five shapes through `EvolverCodeEmitter`
 
 | Mode | Emits | How runtime picks it up |
 |---|---|---|
-| `PartialProjection` | Partial method on the user's projection class (`Evolve` / `EvolveAsync` / `DetermineActionAsync`) | `JasperFxAggregationProjectionBase.isOverridden(...)` returns `true` for the generated override and `_usesConventionalApplication = false` — `AggregateApplication` is never invoked for dispatch. |
+| `PartialProjection` | Standalone `file`-scoped evolver + assembly-level `[GeneratedEvolverAttribute]` carrying the projection type. When its conventional methods live on the projection instance, the evolver takes that projection through its constructor. | `tryUseAssemblyRegisteredEvolver(...)` selects the registration and `activateEvolver` builds the evolver, passing `this` when it asks for the projection, so dispatch runs on the registered instance. `_usesConventionalApplication = false` — `AggregateApplication` is never invoked for dispatch. |
 | `SelfAggregating` | Standalone evolver class implementing `IGeneratedSyncEvolver<TDoc,TId>` or `IGeneratedSyncDetermineAction<TDoc,TId>` + an assembly-level `[GeneratedEvolverAttribute]` | `JasperFxAggregationProjectionBase.tryUseAssemblyRegisteredEvolver(...)` activates and binds the evolver. |
 | `SelfAggregatingEvolve` | Standalone evolver class implementing `IGeneratedAsyncEvolver<TDoc,TId>` + `[GeneratedEvolverAttribute]` | Same as above. |
 | `EventProjection` | Partial `ApplyAsync(TOperations, IEvent, CancellationToken)` override on the user's `JasperFxEventProjectionBase<TOperations>` subclass | The override wins at vtable dispatch. `EventProjectionApplication` is only used when the base `ApplyAsync` is not overridden. |

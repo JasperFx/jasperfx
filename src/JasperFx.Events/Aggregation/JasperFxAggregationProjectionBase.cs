@@ -255,7 +255,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             var syncEvolverInterface = typeof(IGeneratedSyncEvolver<TDoc, TId>);
             if (!hasShouldDelete && syncEvolverInterface.IsAssignableFrom(evolverType))
             {
-                var evolver = (IGeneratedSyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                var evolver = (IGeneratedSyncEvolver<TDoc, TId>)activateEvolver(evolverType);
                 _generatedEvolverEventTypes = evolver.EventTypes;
                 _evolve = (snapshot, id, _, events, _) =>
                 {
@@ -287,7 +287,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             var determineActionInterface = typeof(IGeneratedSyncDetermineAction<TDoc, TId>);
             if (determineActionInterface.IsAssignableFrom(evolverType))
             {
-                var evolver = (IGeneratedSyncDetermineAction<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                var evolver = (IGeneratedSyncDetermineAction<TDoc, TId>)activateEvolver(evolverType);
                 _generatedEvolverEventTypes = evolver.EventTypes;
                 _buildAction = (_, snapshot, id, _, events, _) =>
                 {
@@ -335,7 +335,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             var asyncDetermineActionInterface = typeof(IGeneratedAsyncDetermineAction<TDoc, TId>);
             if (asyncDetermineActionInterface.IsAssignableFrom(evolverType))
             {
-                var evolver = (IGeneratedAsyncDetermineAction<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                var evolver = (IGeneratedAsyncDetermineAction<TDoc, TId>)activateEvolver(evolverType);
                 _generatedEvolverEventTypes = evolver.EventTypes;
                 _buildAction = (session, snapshot, id, _, events, ct) =>
                     evolver.DetermineActionAsync(snapshot, id, events, session!, ct);
@@ -347,7 +347,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             var asyncEvolverInterface = typeof(IGeneratedAsyncEvolver<TDoc, TId>);
             if (!hasShouldDelete && asyncEvolverInterface.IsAssignableFrom(evolverType))
             {
-                var evolver = (IGeneratedAsyncEvolver<TDoc, TId>)Activator.CreateInstance(evolverType)!;
+                var evolver = (IGeneratedAsyncEvolver<TDoc, TId>)activateEvolver(evolverType);
                 _generatedEvolverEventTypes = evolver.EventTypes;
                 _evolve = async (snapshot, id, session, events, ct) =>
                 {
@@ -378,6 +378,38 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Builds a generated evolver, handing it this projection when it asks for one.
+    ///
+    /// <para>An evolver that dispatches to conventional methods living on the projection instance —
+    /// rather than on the aggregate or a static — needs an instance to call them on. It used to build
+    /// its own: <c>new TProjection()</c>, or <c>RuntimeHelpers.GetUninitializedObject</c> when there was
+    /// no public parameterless constructor. Both are shadows of the projection the store actually
+    /// registered, so anything the real constructor or the container supplied was missing — null for an
+    /// injected dependency (marten#4787), default for anything set in the constructor.</para>
+    ///
+    /// <para>The generator therefore emits a constructor taking the projection type on any evolver that
+    /// needs an instance, and we pass <c>this</c>. Evolvers that need nothing from the projection
+    /// (aggregate-side or static conventional methods) keep their parameterless constructor, as do
+    /// evolvers generated before this change, so the fallback below is the compatible path rather than
+    /// an error case. See #653.</para>
+    /// </summary>
+    private object activateEvolver(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        Type evolverType)
+    {
+        var boundConstructor = evolverType.GetConstructors()
+            .FirstOrDefault(c => c.GetParameters().Length == 1
+                                 && c.GetParameters()[0].ParameterType.IsInstanceOfType(this));
+
+        if (boundConstructor != null)
+        {
+            return boundConstructor.Invoke([this]);
+        }
+
+        return Activator.CreateInstance(evolverType)!;
     }
 
     /// <summary>
