@@ -404,28 +404,20 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                 break;
 
             case CandidateMode.None:
-                // Emit diagnostics for why we're skipping
-                if (!info.IsPartial && info.ClassSymbol != null)
+                // The only remaining reason an analyzed candidate lands here is a non-partial
+                // EventProjection subclass: its dispatcher IS an ApplyAsync override written into the
+                // user's class, so `partial` is genuinely required (unlike the aggregation subclasses,
+                // whose dispatcher is a standalone file-scoped evolver — see AnalyzeProjectionSubclass).
+                if (!info.IsPartial
+                    && info.ClassSymbol != null
+                    && AggregateAnalyzer.FindEventProjectionBase(info.ClassSymbol) != null)
                 {
-                    // Check if it's a projection that could have been generated
-                    var projBase = AggregateAnalyzer.FindAggregationProjectionBase(info.ClassSymbol);
-                    if (projBase != null)
-                    {
-                        context.ReportDiagnostic(Diagnostic.Create(
-                            DiagnosticDescriptors.NotPartial,
-                            info.ClassSyntax.Identifier.GetLocation(),
-                            info.ClassSymbol.Name));
-                    }
-
-                    // Check if it's an event projection that could have been generated
-                    var eventProjBase = AggregateAnalyzer.FindEventProjectionBase(info.ClassSymbol);
-                    if (eventProjBase != null)
-                    {
-                        context.ReportDiagnostic(Diagnostic.Create(
-                            DiagnosticDescriptors.NotPartial,
-                            info.ClassSyntax.Identifier.GetLocation(),
-                            info.ClassSymbol.Name));
-                    }
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        DiagnosticDescriptors.NotPartial,
+                        info.ClassSyntax.Identifier.GetLocation(),
+                        info.ClassSymbol.Name,
+                        $"'{info.ClassSymbol.Name}' is not declared partial",
+                        "an EventProjection's ApplyAsync dispatcher is generated as an override on the projection class itself"));
                 }
                 break;
         }
@@ -468,8 +460,42 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     {
         if (info.Methods.Count == 0) return;
 
+        // Nearly every projection is dispatched by a standalone file-scoped evolver that needs nothing
+        // from the user's declaration — including the DI-activated shape, which since #653 receives the
+        // registered projection through the evolver's constructor. What is left needing the dispatcher
+        // written into the projection class itself is what a separate file cannot name: a generic
+        // projection, or one behind private/protected. Those need `partial` there and on every
+        // containing type. Fail loudly when it is missing; the alternative is CS0260 inside a file the
+        // consumer cannot edit.
+        if (EvolverCodeEmitter.RequiresMemberInjection(info))
+        {
+            var missing = EvolverCodeEmitter.DescribeMissingPartialDeclaration(info);
+            if (missing != null)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.NotPartial,
+                    info.ClassSyntax.Identifier.GetLocation(),
+                    info.ClassSymbol.Name,
+                    missing,
+                    DescribeWhyMemberInjectionIsNeeded(info)));
+                return;
+            }
+        }
+
         var source = EvolverCodeEmitter.EmitPartialProjection(info);
         context.AddSource(SafeHintName(info.ClassSymbol, ".Evolver"), source);
+    }
+
+    /// <summary>
+    /// The half of JFXEVT003 that tells the user WHY the dispatcher has to live in their own class,
+    /// so "declare it partial" does not read as an arbitrary framework demand. Only one reason remains
+    /// since #653 handed the evolver the registered projection: the generator cannot name the
+    /// projection from a separate file.
+    /// </summary>
+    private static string DescribeWhyMemberInjectionIsNeeded(CandidateInfo info)
+    {
+        return $"{EvolverCodeEmitter.DescribeWhyNotNameableFromFileScope(info.ClassSymbol)}, "
+               + "so the dispatcher cannot be generated as a separate type";
     }
 
     private static void EmitEventProjection(SourceProductionContext context, CandidateInfo info)
@@ -482,6 +508,28 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
     private static void EmitEventProjectionTypeRegistration(SourceProductionContext context, CandidateInfo info)
     {
+        // A non-partial projection cannot receive the generated PublishedTypes() override. Say so once,
+        // naming what went unregistered, rather than skipping in silence. The per-operation JFXEVT005
+        // notes are suppressed here — nothing at all is being registered for this projection, so
+        // pointing at individual unregistrable calls would only add noise. See #654.
+        if (!info.IsPartial)
+        {
+            if (info.DiscoveredPublishedTypes.Count > 0)
+            {
+                var typeList = string.Join(", ", info.DiscoveredPublishedTypes
+                    .Select(t => $"'{t.Name}'")
+                    .Distinct());
+
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.UnregisteredPublishedTypes,
+                    info.ClassSyntax.Identifier.GetLocation(),
+                    info.ClassSymbol.Name,
+                    typeList));
+            }
+
+            return;
+        }
+
         foreach (var unresolved in info.UnresolvedDocumentOperations)
         {
             context.ReportDiagnostic(Diagnostic.Create(

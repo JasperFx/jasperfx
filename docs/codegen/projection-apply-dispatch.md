@@ -31,7 +31,7 @@ The SG emits one of five shapes through `EvolverCodeEmitter`
 
 | Mode | Emits | How runtime picks it up |
 |---|---|---|
-| `PartialProjection` | Partial method on the user's projection class (`Evolve` / `EvolveAsync` / `DetermineActionAsync`) | `JasperFxAggregationProjectionBase.isOverridden(...)` returns `true` for the generated override and `_usesConventionalApplication = false` — `AggregateApplication` is never invoked for dispatch. |
+| `PartialProjection` | Standalone `file`-scoped evolver + assembly-level `[GeneratedEvolverAttribute]` carrying the projection type. When its conventional methods live on the projection instance, the evolver takes that projection through its constructor. Falls back to an `Evolve` / `EvolveAsync` / `DetermineActionAsync` override injected into the user's class only when a separate type cannot name the projection at all — it is generic, or not visible from another file. | `tryUseAssemblyRegisteredEvolver(...)` selects the registration and `activateEvolver` builds the evolver, passing `this` when it asks for the projection, so dispatch runs on the registered instance. For the injected-override fallback, `isOverridden(...)` returns `true` first. Either way `_usesConventionalApplication = false` and `AggregateApplication` is never invoked for dispatch. |
 | `SelfAggregating` | Standalone evolver class implementing `IGeneratedSyncEvolver<TDoc,TId>` or `IGeneratedSyncDetermineAction<TDoc,TId>` + an assembly-level `[GeneratedEvolverAttribute]` | `JasperFxAggregationProjectionBase.tryUseAssemblyRegisteredEvolver(...)` activates and binds the evolver. |
 | `SelfAggregatingEvolve` | Standalone evolver class implementing `IGeneratedAsyncEvolver<TDoc,TId>` + `[GeneratedEvolverAttribute]` | Same as above. |
 | `EventProjection` | Partial `ApplyAsync(TOperations, IEvent, CancellationToken)` override on the user's `JasperFxEventProjectionBase<TOperations>` subclass | The override wins at vtable dispatch. `EventProjectionApplication` is only used when the base `ApplyAsync` is not overridden. |
@@ -156,6 +156,14 @@ emit shape or a reflective rewrite.
    (e.g. those that override `ApplyAsync` or `Evolve*` directly) do not need
    to be `partial`. The fail-fast exception message at registration spells
    out this narrower condition.
+
+   > Narrowed again since. Moving the aggregation dispatcher to a file-scoped
+   > evolver (#462) removed the requirement for `SingleStreamProjection` /
+   > `MultiStreamProjection` subclasses as well — it survives only where the
+   > dispatcher still has to be written into the user's class: an
+   > `EventProjection`, a projection dispatching on a DI-built instance
+   > (marten#4787), and generic or non-visible projections. Reported as
+   > `JFXEVT003` at build time.
 
 ## What shipped in #276
 

@@ -169,12 +169,6 @@ internal static class AggregateAnalyzer
 
     private const string ProjectionBaseFullName = "JasperFx.Events.Projections.ProjectionBase";
 
-    private static readonly string[] LambdaMethodNames =
-        { "ProjectEvent", "CreateEvent", "DeleteEvent" };
-
-    private static readonly string[] EventProjectionLambdaMethodNames =
-        { "Project<", "ProjectAsync<" };
-
     public static CandidateInfo? Analyze(GeneratorSyntaxContext context, CancellationToken ct)
     {
         var classDecl = context.Node as TypeDeclarationSyntax;
@@ -220,17 +214,6 @@ internal static class AggregateAnalyzer
         if (HasExplicitOverride(classSymbol))
             return null;
 
-        // Check if constructor has lambda registrations
-        if (HasLambdaRegistrations(classDecl))
-        {
-            return new CandidateInfo
-            {
-                Mode = CandidateMode.None,
-                ClassSymbol = classSymbol,
-                ClassSyntax = classDecl
-            };
-        }
-
         var methods = DiscoverConventionalMethods(classSymbol, baseInfo.docType, classSymbol);
         var ctorDeleteTypes = DiscoverConstructorDeleteEventTypes(classDecl, semanticModel, ct);
 
@@ -238,7 +221,15 @@ internal static class AggregateAnalyzer
 
         return new CandidateInfo
         {
-            Mode = isPartial ? CandidateMode.PartialProjection : CandidateMode.None,
+            // NOT gated on `partial`. The dispatcher for an aggregation projection subclass is emitted
+            // as a standalone `file sealed class` registered through [assembly: GeneratedEvolver(...)]
+            // (#462) — it calls the projection's public conventional methods from the outside and never
+            // needs a second declaration of the user's type. The only emission that still injects members
+            // into the user's class is the DI-override path (marten#4787), which checks IsPartial itself
+            // and reports JFXEVT003 when the modifier is missing. Gating candidacy on the modifier was
+            // left over from the pre-#462 member-injection emission and silently skipped every
+            // non-partial projection, surfacing much later as "No source-generated dispatcher found".
+            Mode = CandidateMode.PartialProjection,
             ClassSymbol = classSymbol,
             ClassSyntax = classDecl,
             IsPartial = isPartial,
@@ -941,8 +932,12 @@ internal static class AggregateAnalyzer
             // Even with an explicit override, we should still discover document types
             // used in Store/Insert/Delete calls so they can be registered as published types.
             // See https://github.com/JasperFx/marten/issues/4166
-            if (!isPartial) return null;
-
+            //
+            // Discovery runs whether or not the class is `partial`. The registration itself is a
+            // PublishedTypes() override emitted into the user's class, so a non-partial projection
+            // genuinely cannot have one — but bailing out here made that the one skip in the whole
+            // generator that produced no diagnostic at all. The candidate is built either way and
+            // EmitEventProjectionTypeRegistration reports JFXEVT006 instead of emitting. See #654.
             var unresolved = new List<UnresolvedDocumentOperation>();
             var discoveredTypes = DiscoverDocumentTypesFromMethodBodies(classDecl, classSymbol,
                 baseInfo.operationsType, semanticModel, unresolved);
@@ -964,10 +959,6 @@ internal static class AggregateAnalyzer
             HasExistingPublishedTypesOverride = HasPublishedTypesOverride(classSymbol)
             };
         }
-
-        // Check if constructor has lambda registrations (Project<T> / ProjectAsync<T>)
-        if (HasEventProjectionLambdaRegistrations(classDecl))
-            return null;
 
         var methods = DiscoverEventProjectionMethods(classSymbol, baseInfo.operationsType);
 
@@ -1302,23 +1293,6 @@ internal static class AggregateAnalyzer
             .Any(m => m.IsOverride && m.Name == "ApplyAsync");
     }
 
-    private static bool HasEventProjectionLambdaRegistrations(TypeDeclarationSyntax classDecl)
-    {
-        var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
-        foreach (var ctor in constructors)
-        {
-            if (ctor.Body == null) continue;
-            var text = ctor.Body.ToFullString();
-            foreach (var name in EventProjectionLambdaMethodNames)
-            {
-                if (text.Contains(name))
-                    return true;
-            }
-        }
-
-        return false;
-    }
-
     private static bool HasExplicitOverride(INamedTypeSymbol classSymbol)
     {
         return classSymbol.GetMembers()
@@ -1375,47 +1349,6 @@ internal static class AggregateAnalyzer
         }
 
         return result;
-    }
-
-    private static bool HasLambdaRegistrations(TypeDeclarationSyntax classDecl)
-    {
-        // Only ProjectEvent / CreateEvent / DeleteEvent invocations that *take
-        // an argument* (a handler / predicate lambda) opt the projection out of
-        // SG dispatch — those were the inline-lambda APIs JasperFx 2.0 removed.
-        // The parameterless variant `DeleteEvent<T>()` is still a supported way
-        // to declare delete-on events from the constructor and must NOT block
-        // dispatcher emission. See #297. A plain substring match on the body
-        // (previous implementation) misclassified `DeleteEvent<T>()` as a
-        // lambda registration and silently skipped dispatcher emission.
-        var constructors = classDecl.Members.OfType<ConstructorDeclarationSyntax>();
-        foreach (var ctor in constructors)
-        {
-            if (ctor.Body == null) continue;
-            foreach (var invocation in ctor.Body.DescendantNodes().OfType<InvocationExpressionSyntax>())
-            {
-                if (invocation.ArgumentList.Arguments.Count == 0) continue;
-
-                var simpleName = invocation.Expression switch
-                {
-                    MemberAccessExpressionSyntax m => m.Name,
-                    GenericNameSyntax g => g,
-                    IdentifierNameSyntax i => (SimpleNameSyntax?)i,
-                    _ => null
-                };
-
-                var name = (simpleName as GenericNameSyntax)?.Identifier.ValueText
-                           ?? (simpleName as IdentifierNameSyntax)?.Identifier.ValueText;
-
-                if (name == null) continue;
-
-                foreach (var lambdaName in LambdaMethodNames)
-                {
-                    if (name == lambdaName) return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
