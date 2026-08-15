@@ -259,7 +259,7 @@ public class StreamAction
     public static StreamAction Append(IEventRegistry graph, string streamKey, params object[] events)
     {
         var stream = new StreamAction(streamKey, StreamActionType.Append);
-        stream._events.AddRange(events.Select(graph.BuildEvent));
+        stream.AddEvents(events.Select(graph.BuildEvent).ToArray());
         return stream;
     }
 
@@ -272,7 +272,7 @@ public class StreamAction
     public static StreamAction Append(string streamKey, IEvent[] events)
     {
         var stream = new StreamAction(streamKey, StreamActionType.Append);
-        stream._events.AddRange(events.OrderBy(x => x.Version));
+        stream.AddEvents(events.OrderBy(x => x.Version).ToArray());
         return stream;
     }
 
