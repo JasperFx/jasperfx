@@ -7,9 +7,11 @@ using Spectre.Console;
 namespace CommandLineTests
 {
     [Collection("SetConsoleOutput")]
-    public class CommandExecutorTester
+    public class CommandExecutorTester : IDisposable
     {
         private readonly StringWriter theOutput = new StringWriter();
+        private readonly TextWriter theOriginalConsoleOut;
+        private readonly IAnsiConsole theOriginalAnsiConsole;
 
 
 #if NET451
@@ -22,6 +24,9 @@ namespace CommandLineTests
 
         public CommandExecutorTester()
         {
+            theOriginalConsoleOut = Console.Out;
+            theOriginalAnsiConsole = AnsiConsole.Console;
+
             Console.SetOut(theOutput);
 
             // CommandExecutor renders failures through Spectre's AnsiConsole, which caches the
@@ -39,6 +44,19 @@ namespace CommandLineTests
             {
                 _.RegisterCommands(GetType().GetTypeInfo().Assembly);
             });
+        }
+
+        /// <summary>
+        /// Both writers this class swaps in are process-global. Leaving them bound to a dead
+        /// instance's StringWriter means any later test in the assembly that writes through
+        /// Console or AnsiConsole -- CommandFactory's "Error parsing input" path, for one --
+        /// keeps appending to a buffer whose owning test is long gone. Restoring them here
+        /// confines each instance's capture to its own test.
+        /// </summary>
+        public void Dispose()
+        {
+            Console.SetOut(theOriginalConsoleOut);
+            AnsiConsole.Console = theOriginalAnsiConsole;
         }
 
 
@@ -115,13 +133,16 @@ namespace CommandLineTests
             CommandExecutor.ExecuteCommand<OptionCommand>(new[] {"--big", "--number", "6"})
                 .ShouldBe(0);
 
-            // ShouldEndWith, not ShouldBe. CommandFactory prints "Searching '<assembly>' for
-            // commands" until its *static* _hasAppliedExtensions latch flips, so exactly one test
-            // per process picks up that banner as a prefix -- whichever one runs first. With an
-            // exact match, this test and its async sibling below fail on a coin flip. Seen in CI on
-            // both #587 and #589. The banner is always a prefix (discovery runs before the command
-            // does), so anchoring to the end keeps the assertion just as strong.
-            theOutput.ToString().Trim().ShouldEndWith("Big is True, Number is 6");
+            // ShouldContain, not ShouldBe or ShouldEndWith. This buffer is filled through two
+            // process-global statics, so it collects more than this test writes. Leading noise:
+            // CommandFactory prints "Searching '<assembly>' for commands" until its *static*
+            // _hasAppliedExtensions latch flips, so whichever test runs first picks up that banner
+            // (#587, #589). Trailing noise: before Dispose restored the writers, output from a
+            // later test could still land here -- CI on #659/#660 caught this assertion holding
+            // "Big is True, Number is 6" followed by an unrelated "Error parsing input", even
+            // though the command above had already returned 0 on valid input. Dispose fixes the
+            // cause; asserting on containment keeps the test honest about what the buffer is.
+            theOutput.ToString().ShouldContain("Big is True, Number is 6");
         }
 
         [Fact]
@@ -130,8 +151,8 @@ namespace CommandLineTests
             (await CommandExecutor.ExecuteCommandAsync<OptionCommand>(new[] { "--big", "--number", "7" }))
                 .ShouldBe(0);
 
-            // See execute_single_command_synchronously above for why this is ShouldEndWith.
-            theOutput.ToString().Trim().ShouldEndWith("Big is True, Number is 7");
+            // See execute_single_command_synchronously above for why this is ShouldContain.
+            theOutput.ToString().ShouldContain("Big is True, Number is 7");
         }
     }
 
