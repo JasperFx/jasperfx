@@ -168,4 +168,52 @@ public class StreamActionTests
         
         action.PrepareEvents(5, theEvents, queue, theSession);
     }
+
+    // The string-keyed Append factories used to append straight to the backing list instead of
+    // going through AddEvent, so the envelopes never got StreamKey/StreamId/TenantId. PrepareEvents
+    // does not close the gap -- it sets TenantId, Timestamp, Version and Sequence, but never the
+    // stream identity -- so an inline projection reading e.StreamKey silently wrote a blank field.
+    // See #663, reported downstream as JasperFX/fisher#72.
+    [Fact]
+    public void append_by_stream_key_stamps_the_stream_identity_on_each_event()
+    {
+        var action = StreamAction.Append(theEvents, "purple", new AEvent(), new BEvent(), new CEvent());
+
+        action.Events.Count.ShouldBe(3);
+        foreach (var @event in action.Events)
+        {
+            @event.StreamKey.ShouldBe("purple");
+            @event.Id.ShouldNotBe(Guid.Empty);
+        }
+    }
+
+    [Fact]
+    public void append_by_stream_key_with_built_events_stamps_identity_and_keeps_version_order()
+    {
+        var second = new Event<BEvent>(new BEvent()) { Version = 2 };
+        var first = new Event<AEvent>(new AEvent()) { Version = 1 };
+
+        var action = StreamAction.Append("purple", [second, first]);
+
+        // ordering by version is the behaviour this overload had before, and has to survive
+        action.Events.Select(x => x.Version).ToArray().ShouldBe([1L, 2L]);
+
+        foreach (var @event in action.Events)
+        {
+            @event.StreamKey.ShouldBe("purple");
+        }
+    }
+
+    [Fact]
+    public void append_by_stream_key_propagates_the_tenant_id_to_the_events()
+    {
+        var action = StreamAction.Append(theEvents, "purple", new AEvent(), new BEvent());
+        action.TenantId = "TX";
+
+        foreach (var @event in action.Events)
+        {
+            @event.TenantId.ShouldBe("TX");
+            @event.StreamKey.ShouldBe("purple");
+        }
+    }
 }
