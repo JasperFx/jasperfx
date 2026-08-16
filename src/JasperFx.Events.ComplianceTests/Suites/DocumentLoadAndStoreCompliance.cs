@@ -10,7 +10,7 @@ namespace JasperFx.Events.ComplianceTests;
 /// <summary>
 /// <see cref="IDocumentWriteOperations.Store{T}" /> and
 /// <see cref="IDocumentReadOperations.LoadAsync{T}(Guid,System.Threading.CancellationToken)" /> —
-/// both identity styles, the upsert semantics of <c>Store</c>, and the miss case.
+/// all three identity styles, the upsert semantics of <c>Store</c>, and the miss case.
 /// </summary>
 /// <remarks>
 /// <c>Store</c> is an upsert on every Critter Stack store, not an insert: storing an identity that
@@ -26,6 +26,8 @@ public abstract class DocumentLoadAndStoreCompliance<TFixture> : DocumentStorage
         config.SchemaName = "compliance_documents";
         config.AddDocumentType<ComplianceWidget>();
         config.AddDocumentType<ComplianceGadget>();
+        config.AddDocumentType<ComplianceCoupon>();
+        config.RegisterValueType<CouponCode>();
     };
 
     protected override Action<DocumentComplianceConfig> Configuration => _configuration;
@@ -55,6 +57,54 @@ public abstract class DocumentLoadAndStoreCompliance<TFixture> : DocumentStorage
         loaded.ShouldNotBeNull();
         loaded.Id.ShouldBe("gadget-42");
         loaded.Kind.ShouldBe("ratchet");
+    }
+
+    [Fact]
+    public async Task store_and_load_by_strong_typed_identity()
+    {
+        var id = new CouponCode(Guid.NewGuid());
+        await PersistAsync(new ComplianceCoupon { Id = id, Description = "Launch week", PercentOff = 20 });
+
+        await using var query = QuerySession();
+        var loaded = await query.LoadAsync<ComplianceCoupon>(id, Cancellation);
+
+        loaded.ShouldNotBeNull();
+        loaded.Id.ShouldBe(id);
+        loaded.Description.ShouldBe("Launch week");
+    }
+
+    [Fact]
+    public async Task load_returns_null_for_a_missing_strong_typed_identity()
+    {
+        await using var query = QuerySession();
+
+        (await query.LoadAsync<ComplianceCoupon>(new CouponCode(Guid.NewGuid()), Cancellation)).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// The <c>object</c> overload is reached by a caller holding any identity in an
+    /// <c>object</c>-typed local, not only by one holding a wrapper, so it has to resolve a boxed
+    /// canonical identity exactly as the typed overload does. An implementation that assumes every
+    /// argument here is a strong-typed wrapper passes the two tests above and fails this one.
+    /// </remarks>
+    [Fact]
+    public async Task the_object_overload_resolves_canonical_identities_too()
+    {
+        var widgetId = Guid.NewGuid();
+        await PersistAsync(new ComplianceWidget { Id = widgetId, Name = "Boxed" });
+        await PersistAsync(new ComplianceGadget { Id = "gadget-boxed", Kind = "spanner" });
+
+        await using var query = QuerySession();
+
+        object guidIdentity = widgetId;
+        var widget = await query.LoadAsync<ComplianceWidget>(guidIdentity, Cancellation);
+        widget.ShouldNotBeNull();
+        widget.Name.ShouldBe("Boxed");
+
+        object stringIdentity = "gadget-boxed";
+        var gadget = await query.LoadAsync<ComplianceGadget>(stringIdentity, Cancellation);
+        gadget.ShouldNotBeNull();
+        gadget.Kind.ShouldBe("spanner");
     }
 
     [Fact]

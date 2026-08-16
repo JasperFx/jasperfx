@@ -159,7 +159,7 @@ alongside the event store — `JasperFx.Events.Documents`:
 | Area | Suite |
 |---|---|
 | Session opening and the transaction boundary | `DocumentSessionCompliance` |
-| `Store` and `LoadAsync`, both identity styles | `DocumentLoadAndStoreCompliance` |
+| `Store` and `LoadAsync` — `Guid`, `string` and strong-typed identities | `DocumentLoadAndStoreCompliance` |
 | `Delete`, its identity overloads, and `DeleteWhere` | `DocumentDeleteCompliance` |
 | `Query<T>()`, its minimum translatable operator set, and the async terminators | `DocumentQueryCompliance` |
 
@@ -180,6 +180,11 @@ public class my_document_fixture : DocumentStorageComplianceFixture
 
 public class document_query_compliance : DocumentQueryCompliance<my_document_fixture>;
 ```
+
+`BuildStoreAsync` must honor `config.ValueTypes` as well as `config.DocumentTypes` — every store
+spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndStoreCompliance` hold
+the `LoadAsync<T>(object)` overload (jasperfx#665) to a definition; a fixture that ignores it fails
+the strong-typed identity tests rather than skipping them.
 
 These suites are the one part of the library that is executed inside this repo as well as by its
 consumers: `EventStoreTests` enrolls an in-memory reference implementation, so the shared definition
