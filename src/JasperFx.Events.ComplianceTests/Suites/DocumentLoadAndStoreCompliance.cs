@@ -84,8 +84,10 @@ public abstract class DocumentLoadAndStoreCompliance<TFixture> : DocumentStorage
     /// <remarks>
     /// The <c>object</c> overload is reached by a caller holding any identity in an
     /// <c>object</c>-typed local, not only by one holding a wrapper, so it has to resolve a boxed
-    /// canonical identity exactly as the typed overload does. An implementation that assumes every
-    /// argument here is a strong-typed wrapper passes the two tests above and fails this one.
+    /// canonical identity exactly as the typed overload does. The contract's default implementation
+    /// gets this right for free — but a store only reaches the two tests above by overriding it, and
+    /// an override that assumes every argument is a strong-typed wrapper passes those and regresses
+    /// this one.
     /// </remarks>
     [Fact]
     public async Task the_object_overload_resolves_canonical_identities_too()

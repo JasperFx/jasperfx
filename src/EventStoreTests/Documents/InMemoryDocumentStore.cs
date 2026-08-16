@@ -75,12 +75,17 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         => Task.FromResult(load<T>(id));
 
     /// <summary>
-    /// The strong-typed-identity overload (jasperfx#665), which costs nothing here because the
-    /// storage is already keyed on the boxed identity <see cref="InMemoryDocumentStore.IdentityOf" />
-    /// pulled off the document. A real store has to route the value through its own value-type
-    /// registration; the shared assertion is only that a boxed identity of any shape resolves the
-    /// same document the typed overloads would.
+    /// The strong-typed-identity overload (jasperfx#665). Overriding the contract's default
+    /// implementation rather than inheriting it, which is the case worth demonstrating: the default
+    /// forwards a boxed <see cref="Guid" /> or <see cref="string" /> and throws on anything else, so
+    /// a store only gains the strong-typed half by writing this.
     /// </summary>
+    /// <remarks>
+    /// It costs nothing here because the storage is already keyed on the boxed identity
+    /// <see cref="InMemoryDocumentStore.IdentityOf" /> pulls off the document. A real store has to
+    /// route the value through its own value-type registration; the shared assertion is only that a
+    /// boxed identity of any shape resolves the same document the typed overloads would.
+    /// </remarks>
     public Task<T?> LoadAsync<T>(object id, CancellationToken token = default) where T : notnull
         => Task.FromResult(load<T>(id));
 

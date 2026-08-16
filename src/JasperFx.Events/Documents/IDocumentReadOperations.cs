@@ -40,6 +40,13 @@ namespace JasperFx.Events.Documents;
 /// resolve, strong-typed identifiers above all. Numeric overloads and tenant-scoped reads can be
 /// added additively later without breaking any implementer.
 /// </para>
+/// <para>
+/// Members added after the contract first shipped carry a default implementation, so a store picks
+/// up a new JasperFx without a compile break and adopts the member when it is ready. The default is
+/// never a silent stand-in for the capability: it either answers the part that is answerable
+/// identically for every store, or throws naming the implementing type. What holds a store to the
+/// real behavior is the shared compliance suite, not the compiler.
+/// </para>
 /// </remarks>
 public interface IDocumentReadOperations : IAsyncDisposable
 {
@@ -77,6 +84,17 @@ public interface IDocumentReadOperations : IAsyncDisposable
     /// than assume a wrapper.
     /// </para>
     /// <para>
+    /// <b>The default implementation covers exactly that corollary and nothing else.</b> It unboxes a
+    /// <see cref="Guid" /> or <see cref="string" /> and forwards to the overload that already exists,
+    /// which is the only half of this member that can be answered without knowing how a store
+    /// registers value types — and it is answerable identically for every store, so there is no
+    /// reason to make three of them write it. Anything else throws
+    /// <see cref="NotSupportedException" /> naming the implementing type and the identity type,
+    /// because a strong-typed identifier can only be resolved through the store's own value-type
+    /// registration. A store overrides this member to gain that half; the shared compliance suite
+    /// asserts it directly, so the default is a starting point rather than a resting place.
+    /// </para>
+    /// <para>
     /// This one is here where <c>SingleOrDefaultAsync</c> and friends are not, and the distinction is
     /// deliberate: those have a straightforward expression through what already exists, whereas
     /// without this there is no spelling of a by-id load for a strong-typed-id document at all — a
@@ -85,7 +103,19 @@ public interface IDocumentReadOperations : IAsyncDisposable
     /// <see href="https://github.com/JasperFx/jasperfx/issues/665" />.
     /// </para>
     /// </remarks>
-    Task<T?> LoadAsync<T>(object id, CancellationToken token = default) where T : notnull;
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when <paramref name="id" /> is neither a
+    /// <see cref="Guid" /> nor a <see cref="string" /> and the store has not overridden this member.
+    /// </exception>
+    Task<T?> LoadAsync<T>(object id, CancellationToken token = default) where T : notnull
+        => id switch
+        {
+            null => throw new ArgumentNullException(nameof(id)),
+            Guid guid => LoadAsync<T>(guid, token),
+            string text => LoadAsync<T>(text, token),
+            _ => throw new NotSupportedException(
+                $"{GetType().FullName} does not implement {nameof(IDocumentReadOperations)}.{nameof(LoadAsync)}<T>(object), so it cannot load a document of type {typeof(T).FullName} by an identity of type {id.GetType().FullName}. The default implementation forwards only the canonical Guid and string identities to their own overloads; resolving a strong-typed identifier requires the store's own value type registration, so the store has to override this member.")
+        };
 
     /// <summary>
     /// Start a LINQ query over a document type.

@@ -186,6 +186,13 @@ spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndS
 the `LoadAsync<T>(object)` overload (jasperfx#665) to a definition; a fixture that ignores it fails
 the strong-typed identity tests rather than skipping them.
 
+That overload also shows what these suites are *for*. It ships with a default implementation, so a
+store takes the JasperFx bump without a compile break — the default forwards a boxed `Guid` or
+`string` and throws on anything else. Nothing in the compiler then tells the store it has only half
+the member. `DocumentLoadAndStoreCompliance` does: a store that inherits the default fails the
+strong-typed facts. Where the contract's defaults deliberately stop breaking builds, the suite is
+what is left holding stores to the behavior.
+
 These suites are the one part of the library that is executed inside this repo as well as by its
 consumers: `EventStoreTests` enrolls an in-memory reference implementation, so the shared definition
 is known to be satisfiable before three products are held to it. That reference implementation is a
