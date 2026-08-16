@@ -34,9 +34,18 @@ namespace JasperFx.Events.Documents;
 /// <see href="https://github.com/JasperFx/jasperfx/issues/647" />.
 /// </para>
 /// <para>
-/// Identity overloads are limited to <see cref="Guid" /> and <see cref="string" /> — the two the
-/// measured consumer surface uses. Numeric identities and tenant-scoped reads can be added
-/// additively later without breaking any implementer.
+/// Typed identity overloads are limited to <see cref="Guid" /> and <see cref="string" /> — the two
+/// the measured consumer surface uses — with
+/// <see cref="LoadAsync{T}(object,CancellationToken)" /> covering everything else the store can
+/// resolve, strong-typed identifiers above all. Numeric overloads and tenant-scoped reads can be
+/// added additively later without breaking any implementer.
+/// </para>
+/// <para>
+/// Members added after the contract first shipped carry a default implementation, so a store picks
+/// up a new JasperFx without a compile break and adopts the member when it is ready. The default is
+/// never a silent stand-in for the capability: it either answers the part that is answerable
+/// identically for every store, or throws naming the implementing type. What holds a store to the
+/// real behavior is the shared compliance suite, not the compiler.
 /// </para>
 /// </remarks>
 public interface IDocumentReadOperations : IAsyncDisposable
@@ -52,6 +61,61 @@ public interface IDocumentReadOperations : IAsyncDisposable
     /// no document exists with that identity.
     /// </summary>
     Task<T?> LoadAsync<T>(string id, CancellationToken token = default) where T : notnull;
+
+    /// <summary>
+    /// Load a single document by an identity the store resolves at runtime — the overload a
+    /// strong-typed identifier needs — or <see langword="null" /> when no document exists with that
+    /// identity.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Pass the document's own identity value, boxed. For a document keyed by
+    /// <c>record struct AlertId(string Id)</c> that means an <c>AlertId</c> and not the
+    /// <see cref="string" /> it wraps: handing over the wrapped primitive is the one mistake this
+    /// overload cannot rescue, because on the <see cref="string" /> overload it compiles cleanly and
+    /// then fails at runtime with the store's id-type mismatch.
+    /// </para>
+    /// <para>
+    /// The typed overloads stay preferred by overload resolution — a <see cref="Guid" /> or
+    /// <see cref="string" /> argument still binds to its own member, and only an argument that fits
+    /// neither lands here. Implementers should note the corollary: callers holding an identity in an
+    /// <see cref="object" />-typed local reach this overload with a boxed <see cref="Guid" /> or
+    /// <see cref="string" />, so it has to resolve those exactly as the typed overloads do rather
+    /// than assume a wrapper.
+    /// </para>
+    /// <para>
+    /// <b>The default implementation covers exactly that corollary and nothing else.</b> It unboxes a
+    /// <see cref="Guid" /> or <see cref="string" /> and forwards to the overload that already exists,
+    /// which is the only half of this member that can be answered without knowing how a store
+    /// registers value types — and it is answerable identically for every store, so there is no
+    /// reason to make three of them write it. Anything else throws
+    /// <see cref="NotSupportedException" /> naming the implementing type and the identity type,
+    /// because a strong-typed identifier can only be resolved through the store's own value-type
+    /// registration. A store overrides this member to gain that half; the shared compliance suite
+    /// asserts it directly, so the default is a starting point rather than a resting place.
+    /// </para>
+    /// <para>
+    /// This one is here where <c>SingleOrDefaultAsync</c> and friends are not, and the distinction is
+    /// deliberate: those have a straightforward expression through what already exists, whereas
+    /// without this there is no spelling of a by-id load for a strong-typed-id document at all — a
+    /// capability cliff rather than a convenience gap, given that strong-typed identifiers are
+    /// first-class in Marten, Polecat and Fisher alike. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/665" />.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when <paramref name="id" /> is neither a
+    /// <see cref="Guid" /> nor a <see cref="string" /> and the store has not overridden this member.
+    /// </exception>
+    Task<T?> LoadAsync<T>(object id, CancellationToken token = default) where T : notnull
+        => id switch
+        {
+            null => throw new ArgumentNullException(nameof(id)),
+            Guid guid => LoadAsync<T>(guid, token),
+            string text => LoadAsync<T>(text, token),
+            _ => throw new NotSupportedException(
+                $"{GetType().FullName} does not implement {nameof(IDocumentReadOperations)}.{nameof(LoadAsync)}<T>(object), so it cannot load a document of type {typeof(T).FullName} by an identity of type {id.GetType().FullName}. The default implementation forwards only the canonical Guid and string identities to their own overloads; resolving a strong-typed identifier requires the store's own value type registration, so the store has to override this member.")
+        };
 
     /// <summary>
     /// Start a LINQ query over a document type.

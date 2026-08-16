@@ -9,9 +9,10 @@ namespace JasperFx.Events.ComplianceTests;
 /// </summary>
 /// <remarks>
 /// Far thinner than <see cref="ComplianceStoreConfig" />, and that is the point rather than an
-/// oversight. The document contract (jasperfx#647) is seven operations, so a suite needs nothing but
-/// a schema to live in and the document types it will exercise — there is no registrar interface
-/// here because there is nothing store-specific left to register.
+/// oversight. The document contract (jasperfx#647) is eight operations, so a suite needs nothing but
+/// a schema to live in, the document types it will exercise, and the strong-typed identifiers those
+/// documents are keyed by. Still no registrar interface: unlike the event side, every one of those is
+/// expressible as a <see cref="Type" /> the fixture replays against its own options.
 /// </remarks>
 public sealed class DocumentComplianceConfig
 {
@@ -29,6 +30,24 @@ public sealed class DocumentComplianceConfig
     public DocumentComplianceConfig AddDocumentType<T>() where T : notnull
     {
         DocumentTypes.Add(typeof(T));
+        return this;
+    }
+
+    /// <summary>
+    /// Strong-typed identifier wrappers used as document identities in this configuration.
+    /// </summary>
+    /// <remarks>
+    /// Needed by <see cref="Documents.IDocumentReadOperations.LoadAsync{T}(object,System.Threading.CancellationToken)" />,
+    /// which is the only member of the document contract whose behavior depends on store
+    /// configuration the contract itself does not carry. Every Critter Stack store spells the
+    /// registration <c>StoreOptions.RegisterValueType(Type)</c>, so a fixture replays this with a
+    /// loop; stores that discover value types automatically can ignore it.
+    /// </remarks>
+    public List<Type> ValueTypes { get; } = new();
+
+    public DocumentComplianceConfig RegisterValueType<TValue>() where TValue : notnull
+    {
+        ValueTypes.Add(typeof(TValue));
         return this;
     }
 }
