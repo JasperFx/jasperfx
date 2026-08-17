@@ -186,6 +186,14 @@ spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndS
 the `LoadAsync<T>(object)` overload (jasperfx#665) to a definition; a fixture that ignores it fails
 the strong-typed identity tests rather than skipping them.
 
+The same goes for `config.StreamIdentity`, which is nullable — leave the store on its own default
+when it is null, and set it when it is not. Only the event-capable document suites populate it, and
+they do so because they append by stream *key*. This is the one knob whose absence was a suite bug
+rather than a fixture's (jasperfx#672): `DocumentSessionEventsCompliance` needed string stream
+identity and had no way to say so, so three of its five facts failed on every store defaulting to
+Guid, with an error naming stream identity but nothing about the suite's requirement. A precondition
+a config cannot carry is a precondition each fixture has to guess.
+
 That overload also shows what these suites are *for*. It ships with a default implementation, so a
 store takes the JasperFx bump without a compile break — the default forwards a boxed `Guid` or
 `string` and throws on anything else. Nothing in the compiler then tells the store it has only half
