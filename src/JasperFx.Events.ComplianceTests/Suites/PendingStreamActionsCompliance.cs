@@ -39,6 +39,13 @@ public abstract class PendingStreamActionsCompliance<TFixture> : DocumentStorage
     private static readonly Action<DocumentComplianceConfig> _configuration = config =>
     {
         config.SchemaName = "compliance_documents";
+
+        // Same declaration, and for the same reason, as DocumentSessionEventsCompliance: every fact
+        // below appends by stream *key*, so the store has to be configured for string stream
+        // identity, and a suite that leaves a precondition unstated fails a store that implements
+        // the contract correctly. See jasperfx#672.
+        config.StreamIdentity = StreamIdentity.AsString;
+
         config.AddDocumentType<ComplianceWidget>();
         config.AddEventType<KilnFired>();
         config.AddEventType<KilnCooled>();

@@ -36,6 +36,19 @@ public class DocumentComplianceConfigTests
         config.StreamIdentity.ShouldBe(StreamIdentity.AsString);
     }
 
+    /// <remarks>
+    /// The other suite that appends by stream key, and the one most likely to be added without the
+    /// declaration — it was written before jasperfx#672 gave it anywhere to say this.
+    /// </remarks>
+    [Fact]
+    public void the_pending_stream_actions_suite_declares_string_stream_identity()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedPendingStreamActionsCompliance.TheConfiguration(config);
+
+        config.StreamIdentity.ShouldBe(StreamIdentity.AsString);
+    }
+
     [Fact]
     public void a_document_only_suite_leaves_stream_identity_alone()
     {
@@ -54,6 +67,13 @@ public class DocumentComplianceConfigTests
     {
         public static readonly Action<DocumentComplianceConfig> TheConfiguration =
             new ExposedDocumentSessionEventsCompliance().Configuration;
+    }
+
+    private class ExposedPendingStreamActionsCompliance
+        : PendingStreamActionsCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedPendingStreamActionsCompliance().Configuration;
     }
 
     private class ExposedDocumentSessionCompliance
