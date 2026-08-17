@@ -28,6 +28,29 @@ public interface IComplianceStoreRegistrar
     ITagTypeRegistration RegisterTagType<TTag>(string tableSuffix) where TTag : notnull;
 
     /// <summary>
+    /// Register a binary serializer for one event type. Maps to each store's
+    /// <c>Events.UseBinarySerializer&lt;TEvent&gt;(serializer)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Carries a throwing default because binary event serialization is an opt-in capability rather
+    /// than part of the baseline event contract — a store that has not implemented it does not
+    /// enroll in <see cref="BinaryEventSerializationCompliance{TFixture}" />, never reaches this
+    /// member, and keeps compiling against a newer compliance package.
+    /// </remarks>
+    void UseBinarySerializer<TEvent>(IEventBinarySerializer serializer) where TEvent : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement UseBinarySerializer, so it cannot run the binary event serialization compliance suite.");
+
+    /// <summary>
+    /// Set the store-wide fallback serializer used by event types marked with
+    /// <see cref="BinaryEventAttribute" /> that have no explicit per-type registration.
+    /// </summary>
+    /// <inheritdoc cref="UseBinarySerializer{TEvent}" path="/remarks" />
+    void SetDefaultBinarySerializer(IEventBinarySerializer serializer)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement SetDefaultBinarySerializer, so it cannot run the binary event serialization compliance suite.");
+
+    /// <summary>
     /// Register a single stream snapshot projection for a self-aggregating type.
     /// </summary>
     void Snapshot<TDoc>(SnapshotLifecycle lifecycle) where TDoc : notnull;
