@@ -43,6 +43,14 @@ public abstract class DocumentSessionEventsCompliance<TFixture> : DocumentStorag
     private static readonly Action<DocumentComplianceConfig> _configuration = config =>
     {
         config.SchemaName = "compliance_documents";
+
+        // Every fact below appends by stream *key*, so the store has to be configured for string
+        // stream identity. Declared here rather than left to each fixture to work out: a suite with
+        // an unstated precondition fails a store that implements the contract correctly, which is a
+        // bug in the suite by definition. See jasperfx#672 -- this used to fail three of the five
+        // facts on any store defaulting to Guid identity, which is all of them.
+        config.StreamIdentity = StreamIdentity.AsString;
+
         config.AddDocumentType<ComplianceWidget>();
         config.AddEventType<KilnFired>();
         config.AddEventType<KilnCooled>();

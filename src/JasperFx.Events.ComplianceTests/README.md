@@ -177,6 +177,8 @@ alongside the event store — `JasperFx.Events.Documents`:
 | `Store` and `LoadAsync` — `Guid`, `string` and strong-typed identities | `DocumentLoadAndStoreCompliance` |
 | `Delete`, its identity overloads, and `DeleteWhere` | `DocumentDeleteCompliance` |
 | `Query<T>()`, its minimum translatable operator set, and the async terminators | `DocumentQueryCompliance` |
+| The route from a session to its event store | `DocumentSessionEventsCompliance` |
+| The stream actions a session has queued but not committed | `PendingStreamActionsCompliance` |
 
 Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
 **three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
@@ -196,10 +198,27 @@ public class my_document_fixture : DocumentStorageComplianceFixture
 public class document_query_compliance : DocumentQueryCompliance<my_document_fixture>;
 ```
 
+The last two rows are opt-in: alone among the document suites they need the store to be an *event*
+store as well, so a document-only implementer simply does not enroll them. Both members they cover —
+`IDocumentReadOperations.Events` / `IDocumentSessionOperations.Events` (jasperfx#669) and
+`IDocumentSessionOperations.PendingStreams` (jasperfx#673) — ship with throwing defaults, and both
+are reachable by a near-miss that the compiler does not catch: C# interface implementation is not
+return-type covariant, so a session already declaring a member of the same name with the product's
+own type binds to the default instead of implementing the contract. Only a test calling through a
+contract-typed session notices.
+
 `BuildStoreAsync` must honor `config.ValueTypes` as well as `config.DocumentTypes` — every store
 spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndStoreCompliance` hold
 the `LoadAsync<T>(object)` overload (jasperfx#665) to a definition; a fixture that ignores it fails
 the strong-typed identity tests rather than skipping them.
+
+The same goes for `config.StreamIdentity`, which is nullable — leave the store on its own default
+when it is null, and set it when it is not. Only the event-capable document suites populate it, and
+they do so because they append by stream *key*. This is the one knob whose absence was a suite bug
+rather than a fixture's (jasperfx#672): `DocumentSessionEventsCompliance` needed string stream
+identity and had no way to say so, so three of its five facts failed on every store defaulting to
+Guid, with an error naming stream identity but nothing about the suite's requirement. A precondition
+a config cannot carry is a precondition each fixture has to guess.
 
 That overload also shows what these suites are *for*. It ships with a default implementation, so a
 store takes the JasperFx bump without a compile break — the default forwards a boxed `Guid` or
