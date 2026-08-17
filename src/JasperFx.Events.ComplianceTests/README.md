@@ -162,6 +162,8 @@ alongside the event store — `JasperFx.Events.Documents`:
 | `Store` and `LoadAsync` — `Guid`, `string` and strong-typed identities | `DocumentLoadAndStoreCompliance` |
 | `Delete`, its identity overloads, and `DeleteWhere` | `DocumentDeleteCompliance` |
 | `Query<T>()`, its minimum translatable operator set, and the async terminators | `DocumentQueryCompliance` |
+| The route from a session to its event store | `DocumentSessionEventsCompliance` |
+| The stream actions a session has queued but not committed | `PendingStreamActionsCompliance` |
 
 Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
 **three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
@@ -180,6 +182,15 @@ public class my_document_fixture : DocumentStorageComplianceFixture
 
 public class document_query_compliance : DocumentQueryCompliance<my_document_fixture>;
 ```
+
+The last two rows are opt-in: alone among the document suites they need the store to be an *event*
+store as well, so a document-only implementer simply does not enroll them. Both members they cover —
+`IDocumentReadOperations.Events` / `IDocumentSessionOperations.Events` (jasperfx#669) and
+`IDocumentSessionOperations.PendingStreams` (jasperfx#673) — ship with throwing defaults, and both
+are reachable by a near-miss that the compiler does not catch: C# interface implementation is not
+return-type covariant, so a session already declaring a member of the same name with the product's
+own type binds to the default instead of implementing the contract. Only a test calling through a
+contract-typed session notices.
 
 `BuildStoreAsync` must honor `config.ValueTypes` as well as `config.DocumentTypes` — every store
 spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndStoreCompliance` hold
