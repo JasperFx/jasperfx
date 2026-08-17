@@ -1,4 +1,5 @@
 using System;
+using JasperFx.Events.Fetching;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Tags;
 
@@ -54,6 +55,30 @@ public interface IComplianceStoreRegistrar
     /// Register a single stream snapshot projection for a self-aggregating type.
     /// </summary>
     void Snapshot<TDoc>(SnapshotLifecycle lifecycle) where TDoc : notnull;
+
+    /// <summary>
+    /// Enroll an aggregate type in the second-level <c>FetchForWriting</c> snapshot cache, using the
+    /// supplied cache instance so the suite can observe it. Maps to the shared
+    /// <c>EventRegistry.CacheAggregatesForWriting&lt;T&gt;()</c> plus
+    /// <c>EventRegistry.AggregateWriteCaching.Cache</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Both halves are on the shared <see cref="EventRegistry" />, so an implementation is two
+    /// lines. It still comes through the registrar because the fixture is the only thing that knows
+    /// which options object the store hangs its event registry off.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default for the same reason as
+    /// <see cref="UseBinarySerializer{TEvent}" />: caching is an opt-in capability rather than part
+    /// of the baseline contract, so a store that has not wired it into its fetch plans does not
+    /// enroll in <see cref="AggregateWriteCacheCompliance{TFixture,TOperations,TQuerySession}" />,
+    /// never reaches this member, and keeps compiling against a newer compliance package.
+    /// </para>
+    /// </remarks>
+    void CacheAggregatesForWriting<TDoc>(IAggregateWriteCache cache) where TDoc : class
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement CacheAggregatesForWriting, so it cannot run the aggregate write cache compliance suite.");
 
     /// <summary>
     /// Register a live aggregation for a self-aggregating type. A no-op in stores that

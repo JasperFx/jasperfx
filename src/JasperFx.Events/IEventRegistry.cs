@@ -4,6 +4,7 @@ using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Events.Aggregation;
+using JasperFx.Events.Fetching;
 
 namespace JasperFx.Events;
 
@@ -80,6 +81,42 @@ public class EventRegistry : IEventRegistry
 
     [IgnoreDescription]
     public virtual TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <summary>
+    ///     Opt-in caching of aggregate snapshots between <c>FetchForWriting</c> calls. Disabled for
+    ///     every aggregate type by default; see <see cref="CacheAggregatesForWriting{T}" />.
+    /// </summary>
+    [IgnoreDescription]
+    public virtual AggregateWriteCacheOptions AggregateWriteCaching { get; } = new();
+
+    /// <summary>
+    ///     Keep recently fetched snapshots of <typeparamref name="T" /> in a node-local cache so that
+    ///     a subsequent <c>FetchForWriting</c> can skip loading the stored snapshot and read only the
+    ///     events after it. Effectively an identity map for aggregates with a lifetime longer than a
+    ///     session.
+    ///     <para>
+    ///     The cached snapshot is only ever a <em>baseline</em>: the stream version and any newer
+    ///     events are still read from the database on every call, and the optimistic concurrency
+    ///     assertion on append is untouched. A stale entry therefore costs a larger delta query,
+    ///     never a wrong aggregate and never a suppressed concurrency failure. See
+    ///     <see cref="IAggregateWriteCache" /> for the full semantics.
+    ///     </para>
+    ///     <para>
+    ///     Worth enabling where one stream is fetched for writing repeatedly, which is where the
+    ///     removed snapshot load is a real share of the round. On an aggregate written once it is
+    ///     only overhead, which is why this is per type rather than store-wide.
+    ///     </para>
+    /// </summary>
+    /// <param name="sizeLimit">
+    ///     Maximum number of cached aggregates, when the default cache is built. Ignored once a cache
+    ///     has been resolved, and ignored entirely when
+    ///     <see cref="AggregateWriteCacheOptions.Cache" /> is supplied.
+    /// </param>
+    public virtual void CacheAggregatesForWriting<T>(int sizeLimit = 1000) where T : class
+    {
+        AggregateWriteCaching.SizeLimit = sizeLimit;
+        AggregateWriteCaching.Enable(typeof(T));
+    }
 
     public virtual IEvent BuildEvent(object eventData)
     {

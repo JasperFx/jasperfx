@@ -99,6 +99,20 @@ public class dcb_tag_query_and_consistency_compliance
     : DcbTagQueryAndConsistencyCompliance<MyComplianceFixture, IDocumentOperations, IQuerySession>;
 ```
 
+### Opt-in capability suites
+
+Two suites cover capabilities that are opt-in rather than part of the baseline event contract, and
+their seam members on `IComplianceStoreRegistrar` carry throwing defaults: a store that has not
+implemented the capability does not enroll, never reaches the member, and keeps compiling.
+
+`AggregateWriteCacheCompliance` (jasperfx#674) is the newer of the two. `IAggregateWriteCache` is a
+*baseline-only* cache — the stream version and every event after the cached version are still read on
+every fetch — so the suite's job is to prove that turning it on is unobservable except in latency,
+including when the cached baseline is wrong. Note the shape of the load-bearing assertion: every
+correctness fact about caching is vacuously true of a store that ignored the opt-in entirely, so the
+suite supplies its own `RecordingAggregateWriteCache` and asserts a nonzero hit count. Same reasoning
+as the gzipped serializer in `BinaryEventSerializationCompliance`.
+
 ## Capability gates
 
 Where a store genuinely cannot support a behavior, override the `virtual bool Supports...` flags on
@@ -133,6 +147,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Session correlation / causation from `Activity` | `ActivityCorrelationCompliance` |
 | String stream identity, single stream projections | `StringIdentitySingleStreamCompliance` |
 | Write handles and stream concurrency | `FetchForWritingCompliance` |
+| The second-level `FetchForWriting` snapshot cache | `AggregateWriteCacheCompliance` |
 | Stream reads, time travel, stream state | `StreamReadCompliance` |
 | The `IEvent` envelope contract | `EventMetadataCompliance` |
 | Live aggregation, including last-known | `LiveAggregationCompliance` |
