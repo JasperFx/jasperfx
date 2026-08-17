@@ -50,4 +50,22 @@ public sealed class DocumentComplianceConfig
         ValueTypes.Add(typeof(TValue));
         return this;
     }
+
+    /// <summary>
+    /// Event types the suite will append through a session's <c>Events</c> accessor.
+    /// </summary>
+    /// <remarks>
+    /// Only <see cref="DocumentSessionEventsCompliance{TFixture}" /> populates this, and only stores
+    /// that are event stores enroll in that suite — so a fixture for a document-only store can
+    /// ignore it entirely. It is here rather than on <see cref="ComplianceStoreConfig" /> because
+    /// jasperfx#669 is precisely the seam where the two halves meet: the accessor is reached from a
+    /// <em>document</em> session, so it has to be exercised by a document fixture.
+    /// </remarks>
+    public List<Type> EventTypes { get; } = new();
+
+    public DocumentComplianceConfig AddEventType<T>() where T : notnull
+    {
+        EventTypes.Add(typeof(T));
+        return this;
+    }
 }

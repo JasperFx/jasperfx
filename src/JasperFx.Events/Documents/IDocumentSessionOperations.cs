@@ -11,6 +11,36 @@ namespace JasperFx.Events.Documents;
 public interface IDocumentSessionOperations : IDocumentWriteOperations
 {
     /// <summary>
+    /// The full event store API for this session — read, append, and the aggregate-handler workflow.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Narrows <see cref="IDocumentReadOperations.Events" /> from <see cref="IQueryEventStore" /> to
+    /// <see cref="IEventStoreOperations" />, exactly as Marten narrows its own <c>Events</c> from
+    /// <c>IQuerySession</c> to <c>IDocumentOperations</c>. Appending belongs to the committable tier
+    /// because the append has to ride the session's unit of work: whoever can append is whoever can
+    /// <see cref="SaveChangesAsync" />.
+    /// </para>
+    /// <para>
+    /// Note that <see cref="IDocumentWriteOperations" /> — the tier a projection's
+    /// <c>RaiseSideEffects</c> receives — deliberately does <em>not</em> carry the narrowing. A
+    /// projection may write documents but must not append events or commit; the daemon owns both.
+    /// </para>
+    /// <para>
+    /// Same throwing default and the same non-covariance trap as the read tier; see
+    /// <see cref="IDocumentReadOperations.Events" />. Implementing one tier does not implement the
+    /// other — a store that satisfies only this one still throws when the session is held as
+    /// <see cref="IDocumentReadOperations" />.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when the store has not implemented this member.
+    /// </exception>
+    new IEventStoreOperations Events
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentSessionOperations)}.{nameof(Events)}, so events cannot be appended through a session this store opened. Note that C# interface implementation is not return-type covariant: a session declaring an Events property of the product's own event-store type does not satisfy this member, and needs a one-line explicit implementation forwarding to it.");
+
+    /// <summary>
     /// Commit every pending change enlisted in this session's unit of work as a single transaction.
     /// </summary>
     /// <remarks>

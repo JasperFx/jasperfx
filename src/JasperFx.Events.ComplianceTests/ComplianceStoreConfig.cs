@@ -118,6 +118,31 @@ public sealed class ComplianceStoreConfig
         return this;
     }
 
+    /// <summary>
+    /// Event types the suite asked to be stored through a binary serializer, with the serializer.
+    /// </summary>
+    public List<(Type Event, IEventBinarySerializer Serializer)> BinarySerializers { get; } = new();
+
+    /// <summary>
+    /// The store-wide fallback serializer, when the suite set one.
+    /// </summary>
+    public IEventBinarySerializer? DefaultBinarySerializer { get; private set; }
+
+    public ComplianceStoreConfig UseBinarySerializer<TEvent>(IEventBinarySerializer serializer)
+        where TEvent : notnull
+    {
+        BinarySerializers.Add((typeof(TEvent), serializer));
+        _registrations.Add(registrar => registrar.UseBinarySerializer<TEvent>(serializer));
+        return this;
+    }
+
+    public ComplianceStoreConfig SetDefaultBinarySerializer(IEventBinarySerializer serializer)
+    {
+        DefaultBinarySerializer = serializer;
+        _registrations.Add(registrar => registrar.SetDefaultBinarySerializer(serializer));
+        return this;
+    }
+
     public ComplianceStoreConfig RegisterTagType<TTag>(string tableSuffix, Type? aggregateType = null)
         where TTag : notnull
     {

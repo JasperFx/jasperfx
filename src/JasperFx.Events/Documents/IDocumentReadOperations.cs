@@ -51,6 +51,48 @@ namespace JasperFx.Events.Documents;
 public interface IDocumentReadOperations : IAsyncDisposable
 {
     /// <summary>
+    /// The read-only event store API for this session.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The route from a session to its event store, and the reason it is on the contract at all: a
+    /// consumer that opens its own session through <see cref="IDocumentSessionFactory" /> otherwise
+    /// has no store-agnostic way to reach events, because every product declares its own
+    /// <c>Events</c> on its own session type rather than here. The far side of the accessor already
+    /// existed — this is only the route to it. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/669" />.
+    /// </para>
+    /// <para>
+    /// It does not bite a Wolverine handler taking a chain parameter, because wolverine#3956 fills
+    /// an <see cref="IEventStoreOperations" /> parameter from the chain's own session. It bites the
+    /// two shapes where the consumer decides when a session exists: a background or timer publisher
+    /// that opens a session and appends, and a deliberate second read session opened alongside a
+    /// chain's writing session.
+    /// </para>
+    /// <para>
+    /// Read tier deliberately, so that a <see cref="IDocumentSessionFactory.QuerySession" /> cannot
+    /// append — the write-capable narrowing lives on
+    /// <see cref="IDocumentSessionOperations.Events" />, mirroring the split the products already
+    /// draw between their own query and document sessions.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default for the same reason the <see cref="LoadAsync{T}(object,CancellationToken)" />
+    /// overload does: a store picks up a new JasperFx without a compile break and adopts the member
+    /// when it is ready. ⚠️ A store whose session already has an <c>Events</c> property of its own
+    /// product type does <em>not</em> implicitly satisfy this — C# interface implementation is not
+    /// return-type covariant, so a near-miss silently binds to this default instead of failing to
+    /// compile. A one-line explicit implementation is what closes it, and the shared compliance
+    /// suite is what proves it closed.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when the store has not implemented this member.
+    /// </exception>
+    IQueryEventStore Events
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentReadOperations)}.{nameof(Events)}, so the event store cannot be reached from a session this store opened. Note that C# interface implementation is not return-type covariant: a session declaring an Events property of the product's own event-store type does not satisfy this member, and needs a one-line explicit implementation forwarding to it.");
+
+    /// <summary>
     /// Load a single document by its <see cref="Guid" /> identity, or <see langword="null" /> when
     /// no document exists with that identity.
     /// </summary>
