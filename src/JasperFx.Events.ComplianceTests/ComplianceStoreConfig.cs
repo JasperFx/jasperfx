@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using JasperFx.Events.Fetching;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.ComplianceTests;
@@ -163,6 +164,30 @@ public sealed class ComplianceStoreConfig
     {
         Snapshots.Add((typeof(TDoc), lifecycle));
         _registrations.Add(registrar => registrar.Snapshot<TDoc>(lifecycle));
+        return this;
+    }
+
+    /// <summary>
+    /// Aggregate types the suite enrolled in the <c>FetchForWriting</c> snapshot cache, with the
+    /// cache instance it wants the store to use.
+    /// </summary>
+    public List<(Type Doc, IAggregateWriteCache Cache)> CachedAggregates { get; } = new();
+
+    /// <summary>
+    /// Enroll an aggregate type in the second-level <c>FetchForWriting</c> snapshot cache. Off for
+    /// every type unless asked for, which is the behavior
+    /// <see cref="AggregateWriteCacheCompliance{TFixture,TOperations,TQuerySession}" /> asserts.
+    /// </summary>
+    /// <remarks>
+    /// The cache instance is supplied by the suite rather than left to the store so the suite can
+    /// see what the store actually did with it — a store that quietly ignored the opt-in would
+    /// otherwise pass every behavioral fact, since an uncached fetch is correct by construction.
+    /// </remarks>
+    public ComplianceStoreConfig CacheAggregatesForWriting<TDoc>(IAggregateWriteCache cache)
+        where TDoc : class
+    {
+        CachedAggregates.Add((typeof(TDoc), cache));
+        _registrations.Add(registrar => registrar.CacheAggregatesForWriting<TDoc>(cache));
         return this;
     }
 
