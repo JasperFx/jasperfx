@@ -18,9 +18,18 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     protected override Task BuildStoreAsync(DocumentComplianceConfig config)
     {
-        // Nothing to build: an in-memory store has no schema, and it creates storage for a document
-        // type on first use. Both are legitimate answers to this seam member.
-        _ = config;
+        // Nothing to build for storage: an in-memory store has no schema, and it creates storage for
+        // a document type on first use. Both are legitimate answers to this seam member.
+
+        // Commit listeners are the exception, and the reason this override is no longer empty.
+        // Registration happens when the store is built, before any session exists, so a fixture that
+        // skipped this would fail every fact in DocumentCommitListenerCompliance rather than
+        // skipping them -- a listener that was never registered is indistinguishable from a store
+        // that never invokes one. Every product spells the same replay against its own
+        // StoreOptions.Listeners.
+        _store.Listeners.Clear();
+        _store.Listeners.AddRange(config.CommitListeners);
+
         return Task.CompletedTask;
     }
 
@@ -44,3 +53,6 @@ public class in_memory_document_delete_compliance
 
 public class in_memory_document_query_compliance
     : DocumentQueryCompliance<InMemoryDocumentComplianceFixture>;
+
+public class in_memory_document_commit_listener_compliance
+    : DocumentCommitListenerCompliance<InMemoryDocumentComplianceFixture>;

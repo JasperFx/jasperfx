@@ -25,6 +25,17 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
 {
     private readonly ConcurrentDictionary<Type, ConcurrentDictionary<object, object>> _documents = new();
 
+    /// <summary>
+    /// The post-commit listeners this store raises — the reference implementation of jasperfx#679.
+    /// </summary>
+    /// <remarks>
+    /// A plain list, matching the <c>StoreOptions.Listeners</c> that all three products already
+    /// expose. The point being demonstrated is that nothing about the contract requires a store to
+    /// invent registration machinery: a collection of <see cref="IDocumentCommitListener" /> and a
+    /// loop after the commit is the whole of it.
+    /// </remarks>
+    public List<IDocumentCommitListener> Listeners { get; } = new();
+
     public InMemoryDocumentSession LightweightSession() => new(this);
 
     public InMemoryDocumentSession QuerySession() => new(this);
@@ -64,7 +75,7 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
 public class InMemoryDocumentSession : IDocumentSessionOperations
 {
     private readonly InMemoryDocumentStore _store;
-    private readonly List<Action> _pending = new();
+    private readonly List<Action<InMemoryChangeSet>> _pending = new();
 
     internal InMemoryDocumentSession(InMemoryDocumentStore store) => _store = store;
 
@@ -100,7 +111,26 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         foreach (var entity in entities)
         {
             var id = InMemoryDocumentStore.IdentityOf(entity);
-            _pending.Add(() => _store.StorageFor(typeof(T))[id] = entity);
+            _pending.Add(changes =>
+            {
+                var storage = _store.StorageFor(typeof(T));
+
+                // Insert vs update is decided at commit time against what is actually stored, which
+                // is the only honest answer a store with no identity map can give. The contract
+                // deliberately does not hold products to one determination here -- only to the
+                // document landing in exactly one of the two collections.
+                var existed = storage.ContainsKey(id);
+                storage[id] = entity;
+
+                if (existed)
+                {
+                    changes.RecordUpdated(entity);
+                }
+                else
+                {
+                    changes.RecordInserted(entity);
+                }
+            });
         }
     }
 
@@ -112,12 +142,16 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     public void Delete<T>(string id) where T : notnull => deleteById<T>(id);
 
     private void deleteById<T>(object id) where T : notnull
-        => _pending.Add(() => _store.StorageFor(typeof(T)).TryRemove(id, out _));
+        => _pending.Add(changes =>
+        {
+            _store.StorageFor(typeof(T)).TryRemove(id, out _);
+            changes.RecordDeleted(typeof(T), id);
+        });
 
     public void DeleteWhere<T>(Expression<Func<T, bool>> expression) where T : notnull
     {
         var matches = expression.Compile();
-        _pending.Add(() =>
+        _pending.Add(changes =>
         {
             var storage = _store.StorageFor(typeof(T));
             foreach (var pair in storage.ToArray())
@@ -125,21 +159,39 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
                 if (matches((T)pair.Value))
                 {
                     storage.TryRemove(pair.Key, out _);
+                    changes.RecordDeleted(typeof(T), pair.Key);
                 }
             }
         });
     }
 
-    public Task SaveChangesAsync(CancellationToken token = default)
+    public async Task SaveChangesAsync(CancellationToken token = default)
     {
+        // Before anything is applied, so a cancelled commit leaves the store untouched AND raises no
+        // listener. The contract's rule is that the callback happens if and only if the commit
+        // succeeded, and a store that applied first would break the second half of that.
+        token.ThrowIfCancellationRequested();
+
+        if (_pending.Count == 0)
+        {
+            // An empty unit of work raises nothing. The contract permits either answer here and the
+            // compliance suite asserts neither; this side is chosen to match Fisher.
+            return;
+        }
+
+        var changes = new InMemoryChangeSet();
+
         foreach (var change in _pending)
         {
-            change();
+            change(changes);
         }
 
         _pending.Clear();
 
-        return Task.CompletedTask;
+        foreach (var listener in _store.Listeners)
+        {
+            await listener.AfterCommitAsync(this, changes, token).ConfigureAwait(false);
+        }
     }
 
     public ValueTask DisposeAsync()
@@ -149,6 +201,41 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         return default;
     }
 }
+
+/// <summary>
+/// The reference <see cref="IDocumentChangeSet" /> — three materialized lists and nothing else.
+/// </summary>
+/// <remarks>
+/// Materialized at commit time rather than wrapping the session's pending work, which is the whole
+/// substance of the contract's snapshot rule. A store that handed out a live view would answer
+/// correctly inside the callback and empty afterwards; building the lists here is what lets a
+/// listener stash the change set and read it later, and what makes a counterpart to Marten's
+/// <c>IChangeSet.Clone()</c> unnecessary.
+/// </remarks>
+internal class InMemoryChangeSet : IDocumentChangeSet
+{
+    private readonly List<object> _inserted = new();
+    private readonly List<object> _updated = new();
+    private readonly List<IDocumentDeletion> _deleted = new();
+
+    public IReadOnlyList<object> Inserted => _inserted;
+
+    public IReadOnlyList<object> Updated => _updated;
+
+    public IReadOnlyList<IDocumentDeletion> Deleted => _deleted;
+
+    internal void RecordInserted(object document) => _inserted.Add(document);
+
+    internal void RecordUpdated(object document) => _updated.Add(document);
+
+    internal void RecordDeleted(Type documentType, object? id)
+        => _deleted.Add(new InMemoryDeletion(documentType, id));
+}
+
+/// <summary>
+/// The reference <see cref="IDocumentDeletion" /> — type and identity, no document instance.
+/// </summary>
+internal record InMemoryDeletion(Type DocumentType, object? Id) : IDocumentDeletion;
 
 /// <summary>
 /// Wraps an <see cref="IQueryable{T}" /> so that every LINQ operator applied to it keeps returning a

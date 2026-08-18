@@ -105,4 +105,39 @@ public sealed class DocumentComplianceConfig
         EventTypes.Add(typeof(T));
         return this;
     }
+
+    /// <summary>
+    /// Post-commit listeners the store must invoke — <see cref="Documents.IDocumentCommitListener" />
+    /// (jasperfx#679).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one config member that is not a <see cref="Type" />, and it has to be: a listener is
+    /// registered as an <em>instance</em> on every product (<c>StoreOptions.Listeners</c> on all
+    /// three), and the suite has to hold the same instance it registered in order to read back what
+    /// the store handed it. Nothing else in the document compliance surface needs that, which is why
+    /// this is the first departure from the "everything is a Type the fixture replays" rule.
+    /// </para>
+    /// <para>
+    /// It also has to exist at all, rather than the suite registering a listener through a session
+    /// it was handed. Registration happens when the store is <em>built</em> — before any session
+    /// exists — so without a slot here the suite for jasperfx#679 is not merely awkward to write, it
+    /// is unwritable. That is the jasperfx#672 rule restated: a precondition the config cannot carry
+    /// is one each fixture has to guess at.
+    /// </para>
+    /// <para>
+    /// A fixture replays this by adapting each entry onto its own listener type and adding it to
+    /// <c>StoreOptions.Listeners</c>. Ignoring it does not make
+    /// <c>DocumentCommitListenerCompliance</c> skip — every fact in it fails, because a listener
+    /// that was never registered never fires, which is indistinguishable from a store that does not
+    /// implement the contract.
+    /// </para>
+    /// </remarks>
+    public List<Documents.IDocumentCommitListener> CommitListeners { get; } = new();
+
+    public DocumentComplianceConfig AddCommitListener(Documents.IDocumentCommitListener listener)
+    {
+        CommitListeners.Add(listener);
+        return this;
+    }
 }
