@@ -179,6 +179,7 @@ alongside the event store — `JasperFx.Events.Documents`:
 | `Query<T>()`, its minimum translatable operator set, and the async terminators | `DocumentQueryCompliance` |
 | The route from a session to its event store | `DocumentSessionEventsCompliance` |
 | The stream actions a session has queued but not committed | `PendingStreamActionsCompliance` |
+| Post-commit session listeners and the change set they receive | `DocumentCommitListenerCompliance` |
 
 Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
 **three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
@@ -198,14 +199,38 @@ public class my_document_fixture : DocumentStorageComplianceFixture
 public class document_query_compliance : DocumentQueryCompliance<my_document_fixture>;
 ```
 
-The last two rows are opt-in: alone among the document suites they need the store to be an *event*
-store as well, so a document-only implementer simply does not enroll them. Both members they cover —
+`DocumentSessionEventsCompliance` and `PendingStreamActionsCompliance` are opt-in: alone among the
+document suites they need the store to be an *event* store as well, so a document-only implementer
+simply does not enroll them. Both members they cover —
 `IDocumentReadOperations.Events` / `IDocumentSessionOperations.Events` (jasperfx#669) and
 `IDocumentSessionOperations.PendingStreams` (jasperfx#673) — ship with throwing defaults, and both
 are reachable by a near-miss that the compiler does not catch: C# interface implementation is not
 return-type covariant, so a session already declaring a member of the same name with the product's
 own type binds to the default instead of implementing the contract. Only a test calling through a
 contract-typed session notices.
+
+`DocumentCommitListenerCompliance` (jasperfx#679) is opt-in for a different reason: it needs only
+documents, so any store implementing the document contract can enroll, but it needs `BuildStoreAsync`
+to replay `config.CommitListeners` onto the store's own listener collection — `StoreOptions.Listeners`
+on all three products. That member exists because registration happens when the store is *built*,
+before any session exists, so a suite working only through the sessions the fixture hands out could
+not register a listener at all.
+
+It is also the suite whose failure mode nothing else can reach. Neither `IDocumentCommitListener` nor
+`IDocumentChangeSet` ships a default implementation, so unlike the two members above, a store that
+declares them wrongly gets a compile error rather than a silent bind to a throwing default. What no
+compiler sees is the *wiring*: a store that declares both interfaces perfectly and never invokes the
+listener builds clean and passes every other suite here. Deleting the listener loop from this repo's
+own in-memory reference store fails 8 of the suite's 10 facts; the 2 that still pass are the two that
+assert the listener does **not** fire.
+
+Two behaviors it deliberately does not assert, because the products disagree and the contract permits
+both: an **empty unit of work** (Fisher short-circuits and raises nothing; Marten matches but never
+stated it) and a session **enlisted in a caller's ambient transaction** (Fisher does not fire, since
+the enclosing transaction rather than `SaveChangesAsync` is what makes the data durable; Marten fires
+unconditionally). The second is unreachable from a suite in any case — enlistment is spelled on each
+product's own `SessionOptions`, which `IDocumentSessionFactory` does not expose — so it belongs in
+each store's own tests.
 
 `BuildStoreAsync` must honor `config.ValueTypes` as well as `config.DocumentTypes` — every store
 spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndStoreCompliance` hold
