@@ -2,10 +2,35 @@ using JasperFx.Events.Daemon;
 
 namespace JasperFx.Events.Projections;
 
+/// <summary>
+/// Whether the shard that published a <see cref="ShardState" /> was running normally or rebuilding.
+/// </summary>
+/// <remarks>
+/// jasperfx#681: <see cref="rebuilding" /> had no writer anywhere in the tree until then, so every
+/// state a <c>SubscriptionAgent</c> published reported <see cref="continuous" /> — including the ones
+/// published during a replay. An observer therefore could not tell a projection catching up under a
+/// rebuild from one running normally, which is the distinction this enum exists to draw.
+/// </remarks>
 public enum ShardMode
 {
+    /// <summary>
+    /// Unknown. Not published by a running agent — it is the default for a persisted progression row
+    /// that predates the mode being recorded, so it means "no mode was stored", not "idle".
+    /// </summary>
     none,
+
+    /// <summary>
+    /// Running normally. Covers ordinary catch-up as well as steady-state tailing: a shard behind the
+    /// high water mark under continuous operation is still <see cref="continuous" />, because the
+    /// number an operator is watching is lag either way.
+    /// </summary>
     continuous,
+
+    /// <summary>
+    /// Rebuilding from the beginning of the stream. The sequence on the same state is catch-up
+    /// progress toward the rebuild's ceiling, <em>not</em> lag — which is what makes this worth
+    /// telling an operator about.
+    /// </summary>
     rebuilding
 }
 
