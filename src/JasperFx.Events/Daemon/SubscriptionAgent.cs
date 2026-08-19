@@ -173,7 +173,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             {
                 PausedTime = null;
                 Status = AgentStatus.Stopped;
-                await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+                await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)
                 {
                     Action = ShardAction.Stopped,
                     Exception = ex,
@@ -181,13 +181,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     PauseReason = failure.Detail,
                     Failure = failure,
                     LastHeartbeat = _timeProvider.GetUtcNow()
-                });
+                }));
             }
             else
             {
                 PausedTime = _timeProvider.GetUtcNow();
                 Status = AgentStatus.Paused;
-                await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+                await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)
                 {
                     Action = ShardAction.Paused,
                     Exception = ex,
@@ -195,7 +195,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     PauseReason = failure.Detail,
                     Failure = failure,
                     LastHeartbeat = _timeProvider.GetUtcNow()
-                });
+                }));
             }
 
             if (Mode == ShardExecutionMode.Rebuild)
@@ -247,12 +247,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
             _logger.LogInformation("Stopped projection agent {Name}", ProjectionShardIdentity);
             Status = AgentStatus.Stopped;
-            await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+            await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)
             {
                 Action = ShardAction.Stopped,
                 AgentStatus = "Stopped",
                 LastHeartbeat = _timeProvider.GetUtcNow()
-            });
+            }));
         }
     }
 
@@ -260,12 +260,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     {
         await _execution.HardStopAsync().ConfigureAwait(false);
         await DisposeAsync().ConfigureAwait(false);
-        await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+        await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)
         {
             Action = ShardAction.Stopped,
             AgentStatus = "Stopped",
             LastHeartbeat = _timeProvider.GetUtcNow()
-        });
+        }));
     }
 
     public async Task StartAsync(SubscriptionExecutionRequest request)
@@ -295,7 +295,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }
 
         await _commandBlock.PostAsync(Command.Started(request.StartingHighWater ?? _tracker.HighWaterMark, request.Floor));
-        await _tracker.PublishAsync(stampSideEffectGate(new ShardState(Name, request.Floor)
+        await _tracker.PublishAsync(stamp(new ShardState(Name, request.Floor)
         {
             Action = ShardAction.Started,
             AgentStatus = "Running",
@@ -314,11 +314,22 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     /// </summary>
     public bool SideEffectsSuppressed => _sideEffectsSuppressed;
 
-    // jasperfx#598/#610: stamp the warm-up window onto every state this agent publishes, so an operator
-    // watching the shard can tell "running, but not emitting side effects yet" from "running normally"
-    // — the distinction that was invisible while the warm-up hid inside the start path.
-    private ShardState stampSideEffectGate(ShardState state)
+    // Stamp what this agent knows about itself onto every state it publishes. EVERY publish in this
+    // class goes through here — a publish that skips it reports the agent's defaults rather than its
+    // actual condition, which is exactly the bug jasperfx#681 was.
+    private ShardState stamp(ShardState state)
     {
+        // jasperfx#681: ShardMode.rebuilding had no writer anywhere in the tree, so every state this
+        // agent published claimed `continuous` — including the ones published during a replay. The
+        // agent already knows better; it just knows it on a different enum. Only Rebuild maps to
+        // rebuilding: CatchUp is a shard catching up under normal operation, and telling those two
+        // apart is the whole point of the distinction.
+        state.Mode = Mode == ShardExecutionMode.Rebuild ? ShardMode.rebuilding : ShardMode.continuous;
+
+        // jasperfx#598/#610: the warm-up window, so an operator watching the shard can tell "running,
+        // but not emitting side effects yet" from "running normally" — the distinction that was
+        // invisible while the warm-up hid inside the start path.
+        //
         // Mark first, flag second: completeSideEffectGateAsync clears the flag before zeroing the mark, so
         // a publisher on another thread (MarkSuccessAsync, the heartbeat timer) racing the flip either
         // stamps a consistent pair or stamps nothing — never "suppressed, gated on 0".
@@ -355,12 +366,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             "Projection agent {Name} finished its side-effect-suppressed warm-up at {Mark}; side effects are enabled from here on",
             ProjectionShardIdentity, mark);
 
-        await _tracker.PublishAsync(new ShardState(Name, LastCommitted)
+        await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)
         {
             Action = ShardAction.Updated,
             AgentStatus = Status.ToString(),
             LastHeartbeat = _timeProvider.GetUtcNow()
-        });
+        }));
     }
 
     // jasperfx#598/#610: admission to the daemon's warm-up throttle. Returns true when this agent may
@@ -456,7 +467,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             }
             else
             {
-                await _tracker.PublishAsync(new ShardState(Name, request.Floor) { Action = ShardAction.Started });
+                await _tracker.PublishAsync(stamp(new ShardState(Name, request.Floor) { Action = ShardAction.Started }));
                 await _commandBlock.PostAsync(Command.Started(highWaterMark, request.Floor));
 
                 await _rebuild.Task.TimeoutAfterAsync((int)timeout.TotalMilliseconds).ConfigureAwait(false);
@@ -469,6 +480,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }
         finally
         {
+            // jasperfx#681: drop out of Rebuild BEFORE the teardown, so the Stopped state disposal
+            // publishes does not still claim to be rebuilding. A consumer that tracks "is this shard
+            // rebuilding" off the last state it saw would otherwise latch on rebuilding forever, which
+            // is a worse failure than the one this issue reported. Safe here: everything that reads
+            // Mode to decide the rebuild's outcome (ReportCriticalFailureAsync, the RangeCompleted
+            // branch of the command loop) has already run against the completed _rebuild task.
+            Mode = ShardExecutionMode.Continuous;
+
             await DisposeAsync().ConfigureAwait(false);
         }
     }
@@ -504,7 +523,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     {
         var now = _timeProvider.GetUtcNow();
         await _commandBlock.PostAsync(Command.Completed(processedCeiling));
-        await _tracker.PublishAsync(stampSideEffectGate(new ShardState(Name, processedCeiling)
+        await _tracker.PublishAsync(stamp(new ShardState(Name, processedCeiling)
         {
             Action = ShardAction.Updated,
             LastAdvanced = now,
@@ -620,7 +639,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     _bufferedCeiling = LastCommitted; // jasperfx#525: keep the buffered marker >= committed
                 }
 
-                await _tracker.PublishAsync(new ShardState(Name, LastCommitted));
+                await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)));
 
                 if (LastCommitted == HighWaterMark && Mode == ShardExecutionMode.Rebuild)
                 {
@@ -766,7 +785,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
             try
             {
-                var state = stampSideEffectGate(new ShardState(Name, LastCommitted)
+                var state = stamp(new ShardState(Name, LastCommitted)
                 {
                     Action = ShardAction.Updated,
                     LastHeartbeat = _timeProvider.GetUtcNow(),
