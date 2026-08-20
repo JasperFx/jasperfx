@@ -403,3 +403,8 @@ src/CommandLineRunner/description.txt
 # VitePress documentation
 docs/.vitepress/cache
 docs/.vitepress/dist
+
+# Claude Code agent worktrees — never part of the repo. One was committed as a gitlink
+# (mode 160000) with no .gitmodules entry, which made every checkout post-cleanup fail with
+# "fatal: No url found for submodule path" and a git exit-128 warning.
+.claude/worktrees/
