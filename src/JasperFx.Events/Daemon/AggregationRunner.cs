@@ -107,7 +107,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             await range.SliceAsync(Slicer);
         }
 
-        var exceptions = new List<Exception>();
+        // Concurrent because it has two writers: the block's OnError, invoked from the block's own
+        // threads, and the jasperfx#683 inline path below, invoked from this one. The block runs in the
+        // background across groups, so an inline group can be applying while a previous group's posted
+        // slices are still completing. (The block side alone was already unguarded here.)
+        var exceptions = new ConcurrentQueue<Exception>();
         var builder = new Block<EventSliceExecution>(10, async (execution, _) =>
         {
             if (cancellation.IsCancellationRequested)
@@ -119,12 +123,38 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 execution.Cache, cancellation);
         });
 
-        builder.OnError = (_, e) => exceptions.Add(e);
+        builder.OnError = (_, e) => exceptions.Enqueue(e);
+
+        // jasperfx#683: a storage that cannot take concurrent slices (an EF Core DbContext-backed one)
+        // gets applied inline instead of posted into the block. Both routes run the SAME handler and
+        // collect into the SAME exception list, so everything downstream of here -- MarkSliceAction, the
+        // single-vs-aggregate throw below, ApplyPendingCacheUpdates -- is unchanged either way. The
+        // block's width is fixed at construction and the storage is not known until processBatchAsync,
+        // which is why this is a routing decision rather than a width of one.
+        async Task applyInlineAsync(EventSliceExecution execution)
+        {
+            if (cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                await ApplyChangesAsync(applyMode, batch, execution.Operations, execution.Slice,
+                    execution.Storage, execution.Cache, cancellation);
+            }
+            catch (Exception e)
+            {
+                // Mirrors builder.OnError rather than propagating: a slice that throws must not abandon
+                // the slices after it, because the range's other slices still have to be marked.
+                exceptions.Enqueue(e);
+            }
+        }
 
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>().ToArray();
         foreach (var group in groups)
         {
-            await processBatchAsync(cancellation, batch, group, builder);
+            await processBatchAsync(cancellation, batch, group, builder, applyInlineAsync);
         }
 
         await builder.WaitForCompletionAsync().ConfigureAwait(false);
@@ -139,9 +169,9 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         if (exceptions.Count == 1)
         {
-            ExceptionDispatchInfo.Throw(exceptions[0]);
+            ExceptionDispatchInfo.Throw(exceptions.Single());
         }
-        else if (exceptions.Any())
+        else if (!exceptions.IsEmpty)
         {
             throw new AggregateException(exceptions);
         }
@@ -231,13 +261,18 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     }
 
     private async Task processBatchAsync(CancellationToken cancellation, IProjectionBatch<TOperations, TQuerySession> batch, SliceGroup<TDoc, TId> group,
-        Block<EventSliceExecution> builder)
+        Block<EventSliceExecution> builder, Func<EventSliceExecution, Task> applyInlineAsync)
     {
         var operations = batch.SessionForTenant(group.TenantId);
         var cache = CacheFor(group.TenantId);
 
         var needToBeFetched = new List<EventSlice<TDoc, TId>>();
         var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(group.TenantId, cancellation);
+
+        // jasperfx#683: resolved per tenant group, so a store is free to answer differently per tenant.
+        Func<EventSliceExecution, Task> submitAsync = storage.IsThreadSafe
+            ? execution => builder.PostAsync(execution).AsTask()
+            : applyInlineAsync;
 
         group.Operations = operations;
         await Projection.EnrichEventsAsync(group, operations, cancellation);
@@ -252,14 +287,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             if (_deferWrites && tryFindPendingSnapshot(group.TenantId, slice.Id, out var pending))
             {
                 slice.Snapshot = pending;
-                await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
+                await submitAsync(new EventSliceExecution(slice, operations, storage, cache));
             }
             // If you can find the snapshot in the cache, use that
             else if (cache.TryFind(slice.Id, out var snapshot))
             {
                 slice.Snapshot = snapshot;
 
-                await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
+                await submitAsync(new EventSliceExecution(slice, operations, storage, cache));
             }
             else
             {
@@ -276,7 +311,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 slice.Snapshot = snapshot;
             }
 
-            await builder.PostAsync(new EventSliceExecution(slice, operations, storage, cache));
+            await submitAsync(new EventSliceExecution(slice, operations, storage, cache));
         }
     }
 

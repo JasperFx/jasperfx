@@ -5,8 +5,43 @@ namespace JasperFx.Events.Daemon;
 public interface IProjectionStorage<TDoc, TId> : IIdentitySetter<TDoc, TId>
 {
     // This will wrap ProjectionUpdateBatch & the right DocumentSession
-    
+
     string TenantId { get; }
+
+    /// <summary>
+    /// Can the daemon apply several of a range's slices concurrently against this storage instance?
+    /// Return <see langword="false" /> when it cannot, and the runner applies them one at a time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// jasperfx#683. <c>AggregationRunner</c> applies every slice in a range through a fixed 10-wide
+    /// block, and every one of them gets the <em>same</em> storage instance. That is what the
+    /// products' own document storage is built for. It is not what an EF Core storage can take: it
+    /// wraps a single <c>DbContext</c> per tenant/batch, and a <c>DbContext</c> is not thread-safe.
+    /// A multi-stream projection with custom grouping fans one event out into many slices, so up to
+    /// ten of them concurrently call <c>Entry()</c> / <c>FindAsync</c> and mutate the same change
+    /// tracker — reported as an <c>InvalidOperationException</c> out of <c>Dictionary.TryInsert</c>
+    /// and a <c>NullReferenceException</c> out of <c>ChangeDetector.DetectChanges</c>
+    /// (<see href="https://github.com/JasperFx/marten/issues/5266" />).
+    /// </para>
+    /// <para>
+    /// The declaration belongs here rather than on <c>AsyncOptions</c> because the storage is the
+    /// thing that is or is not safe, and it already knows. A parallelism knob would work, but it
+    /// would make correctness a configuration problem that a user has to know they have.
+    /// </para>
+    /// <para>
+    /// ⚠️ Serializing calls <em>inside</em> a storage implementation does not substitute for this.
+    /// A lock around each storage member still leaves the aggregation on one thread mutating
+    /// entities while another thread's <c>Entry()</c> runs change detection over them, which is
+    /// exactly the reported <c>ChangeDetector</c> failure. The fan-out itself has to stop, and
+    /// nothing reachable from inside the storage can stop it.
+    /// </para>
+    /// <para>
+    /// Defaults to <see langword="true" />, so this is additive: no existing storage has to change
+    /// to stay correct.
+    /// </para>
+    /// </remarks>
+    bool IsThreadSafe => true;
     
     void HardDelete(TDoc snapshot);
     void UnDelete(TDoc snapshot);
