@@ -41,11 +41,16 @@ public class AggregationRunnerSliceConcurrencyTests
         theProjection.Options.Returns(new AsyncOptions());
         theProjection.Scope.Returns(AggregationScope.MultiStream);
         theProjection.MatchesAnyDeleteType(Arg.Any<IReadOnlyList<IEvent>>()).Returns(false);
+        // The overlap is measured here rather than inside the storage, and it matters: this is an await,
+        // so ten concurrent applies can be in flight without ten OS threads. Measuring at a blocking call
+        // instead makes the concurrent route depend on the thread pool injecting threads, which a small CI
+        // runner does not do quickly enough -- it measured a max concurrency of 1 and failed the fan-out
+        // fact on net10.0 while passing on net9.0.
         theProjection
             .DetermineActionAsync(Arg.Any<FakeSession>(), Arg.Any<User?>(), Arg.Any<Guid>(),
                 Arg.Any<IProjectionStorage<User, Guid>>(), Arg.Any<IReadOnlyList<IEvent>>(),
                 Arg.Any<CancellationToken>())
-            .Returns(new ValueTask<(User?, ActionType)>((snapshot, ActionType.Store)));
+            .Returns(_ => new ValueTask<(User?, ActionType)>(theStorage.TrackApplyAsync(snapshot)));
         theProjection
             .TryApplyMetadata(Arg.Any<IReadOnlyList<IEvent>>(), Arg.Any<User?>(), Arg.Any<Guid>(),
                 Arg.Any<IProjectionStorage<User, Guid>>())
@@ -183,14 +188,13 @@ public class AggregationRunnerSliceConcurrencyTests
     }
 
     /// <summary>
-    /// Records how many applies are in flight at once. The sleep is what makes overlap observable at all —
-    /// without it the applies are fast enough that even the ten-wide route rarely has two in flight, and the
-    /// test would pass against the bug.
+    /// Records how many applies are in flight at once, and can fail a chosen one.
     /// </summary>
     private class ConcurrencyProbeStorage: IProjectionStorage<User, Guid>
     {
         private readonly object _lock = new();
         private int _inFlight;
+        private int _stored;
 
         public bool IsThreadSafe { get; set; } = true;
         public int MaxConcurrency { get; private set; }
@@ -201,26 +205,23 @@ public class AggregationRunnerSliceConcurrencyTests
 
         public string TenantId => "foo";
 
-        public void StoreProjection(User aggregate, IEvent? lastEvent, AggregationScope scope)
+        /// <summary>
+        /// Called from the projection's apply, which awaits it. Records how many applies overlap.
+        /// </summary>
+        public async Task<(User?, ActionType)> TrackApplyAsync(User snapshot)
         {
-            int number;
-
             lock (_lock)
             {
                 _inFlight++;
                 Applied++;
-                number = Applied;
                 if (_inFlight > MaxConcurrency) MaxConcurrency = _inFlight;
             }
 
             try
             {
-                Thread.Sleep(15);
-
-                if (number == FailOnApplyNumber || number == AlsoFailOnApplyNumber)
-                {
-                    throw new DivideByZeroException($"slice {number}");
-                }
+                // Long enough that a concurrent route has every slot occupied at once, and short enough
+                // that the serial route's twenty applies still finish promptly.
+                await Task.Delay(25);
             }
             finally
             {
@@ -228,6 +229,23 @@ public class AggregationRunnerSliceConcurrencyTests
                 {
                     _inFlight--;
                 }
+            }
+
+            return (snapshot, ActionType.Store);
+        }
+
+        public void StoreProjection(User aggregate, IEvent? lastEvent, AggregationScope scope)
+        {
+            int number;
+            lock (_lock)
+            {
+                _stored++;
+                number = _stored;
+            }
+
+            if (number == FailOnApplyNumber || number == AlsoFailOnApplyNumber)
+            {
+                throw new DivideByZeroException($"slice {number}");
             }
         }
 
