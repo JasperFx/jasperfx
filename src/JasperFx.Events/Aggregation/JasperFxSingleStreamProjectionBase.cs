@@ -5,7 +5,55 @@ using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Aggregation;
 
-public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IAggregatorSource<TQuerySession>, IAggregator<TDoc, TId, TQuerySession>, IInlineProjection<TOperations> 
+/// <summary>
+/// Shared implementation behind each store's own <c>SingleStreamProjection&lt;TDoc,TId&gt;</c>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// ⚠️ <b>Derive from your store's subclass, not from this type.</b> A store's subclass may add behavior
+/// that this base deliberately omits, and nothing about taking the base instead fails at compile time —
+/// you get a projection that builds, runs, and is subtly wrong. See
+/// <see href="https://github.com/JasperFx/jasperfx/issues/649" />.
+/// </para>
+/// <para>
+/// Concretely, as of Marten 9.23 / Polecat 5.12. Polecat's <c>SingleStreamProjection&lt;TDoc,TId&gt;</c>
+/// is an empty class body, so nothing is lost there. Marten's is not — it adds two behaviors:
+/// </para>
+/// <list type="bullet">
+///   <item>
+///     <description>
+///     <b><c>BuildSlicer</c></b> returns a <c>TenantedEventSlicer</c> with <c>ForceSingleTenancy</c> taken
+///     from the store's <c>EventGraph.TenancyStyle</c> — the fix for
+///     <see href="https://github.com/JasperFx/wolverine/issues/2053" />. This base returns the same slicer
+///     <em>without</em> it, so taking the base changes event slicing on a single-tenanted Marten store.
+///     </description>
+///   </item>
+///   <item>
+///     <description>
+///     <b><c>IMartenAggregateProjection.ConfigureAggregateMapping</c></b> sets
+///     <c>mapping.UseVersionFromMatchingStream = true</c>, which changes how an aggregate's version
+///     metadata is persisted. Taking the base silently drops it — which matters most on exactly the
+///     documents someone has put optimistic-concurrency guards around.
+///     </description>
+///   </item>
+/// </list>
+/// <para>
+/// Both are the kind of divergence that produces a wrong answer rather than an error, and both are
+/// invisible until something downstream is already wrong, which is why this warning is here rather than
+/// left to be rediscovered. The <c>BuildSlicer</c> comment below saying the method "needs to be
+/// overridable in Marten" is the other half of the same story: it is a deliberate escape hatch for the
+/// store, not a suggestion that the base is equivalent.
+/// </para>
+/// <para>
+/// <b>If you are writing one projection to compile against several stores</b>, the routes that work today
+/// are a per-flavour alias bound to each store's own subclass, or — where the document owns its stream —
+/// a self-aggregating document registered with <c>Snapshot&lt;T&gt;()</c>, which sidesteps the question
+/// entirely because the store then constructs <em>its own</em> subclass. Note the limit on the second:
+/// a self-aggregating document has no constructor, so it cannot carry an <c>IncludeType&lt;T&gt;()</c>
+/// event allow-list, which matters when several projections slice the same stream.
+/// </para>
+/// </remarks>
+public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations, TQuerySession> : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>, IAggregatorSource<TQuerySession>, IAggregator<TDoc, TId, TQuerySession>, IInlineProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
     private readonly Func<IEvent,TId> _identitySource;
@@ -18,7 +66,10 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
     }
 
-    // This actually does need to be overridable in Marten
+    // This actually does need to be overridable in Marten -- and Marten does override it, to set
+    // ForceSingleTenancy from the store's TenancyStyle (wolverine#2053). A consumer deriving from THIS type
+    // rather than from Marten's subclass gets the slicer below instead, with no compile error and no runtime
+    // failure -- just different slicing on a single-tenanted store. See jasperfx#649 and the class remarks.
     public override IEventSlicer BuildSlicer(TQuerySession session)
     {
         // Doesn't hurt anything if it's not actually tenanted

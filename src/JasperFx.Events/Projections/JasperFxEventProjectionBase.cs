@@ -9,8 +9,17 @@ using Microsoft.Extensions.Logging;
 namespace JasperFx.Events.Projections;
 
 /// <summary>
-/// Base class for adhoc projections
+/// Base class for adhoc projections, and the shared implementation behind each store's own
+/// <c>EventProjection</c>.
 /// </summary>
+/// <remarks>
+/// ⚠️ <b>Derive from your store's <c>EventProjection</c>, not from this type.</b> Same divergence, and
+/// same silence, as <see cref="Aggregation.JasperFxSingleStreamProjectionBase{TDoc,TId,TOperations,TQuerySession}" />
+/// — see that type's remarks and <see href="https://github.com/JasperFx/jasperfx/issues/649" />. As of
+/// Marten 9.23, <c>Marten.Events.Projections.EventProjection</c> adds <c>IProjectionSchemaSource</c>, the
+/// store's validation hook, and a <c>TryBuildReplayExecutor</c> override that this base does not have;
+/// taking the base instead compiles cleanly and quietly loses them.
+/// </remarks>
 /// <typeparam name="TOperations"></typeparam>
 /// <typeparam name="TQuerySession"></typeparam>
 [UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
