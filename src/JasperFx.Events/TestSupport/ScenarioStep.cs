@@ -5,6 +5,8 @@ internal abstract class ScenarioStep<TOperations, TQuerySession>
 {
     public string Description { get; set; } = string.Empty;
 
+    public abstract ProjectionScenarioStepKind Kind { get; }
+
     public abstract Task Execute(ProjectionScenario<TOperations, TQuerySession> scenario,
         CancellationToken ct = default);
 }
@@ -18,6 +20,8 @@ internal class ScenarioAction<TOperations, TQuerySession>: ScenarioStep<TOperati
     {
         _action = action;
     }
+
+    public override ProjectionScenarioStepKind Kind => ProjectionScenarioStepKind.Action;
 
     public override async Task Execute(ProjectionScenario<TOperations, TQuerySession> scenario,
         CancellationToken ct = default)
@@ -41,6 +45,8 @@ internal class ScenarioAssertion<TOperations, TQuerySession>: ScenarioStep<TOper
     {
         _check = check;
     }
+
+    public override ProjectionScenarioStepKind Kind => ProjectionScenarioStepKind.Assertion;
 
     public override Task Execute(ProjectionScenario<TOperations, TQuerySession> scenario,
         CancellationToken ct = default)
