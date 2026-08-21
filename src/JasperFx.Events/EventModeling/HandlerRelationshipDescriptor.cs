@@ -9,6 +9,15 @@ namespace JasperFx.Events.EventModeling;
 /// between commands, handlers, aggregates, and downstream events.
 /// </summary>
 /// <remarks>
+/// <para>
+/// <b>Superseded as a vocabulary by <see cref="EventModelSliceDescriptor"/></b> (jasperfx#687,
+/// 2026-08-20): a handler relationship is a command slice, and
+/// <see cref="ToSliceDescriptor"/> is the fold — <see cref="Kind"/> / <see cref="Origin"/> become
+/// the slice's pattern, trigger kind and trigger origin, <see cref="TargetAggregate"/> its
+/// aggregate types. The type stays because the CritterWatch source generator still emits it
+/// (it is the only thing that can see imperative appends in handler bodies); new sources should
+/// produce slices directly.
+/// </para>
 /// One descriptor per handler chain the CritterWatch source generator
 /// (CritterWatch#144) discovers via the standard Wolverine handler-discovery
 /// conventions, plus the saga-subclass + <c>yield return new SomeEvent(...)</c>
@@ -61,4 +70,41 @@ public sealed record HandlerRelationshipDescriptor(
     /// trigger is the <see cref="MessageType"/>.
     /// </summary>
     public PublisherOrigin? Origin { get; init; }
+
+    /// <summary>
+    /// Fold this relationship into the one slice vocabulary (jasperfx#687). The slice is named
+    /// after the message type's short name — the drift-comparison key CritterWatch already uses —
+    /// unless <paramref name="sliceName"/> says otherwise.
+    /// </summary>
+    /// <param name="sliceName">Slice name; defaults to <c>MessageType.Name</c>.</param>
+    public EventModelSliceDescriptor ToSliceDescriptor(string? sliceName = null)
+    {
+        var (pattern, triggerKind) = Kind switch
+        {
+            PublisherKind.Handler => (SlicePattern.Command, (TriggerKind?)EventModeling.TriggerKind.MessageHandler),
+            PublisherKind.HttpEndpoint => (SlicePattern.Command, EventModeling.TriggerKind.Http),
+            PublisherKind.GrpcEndpoint => (SlicePattern.Command, EventModeling.TriggerKind.Grpc),
+            PublisherKind.DirectBusCall => (SlicePattern.Command, EventModeling.TriggerKind.MessageHandler),
+            PublisherKind.ProjectionSideEffect => (SlicePattern.Automation, null),
+            PublisherKind.Scheduled => (SlicePattern.Automation, EventModeling.TriggerKind.JobScheduler),
+            PublisherKind.External => (SlicePattern.Translation, EventModeling.TriggerKind.External),
+            _ => (SlicePattern.Command, null),
+        };
+
+        return new EventModelSliceDescriptor(
+            sliceName ?? MessageType.Name,
+            Origin?.Label,
+            null,
+            MessageType,
+            HandlerType,
+            EmittedEvents,
+            Array.Empty<TypeDescriptor>(),
+            Array.Empty<TypeDescriptor>())
+        {
+            Pattern = pattern,
+            TriggerKind = triggerKind,
+            TriggerOrigin = Origin,
+            AggregateTypes = TargetAggregate is null ? Array.Empty<TypeDescriptor>() : new[] { TargetAggregate },
+        };
+    }
 }

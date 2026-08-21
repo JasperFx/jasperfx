@@ -1,19 +1,41 @@
 namespace JasperFx.Events.EventModeling;
 
 /// <summary>
-/// Base class application authors derive from to declare an Event
-/// Modeling topology — the swim-lane / slice description that
-/// CritterWatch and other operator tooling renders. Override
-/// <see cref="Configure"/> to populate the supplied
-/// <see cref="EventModelBuilder"/> with slices and their members.
+/// Base class application authors derive from to lay an <em>overlay</em> on the
+/// Event Model — names for slices, domain grouping, trigger labels and links to
+/// specifications. Override <see cref="Configure"/> to populate the supplied
+/// <see cref="EventModelBuilder"/>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>Declare only what code cannot express</b> (jasperfx#687 reshape, 2026-08-20). Roles —
+/// command, handler, aggregates, emitted events, published messages, projections, read models,
+/// trigger kind, slice pattern — are <em>derived</em> by the sources that can see them:
+/// Wolverine from its handler / HTTP / gRPC chains, the Bobcat generator from Gherkin with
+/// shipped grammars. The overlay never declares them; it is folded onto the derived model by
+/// <see cref="EventModelDescriptor.Merge"/> with the derived sources first, so it cannot
+/// overwrite a derived role. The one exception is
+/// <see cref="EventModelSliceBuilder.ForFlowNotOwnedHere"/> — an explicit escape hatch for flows
+/// whose code this host does not own.
+/// </para>
+/// <para>
+/// Register a definition with <c>services.AddEventModel&lt;TDefinition&gt;()</c> (or an inline
+/// lambda via <c>services.AddEventModel(name, configure)</c>); it is surfaced as an
+/// <see cref="IEventModelDefinitionSource"/> and enumerated by <see cref="EventModelDiscovery"/>.
+/// </para>
+/// </remarks>
 public abstract class EventModelDefinition
 {
     /// <summary>
-    /// Populate <paramref name="builder"/> with the slices that make up
-    /// this event-model definition. Called once by the discovery layer
-    /// when assembling the topology.
+    /// Name of the model this overlay contributes to. Defaults to the defining type's name;
+    /// override to contribute to a named model (the merge assembles all sources by model).
     /// </summary>
-    /// <param name="builder">Builder that accumulates slices into a definition.</param>
+    public virtual string Name => GetType().Name;
+
+    /// <summary>
+    /// Populate <paramref name="builder"/> with the overlay — slice names, domains, trigger
+    /// labels, specification links. Called once by the discovery layer.
+    /// </summary>
+    /// <param name="builder">Builder that accumulates the overlay.</param>
     public abstract void Configure(EventModelBuilder builder);
 }

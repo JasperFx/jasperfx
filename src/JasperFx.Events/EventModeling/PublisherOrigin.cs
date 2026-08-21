@@ -3,7 +3,10 @@ using JasperFx.Descriptors;
 namespace JasperFx.Events.EventModeling;
 
 /// <summary>
-/// Polymorphic trigger origin for a <see cref="HandlerRelationshipDescriptor"/> whose
+/// Structured trigger detail shared by <see cref="EventModelSliceDescriptor.TriggerOrigin"/>
+/// and <see cref="HandlerRelationshipDescriptor.Origin"/> — one shape for both so the two
+/// descriptors fold into one vocabulary (jasperfx#687). Historically: the polymorphic trigger
+/// origin for a <see cref="HandlerRelationshipDescriptor"/> whose
 /// <see cref="HandlerRelationshipDescriptor.Kind"/> is not
 /// <see cref="PublisherKind.Handler"/> — i.e. publishers initiated by something other
 /// than an inbound message (an HTTP route, a gRPC method, a projection side-effect,
