@@ -25,6 +25,7 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
     where TOperations : TQuerySession, IStorageOperations
 {
     private readonly Queue<ScenarioStep<TOperations, TQuerySession>> _steps = new();
+    private readonly List<ScenarioStep<TOperations, TQuerySession>> _plan = new();
     private TOperations? _session;
     private bool _hasExecuted;
 
@@ -72,6 +73,37 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
 
         return Daemon.WaitForNonStaleData(Timeout).WaitAsync(ct);
     }
+
+    /// <summary>
+    ///     Every scripted step, in order, with the number the run will give it — readable
+    ///     <em>before</em> <see cref="ExecuteAsync" /> so a runner can render the plan up front, and
+    ///     unchanged by execution (jasperfx#688). Descriptions are read live, so a step's text is
+    ///     whatever it is at the moment you ask.
+    /// </summary>
+    public IReadOnlyList<ProjectionScenarioStepDescription> PlannedSteps
+    {
+        get
+        {
+            var planned = new List<ProjectionScenarioStepDescription>(_plan.Count);
+            for (var i = 0; i < _plan.Count; i++)
+            {
+                planned.Add(describe(i + 1, _plan[i]));
+            }
+
+            return planned;
+        }
+    }
+
+    /// <summary>
+    ///     Optional observer notified of every step's start and outcome as the scenario runs
+    ///     (jasperfx#688). Numbering matches <see cref="PlannedSteps" /> and the
+    ///     <see cref="ProjectionScenarioException" /> report. An observer that throws fails the
+    ///     scenario — it is part of the run, not a best-effort side channel.
+    /// </summary>
+    public IProjectionScenarioObserver? Observer { get; set; }
+
+    private static ProjectionScenarioStepDescription describe(int number, ScenarioStep<TOperations, TQuerySession> step)
+        => new(number, step.Kind, step.Description);
 
     /// <summary>
     ///     The scenario deletes all existing event data plus the storage for every
@@ -137,6 +169,7 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
     {
         var step = new ScenarioAction<TOperations, TQuerySession>(action);
         _steps.Enqueue(step);
+        _plan.Add(step);
 
         return step;
     }
@@ -145,6 +178,7 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
     {
         var step = new ScenarioAssertion<TOperations, TQuerySession>(check);
         _steps.Enqueue(step);
+        _plan.Add(step);
 
         return step;
     }
@@ -192,17 +226,22 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
             {
                 number++;
                 var step = _steps.Dequeue();
+                var observed = describe(number, step);
+
+                Observer?.StepStarted(observed);
 
                 try
                 {
                     await step.Execute(this, ct).ConfigureAwait(false);
                     descriptions.Add($"{number.ToString().PadLeft(3)}. {step.Description}");
+                    Observer?.StepSucceeded(observed);
                 }
                 catch (Exception e)
                 {
                     descriptions.Add($"FAILED: {number.ToString().PadLeft(3)}. {step.Description}");
                     descriptions.Add(e.ToString());
                     exceptions.Add(e);
+                    Observer?.StepFailed(observed, e);
 
                     // A failed action means every later step would run against a state nobody
                     // intended, so stop right here instead of piling up cascading noise. Failed
@@ -214,7 +253,14 @@ public abstract partial class ProjectionScenario<TOperations, TQuerySession>
                         {
                             descriptions.Add(
                                 $"Skipped the remaining {_steps.Count} step(s) after the failed action");
-                            _steps.Clear();
+                            while (_steps.Count != 0)
+                            {
+                                // Dequeue OUTSIDE the null-conditional: ?. short-circuits its
+                                // arguments, and a never-drained queue is an infinite loop.
+                                var skipped = _steps.Dequeue();
+                                number++;
+                                Observer?.StepSkipped(describe(number, skipped));
+                            }
                         }
 
                         break;
