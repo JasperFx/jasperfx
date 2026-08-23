@@ -228,6 +228,11 @@ public class JasperFxOptions : SystemPartBase
                 continue;
             }
 
+            if (CannotBeApplicationAssembly(assembly))
+            {
+                continue;
+            }
+
             if (assembly.HasAttribute<IgnoreAssemblyAttribute>())
             {
                 continue;
@@ -251,6 +256,46 @@ public class JasperFxOptions : SystemPartBase
 
         return Assembly.GetEntryAssembly();
     }
+
+    // GH-697 (ported from JasperFx/wolverine#4024, which closed JasperFx/wolverine#3778): some assemblies
+    // can never BE the application, and until now the walk would happily adopt one. The runtime-compiled
+    // assemblies are the common case: AssemblyGenerator names them with Path.GetRandomFileName() and loads
+    // them from a stream, so they carry a random 8.3-style name ("ofqrxydn.tlz") and no Location -- and a
+    // walk that runs during code generation finds one sitting immediately outside the JasperFx frames. The
+    // filter above knew about System*/Microsoft*/test runners/Critter Stack and nothing else, so the first
+    // frame "outside the framework" was frequently code the framework had generated moments earlier.
+    //
+    // Wolverine instrumented a fully green 2495-test suite: the divergence warning fired 44 times, 41 of
+    // them blamed on these generated assemblies, and every one of the 44 was a false positive. Adopting one
+    // is worse than a noisy warning, because the same walk picks the assembly used for type discovery --
+    // so discovery scans a generated assembly holding none of the application's types and fails silently,
+    // with the only symptom appearing somewhere downstream.
+    //
+    // JasperFx's own assembly needs no special case here, unlike Wolverine's: IsCritterStackAssembly
+    // already excludes "JasperFx" by name, so there is no reason to mark the assembly [IgnoreAssembly] --
+    // and doing so would change what every OTHER consumer of that attribute (type scanning above all) sees.
+    internal static bool CannotBeApplicationAssembly(Assembly assembly)
+        => CannotBeApplicationAssembly(assembly, LocationDistinguishesAssemblies);
+
+    // Split for testability: the single-file case cannot be reproduced in a test process.
+    internal static bool CannotBeApplicationAssembly(Assembly assembly, bool locationDistinguishesAssemblies)
+    {
+        if (assembly.IsDynamic)
+        {
+            return true;
+        }
+
+        return locationDistinguishesAssemblies && string.IsNullOrEmpty(assembly.Location);
+    }
+
+    // An empty Location means "compiled at runtime" ONLY in a normally-deployed process. Publish as a
+    // single file and every bundled assembly reports an empty Location -- including the real application
+    // assembly -- so the signal carries no information and using it would reject the very thing we are
+    // looking for. The entry assembly is the cheap tell: if even IT has no Location, we are bundled.
+    // The walk then matches nothing and falls through to Assembly.GetEntryAssembly(), which is the right
+    // answer for a single-file app anyway.
+    internal static readonly bool LocationDistinguishesAssemblies =
+        !string.IsNullOrEmpty(Assembly.GetEntryAssembly()?.Location);
 
     // GH-600: under an async test fixture the frames between JasperFx and the test class belong to the
     // test *runner*, not the test assembly, so the walk above would otherwise adopt something like

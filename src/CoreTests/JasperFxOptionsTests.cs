@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.Loader;
 using ExtensionStandIn;
 using JasperFx;
 using JasperFx.CodeGeneration;
@@ -435,6 +438,91 @@ public class JasperFxOptionsTests
     public void does_not_mistake_applications_or_suites_for_framework_assemblies(string assemblyName)
     {
         JasperFxOptions.IsCritterStackAssembly(assemblyName).ShouldBeFalse();
+    }
+
+    // GH-697 (ported from JasperFx/wolverine#4024): the walk used to know about System*/Microsoft*/test
+    // runners/Critter Stack and nothing else, so it would adopt a RUNTIME-COMPILED assembly -- the ones
+    // JasperFx.RuntimeCompiler emits with a Path.GetRandomFileName() name and loads from a stream. In
+    // Wolverine's instrumented run, 41 of 44 false-positive divergence warnings were exactly this.
+
+    [Fact]
+    public void a_dynamic_assembly_can_never_be_the_application()
+    {
+        var dynamicAssembly = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("gh697.dynamic"), AssemblyBuilderAccess.Run);
+
+        dynamicAssembly.IsDynamic.ShouldBeTrue();
+        JasperFxOptions.CannotBeApplicationAssembly(dynamicAssembly).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void a_runtime_compiled_assembly_can_never_be_the_application()
+    {
+        // A real stream-loaded assembly, which is how AssemblyGenerator loads what Roslyn produces.
+        // Loading from a stream is precisely what leaves Location empty.
+        var context = new AssemblyLoadContext("gh697", isCollectible: true);
+        try
+        {
+            using var stream = File.OpenRead(typeof(Widgets1.Decision).Assembly.Location);
+            var loaded = context.LoadFromStream(stream);
+
+            loaded.IsDynamic.ShouldBeFalse();
+            loaded.Location.ShouldBeEmpty();
+            JasperFxOptions.CannotBeApplicationAssembly(loaded).ShouldBeTrue();
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    [Fact]
+    public void an_ordinary_assembly_on_disk_is_still_a_candidate()
+    {
+        JasperFxOptions.CannotBeApplicationAssembly(GetType().Assembly).ShouldBeFalse();
+        JasperFxOptions.CannotBeApplicationAssembly(typeof(Widgets1.Decision).Assembly).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void a_single_file_publish_makes_the_empty_location_signal_meaningless()
+    {
+        // Published as a single file, EVERY bundled assembly reports an empty Location -- including the
+        // real application assembly. Disqualifying on Location there would reject the very thing the walk
+        // is looking for, so the signal has to be switched off. Passed explicitly because a test process
+        // is never single-file.
+        var context = new AssemblyLoadContext("gh697-singlefile", isCollectible: true);
+        try
+        {
+            using var stream = File.OpenRead(typeof(Widgets1.Decision).Assembly.Location);
+            var bundled = context.LoadFromStream(stream);
+
+            JasperFxOptions.CannotBeApplicationAssembly(bundled, locationDistinguishesAssemblies: true).ShouldBeTrue();
+            JasperFxOptions.CannotBeApplicationAssembly(bundled, locationDistinguishesAssemblies: false).ShouldBeFalse();
+        }
+        finally
+        {
+            context.Unload();
+        }
+    }
+
+    [Fact]
+    public void a_dynamic_assembly_is_disqualified_even_in_a_single_file_publish()
+    {
+        // IsDynamic is not a Location heuristic, so bundling changes nothing about it.
+        var dynamicAssembly = AssemblyBuilder.DefineDynamicAssembly(
+            new AssemblyName("gh697.dynamic.bundled"), AssemblyBuilderAccess.Run);
+
+        JasperFxOptions.CannotBeApplicationAssembly(dynamicAssembly, locationDistinguishesAssemblies: false)
+            .ShouldBeTrue();
+    }
+
+    [Fact]
+    public void the_walk_never_returns_a_disqualified_assembly()
+    {
+        var assembly = RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
+
+        assembly.ShouldNotBeNull();
+        JasperFxOptions.CannotBeApplicationAssembly(assembly).ShouldBeFalse();
     }
 
     [Fact]
