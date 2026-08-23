@@ -6,15 +6,19 @@
     </PropertyGroup>
 
     <!--
-      No test packages here on purpose. This project holds compile-checked documentation samples
-      (mdsnippets sources), contains zero [Fact]/[Theory] methods, and is not in jasperfx.slnx or
-      any Nuke target. It carried xunit + the VSTest runner + Microsoft.NET.Test.Sdk purely as
-      inherited boilerplate.
+      Every snippet in docs/ comes from this project, so the docs are only as trustworthy as this
+      project's last successful build. It is in jasperfx.slnx on purpose: the Nuke Compile target
+      builds the whole solution, which is what keeps a sample from going stale against an API
+      change without anyone noticing. Don't remove it from the solution without replacing that
+      check with another one.
 
       Microsoft.NET.Sdk, not Microsoft.NET.Sdk.Web: the Web SDK defaults OutputType to Exe and
-      these samples are a library with no Program.Main, so the project did not actually compile —
-      which quietly cost us the compile-checking that is its whole reason to exist. No sample here
-      uses an ASP.NET type, so the plain SDK is all it ever needed.
+      these samples are a library with no Program.Main, so for a while the project did not compile
+      at all — which quietly cost us exactly the checking described above. No sample here uses an
+      ASP.NET type, so the plain SDK is all it ever needed.
+
+      No test packages here on purpose: zero [Fact]/[Theory] methods. It carried xunit + the VSTest
+      runner + Microsoft.NET.Test.Sdk purely as inherited boilerplate.
     -->
     <ItemGroup>
         <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
