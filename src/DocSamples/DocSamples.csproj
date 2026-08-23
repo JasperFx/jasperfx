@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -9,11 +9,16 @@
       No test packages here on purpose. This project holds compile-checked documentation samples
       (mdsnippets sources), contains zero [Fact]/[Theory] methods, and is not in jasperfx.slnx or
       any Nuke target. It carried xunit + the VSTest runner + Microsoft.NET.Test.Sdk purely as
-      inherited boilerplate; xunit.v3 would additionally have forced OutputType=Exe on a
-      Microsoft.NET.Sdk.Web project for no benefit.
+      inherited boilerplate.
+
+      Microsoft.NET.Sdk, not Microsoft.NET.Sdk.Web: the Web SDK defaults OutputType to Exe and
+      these samples are a library with no Program.Main, so the project did not actually compile —
+      which quietly cost us the compile-checking that is its whole reason to exist. No sample here
+      uses an ASP.NET type, so the plain SDK is all it ever needed.
     -->
     <ItemGroup>
         <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
         <ProjectReference Include="..\JasperFx.RuntimeCompiler\JasperFx.RuntimeCompiler.csproj" />
     </ItemGroup>
 

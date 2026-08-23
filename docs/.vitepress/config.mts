@@ -18,6 +18,7 @@ export default withMermaid(
 
       nav: [
         { text: 'Guide', link: '/guide/' },
+        { text: 'Event Modeling', link: '/event-modeling/' },
         { text: 'Code Generation', link: '/codegen/' },
         { text: 'Command Line', link: '/cli/' },
         { text: 'Configuration', link: '/configuration/critter-stack-defaults' },
@@ -40,6 +41,16 @@ export default withMermaid(
             { text: 'Introduction', link: '/guide/' },
             { text: 'Installation', link: '/guide/installation' },
             { text: 'Quick Start', link: '/guide/quickstart' }
+          ]
+        },
+        {
+          text: 'Event Modeling',
+          collapsed: false,
+          items: [
+            { text: 'Overview', link: '/event-modeling/' },
+            { text: 'The Overlay', link: '/event-modeling/overlay' },
+            { text: 'Hotspots', link: '/event-modeling/hotspots' },
+            { text: 'Descriptors & the Wire', link: '/event-modeling/descriptors' }
           ]
         },
         {
