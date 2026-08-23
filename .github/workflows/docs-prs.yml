@@ -19,7 +19,7 @@ jobs:
     name: "linting, spell check and build"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         name: Check out the code
 
       - name: Lint Code Base
@@ -27,7 +27,7 @@ jobs:
         with:
           args: "--disable MD009 -- docs/**/*.md"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         name: Install Node.js
         with:
           node-version: ${{ env.node_version }}
@@ -39,12 +39,12 @@ jobs:
         name: run cSpell
 
       - name: Install .NET 9.0.x
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 9.0.x
 
       - name: Install .NET 10.0.x
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
