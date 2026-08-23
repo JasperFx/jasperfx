@@ -1,3 +1,5 @@
+using JasperFx.Events.EventModeling;
+
 namespace JasperFx.Descriptors;
 
 /// <summary>
@@ -130,4 +132,18 @@ public class HttpChainDescriptor : OptionsDescription
     /// Q8-#102 transactional override.
     /// </summary>
     public bool IsTransactional { get; set; }
+
+    /// <summary>
+    /// The Event Modeling slice this route <em>is</em> — trigger (verb + route), command, handler,
+    /// aggregates decided against, events emitted, read models — derived by the source that built this
+    /// descriptor, so a consumer walking endpoint by endpoint sees the slice next to the route rather
+    /// than only through the assembled model. Null when nothing derived one.
+    /// </summary>
+    /// <remarks>
+    /// jasperfx#693 / JasperFx/wolverine#4000. Additive and nullable on the wire: an older payload has
+    /// no slot, and a newer one deserializes into an older reader as the same descriptor it always was.
+    /// The same slice also reaches the assembled <c>EventModelDescriptor</c> through the producing
+    /// application's <c>IEventModelDefinitionSource</c>; the two agree because they are derived once.
+    /// </remarks>
+    public EventModelSliceDescriptor? EventModel { get; set; }
 }

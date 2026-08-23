@@ -21,7 +21,8 @@ namespace JasperFx.Events.EventModeling;
 /// <b>Roles are derived, not declared</b> (jasperfx#687 reshape, 2026-08-20): the command,
 /// handler, aggregates, emitted events, published messages, projections, read models,
 /// trigger kind and slice pattern are stamped by the source that can see them. The overlay
-/// (<see cref="EventModelDefinition"/>) only names, groups, annotates and links. Two slices
+/// (<c>EventModelDefinition</c>, which stays in JasperFx.Events with the rest of the authoring
+/// API) only names, groups, annotates and links. Two slices
 /// with the same <see cref="Name"/> from different sources are folded into one by
 /// <see cref="Merge"/>.
 /// </para>
