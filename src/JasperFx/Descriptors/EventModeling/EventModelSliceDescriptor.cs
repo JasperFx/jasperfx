@@ -83,7 +83,11 @@ public sealed record EventModelSliceDescriptor(
     /// <summary>External systems on either end of this slice (translation edges).</summary>
     public IReadOnlyList<ExternalSystemDescriptor> ExternalSystems { get; init; } = Array.Empty<ExternalSystemDescriptor>();
 
-    /// <summary>Hotspots attached to this slice — primarily pending specifications (jasperfx#689).</summary>
+    /// <summary>
+    /// Hotspots attached to this slice — primarily pending specifications (jasperfx#689), plus any
+    /// prose the overlay declared with <c>Hotspot("…")</c> (jasperfx#690). Each one renders as a
+    /// <see cref="EventModelElementKind.Hotspot"/> element in the wireframe lane.
+    /// </summary>
     public IReadOnlyList<HotspotDescriptor> Hotspots { get; init; } = Array.Empty<HotspotDescriptor>();
 
     /// <summary>
@@ -289,8 +293,9 @@ public sealed record EventModelSliceDescriptor(
 /// </summary>
 /// <remarks>
 /// The positional constructor is the original 2.x shape and is kept source- and
-/// binary-compatible; <see cref="Aggregates"/> is an additive <c>init</c> property.
-/// Use <see cref="Merge"/> to assemble the full picture from several sources.
+/// binary-compatible; <see cref="Aggregates"/> and <see cref="Hotspots"/> are additive
+/// <c>init</c> properties. Use <see cref="Merge"/> to assemble the full picture from several
+/// sources.
 /// </remarks>
 /// <param name="Name">Display name of the model.</param>
 /// <param name="Slices">Slices that make up the model, in declaration order.</param>
@@ -306,10 +311,20 @@ public sealed record EventModelDescriptor(
     public IReadOnlyList<AggregateDescriptor> Aggregates { get; init; } = Array.Empty<AggregateDescriptor>();
 
     /// <summary>
+    /// Hotspots that belong to the model rather than to any one slice — the open question that
+    /// spans the whole flow, declared through the overlay with <c>Hotspot("…")</c> on the
+    /// <c>EventModelBuilder</c> (jasperfx#690). Hotspots about a single slice live on
+    /// <see cref="EventModelSliceDescriptor.Hotspots"/> instead, where they render in that slice's
+    /// wireframe lane.
+    /// </summary>
+    public IReadOnlyList<HotspotDescriptor> Hotspots { get; init; } = Array.Empty<HotspotDescriptor>();
+
+    /// <summary>
     /// Assemble one model from several sources' descriptors. Slices with the same name are
     /// folded with <see cref="EventModelSliceDescriptor.Merge"/> in the order the descriptors
     /// are given (earlier wins on scalars — put derived sources before the overlay); aggregates
-    /// are unioned by type. Slice order is first appearance.
+    /// are unioned by type and model-level hotspots by origin + text. Slice order is first
+    /// appearance.
     /// </summary>
     /// <param name="name">Name of the assembled model.</param>
     /// <param name="descriptors">Descriptors to fold, derived sources first.</param>
@@ -319,6 +334,8 @@ public sealed record EventModelDescriptor(
         var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
         var aggregates = new List<AggregateDescriptor>();
         var aggregateNames = new HashSet<string>(StringComparer.Ordinal);
+        var hotspots = new List<HotspotDescriptor>();
+        var hotspotKeys = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var descriptor in descriptors)
         {
@@ -339,8 +356,13 @@ public sealed record EventModelDescriptor(
             {
                 if (aggregateNames.Add(aggregate.Type.FullName)) aggregates.Add(aggregate);
             }
+
+            foreach (var hotspot in descriptor.Hotspots)
+            {
+                if (hotspotKeys.Add($"{hotspot.Origin}:{hotspot.Text}")) hotspots.Add(hotspot);
+            }
         }
 
-        return new EventModelDescriptor(name, slices) { Aggregates = aggregates };
+        return new EventModelDescriptor(name, slices) { Aggregates = aggregates, Hotspots = hotspots };
     }
 }

@@ -76,6 +76,7 @@ public class EventModelWireRoundTripTests
     })
     {
         Aggregates = new[] { new AggregateDescriptor(T<Order>(), AggregateKind.WriteAggregate, new[] { T<OrderPlaced>() }) },
+        Hotspots = new[] { HotspotDescriptor.Prose("Do we own the SLA clock, or does the CRM?") },
     };
 
     [Theory]
@@ -90,6 +91,7 @@ public class EventModelWireRoundTripTests
         // record equality covers every positional + init slot; Elements/Edges are computed, so
         // comparing them proves the typed roles came back whole
         back.Name.ShouldBe(model.Name);
+        back.Hotspots.ShouldBe(model.Hotspots);
         // AggregateDescriptor / SpecificationDescriptor carry lists, and record equality compares
         // lists by reference — so compare those member-wise
         back.Aggregates.Count.ShouldBe(model.Aggregates.Count);
@@ -160,6 +162,12 @@ public class EventModelWireRoundTripTests
 
         // the model-level aggregate element
         doc.RootElement.GetProperty("aggregates")[0].GetProperty("kind").GetString().ShouldBe("writeAggregate");
+
+        // ...and the model-level prose hotspot (jasperfx#690)
+        var modelHotspot = doc.RootElement.GetProperty("hotspots")[0];
+        modelHotspot.GetProperty("origin").GetString().ShouldBe("prose");
+        modelHotspot.GetProperty("text").GetString().ShouldBe("Do we own the SLA clock, or does the CRM?");
+        modelHotspot.GetProperty("specificationIdentity").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     [Theory]
@@ -188,6 +196,7 @@ public class EventModelWireRoundTripTests
 
         var back = JsonSerializer.Deserialize<EventModelDescriptor>(stripped, options)!;
         back.Aggregates.ShouldBeEmpty();
+        back.Hotspots.ShouldBeEmpty();
         var slice = back.Slices.Single();
         slice.CommandType!.FullName.ShouldBe("x.PlaceOrder");
         slice.Pattern.ShouldBeNull();

@@ -3,7 +3,7 @@ using JasperFx.Descriptors;
 namespace JasperFx.Events.EventModeling;
 
 /// <summary>
-/// Per-slice overlay builder. The methods here <em>name, group, annotate and link</em> —
+/// Per-slice overlay builder. The methods here <em>name, group, annotate, link and flag</em> —
 /// they never declare a role. Roles are derived by the sources that can see them and the
 /// overlay is merged onto the derived slice by name (jasperfx#687 reshape).
 /// </summary>
@@ -13,6 +13,7 @@ public class EventModelSliceBuilder
     private string? _domain;
     private string? _triggerLabel;
     private readonly List<SpecificationDescriptor> _specifications = new();
+    private readonly List<HotspotDescriptor> _hotspots = new();
     private ExternallyOwnedRoles? _externallyOwned;
 
     /// <summary>
@@ -66,6 +67,26 @@ public class EventModelSliceBuilder
     }
 
     /// <summary>
+    /// Mark an open question on this slice in plain prose — the modelling conversation's
+    /// "we haven't decided this yet", carried into the model so it renders as a hotspot in the
+    /// slice's wireframe lane instead of dying in a whiteboard photo.
+    /// </summary>
+    /// <remarks>
+    /// Reach for this only when there is nothing to write a specification against yet. The
+    /// primary hotspot mechanism is <em>a pending specification is a hotspot</em> (jasperfx#689):
+    /// once the question is sharp enough to name a scenario, write the pending spec and let the
+    /// binding source stamp the hotspot, so the hotspot disappears on its own the day the spec
+    /// passes. Prose has no such lifecycle — nothing retires it but you.
+    /// </remarks>
+    /// <param name="text">The open question, in the words you would say out loud.</param>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelSliceBuilder Hotspot(string text)
+    {
+        _hotspots.Add(HotspotDescriptor.Prose(text));
+        return this;
+    }
+
+    /// <summary>
     /// <b>Escape hatch.</b> Declare roles for a flow whose code this host does <em>not</em> own —
     /// a partner system's command and the events it emits, a legacy service with no Wolverine
     /// chain to derive from. For anything this host's own code implements, do not use this:
@@ -87,6 +108,7 @@ public class EventModelSliceBuilder
             TriggerLabel = _triggerLabel,
             Domain = _domain,
             Specifications = _specifications.ToList(),
+            Hotspots = _hotspots.ToList(),
         };
 
         return _externallyOwned is null ? overlay : overlay.Merge(_externallyOwned.ToSlice(_sliceName));

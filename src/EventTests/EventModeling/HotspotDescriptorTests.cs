@@ -17,7 +17,7 @@ public class HotspotDescriptorTests
     }
 
     [Fact]
-    public void prose_is_the_reserved_form_with_no_spec_identity()
+    public void prose_carries_the_note_itself_and_no_spec_identity()
     {
         var hotspot = HotspotDescriptor.Prose("Refund policy unclear");
 
@@ -39,6 +39,23 @@ public class HotspotDescriptorTests
         element.Id.ShouldBe("PlaceOrder/Hotspot/Place Order/Rejects empty cart");
         element.Lane.ShouldBe(EventModelLane.Wireframe);
         element.Type.ShouldBeNull();
+        EventModelPalette.ColorFor(element.Kind).ShouldBe("#E91E63");
+    }
+
+    // jasperfx#690: a prose hotspot renders exactly like a pending-spec one — same kind, same
+    // lane, same colour. Only the text and the missing spec identity tell them apart.
+    [Fact]
+    public void a_prose_hotspot_renders_the_same_way_a_pending_spec_one_does()
+    {
+        var slice = EventModelSliceDescriptor.Named("PlaceOrder") with
+        {
+            Hotspots = new[] { HotspotDescriptor.Prose("Refund policy unclear when partially shipped") },
+        };
+
+        var element = slice.Elements.Single(e => e.Kind == EventModelElementKind.Hotspot);
+        element.Id.ShouldBe("PlaceOrder/Hotspot/Refund policy unclear when partially shipped");
+        element.Label.ShouldBe("Refund policy unclear when partially shipped");
+        element.Lane.ShouldBe(EventModelLane.Wireframe);
         EventModelPalette.ColorFor(element.Kind).ShouldBe("#E91E63");
     }
 }

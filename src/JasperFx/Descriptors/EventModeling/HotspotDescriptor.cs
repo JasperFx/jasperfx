@@ -13,16 +13,18 @@ public enum HotspotOrigin
     PendingSpecification,
 
     /// <summary>
-    /// Free-text prose declared through the overlay. Reserved form — the overlay surface for it
-    /// is a later stage (jasperfx#690); sources may still emit it.
+    /// Free-text prose declared through the overlay with <c>Hotspot("…")</c> on a slice or on the
+    /// model (jasperfx#690) — the open question that has no specification behind it yet. Sources
+    /// may emit it too.
     /// </summary>
     Prose,
 }
 
 /// <summary>
-/// A hotspot attached to a slice — an open question, a conflict, or (primarily) a
-/// specification that is still pending. Renders in the canonical hotspot colour
-/// on the slice it is attached to (jasperfx#687 decision 6, jasperfx#689).
+/// A hotspot — an open question, a conflict, or (primarily) a specification that is still
+/// pending. Attached to a slice, where it renders in the canonical hotspot colour in the
+/// wireframe lane, or to the whole model when the question is not about one slice
+/// (jasperfx#687 decision 6, jasperfx#689, jasperfx#690).
 /// </summary>
 /// <param name="Origin">Whether this hotspot is a pending specification or prose.</param>
 /// <param name="Text">
@@ -42,7 +44,7 @@ public sealed record HotspotDescriptor(
     public static HotspotDescriptor PendingSpecification(string specificationIdentity)
         => new(HotspotOrigin.PendingSpecification, specificationIdentity, specificationIdentity);
 
-    /// <summary>A prose hotspot. Reserved form — see <see cref="HotspotOrigin.Prose"/>.</summary>
+    /// <summary>A free-text prose hotspot — see <see cref="HotspotOrigin.Prose"/> (jasperfx#690).</summary>
     public static HotspotDescriptor Prose(string text)
         => new(HotspotOrigin.Prose, text);
 }
