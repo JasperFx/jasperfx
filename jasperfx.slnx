@@ -17,6 +17,7 @@
   <Folder Name="/src/">
     <Project Path="src/CodegenTests.FSharp/CodegenTests.FSharp.csproj" />
     <Project Path="src/CodegenTests.FSharpFixture/CodegenTests.FSharpFixture.fsproj" />
+    <Project Path="src/DocSamples/DocSamples.csproj" />
     <Project Path="src/FSharpCodegenTarget/FSharpCodegenTarget.csproj" />
     <Project Path="src/FSharpTypes/FSharpTypes.fsproj" />
     <Project Path="src/JasperFx.Aspire.Tests/JasperFx.Aspire.Tests.csproj" />
