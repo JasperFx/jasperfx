@@ -2,9 +2,9 @@ namespace JasperFx.Events.EventModeling;
 
 /// <summary>
 /// Base class application authors derive from to lay an <em>overlay</em> on the
-/// Event Model — names for slices, domain grouping, trigger labels and links to
-/// specifications. Override <see cref="Configure"/> to populate the supplied
-/// <see cref="EventModelBuilder"/>.
+/// Event Model — names for slices, domain grouping, trigger labels, links to
+/// specifications and prose hotspots for the questions still open. Override
+/// <see cref="Configure"/> to populate the supplied <see cref="EventModelBuilder"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,7 +34,7 @@ public abstract class EventModelDefinition
 
     /// <summary>
     /// Populate <paramref name="builder"/> with the overlay — slice names, domains, trigger
-    /// labels, specification links. Called once by the discovery layer.
+    /// labels, specification links, hotspots. Called once by the discovery layer.
     /// </summary>
     /// <param name="builder">Builder that accumulates the overlay.</param>
     public abstract void Configure(EventModelBuilder builder);
