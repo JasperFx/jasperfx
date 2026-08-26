@@ -39,6 +39,27 @@ public partial class VoyageSnapshot
 }
 
 /// <summary>
+/// A second aggregate, registered as an <see cref="ProjectionLifecycle.Async"/> snapshot, so the
+/// suite covers the half of <c>EventStoreUsage.Subscriptions</c> that <see cref="VoyageSnapshot"/>
+/// cannot.
+/// </summary>
+/// <remarks>
+/// <c>projections rebuild</c> resolves a target by name and then by shard, so an Async registration
+/// reporting no <c>ShardNames</c> is a projection the command can find and cannot run. Inline is
+/// covered deliberately by <see cref="VoyageSnapshot"/> (see its remarks); this is the other side of
+/// the same argument, and neither substitutes for the other.
+/// </remarks>
+public partial class VoyageLog
+{
+    public Guid Id { get; set; }
+    public int Ports { get; set; }
+
+    public static VoyageLog Create(VoyageBegun e) => new();
+
+    public void Apply(PortVisited e) => Ports++;
+}
+
+/// <summary>
 /// The event store explorer surface on <see cref="IEventStore"/> — <c>GetRecentStreamsAsync</c>,
 /// <c>GetStreamMetadataAsync</c> and <c>TryCreateUsage</c>.
 /// </summary>
@@ -65,7 +86,22 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
         config.AddEventType<VoyageBegun>();
         config.AddEventType<PortVisited>();
         config.Snapshot<VoyageSnapshot>(SnapshotLifecycle.Inline);
+        config.Snapshot<VoyageLog>(SnapshotLifecycle.Async);
+
+        // Asymmetric on purpose: every metadata assertion below is that the descriptor reports what
+        // was CONFIGURED. Turning both on, or leaving both off, would pass against a descriptor that
+        // hardcoded the answer.
+        config.EnableCorrelationTracking = true;
+        config.EnableHeaders = false;
+
+        config.MaxConcurrentRebuildsPerDatabase = RebuildCap;
     };
+
+    /// <summary>
+    /// A value nothing derives, so a descriptor reporting it cannot have guessed. Deliberately not a
+    /// round number for the same reason.
+    /// </summary>
+    private const int RebuildCap = 3;
 
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
 
@@ -219,5 +255,211 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
             "The store returned a usage descriptor but left Subscriptions empty, even though a projection was registered. Two shipped commands read this slot directly.");
 
         usage.Subscriptions.Select(x => x.Name).ShouldContain(nameof(VoyageSnapshot));
+    }
+
+    // ---- the rest of the descriptor (JasperFx/fisher#712) ----
+    //
+    // Everything below shares one argument, so it is stated once here rather than in each test.
+    //
+    // Every member of EventStoreUsage is a list or a nullable that starts empty, so a store that
+    // never fills one is INDISTINGUISHABLE from a store that genuinely has none of that thing. There
+    // is no exception, no warning, and no field saying which of the two it is -- so a consumer
+    // renders a confident, wrong answer. That is how fisher#120 happened, and jasperfx#700 above
+    // closed exactly one slot. These close the rest.
+    //
+    // Each keeps the `usage == null` escape: a store that cannot describe itself at all remains a
+    // legitimate answer. What is being caught is a store that DOES return a descriptor and silently
+    // under-fills it.
+
+    /// <summary>
+    /// <see cref="EventStoreUsage"/> carries the event registry twice and a consumer may read either.
+    /// </summary>
+    /// <remarks>
+    /// Filling one and not the other is JasperFx/polecat#411, where the unfilled list read as "this
+    /// store has no event types configured". <c>usage_describes_the_registered_event_types</c> above
+    /// asserts on <c>Events</c> only, so that exact bug was invisible to this suite even after it had
+    /// happened once.
+    /// </remarks>
+    [Fact]
+    public async Task usage_fills_both_event_type_collections()
+    {
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        usage.RegisteredEventTypes.ShouldNotBeEmpty(
+            "The store returned a usage descriptor and filled Events but left RegisteredEventTypes empty. A consumer may read either.");
+
+        var aliases = usage.RegisteredEventTypes.Select(x => x.Alias).ToList();
+        aliases.ShouldContain(EventTypeNameFor<VoyageBegun>());
+        aliases.ShouldContain(EventTypeNameFor<PortVisited>());
+    }
+
+    /// <summary>
+    /// An <see cref="ProjectionLifecycle.Async"/> registration is described with the shards it runs as.
+    /// </summary>
+    /// <remarks>
+    /// <c>projections rebuild</c> resolves its target by name and then by shard, so an async
+    /// projection described without shard names is one the command can list and cannot run.
+    /// </remarks>
+    [Fact]
+    public async Task usage_describes_an_async_projection_with_its_shards()
+    {
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        var described = usage.Subscriptions.SingleOrDefault(x => x.Name == nameof(VoyageLog));
+
+        described.ShouldNotBeNull(
+            "The store returned a usage descriptor that does not mention an Async projection registration.");
+        described.Lifecycle.ShouldBe(ProjectionLifecycle.Async);
+        described.ShardNames.ShouldNotBeEmpty(
+            "An Async projection was described with no shard names, so 'projections rebuild' can find it and cannot run it.");
+    }
+
+    /// <summary>
+    /// The lifecycle a projection was registered with survives onto the descriptor.
+    /// </summary>
+    /// <remarks>
+    /// Asserted across both registrations at once rather than on either alone, because a descriptor
+    /// that hardcoded one lifecycle would satisfy a single-registration test whichever value it
+    /// picked.
+    /// </remarks>
+    [Fact]
+    public async Task usage_reports_the_lifecycle_each_projection_was_registered_with()
+    {
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        var byName = usage.Subscriptions.ToDictionary(x => x.Name);
+
+        byName.ShouldContainKey(nameof(VoyageSnapshot));
+        byName.ShouldContainKey(nameof(VoyageLog));
+
+        byName[nameof(VoyageSnapshot)].Lifecycle.ShouldBe(ProjectionLifecycle.Inline);
+        byName[nameof(VoyageLog)].Lifecycle.ShouldBe(ProjectionLifecycle.Async);
+    }
+
+    /// <summary>
+    /// The two projection error policies are both described, and are not the same object read twice.
+    /// </summary>
+    /// <remarks>
+    /// They differ deliberately: a rebuild stops on an error a continuous run skips. A console reading
+    /// one for the other offers "view related dead letters" for a store that halts instead -- a button
+    /// that never returns anything. Reached through
+    /// <c>IEventStore&lt;TOperations, TQuerySession&gt;</c>, the same cast
+    /// <see cref="DeadLetterCompliance{TFixture,TOperations,TQuerySession}"/> uses.
+    /// </remarks>
+    [Fact]
+    public async Task usage_describes_both_projection_error_policies_separately()
+    {
+        var store = (IEventStore<TOperations, TQuerySession>)theFixture.EventStore;
+
+        store.ContinuousErrors.SkipApplyErrors = true;
+        store.RebuildErrors.SkipApplyErrors = false;
+
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        usage.ProjectionErrors.ShouldNotBeNull(
+            "The store returned a usage descriptor with no continuous-run projection error policy.");
+        usage.ProjectionRebuildErrors.ShouldNotBeNull(
+            "The store returned a usage descriptor with no rebuild projection error policy.");
+
+        // Opposed values, so a descriptor reporting one policy for both fails here rather than
+        // agreeing by coincidence.
+        usage.ProjectionErrors.SkipApplyErrors.ShouldBeTrue();
+        usage.ProjectionRebuildErrors.SkipApplyErrors.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The opt-in event metadata flags report what was configured rather than a default.
+    /// </summary>
+    /// <remarks>
+    /// JasperFx/jasperfx#475. A query facet built over a metadata column that is switched off filters
+    /// on a column the table does not have. The suite turns correlation tracking on and leaves headers
+    /// off, so a descriptor hardcoding either answer fails on one of them.
+    /// </remarks>
+    [Fact]
+    public async Task usage_reports_the_opt_in_metadata_flags_as_configured()
+    {
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        usage.EventMetadata.ShouldNotBeNull(
+            "The store returned a usage descriptor with no event metadata capabilities.");
+
+        usage.EventMetadata.StoreType.ShouldNotBeNullOrEmpty();
+
+        usage.EventMetadata.CorrelationId.ShouldBeTrue();
+        usage.EventMetadata.Headers.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The rebuild concurrency cap round-trips onto the descriptor.
+    /// </summary>
+    /// <remarks>
+    /// The value is on <see cref="ComplianceStoreConfig"/>, on <see cref="IEventStore"/> and on
+    /// <see cref="EventStoreUsage"/>, so a set-and-read-back test is available with no seam. Asserted
+    /// against the configured value rather than merely non-null, because the default is derived and a
+    /// descriptor reporting the default would look filled.
+    /// </remarks>
+    [Fact]
+    public async Task usage_reports_the_configured_rebuild_concurrency_cap()
+    {
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        usage.MaxConcurrentRebuildsPerDatabase.ShouldBe(RebuildCap);
+    }
+
+    /// <summary>
+    /// The physical maximum event sequence is reported once events exist.
+    /// </summary>
+    /// <remarks>
+    /// The gap between this and the high-water mark is what a monitoring console renders as projection
+    /// lag, so leaving it null renders as "n/a" and says nothing. Deliberately asserted as "present and
+    /// at least as many events as were appended" rather than as an exact value: how far a store's
+    /// sequence runs ahead of the events it has issued is the store's business, and on a store whose
+    /// committed sequences are contiguous it equals the high-water mark exactly.
+    /// </remarks>
+    [Fact]
+    public async Task usage_reports_the_max_event_sequence_once_events_exist()
+    {
+        await aVoyageAsync(new PortVisited("Plymouth"));
+
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        if (usage == null)
+        {
+            return;
+        }
+
+        usage.MaxEventSequence.ShouldNotBeNull(
+            "The store returned a usage descriptor with no MaxEventSequence, which renders as 'n/a' in a console.");
+        usage.MaxEventSequence.Value.ShouldBeGreaterThanOrEqualTo(2);
     }
 }
