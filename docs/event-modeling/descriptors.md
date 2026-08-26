@@ -156,7 +156,9 @@ Registration order used to be the mechanism — `WolverineEventModelSource` was 
 Concretely:
 
 - **Scalars** go to the highest rung that claims them; a tie keeps the first value.
-- **Lists** go to the highest rung that claims them **outright** — a higher rung *replaces* rather than unions, because unioning derived `{A, C}` with observed `{A, B}` invents a slice emitting three events that nobody claimed. Lists claimed at the **same** rung union in order and deduplicate by identity: types by full name, external systems by direction + name, specifications by identity, hotspots by origin + text.
+- **Lists** go to the highest rung that claims them **outright** — a higher rung *replaces* rather than unions, because unioning derived `{A, C}` with observed `{A, B}` invents a slice emitting three events that nobody claimed. Lists claimed at the **same** rung union in order and deduplicate by identity: types by full name, external systems by direction + name, specifications by identity.
+- **Hotspots** always union, whatever the rungs. They are annotations rather than claims about the system, and arbitrating them would discard findings.
+- **Any dropped claim** becomes a [`SourceDisagreement` hotspot](/event-modeling/hotspots#a-source-disagreement-is-a-hotspot) naming the role, both claims and the rung each came from — so a losing claim is recorded rather than silently discarded.
 - **Slices** fold by name; slice order is first appearance.
 - **Aggregates** union by type full name.
 

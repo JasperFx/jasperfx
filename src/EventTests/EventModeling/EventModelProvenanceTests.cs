@@ -250,6 +250,11 @@ public class EventModelProvenanceTests
             .ShouldBe([T<OrderPlaced>().FullName, T<OrderShipped>().FullName]);
         merged.HandlerType!.FullName.ShouldBe(T<OrderHandler>().FullName);
         merged.Provenance.ShouldBeNull();
+
+        // The merged *values* are what they always were. jasperfx#704 additionally records the two
+        // claims first-wins dropped here -- the competing command types and domains -- as hotspots,
+        // which is the one thing about an unstamped merge that does change.
+        merged.Hotspots.Count(x => x.Origin == HotspotOrigin.SourceDisagreement).ShouldBe(2);
     }
 
     #endregion
