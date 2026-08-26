@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using JasperFx.Events.Projections;
 using Shouldly;
 using Xunit;
 
@@ -13,6 +15,28 @@ public record VoyageBegun(string Ship);
 public record PortVisited(string Port);
 
 #endregion
+
+/// <summary>
+/// An aggregate registered as an <see cref="ProjectionLifecycle.Inline"/> snapshot, so the suite has
+/// a projection registration to look for in <c>EventStoreUsage.Subscriptions</c>.
+/// </summary>
+/// <remarks>
+/// Inline rather than async on purpose: an implementation that described the daemon's shards instead
+/// of the registrations would look correct and still answer nothing for an inline-only store, which
+/// is exactly the shape of the store that went several releases describing none of its projections
+/// (JasperFx/fisher#120). <c>SubscriptionDescriptor</c> already handles Inline — its metrics block is
+/// gated on <see cref="ProjectionLifecycle.Async"/> — so requiring it costs nothing.
+/// </remarks>
+public partial class VoyageSnapshot
+{
+    public Guid Id { get; set; }
+    public string Ship { get; set; } = string.Empty;
+    public List<string> Ports { get; set; } = new();
+
+    public static VoyageSnapshot Create(VoyageBegun e) => new() { Ship = e.Ship };
+
+    public void Apply(PortVisited e) => Ports.Add(e.Port);
+}
 
 /// <summary>
 /// The event store explorer surface on <see cref="IEventStore"/> — <c>GetRecentStreamsAsync</c>,
@@ -40,6 +64,7 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
         config.SchemaName = "compliance_explorer";
         config.AddEventType<VoyageBegun>();
         config.AddEventType<PortVisited>();
+        config.Snapshot<VoyageSnapshot>(SnapshotLifecycle.Inline);
     };
 
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
@@ -170,5 +195,29 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
         var names = usage.Events.Select(x => x.EventTypeName).ToList();
         names.ShouldContain(EventTypeNameFor<VoyageBegun>());
         names.ShouldContain(EventTypeNameFor<PortVisited>());
+    }
+
+    [Fact]
+    public async Task usage_describes_the_registered_projections()
+    {
+        var usage = await EventStore.TryCreateUsage(Cancellation);
+
+        // Same escape as above: a store that cannot describe itself is a legitimate answer. What is
+        // being caught here is a store that DOES return a usage and silently under-fills it.
+        if (usage == null)
+        {
+            return;
+        }
+
+        // Every member of EventStoreUsage is a list or a nullable that starts empty, so an unfilled
+        // slot is indistinguishable from a genuinely empty one — no exception, no warning, and no
+        // field saying which of the two it is. Consumers then render a confident wrong answer:
+        // "projections list" prints "No projections in this store" for a store with twenty of them,
+        // "projections rebuild" matches none of them, and CritterWatch sees a store with no
+        // projections. That is JasperFx/fisher#120, where the fix was one missing Describe() call.
+        usage.Subscriptions.ShouldNotBeEmpty(
+            "The store returned a usage descriptor but left Subscriptions empty, even though a projection was registered. Two shipped commands read this slot directly.");
+
+        usage.Subscriptions.Select(x => x.Name).ShouldContain(nameof(VoyageSnapshot));
     }
 }
