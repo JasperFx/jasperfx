@@ -135,6 +135,34 @@ public class PerTenantStartAgentAsyncTests
         agent.LastCommitted.ShouldBe(2010205);
     }
 
+    [Fact]
+    public async Task a_tenant_stops_being_polled_once_its_last_agent_stops()
+    {
+        // The release half of the in-flight start pin: a tenant held in the polled set for the duration
+        // of its start has to be let go again, or the coordinator keeps polling — and persisting
+        // high-water rows for — a tenant this node runs nothing for.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.SlowPollingTime = 50.Milliseconds(),
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        await harness.Daemon.StopAgentAsync("Trip:All:t1");
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (detector.LastPoll.Contains("t1") && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        detector.LastPoll.ShouldBe(["t2"]);
+    }
+
     // The Start command is applied on the agent's own command loop, so both the seeding and any failure
     // land just after StartAgentAsync returns. Wait for whichever arrives first rather than sleeping.
     private static async Task<SubscriptionAgent> startedAgentAsync(DaemonHarness harness)
@@ -603,6 +631,18 @@ public class PerTenantStartAgentAsyncTests
             lock (_tenantPolls)
             {
                 return _tenantPolls.SelectMany(x => x).Distinct().ToList();
+            }
+        }
+
+        // The tenant ids the most recent vectorized poll was asked about
+        public string[] LastPoll
+        {
+            get
+            {
+                lock (_tenantPolls)
+                {
+                    return _tenantPolls.Count == 0 ? [] : _tenantPolls[^1];
+                }
             }
         }
 

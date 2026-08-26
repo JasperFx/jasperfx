@@ -570,13 +570,26 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 break;
 
             case CommandType.Start:
-                if (command.LastCommitted > command.HighWaterMark)
+                // A Start seed below the position this agent is resuming from used to throw here, which
+                // funnels into ReportCriticalFailureAsync and PAUSES the shard -- and under a
+                // node-distributed daemon nothing ever restarts a paused agent, so one bad seed took a
+                // tenant's projection out until the next deployment. The premise no longer holds either:
+                // the seed is a SNAPSHOT of the mark taken at start (per tenant since marten#4717, so it
+                // can be missing entirely, or holding below a sequence gap this shard was already walked
+                // past), not a store-wide invariant. Clamp to the committed position and say so. Nothing
+                // is replayed or skipped: loading only ever starts above LastCommitted, so an agent whose
+                // mark equals its position simply idles until the real mark is routed to it.
+                var startingHighWater = command.HighWaterMark;
+                if (command.LastCommitted > startingHighWater)
                 {
-                    throw new InvalidOperationException(
-                        $"The last committed number ({command.LastCommitted}) cannot be higher than the high water mark ({command.HighWaterMark})");
+                    _logger.LogWarning(
+                        "Projection/subscription {Identity} was started with a high water seed of {Seed}, below its own committed position of {LastCommitted}. Starting at the committed position and waiting for the next high water reading",
+                        ProjectionShardIdentity, startingHighWater, command.LastCommitted);
+
+                    startingHighWater = command.LastCommitted;
                 }
 
-                HighWaterMark = command.HighWaterMark;
+                HighWaterMark = startingHighWater;
                 LastCommitted = LastEnqueued = command.LastCommitted;
                 _bufferedCeiling = LastCommitted; // jasperfx#525
 
