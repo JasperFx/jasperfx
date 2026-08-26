@@ -28,12 +28,20 @@ public sealed class PolledTenantSet
     }
 
     /// <summary>
-    /// Remove a tenant from the polled set. Returns true if it was present.
+    /// Remove a tenant from the polled set. Returns true if it was present and removed.
     /// </summary>
+    /// <remarks>
+    /// jasperfx#710: a pinned tenant is never removed, and this returns false for it. Without that,
+    /// the obvious-looking call here would silently defeat <see cref="Pin" /> and reintroduce the
+    /// field failure jasperfx#702 fixed — an agent whose start is still in flight losing its tenant
+    /// from the very poll it is waiting on.
+    /// </remarks>
     public bool Deactivate(string tenantId)
     {
         lock (_lock)
         {
+            if (_pins.ContainsKey(tenantId)) return false;
+
             return _tenants.Remove(tenantId);
         }
     }

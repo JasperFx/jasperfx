@@ -136,6 +136,50 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task a_start_arriving_mid_priming_waits_for_the_mark_instead_of_seeding_from_zero()
+    {
+        // jasperfx#709. HighWaterAgent.IsRunning used to flip on the FIRST line of StartAsync, before the
+        // Detect() it is meant to gate, so a second concurrent StartAgentAsync saw "running", skipped the
+        // priming, and read Tracker.HighWaterMark while it was still 0.
+        //
+        // Asserted through a SubscribeFromPresent shard rather than through the seeded HighWaterMark,
+        // and that choice is load-bearing. For a plain catch-up shard a wrong seed SELF-HEALS: the
+        // daemon's IObserver<ShardState>.OnNext forwards the store-global mark to every registered agent
+        // as soon as priming publishes it, so the agent is corrected moments later and the seed leaves no
+        // trace. FromPresent is where the damage sticks -- it resolves "present" to whatever mark it is
+        // handed and REWINDS the progression row to it, a database write that no later mark undoes.
+        var detector = new GatedGlobalDetector();
+
+        var blocker = shardFor(new ShardName("Trip"));
+        var fromPresent = shardFor(new ShardName("Sub"), new AsyncOptions().SubscribeFromPresent());
+
+        await using var harness = new DaemonHarness(detector, blocker, fromPresent);
+
+        // First start enters Detect and blocks there, holding the priming window open.
+        var first = harness.Daemon.StartAgentAsync("Trip:All", CancellationToken.None);
+        (await detector.EnteredDetectAsync()).ShouldBeTrue();
+
+        // Second start arrives mid-priming -- the exact window the bug lived in.
+        var second = harness.Daemon.StartAgentAsync("Sub:All", CancellationToken.None);
+
+        detector.Release(1000);
+        await first;
+        await second;
+
+        // Primed once for both starters. 25-way parallel agent starts must not mean 25 concurrent
+        // max(seq_id) scans either.
+        detector.DetectCount.ShouldBe(1);
+
+        // "Present" is the primed mark...
+        await harness.Store.Received(1).RewindSubscriptionProgressAsync(
+            Arg.Any<IEventDatabase>(), "Sub:All", Arg.Any<CancellationToken>(), 1000L);
+
+        // ...and never sequence 0, which would replay the whole history.
+        await harness.Store.DidNotReceive().RewindSubscriptionProgressAsync(
+            Arg.Any<IEventDatabase>(), "Sub:All", Arg.Any<CancellationToken>(), 0L);
+    }
+
+    [Fact]
     public async Task a_tenant_stops_being_polled_once_its_last_agent_stops()
     {
         // The release half of the in-flight start pin: a tenant held in the polled set for the duration
@@ -682,6 +726,51 @@ public class PerTenantStartAgentAsyncTests
 
             return Task.FromResult(new HighWaterVector(statistics));
         }
+
+        public Task<HighWaterVector> DetectInSafeZoneForTenantsAsync(IReadOnlyCollection<string> tenantIds,
+            CancellationToken token)
+            => DetectForTenantsAsync(tenantIds, token);
+    }
+
+    // jasperfx#709: a detector whose store-global Detect() blocks until released, so a test can hold a
+    // start inside the priming window and send a second one in behind it. SupportsTenantPartitioning is
+    // true only to keep HighWaterAgent's recurring poll loop from running — DetectCount then counts
+    // primings and nothing else.
+    private sealed class GatedGlobalDetector : IHighWaterDetector
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<long> _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _detectCount;
+
+        public Uri DatabaseUri { get; } = new("fake://db1");
+
+        public bool SupportsTenantPartitioning => true;
+
+        public int DetectCount => Volatile.Read(ref _detectCount);
+
+        public async Task<bool> EnteredDetectAsync()
+        {
+            var winner = await Task.WhenAny(_entered.Task, Task.Delay(10.Seconds()));
+            return winner == _entered.Task;
+        }
+
+        public void Release(long mark) => _release.TrySetResult(mark);
+
+        public async Task<HighWaterStatistics> Detect(CancellationToken token)
+        {
+            Interlocked.Increment(ref _detectCount);
+            _entered.TrySetResult();
+
+            var mark = await _release.Task.ConfigureAwait(false);
+
+            return new HighWaterStatistics { CurrentMark = mark, LastMark = mark, HighestSequence = mark };
+        }
+
+        public Task<HighWaterStatistics> DetectInSafeZone(CancellationToken token) => Detect(token);
+
+        public Task<HighWaterVector> DetectForTenantsAsync(IReadOnlyCollection<string> tenantIds,
+            CancellationToken token)
+            => Task.FromResult(new HighWaterVector([]));
 
         public Task<HighWaterVector> DetectInSafeZoneForTenantsAsync(IReadOnlyCollection<string> tenantIds,
             CancellationToken token)
