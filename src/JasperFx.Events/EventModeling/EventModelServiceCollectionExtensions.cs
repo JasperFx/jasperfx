@@ -86,9 +86,10 @@ public static class EventModelServiceCollectionExtensions
 public static class EventModelDiscovery
 {
     /// <summary>
-    /// Ask every registered source for its descriptor. Sources that return null are skipped.
-    /// Returned in registration order — derived sources should be registered before overlays so
-    /// <see cref="Assemble"/> lets derived roles win.
+    /// Ask every registered source for its descriptor, stamping each one with the source's
+    /// <see cref="IEventModelDefinitionSource.Provenance"/> (jasperfx#703). Sources that return null
+    /// are skipped. Returned in registration order, which <see cref="Assemble"/> now uses only to
+    /// break ties between sources on the same rung.
     /// </summary>
     public static async Task<IReadOnlyList<EventModelDescriptor>> DiscoverAsync(IServiceProvider services, CancellationToken token = default)
     {
@@ -96,15 +97,15 @@ public static class EventModelDiscovery
         foreach (var source in services.GetServices<IEventModelDefinitionSource>())
         {
             var descriptor = await source.TryCreateAsync(services, token).ConfigureAwait(false);
-            if (descriptor is not null) descriptors.Add(descriptor);
+            if (descriptor is not null) descriptors.Add(descriptor.WithProvenance(source.Provenance));
         }
 
         return descriptors;
     }
 
     /// <summary>
-    /// Fold the discovered descriptors into one model per name — overlays onto derived sources,
-    /// slices by name — and return them in first-appearance order.
+    /// Fold the discovered descriptors into one model per name — slices by name, each role decided by
+    /// the <see cref="EventModelProvenance"/> ladder — and return them in first-appearance order.
     /// </summary>
     public static IReadOnlyList<EventModelDescriptor> Assemble(IEnumerable<EventModelDescriptor> descriptors)
     {

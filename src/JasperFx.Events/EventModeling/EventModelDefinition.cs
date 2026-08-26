@@ -12,9 +12,11 @@ namespace JasperFx.Events.EventModeling;
 /// command, handler, aggregates, emitted events, published messages, projections, read models,
 /// trigger kind, slice pattern — are <em>derived</em> by the sources that can see them:
 /// Wolverine from its handler / HTTP / gRPC chains, the Bobcat generator from Gherkin with
-/// shipped grammars. The overlay never declares them; it is folded onto the derived model by
-/// <see cref="EventModelDescriptor.Merge"/> with the derived sources first, so it cannot
-/// overwrite a derived role. The one exception is
+/// shipped grammars. The overlay never declares them; it is folded into the model by
+/// <see cref="EventModelDescriptor.Merge"/>, which sits it on the
+/// <see cref="EventModelProvenance.Declared"/> rung — the bottom of the ladder — so it cannot
+/// overwrite a role derived from code or observed in production, whatever order the sources were
+/// registered in (jasperfx#703). The one exception is
 /// <see cref="EventModelSliceBuilder.ForFlowNotOwnedHere"/> — an explicit escape hatch for flows
 /// whose code this host does not own.
 /// </para>

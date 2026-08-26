@@ -95,6 +95,40 @@ public sealed record EventModelElement(
     public static EventModelElement ForLabel(string sliceName, EventModelElementKind kind, string label)
         => new(IdFor(sliceName, kind, label), kind, LaneFor(kind), label, null);
 
+    /// <summary>
+    /// Which rung of the provenance ladder claimed the role this element renders (jasperfx#703) —
+    /// stamped from the owning slice's <see cref="EventModelSliceDescriptor.ProvenanceFor"/>, so a
+    /// viewer can shade "production has seen this happen" differently from "somebody wrote it down"
+    /// without re-deriving anything.
+    /// </summary>
+    /// <remarks>
+    /// The <em>effective</em> rung, so it follows the same one rule the merge does: an unattributed
+    /// source is treated as a declaration, and its elements read
+    /// <see cref="EventModelProvenance.Declared"/> rather than null. Null means only that nothing
+    /// claims the role at all, which for a rendered element happens only on the kinds that have no
+    /// role of their own.
+    /// </remarks>
+    public EventModelProvenance? Provenance { get; init; }
+
+    /// <summary>The role an element of <paramref name="kind"/> renders, for provenance lookup.</summary>
+    /// <remarks>
+    /// A trigger is the one kind with three possible sources — <c>TriggerType</c>, <c>TriggerLabel</c>
+    /// and <c>TriggerOrigin</c> — so the slice resolves that one itself rather than going through here.
+    /// </remarks>
+    public static EventModelRole? RoleFor(EventModelElementKind kind) => kind switch
+    {
+        EventModelElementKind.Command => EventModelRole.CommandType,
+        EventModelElementKind.Handler => EventModelRole.HandlerType,
+        EventModelElementKind.Aggregate => EventModelRole.AggregateTypes,
+        EventModelElementKind.Event => EventModelRole.EmittedEvents,
+        EventModelElementKind.Message => EventModelRole.PublishedMessages,
+        EventModelElementKind.Projection => EventModelRole.ProjectionTypes,
+        EventModelElementKind.ReadModel => EventModelRole.ReadModelTypes,
+        EventModelElementKind.ExternalSystem => EventModelRole.ExternalSystems,
+        EventModelElementKind.Hotspot => EventModelRole.Hotspots,
+        _ => null,
+    };
+
     /// <summary>The canonical lane for an element kind.</summary>
     public static EventModelLane LaneFor(EventModelElementKind kind) => kind switch
     {

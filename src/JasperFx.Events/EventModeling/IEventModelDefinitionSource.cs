@@ -17,6 +17,27 @@ public interface IEventModelDefinitionSource
     Uri Subject { get; }
 
     /// <summary>
+    /// Which rung of the provenance ladder this source's claims sit on (jasperfx#703).
+    /// <see cref="EventModelProvenance.Declared"/> by default, because that is what an overlay or a
+    /// spec is; a source that reads roles out of code overrides it with
+    /// <see cref="EventModelProvenance.Derived"/>, and one that watches a running system with
+    /// <see cref="EventModelProvenance.Observed"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="EventModelDiscovery.DiscoverAsync"/> stamps this onto every slice the source
+    /// returns that is not already attributed, so a source only has to answer this once rather than
+    /// tag each slice.
+    /// </para>
+    /// <para>
+    /// ⚠️ This replaces registration order as the way derived roles beat declared ones. Defaulting to
+    /// <see cref="EventModelProvenance.Declared"/> means every existing source ties, and a tie still
+    /// resolves on order — so nothing changes until a source says otherwise.
+    /// </para>
+    /// </remarks>
+    EventModelProvenance Provenance => EventModelProvenance.Declared;
+
+    /// <summary>
     /// Build an <see cref="EventModelDescriptor"/> for this source.
     /// Returns <see langword="null"/> when the source cannot produce a
     /// descriptor — e.g. the underlying definition type failed to
