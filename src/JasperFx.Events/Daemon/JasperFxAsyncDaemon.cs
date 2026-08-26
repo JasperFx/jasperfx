@@ -686,11 +686,29 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // would run DetermineStartingPositionAsync against high-water 0, which for a
             // SubscribeFromPresent subscription resolves "present" to sequence 0 and rewinds its
             // progression row, replaying the tenant's entire history.
-            _tenantHighWater.PolledTenants.Activate(requested.TenantId);
-            await pollTenantHighWaterAsync().ConfigureAwait(false);
+            //
+            // Pin rather than Activate: syncTenantPolling() rebuilds the polled set from the agents
+            // REGISTERED on this node, and this agent is not registered until its start completes. Any
+            // concurrent start or stop that reconciles in the meantime would drop this tenant again, and
+            // the poll below would then silently skip it — leaving the agent to be seeded with no
+            // ceiling at all (an unrecoverable pause for a catch-up shard, a full-history replay for a
+            // FromPresent one). Field-observed under Wolverine-managed distribution with 25-way start
+            // parallelism and thousands of agents per node.
+            _tenantHighWater.PolledTenants.Pin(requested.TenantId);
 
-            var tenantShard = baseShard with { Name = baseShard.Name.ForTenant(requested.TenantId) };
-            var tenantStarted = await startContinuousShardAsync(tenantShard).ConfigureAwait(false);
+            bool tenantStarted;
+            try
+            {
+                await pollTenantHighWaterAsync().ConfigureAwait(false);
+
+                var tenantShard = baseShard with { Name = baseShard.Name.ForTenant(requested.TenantId) };
+                tenantStarted = await startContinuousShardAsync(tenantShard).ConfigureAwait(false);
+            }
+            finally
+            {
+                _tenantHighWater.PolledTenants.Unpin(requested.TenantId);
+            }
+
             if (!tenantStarted)
             {
                 // Reconcile the polled-tenant set so a failed start doesn't leave the coordinator

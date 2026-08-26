@@ -79,6 +79,106 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task tenant_agent_with_no_polled_ceiling_seeds_from_its_own_committed_position()
+    {
+        // Field failure, 2026-08-26, on a 2,100-tenant sharded Marten deployment under Wolverine-managed
+        // distribution: during a rollout's agent-start storm the vectorized poll had not produced a
+        // reading for this tenant yet, so tryStartAgentAsync seeded the agent through the `?? 0L`
+        // fallback while the shard's own progression row stood at 973,739. Apply's Start branch then
+        // threw "The last committed number (973739) cannot be higher than the high water mark (0)",
+        // which pauses the shard -- and nothing restarts a Paused agent under a node-distributed daemon,
+        // so that tenant's projection stayed dead for hours with perfectly intact data on both sides
+        // (973,739 events, max seq_id 973739, and the tenant's own persisted high-water row at 973739,
+        // written 207ms after the failing Start).
+        var detector = new StubPartitionedDetector(); // deliberately no mark for t1 -> CeilingFor is null
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+        harness.Database.ProjectionProgressFor(Arg.Any<ShardName>(), Arg.Any<CancellationToken>())
+            .Returns(973739L);
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        var agent = await startedAgentAsync(harness);
+
+        agent.Failure.ShouldBeNull();
+        agent.Status.ShouldBe(AgentStatus.Running);
+
+        // Seeded at the position it is resuming from, never below it. Nothing is replayed or skipped:
+        // loading starts above LastCommitted, so an agent whose mark equals its position simply waits
+        // for the coordinator to route the tenant's real mark.
+        agent.HighWaterMark.ShouldBe(973739);
+        agent.LastCommitted.ShouldBe(973739);
+    }
+
+    [Fact]
+    public async Task tenant_agent_with_a_polled_ceiling_behind_its_progression_still_starts()
+    {
+        // Same failure, second flavour, 13 minutes earlier on another shard of the same deployment: the
+        // tenant's ceiling WAS polled (2,008,443) but sat 1,762 events below the shard's committed
+        // progression (2,010,205), because a tenant's high-water holds at a sequence gap that an earlier
+        // process had already been walked past. A committed position above a *seeded snapshot* of the
+        // mark is not evidence of corruption and must not be fatal.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 2008443);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+        harness.Database.ProjectionProgressFor(Arg.Any<ShardName>(), Arg.Any<CancellationToken>())
+            .Returns(2010205L);
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        var agent = await startedAgentAsync(harness);
+
+        agent.Failure.ShouldBeNull();
+        agent.Status.ShouldBe(AgentStatus.Running);
+        agent.HighWaterMark.ShouldBe(2010205);
+        agent.LastCommitted.ShouldBe(2010205);
+    }
+
+    [Fact]
+    public async Task a_tenant_stops_being_polled_once_its_last_agent_stops()
+    {
+        // The release half of the in-flight start pin: a tenant held in the polled set for the duration
+        // of its start has to be let go again, or the coordinator keeps polling — and persisting
+        // high-water rows for — a tenant this node runs nothing for.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.SlowPollingTime = 50.Milliseconds(),
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        await harness.Daemon.StopAgentAsync("Trip:All:t1");
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (detector.LastPoll.Contains("t1") && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        detector.LastPoll.ShouldBe(["t2"]);
+    }
+
+    // The Start command is applied on the agent's own command loop, so both the seeding and any failure
+    // land just after StartAgentAsync returns. Wait for whichever arrives first rather than sleeping.
+    private static async Task<SubscriptionAgent> startedAgentAsync(DaemonHarness harness)
+    {
+        var agent = harness.Daemon.CurrentAgents().ShouldHaveSingleItem().ShouldBeOfType<SubscriptionAgent>();
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (agent.Failure == null && agent.HighWaterMark == 0 && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        return agent;
+    }
+
+    [Fact]
     public async Task throws_for_a_tenant_identity_when_the_store_has_no_tenant_partitioning()
     {
         // Without per-tenant high-water tracking a tenant agent would seed from the store-global mark
@@ -531,6 +631,18 @@ public class PerTenantStartAgentAsyncTests
             lock (_tenantPolls)
             {
                 return _tenantPolls.SelectMany(x => x).Distinct().ToList();
+            }
+        }
+
+        // The tenant ids the most recent vectorized poll was asked about
+        public string[] LastPoll
+        {
+            get
+            {
+                lock (_tenantPolls)
+                {
+                    return _tenantPolls.Count == 0 ? [] : _tenantPolls[^1];
+                }
             }
         }
 
