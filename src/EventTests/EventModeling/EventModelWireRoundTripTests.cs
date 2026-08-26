@@ -71,6 +71,20 @@ public class EventModelWireRoundTripTests
             ExternalSystems = new[] { new ExternalSystemDescriptor("Legacy", ExternalSystemDirection.Inbound) },
             EmittedEvents = new[] { T<OrderPlaced>() },
         },
+        // jasperfx#703: a slice assembled from all three rungs, so the summary Provenance and the
+        // per-role ClaimedBy map are on the wire under test too, not just the single-source shape.
+        (EventModelSliceDescriptor.Named("MergedFromThreeSources") with
+            {
+                Provenance = EventModelProvenance.Declared, Domain = "Orders",
+            })
+            .Merge(EventModelSliceDescriptor.Named("MergedFromThreeSources") with
+            {
+                Provenance = EventModelProvenance.Derived, CommandType = T<PlaceOrder>(),
+            })
+            .Merge(EventModelSliceDescriptor.Named("MergedFromThreeSources") with
+            {
+                Provenance = EventModelProvenance.Observed, EmittedEvents = new[] { T<OrderPlaced>() },
+            }),
         EventModelSliceDescriptor.Named("GrpcPlace") with { TriggerKind = TriggerKind.Grpc, Pattern = SlicePattern.Command },
         EventModelSliceDescriptor.Named("BusPlace") with { TriggerKind = TriggerKind.MessageHandler, Pattern = SlicePattern.Command },
     })
@@ -129,6 +143,12 @@ public class EventModelWireRoundTripTests
                 actual.Specifications[j].ResolvedTypes.ShouldBe(expected.Specifications[j].ResolvedTypes);
             }
             actual.Domain.ShouldBe(expected.Domain);
+            actual.Provenance.ShouldBe(expected.Provenance);
+            actual.ClaimedBy.Count.ShouldBe(expected.ClaimedBy.Count);
+            foreach (var claim in expected.ClaimedBy)
+            {
+                actual.ClaimedBy[claim.Key].ShouldBe(claim.Value);
+            }
 
             actual.Elements.ShouldBe(expected.Elements);
             actual.Edges.ShouldBe(expected.Edges);

@@ -103,6 +103,77 @@ public sealed record EventModelSliceDescriptor(
     public string? Domain { get; init; }
 
     /// <summary>
+    /// Which rung of the provenance ladder the source that produced this slice sits on
+    /// (jasperfx#703). Null means unattributed, which <see cref="ProvenanceFor"/> reads as
+    /// <see cref="EventModelProvenance.Declared"/> — so a model whose sources have not been stamped
+    /// yet merges exactly as it did before, on registration order.
+    /// </summary>
+    /// <remarks>
+    /// On a slice assembled by <see cref="Merge"/> this is the highest rung that contributed
+    /// anything. It is a summary for viewers that do not care which role came from where;
+    /// <see cref="ClaimedBy"/> is the per-role truth.
+    /// </remarks>
+    public EventModelProvenance? Provenance { get; init; }
+
+    /// <summary>
+    /// Per-role attribution: which rung claimed each role of this slice. Stamped by
+    /// <see cref="Merge"/>, which is the only place the answer can differ role by role.
+    /// </summary>
+    /// <remarks>
+    /// Empty on a slice straight from one source — there is nothing to disambiguate, so
+    /// <see cref="ProvenanceFor"/> derives the answer from <see cref="Provenance"/> and whether the
+    /// role is claimed at all. Prefer <see cref="ProvenanceFor"/> over reading this directly.
+    /// </remarks>
+    public IReadOnlyDictionary<EventModelRole, EventModelProvenance> ClaimedBy { get; init; }
+        = new Dictionary<EventModelRole, EventModelProvenance>();
+
+    /// <summary>
+    /// The rung that claimed <paramref name="role"/> on this slice, or null when nothing claims it.
+    /// </summary>
+    /// <remarks>
+    /// This is the acceptance criterion of jasperfx#703 in one method: after a merge of three
+    /// sources, ask any role which source's claim survived.
+    /// </remarks>
+    public EventModelProvenance? ProvenanceFor(EventModelRole role)
+    {
+        if (ClaimedBy.TryGetValue(role, out var claimed)) return claimed;
+
+        return Claims(role) ? Provenance ?? EventModelProvenance.Declared : null;
+    }
+
+    /// <summary>
+    /// Does this slice carry a value for <paramref name="role"/>? A non-null scalar or a non-empty
+    /// list. Structural on purpose: no source has to opt into being attributed.
+    /// </summary>
+    public bool Claims(EventModelRole role) => role switch
+    {
+        EventModelRole.TriggerLabel => TriggerLabel is not null,
+        EventModelRole.TriggerType => TriggerType is not null,
+        EventModelRole.TriggerKind => TriggerKind is not null,
+        EventModelRole.TriggerOrigin => TriggerOrigin is not null,
+        EventModelRole.Pattern => Pattern is not null,
+        EventModelRole.CommandType => CommandType is not null,
+        EventModelRole.HandlerType => HandlerType is not null,
+        EventModelRole.AggregateTypes => AggregateTypes.Count > 0,
+        EventModelRole.EmittedEvents => EmittedEvents.Count > 0,
+        EventModelRole.PublishedMessages => PublishedMessages.Count > 0,
+        EventModelRole.ProjectionTypes => ProjectionTypes.Count > 0,
+        EventModelRole.ReadModelTypes => ReadModelTypes.Count > 0,
+        EventModelRole.ExternalSystems => ExternalSystems.Count > 0,
+        EventModelRole.Hotspots => Hotspots.Count > 0,
+        EventModelRole.Specifications => Specifications.Count > 0,
+        EventModelRole.Domain => Domain is not null,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Stamp this slice with the rung of the source that produced it, if it is not already
+    /// attributed. A source that stamps its own slices individually is left alone.
+    /// </summary>
+    public EventModelSliceDescriptor WithProvenance(EventModelProvenance provenance)
+        => Provenance is null ? this with { Provenance = provenance } : this;
+
+    /// <summary>
     /// The rendering contract — every element of the slice with a stable id, a kind (→ colour)
     /// and a lane. Computed from the typed roles on each read.
     /// </summary>
@@ -115,11 +186,30 @@ public sealed record EventModelSliceDescriptor(
     public IReadOnlyList<EventModelEdge> Edges => buildGraph().edges;
 
     /// <summary>
-    /// Fold another source's view of the <em>same</em> slice into this one. Scalars keep the
-    /// first non-null value (this instance wins); lists are unioned in order, deduplicated by
-    /// identity. The overlay is typically merged <em>onto</em> the derived slice so derived roles
-    /// are never overwritten by a name-only declaration.
+    /// Fold another source's view of the <em>same</em> slice into this one, role by role, with the
+    /// higher rung of <see cref="EventModelProvenance"/> winning (jasperfx#703).
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Per claimed role, not wholesale.</b> A source that does not claim a role never overrides
+    /// one that does, whatever rung it sits on. That is why slice names, domains and specification
+    /// links keep coming from declarations: nothing else claims them, so nothing else can take them.
+    /// </para>
+    /// <para>
+    /// <b>Ties fall back to first-wins</b>, which is what this method did for every role before
+    /// jasperfx#703 — so two unattributed sources merge exactly as they always have, on the order
+    /// they were given. That is the compatibility hinge: a model whose sources have not been stamped
+    /// yet is byte-identical to what it produced before.
+    /// </para>
+    /// <para>
+    /// <b>A higher rung replaces a list, it does not union with it.</b> Unioning is what made the old
+    /// merge lossy in the other direction: derived <c>{A, C}</c> unioned with observed <c>{A, B}</c>
+    /// silently invents a slice that emits three events and nobody ever claimed. Production winning
+    /// means the answer is <c>{A, B}</c>; what happened to <c>C</c> is a finding, and jasperfx#704
+    /// records it rather than letting it vanish. Same-rung lists still union in order, deduplicated
+    /// by identity, exactly as before.
+    /// </para>
+    /// </remarks>
     public EventModelSliceDescriptor Merge(EventModelSliceDescriptor other)
     {
         if (!string.Equals(Name, other.Name, StringComparison.Ordinal))
@@ -129,30 +219,84 @@ public sealed record EventModelSliceDescriptor(
                 nameof(other));
         }
 
-        return new EventModelSliceDescriptor(
-            Name,
-            TriggerLabel ?? other.TriggerLabel,
-            TriggerType ?? other.TriggerType,
-            CommandType ?? other.CommandType,
-            HandlerType ?? other.HandlerType,
-            unionTypes(EmittedEvents, other.EmittedEvents),
-            unionTypes(ProjectionTypes, other.ProjectionTypes),
-            unionTypes(ReadModelTypes, other.ReadModelTypes))
+        var claimedBy = new Dictionary<EventModelRole, EventModelProvenance>();
+
+        // True when other's claim on this role outranks ours -- or when we make no claim at all.
+        // False on a tie, which is what preserves the pre-jasperfx#703 first-wins behaviour.
+        bool takeOther(EventModelRole role)
         {
-            Pattern = Pattern ?? other.Pattern,
-            TriggerKind = TriggerKind ?? other.TriggerKind,
-            TriggerOrigin = TriggerOrigin ?? other.TriggerOrigin,
-            AggregateTypes = unionTypes(AggregateTypes, other.AggregateTypes),
-            PublishedMessages = unionTypes(PublishedMessages, other.PublishedMessages),
-            ExternalSystems = union(ExternalSystems, other.ExternalSystems, x => $"{x.Direction}:{x.Name}"),
-            Hotspots = union(Hotspots, other.Hotspots, x => $"{x.Origin}:{x.Text}"),
-            Specifications = union(Specifications, other.Specifications, x => x.Identity),
-            Domain = Domain ?? other.Domain,
+            var mine = ProvenanceFor(role);
+            var theirs = other.ProvenanceFor(role);
+
+            var winner = (mine, theirs) switch
+            {
+                (null, null) => (EventModelProvenance?)null,
+                (null, not null) => theirs,
+                (not null, null) => mine,
+                _ => theirs > mine ? theirs : mine,
+            };
+
+            if (winner is { } rung) claimedBy[role] = rung;
+
+            return theirs is not null && (mine is null || theirs > mine);
+        }
+
+        IReadOnlyList<T> mergeList<T>(EventModelRole role, IReadOnlyList<T> mine, IReadOnlyList<T> theirs,
+            Func<T, string> key)
+        {
+            var myRung = ProvenanceFor(role);
+            var theirRung = other.ProvenanceFor(role);
+
+            takeOther(role);
+
+            if (theirRung is null) return mine;
+            if (myRung is null) return theirs;
+            if (theirRung > myRung) return theirs;
+            if (myRung > theirRung) return mine;
+
+            return union(mine, theirs, key);
+        }
+
+        IReadOnlyList<TypeDescriptor> mergeTypes(EventModelRole role, IReadOnlyList<TypeDescriptor> mine,
+            IReadOnlyList<TypeDescriptor> theirs)
+            => mergeList(role, mine, theirs, x => x.FullName);
+
+        var merged = new EventModelSliceDescriptor(
+            Name,
+            takeOther(EventModelRole.TriggerLabel) ? other.TriggerLabel : TriggerLabel,
+            takeOther(EventModelRole.TriggerType) ? other.TriggerType : TriggerType,
+            takeOther(EventModelRole.CommandType) ? other.CommandType : CommandType,
+            takeOther(EventModelRole.HandlerType) ? other.HandlerType : HandlerType,
+            mergeTypes(EventModelRole.EmittedEvents, EmittedEvents, other.EmittedEvents),
+            mergeTypes(EventModelRole.ProjectionTypes, ProjectionTypes, other.ProjectionTypes),
+            mergeTypes(EventModelRole.ReadModelTypes, ReadModelTypes, other.ReadModelTypes))
+        {
+            Pattern = takeOther(EventModelRole.Pattern) ? other.Pattern : Pattern,
+            TriggerKind = takeOther(EventModelRole.TriggerKind) ? other.TriggerKind : TriggerKind,
+            TriggerOrigin = takeOther(EventModelRole.TriggerOrigin) ? other.TriggerOrigin : TriggerOrigin,
+            AggregateTypes = mergeTypes(EventModelRole.AggregateTypes, AggregateTypes, other.AggregateTypes),
+            PublishedMessages = mergeTypes(EventModelRole.PublishedMessages, PublishedMessages, other.PublishedMessages),
+            ExternalSystems = mergeList(EventModelRole.ExternalSystems, ExternalSystems, other.ExternalSystems,
+                x => $"{x.Direction}:{x.Name}"),
+            Hotspots = mergeList(EventModelRole.Hotspots, Hotspots, other.Hotspots, x => $"{x.Origin}:{x.Text}"),
+            Specifications = mergeList(EventModelRole.Specifications, Specifications, other.Specifications,
+                x => x.Identity),
+            Domain = takeOther(EventModelRole.Domain) ? other.Domain : Domain,
+            Provenance = higher(Provenance, other.Provenance),
         };
+
+        return merged with { ClaimedBy = claimedBy };
     }
 
-    private static IReadOnlyList<TypeDescriptor> unionTypes(IReadOnlyList<TypeDescriptor> first, IReadOnlyList<TypeDescriptor> second)
-        => union(first, second, x => x.FullName);
+    /// <summary>The higher of two rungs, or whichever is set, or null when neither is.</summary>
+    private static EventModelProvenance? higher(EventModelProvenance? first, EventModelProvenance? second)
+        => (first, second) switch
+        {
+            (null, null) => null,
+            (null, not null) => second,
+            (not null, null) => first,
+            _ => second > first ? second : first,
+        };
 
     private static IReadOnlyList<T> union<T>(IReadOnlyList<T> first, IReadOnlyList<T> second, Func<T, string> key)
     {
@@ -174,10 +318,20 @@ public sealed record EventModelSliceDescriptor(
         var elements = new List<EventModelElement>();
         var edges = new List<EventModelEdge>();
 
-        EventModelElement add(EventModelElement element)
+        EventModelElement add(EventModelElement element, EventModelRole? role = null)
         {
-            elements.Add(element);
-            return element;
+            // The rendering contract carries the ladder too (jasperfx#703), so a viewer can shade an
+            // observed role differently from a declared one without re-deriving anything. Trigger
+            // elements pass their role in explicitly -- they are the one kind with three possible
+            // sources.
+            role ??= EventModelElement.RoleFor(element.Kind);
+
+            var stamped = role is { } claimed && ProvenanceFor(claimed) is { } rung
+                ? element with { Provenance = rung }
+                : element;
+
+            elements.Add(stamped);
+            return stamped;
         }
 
         void link(EventModelElement? from, EventModelElement? to)
@@ -190,15 +344,18 @@ public sealed record EventModelSliceDescriptor(
         EventModelElement? trigger = null;
         if (TriggerType is not null)
         {
-            trigger = add(EventModelElement.ForType(Name, EventModelElementKind.Trigger, TriggerType));
+            trigger = add(EventModelElement.ForType(Name, EventModelElementKind.Trigger, TriggerType),
+                EventModelRole.TriggerType);
         }
         else if (TriggerLabel is not null)
         {
-            trigger = add(EventModelElement.ForLabel(Name, EventModelElementKind.Trigger, TriggerLabel));
+            trigger = add(EventModelElement.ForLabel(Name, EventModelElementKind.Trigger, TriggerLabel),
+                EventModelRole.TriggerLabel);
         }
         else if (TriggerOrigin?.Label is not null)
         {
-            trigger = add(EventModelElement.ForLabel(Name, EventModelElementKind.Trigger, TriggerOrigin.Label));
+            trigger = add(EventModelElement.ForLabel(Name, EventModelElementKind.Trigger, TriggerOrigin.Label),
+                EventModelRole.TriggerOrigin);
         }
 
         var inboundSystems = ExternalSystems
@@ -320,14 +477,30 @@ public sealed record EventModelDescriptor(
     public IReadOnlyList<HotspotDescriptor> Hotspots { get; init; } = Array.Empty<HotspotDescriptor>();
 
     /// <summary>
-    /// Assemble one model from several sources' descriptors. Slices with the same name are
-    /// folded with <see cref="EventModelSliceDescriptor.Merge"/> in the order the descriptors
-    /// are given (earlier wins on scalars — put derived sources before the overlay); aggregates
-    /// are unioned by type and model-level hotspots by origin + text. Slice order is first
-    /// appearance.
+    /// Stamp every unattributed slice with <paramref name="provenance"/> — the rung of the source
+    /// that produced this descriptor (jasperfx#703). Slices a source attributed itself are left alone.
     /// </summary>
+    public EventModelDescriptor WithProvenance(EventModelProvenance provenance)
+        => this with { Slices = Slices.Select(x => x.WithProvenance(provenance)).ToList() };
+
+    /// <summary>
+    /// Assemble one model from several sources' descriptors. Slices with the same name are folded
+    /// with <see cref="EventModelSliceDescriptor.Merge"/>, which decides each role by the
+    /// <see cref="EventModelProvenance"/> ladder — observed beats derived beats declared — and falls
+    /// back to the order the descriptors are given only to break a tie between sources on the same
+    /// rung. Aggregates are unioned by type and model-level hotspots by origin + text. Slice order is
+    /// first appearance.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ Before jasperfx#703 this was first-wins for every role, and callers registered derived
+    /// sources ahead of overlays to make derived roles beat declared ones. Registration order is no
+    /// longer the mechanism: stamp the sources instead, through
+    /// <see cref="IEventModelDefinitionSource.Provenance"/> or
+    /// <see cref="EventModelSliceDescriptor.WithProvenance"/>. Unstamped sources all sit on
+    /// <see cref="EventModelProvenance.Declared"/>, tie, and merge exactly as they did before.
+    /// </remarks>
     /// <param name="name">Name of the assembled model.</param>
-    /// <param name="descriptors">Descriptors to fold, derived sources first.</param>
+    /// <param name="descriptors">Descriptors to fold. Order breaks ties within a rung.</param>
     public static EventModelDescriptor Merge(string name, IEnumerable<EventModelDescriptor> descriptors)
     {
         var slices = new List<EventModelSliceDescriptor>();

@@ -135,12 +135,40 @@ foreach (var hotspot in helpdesk.Hotspots)
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L43-L67' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_assembling_the_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Sources are enumerated in **registration order**, and `Merge` lets earlier sources win on scalars — so register derived sources before overlays. Concretely:
+### Provenance decides the merge
 
-- **Scalars** keep the first non-null value.
-- **Lists** are unioned in order and deduplicated by identity: types by full name, external systems by direction + name, specifications by identity, hotspots by origin + text.
+Four producers feed one descriptor — Gherkin specs, the C# overlay and code-first specs, Wolverine's chains, and runtime observation from CritterWatch — so something has to arbitrate when two of them describe the same slice. That something is a three-rung ladder of authority, `EventModelProvenance`:
+
+| Rung | Who | Beats |
+| --- | --- | --- |
+| `Declared` | A Gherkin spec, a code-first spec, the `EventModelDefinition` overlay | — |
+| `Derived` | Wolverine's handler / HTTP / gRPC chains, the source generator | `Declared` |
+| `Observed` | CritterWatch watching a running system | `Derived`, `Declared` |
+
+Production beats what the code implies, and the code beats what somebody wrote down. A source declares its rung once, on `IEventModelDefinitionSource.Provenance`; `EventModelDiscovery.DiscoverAsync` stamps it onto every slice the source returns.
+
+::: warning This inverts the pre-2.56 ordering
+Registration order used to be the mechanism — `WolverineEventModelSource` was registered at index 0 specifically so derived roles would beat overlays. It is now only a **tie-breaker between sources on the same rung**. `Provenance` defaults to `Declared` on every source, so an application whose sources have not been stamped yet gets exactly the merge it got before.
+:::
+
+**Precedence is per claimed role, not wholesale.** A role is claimed when the slice carries a value for it — a non-null scalar or a non-empty list — and a source that does not claim a role never overrides one that does, whatever rung it sits on. This is why slice names, domains, trigger labels and specification links keep coming from declarations and keep winning by default: production has no opinion about what a slice is called. The ladder only decides *factual* roles — which events are emitted, which aggregates are touched, which read models are produced.
+
+Concretely:
+
+- **Scalars** go to the highest rung that claims them; a tie keeps the first value.
+- **Lists** go to the highest rung that claims them **outright** — a higher rung *replaces* rather than unions, because unioning derived `{A, C}` with observed `{A, B}` invents a slice emitting three events that nobody claimed. Lists claimed at the **same** rung union in order and deduplicate by identity: types by full name, external systems by direction + name, specifications by identity, hotspots by origin + text.
 - **Slices** fold by name; slice order is first appearance.
 - **Aggregates** union by type full name.
+
+Ask a merged slice where any role came from with `ProvenanceFor`:
+
+```cs
+slice.ProvenanceFor(EventModelRole.EmittedEvents);  // Observed — production claimed these
+slice.ProvenanceFor(EventModelRole.Domain);         // Declared — only the overlay claims a domain
+slice.ProvenanceFor(EventModelRole.HandlerType);    // null — nothing claims it
+```
+
+Every rendered `EventModelElement` carries the same answer on its own `Provenance`, so a viewer can shade "production has seen this happen" differently from "somebody wrote it down" without re-deriving anything.
 
 Merging two slices with different names throws — slices merge by name, and a mismatch means a bug in whoever assembled the list.
 

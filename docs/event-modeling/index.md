@@ -12,7 +12,9 @@ The command type, the handler, the aggregates, the events emitted, the messages 
 
 What you write by hand is an **overlay**: the display name of a slice, the bounded context it belongs to, the human label on its trigger ("Agent clicks Close"), a link to a specification that lives outside the compilation, and a hotspot for a question nobody has answered yet.
 
-The overlay is merged *onto* the derived model, derived first, so a hand-written line can never overwrite what the code actually does. If the code and your overlay disagree about a role, the code wins — silently and always.
+The overlay sits on the bottom rung of a three-rung ladder of authority — **declared** below **derived from code** below **observed in production** — so a hand-written line can never overwrite what the code actually does, and neither can overwrite what a running system was seen doing. If the code and your overlay disagree about a role, the code wins. See [provenance](/event-modeling/descriptors#provenance-decides-the-merge) for how the ladder is applied, role by role.
+
+Note that this only applies to roles the other rungs *claim*. Nothing but a declaration ever claims a slice's name, its domain, its trigger label or its specification links, so those are yours and stay yours.
 
 ## The sample: IncidentService
 
