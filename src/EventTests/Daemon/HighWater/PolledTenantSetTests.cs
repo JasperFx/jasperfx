@@ -59,11 +59,49 @@ public class PolledTenantSetTests
     {
         var set = new PolledTenantSet();
 
+        // jasperfx#710: the pin count must not go negative, or a later Pin/Unpin pair would leave the
+        // tenant pinned forever.
+        set.Pin("t1");
+        set.Unpin("t1");
+        set.Unpin("t1");
         set.Unpin("t1");
 
-        set.Activate("t2");
-        set.SetTenants(["t2"]);
+        set.Pin("t1");
+        set.Unpin("t1");
+        set.SetTenants([]);
 
-        set.Snapshot().ShouldBe(["t2"]);
+        set.IsPolled("t1").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void deactivate_does_not_remove_a_pinned_tenant()
+    {
+        var set = new PolledTenantSet();
+
+        set.Activate("t1");
+        set.Pin("t1");
+
+        // jasperfx#710: Pin used to guard only against SetTenants, so the obvious-looking Deactivate
+        // silently defeated it and put back the field failure jasperfx#702 fixed.
+        set.Deactivate("t1").ShouldBeFalse();
+        set.IsPolled("t1").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void deactivate_works_again_once_the_last_pin_is_released()
+    {
+        var set = new PolledTenantSet();
+
+        set.Activate("t1");
+        set.Pin("t1");
+        set.Pin("t1");
+
+        set.Unpin("t1");
+        set.Deactivate("t1").ShouldBeFalse();
+        set.IsPolled("t1").ShouldBeTrue();
+
+        set.Unpin("t1");
+        set.Deactivate("t1").ShouldBeTrue();
+        set.IsPolled("t1").ShouldBeFalse();
     }
 }

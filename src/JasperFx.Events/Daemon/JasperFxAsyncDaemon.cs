@@ -624,10 +624,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public async Task StartAgentAsync(string shardName, CancellationToken token)
     {
-        if (!_highWater.IsRunning)
-        {
-            await StartHighWaterDetectionAsync().ConfigureAwait(false);
-        }
+        // jasperfx#709: single-flight, so 25-way parallel agent starts prime the mark once and all of
+        // them WAIT for it, instead of one priming while the other 24 skip ahead and seed from 0.
+        await ensureHighWaterDetectionAsync().ConfigureAwait(false);
 
         // TODO -- DO NOT LIKE THIS. Would rather have an overload that takes ShardName now
         if (!shardName.Contains(":"))
@@ -874,10 +873,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public async Task StartAllAsync()
     {
-        if (!_highWater.IsRunning)
-        {
-            await StartHighWaterDetectionAsync().ConfigureAwait(false);
-        }
+        // jasperfx#709: see ensureHighWaterDetectionAsync — StartAllAsync and StartAgentAsync can race
+        // each other just as easily as two StartAgentAsync calls can.
+        await ensureHighWaterDetectionAsync().ConfigureAwait(false);
 
         var shards = new List<AsyncShard<TOperations, TQuerySession>>();
 
@@ -1028,6 +1026,75 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         await _highWater.StartAsync().ConfigureAwait(false);
+    }
+
+    private readonly object _highWaterStartLock = new();
+    private Task? _inFlightHighWaterStart;
+
+    /// <summary>
+    /// jasperfx#709: prime the store-global high water exactly once, and make every concurrent caller
+    /// wait for the SAME priming rather than skip it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The old shape was a bare <c>if (!_highWater.IsRunning) await StartHighWaterDetectionAsync();</c>,
+    /// and <see cref="HighWaterAgent.StartAsync" /> sets <c>IsRunning = true</c> BEFORE it awaits the
+    /// detection that flag is meant to gate. So a second concurrent starter saw "running", skipped the
+    /// priming, and read <c>Tracker.HighWaterMark</c> while it was still 0 — seeding an agent below its
+    /// own committed position. jasperfx#702 made that non-fatal (the Start command clamps rather than
+    /// pausing the shard), but the seed was still wrong, and for a SubscribeFromPresent subscription a
+    /// seed of 0 rewinds the progression row over the whole history, which the clamp cannot help with.
+    /// </para>
+    /// <para>
+    /// Deliberately a rendezvous on the in-flight task rather than a cached "already primed" flag: the
+    /// daemon stops <see cref="_highWater" /> when its last agent stops, so a later start has to be able
+    /// to prime it again. The task is cleared on completion for exactly that reason, and a failed
+    /// priming faults every waiter — proceeding to seed agents from a mark that was never detected is
+    /// the bug, not the recovery.
+    /// </para>
+    /// </remarks>
+    private Task ensureHighWaterDetectionAsync()
+    {
+        TaskCompletionSource completion;
+
+        lock (_highWaterStartLock)
+        {
+            if (_inFlightHighWaterStart is { } inFlight)
+            {
+                return inFlight;
+            }
+
+            if (_highWater.IsRunning)
+            {
+                return Task.CompletedTask;
+            }
+
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _inFlightHighWaterStart = completion.Task;
+        }
+
+        return primeHighWaterAsync(completion);
+    }
+
+    private async Task primeHighWaterAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await StartHighWaterDetectionAsync().ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (Exception e)
+        {
+            completion.TrySetException(e);
+            throw;
+        }
+        finally
+        {
+            lock (_highWaterStartLock)
+            {
+                _inFlightHighWaterStart = null;
+            }
+        }
     }
 
     private ConcurrentBag<ShardState>? _shardStateTracker;
@@ -1703,9 +1770,21 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         long ceiling;
         if (_tenantHighWater != null)
         {
-            _tenantHighWater.PolledTenants.Activate(tenantId);
-            await pollTenantHighWaterAsync().ConfigureAwait(false);
-            ceiling = _tenantHighWater.CeilingFor(tenantId) ?? Tracker.HighWaterMark;
+            // jasperfx#710: Pin, not Activate — a concurrent syncTenantPolling() would otherwise drop
+            // this tenant before the poll below and leave CeilingFor null, falling back to the
+            // store-global mark. Under per-tenant partitioning that mark is max(seq_id) fanned across
+            // every tenant partition, so the rebuild would run to a ceiling far above this tenant's own
+            // height and look stuck rather than finishing.
+            _tenantHighWater.PolledTenants.Pin(tenantId);
+            try
+            {
+                await pollTenantHighWaterAsync().ConfigureAwait(false);
+                ceiling = _tenantHighWater.CeilingFor(tenantId) ?? Tracker.HighWaterMark;
+            }
+            finally
+            {
+                _tenantHighWater.PolledTenants.Unpin(tenantId);
+            }
         }
         else
         {
@@ -1983,30 +2062,60 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 continue;
             }
 
+            // jasperfx#710: Pin, not Activate. syncTenantPolling() rebuilds the polled set wholesale
+            // from the agents REGISTERED on this node, so any concurrent start or stop that reconciles
+            // between here and the poll below would drop these tenants — and a tenant missing from the
+            // poll gets no reading, so CeilingFor comes back null and its catch-up is skipped entirely,
+            // with no exception and no log line. Held across the poll AND the catch-up loop, since the
+            // loop keeps reading CeilingFor.
             foreach (var tenantId in tenants)
             {
-                _tenantHighWater!.PolledTenants.Activate(tenantId);
+                _tenantHighWater!.PolledTenants.Pin(tenantId);
             }
-            await pollTenantHighWaterAsync().ConfigureAwait(false);
 
-            foreach (var tenantId in tenants)
+            try
             {
-                if (cancellation.IsCancellationRequested) return;
+                await pollTenantHighWaterAsync().ConfigureAwait(false);
 
-                var ceiling = _tenantHighWater!.CeilingFor(tenantId) ?? 0L;
-                if (ceiling == 0L)
+                foreach (var tenantId in tenants)
                 {
-                    // Tenant exists but has no events for this projection yet.
-                    continue;
+                    if (cancellation.IsCancellationRequested) return;
+
+                    // jasperfx#710: null and 0 are different facts and used to be flattened together by
+                    // `?? 0L`. Null means this tenant has never been polled — which after the pin above
+                    // should not happen, so say so rather than skipping in silence. Zero means it was
+                    // polled and genuinely has no events yet, which is the benign case.
+                    var reading = _tenantHighWater!.CeilingFor(tenantId);
+                    if (reading == null)
+                    {
+                        Logger.LogWarning(
+                            "No high water reading for tenant {TenantId} while catching up {ShardName}, so its catch-up is skipped. The tenant was pinned for the priming poll, so this indicates the poll did not run or returned nothing for it",
+                            tenantId, asyncShard.Name.Identity);
+                        continue;
+                    }
+
+                    var ceiling = reading.Value;
+                    if (ceiling == 0L)
+                    {
+                        // Tenant exists but has no events for this projection yet.
+                        continue;
+                    }
+
+                    var tenantShard = asyncShard with { Name = asyncShard.Name.ForTenant(tenantId) };
+                    var state = progress.FirstOrDefault(x => x.ShardName == tenantShard.Name.Identity)
+                                ?? new ShardState(tenantShard.Name, 0);
+                    var agent = buildAgentForShard(tenantShard);
+
+                    await agent.CatchUpAsync(ceiling, state, cancellation).ConfigureAwait(false);
+                    throwIfRecordedExceptions(recorder, cancellation);
                 }
-
-                var tenantShard = asyncShard with { Name = asyncShard.Name.ForTenant(tenantId) };
-                var state = progress.FirstOrDefault(x => x.ShardName == tenantShard.Name.Identity)
-                            ?? new ShardState(tenantShard.Name, 0);
-                var agent = buildAgentForShard(tenantShard);
-
-                await agent.CatchUpAsync(ceiling, state, cancellation).ConfigureAwait(false);
-                throwIfRecordedExceptions(recorder, cancellation);
+            }
+            finally
+            {
+                foreach (var tenantId in tenants)
+                {
+                    _tenantHighWater!.PolledTenants.Unpin(tenantId);
+                }
             }
         }
     }

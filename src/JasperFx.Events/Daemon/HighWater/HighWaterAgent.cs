@@ -74,8 +74,6 @@ public class HighWaterAgent: IDisposable
 
     public async Task StartAsync()
     {
-        IsRunning = true;
-
         _current = await _detector.Detect(_token).ConfigureAwait(false);
 
         // jasperfx#539: seed the liveness heartbeat so IsStale is meaningful from the first cycle and the
@@ -90,6 +88,16 @@ public class HighWaterAgent: IDisposable
                 LastHeartbeat = DateTimeOffset.UtcNow,
                 AgentStatus = RunningStatus
             });
+
+        // jasperfx#709: the flag means "detection has COMPLETED", not "detection has been requested".
+        // It used to be set on the first line of this method, before the Detect() it is meant to gate --
+        // so the daemon's `if (!_highWater.IsRunning) await StartHighWaterDetectionAsync()` let a
+        // concurrent starter skip priming and then read Tracker.HighWaterMark while it was still 0,
+        // seeding an agent below its own committed position. Set after the mark is published, so a
+        // caller that observes IsRunning can trust the tracker. It also means a Detect() that throws
+        // leaves the agent NOT running, so the next start retries the priming instead of inheriting a
+        // permanently false "running".
+        IsRunning = true;
 
         // #4913: under per-tenant event partitioning the store-global high-water mark is not used to
         // advance any projection — tenant agents advance from the per-tenant vectorized poll driven by
