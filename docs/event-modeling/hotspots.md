@@ -95,6 +95,30 @@ A slice hotspot renders as an element in that slice's wireframe lane. A model ho
 
 A slice that is *nothing but* a hotspot still renders one element — which is exactly what you want for a slice you have thought about but not built.
 
+## A source disagreement is a hotspot
+
+The third origin is the only one you never write. When two sources describe the same slice and make **different** claims about the same role, the merge keeps one and records the other as a `SourceDisagreement` hotspot:
+
+> ⚠ `EmittedEvents: Observed claims OrderPlaced, AuditRecorded; Derived claims OrderPlaced`
+
+*The code says this slice emits `OrderPlaced`; production says it appends `OrderPlaced` **and** `AuditRecorded`.* That is arguably the most valuable thing a four-source model can tell you, and a first-wins merge destroyed exactly that signal — the losing claim vanished with no trace.
+
+Alongside `Text`, a disagreement carries the structured form for a reader that wants to act on it:
+
+```cs
+hotspot.Role;          // EventModelRole.EmittedEvents
+hotspot.WinningClaim;  // (Observed, "OrderPlaced, AuditRecorded") — what the merge kept
+hotspot.LosingClaim;   // (Derived,  "OrderPlaced")                — what it dropped
+```
+
+A pair rather than a list because merges are pairwise: three sources disagreeing about one role leave two findings, each naming the two claims that actually met.
+
+**Nothing is recorded when nothing is lost.** Two sources on the same rung whose lists union have not disagreed about anything; neither have two sources making the *same* claim from different rungs — the code saying `OrderPlaced` and production agreeing is the happy case, and it is silent. A role only one source claims is not a disagreement either, because the other never spoke. What does get recorded is any claim the merge actually dropped, including the one first-wins has always discarded when two same-rung sources name different handlers.
+
+::: tip Hotspots are never arbitrated
+Every other role goes to the highest rung that claims it. `Hotspots` always unions, because hotspots are annotations rather than claims about the system — letting a higher-rung source's list replace a lower one would throw away the findings this exists to record.
+:::
+
 ## Prefer the pending spec
 
 ::: tip
@@ -140,4 +164,4 @@ foreach (var hotspot in helpdesk.Hotspots)
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L43-L67' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_assembling_the_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-`HotspotOrigin` tells them apart, and `SpecificationIdentity` is populated only for the pending-spec form. Hotspots from different sources are unioned and deduplicated on origin plus text — so prose and a pending spec that happen to share a string stay two distinct hotspots, because they mean two different things.
+`HotspotOrigin` tells them apart; `SpecificationIdentity` is populated only for the pending-spec form, and `Role` / `WinningClaim` / `LosingClaim` only for a source disagreement. Hotspots from different sources are unioned and deduplicated on origin plus text — so prose and a pending spec that happen to share a string stay two distinct hotspots, because they mean two different things.

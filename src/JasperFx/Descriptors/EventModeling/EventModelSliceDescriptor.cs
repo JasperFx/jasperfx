@@ -209,6 +209,21 @@ public sealed record EventModelSliceDescriptor(
     /// records it rather than letting it vanish. Same-rung lists still union in order, deduplicated
     /// by identity, exactly as before.
     /// </para>
+    /// <para>
+    /// <b>A dropped claim becomes a hotspot</b> (jasperfx#704). Whenever both sides claim a role and
+    /// the merged answer does not contain the other side's claim, a
+    /// <see cref="HotspotOrigin.SourceDisagreement"/> hotspot is appended naming the role, both
+    /// claims and the rung each came from. That covers a higher rung replacing a list <em>and</em>
+    /// two same-rung sources disagreeing on a scalar, where first-wins has always silently dropped
+    /// the loser. Nothing is recorded when nothing is lost — same-rung lists union, so a model with
+    /// no disagreements is identical to one produced before jasperfx#704.
+    /// </para>
+    /// <para>
+    /// <b><see cref="Hotspots"/> itself is unioned, never arbitrated.</b> Hotspots are annotations,
+    /// not factual claims about the system, and letting a higher-rung source's hotspot list replace a
+    /// lower one would discard exactly the findings this feature exists to record — including the
+    /// disagreements a previous merge already found.
+    /// </para>
     /// </remarks>
     public EventModelSliceDescriptor Merge(EventModelSliceDescriptor other)
     {
@@ -220,6 +235,7 @@ public sealed record EventModelSliceDescriptor(
         }
 
         var claimedBy = new Dictionary<EventModelRole, EventModelProvenance>();
+        var disagreements = new List<HotspotDescriptor>();
 
         // True when other's claim on this role outranks ours -- or when we make no claim at all.
         // False on a tie, which is what preserves the pre-jasperfx#703 first-wins behaviour.
@@ -228,64 +244,131 @@ public sealed record EventModelSliceDescriptor(
             var mine = ProvenanceFor(role);
             var theirs = other.ProvenanceFor(role);
 
-            var winner = (mine, theirs) switch
+            var takeTheirs = theirs is not null && (mine is null || theirs > mine);
+
+            if ((takeTheirs ? theirs : mine) is { } rung) claimedBy[role] = rung;
+
+            return takeTheirs;
+        }
+
+        // Both sides claimed the role and the merge kept only one of them. Record what was lost.
+        void disagree(EventModelRole role, bool tookTheirs, string mineValue, string theirsValue)
+        {
+            var mineClaim = new EventModelClaim(ProvenanceFor(role)!.Value, mineValue);
+            var theirsClaim = new EventModelClaim(other.ProvenanceFor(role)!.Value, theirsValue);
+
+            disagreements.Add(tookTheirs
+                ? HotspotDescriptor.SourceDisagreement(role, theirsClaim, mineClaim)
+                : HotspotDescriptor.SourceDisagreement(role, mineClaim, theirsClaim));
+        }
+
+        T? mergeScalar<T>(EventModelRole role, T? mine, T? theirs, Func<T, string> display) where T : class
+        {
+            var tookTheirs = takeOther(role);
+
+            if (Claims(role) && other.Claims(role))
             {
-                (null, null) => (EventModelProvenance?)null,
-                (null, not null) => theirs,
-                (not null, null) => mine,
-                _ => theirs > mine ? theirs : mine,
-            };
+                var mineValue = display(mine!);
+                var theirsValue = display(theirs!);
+                if (!string.Equals(mineValue, theirsValue, StringComparison.Ordinal))
+                {
+                    disagree(role, tookTheirs, mineValue, theirsValue);
+                }
+            }
 
-            if (winner is { } rung) claimedBy[role] = rung;
+            return tookTheirs ? theirs : mine;
+        }
 
-            return theirs is not null && (mine is null || theirs > mine);
+        T? mergeValue<T>(EventModelRole role, T? mine, T? theirs) where T : struct
+        {
+            var tookTheirs = takeOther(role);
+
+            if (Claims(role) && other.Claims(role) && !Equals(mine!.Value, theirs!.Value))
+            {
+                disagree(role, tookTheirs, mine.Value.ToString()!, theirs.Value.ToString()!);
+            }
+
+            return tookTheirs ? theirs : mine;
         }
 
         IReadOnlyList<T> mergeList<T>(EventModelRole role, IReadOnlyList<T> mine, IReadOnlyList<T> theirs,
-            Func<T, string> key)
+            Func<T, string> key, Func<T, string> display)
         {
             var myRung = ProvenanceFor(role);
             var theirRung = other.ProvenanceFor(role);
 
-            takeOther(role);
+            var tookTheirs = takeOther(role);
 
             if (theirRung is null) return mine;
             if (myRung is null) return theirs;
-            if (theirRung > myRung) return theirs;
-            if (myRung > theirRung) return mine;
 
-            return union(mine, theirs, key);
+            // Same rung: the union keeps both claims, so nothing was lost and nothing disagreed.
+            if (myRung == theirRung) return union(mine, theirs, key);
+
+            if (!sameSet(mine, theirs, key))
+            {
+                disagree(role, tookTheirs, render(mine, display), render(theirs, display));
+            }
+
+            return tookTheirs ? theirs : mine;
         }
 
         IReadOnlyList<TypeDescriptor> mergeTypes(EventModelRole role, IReadOnlyList<TypeDescriptor> mine,
             IReadOnlyList<TypeDescriptor> theirs)
-            => mergeList(role, mine, theirs, x => x.FullName);
+            => mergeList(role, mine, theirs, x => x.FullName, x => x.Name);
 
-        var merged = new EventModelSliceDescriptor(
-            Name,
-            takeOther(EventModelRole.TriggerLabel) ? other.TriggerLabel : TriggerLabel,
-            takeOther(EventModelRole.TriggerType) ? other.TriggerType : TriggerType,
-            takeOther(EventModelRole.CommandType) ? other.CommandType : CommandType,
-            takeOther(EventModelRole.HandlerType) ? other.HandlerType : HandlerType,
-            mergeTypes(EventModelRole.EmittedEvents, EmittedEvents, other.EmittedEvents),
-            mergeTypes(EventModelRole.ProjectionTypes, ProjectionTypes, other.ProjectionTypes),
-            mergeTypes(EventModelRole.ReadModelTypes, ReadModelTypes, other.ReadModelTypes))
+        var triggerLabel = mergeScalar(EventModelRole.TriggerLabel, TriggerLabel, other.TriggerLabel, x => x);
+        var triggerType = mergeScalar(EventModelRole.TriggerType, TriggerType, other.TriggerType, x => x.Name);
+        var commandType = mergeScalar(EventModelRole.CommandType, CommandType, other.CommandType, x => x.Name);
+        var handlerType = mergeScalar(EventModelRole.HandlerType, HandlerType, other.HandlerType, x => x.Name);
+        var emittedEvents = mergeTypes(EventModelRole.EmittedEvents, EmittedEvents, other.EmittedEvents);
+        var projectionTypes = mergeTypes(EventModelRole.ProjectionTypes, ProjectionTypes, other.ProjectionTypes);
+        var readModelTypes = mergeTypes(EventModelRole.ReadModelTypes, ReadModelTypes, other.ReadModelTypes);
+        var pattern = mergeValue(EventModelRole.Pattern, Pattern, other.Pattern);
+        var triggerKind = mergeValue(EventModelRole.TriggerKind, TriggerKind, other.TriggerKind);
+        var triggerOrigin = mergeScalar(EventModelRole.TriggerOrigin, TriggerOrigin, other.TriggerOrigin,
+            x => x.Label ?? x.ToString());
+        var aggregateTypes = mergeTypes(EventModelRole.AggregateTypes, AggregateTypes, other.AggregateTypes);
+        var publishedMessages = mergeTypes(EventModelRole.PublishedMessages, PublishedMessages, other.PublishedMessages);
+        var externalSystems = mergeList(EventModelRole.ExternalSystems, ExternalSystems, other.ExternalSystems,
+            x => $"{x.Direction}:{x.Name}", x => x.Name);
+        var specifications = mergeList(EventModelRole.Specifications, Specifications, other.Specifications,
+            x => x.Identity, x => x.Identity);
+        var domain = mergeScalar(EventModelRole.Domain, Domain, other.Domain, x => x);
+
+        // Hotspots are annotations rather than claims about the system, so they always union: a
+        // higher rung replacing the list would throw away the findings recorded here.
+        takeOther(EventModelRole.Hotspots);
+        var hotspots = union(union(Hotspots, other.Hotspots, hotspotKey), disagreements, hotspotKey);
+
+        return new EventModelSliceDescriptor(Name, triggerLabel, triggerType, commandType, handlerType,
+            emittedEvents, projectionTypes, readModelTypes)
         {
-            Pattern = takeOther(EventModelRole.Pattern) ? other.Pattern : Pattern,
-            TriggerKind = takeOther(EventModelRole.TriggerKind) ? other.TriggerKind : TriggerKind,
-            TriggerOrigin = takeOther(EventModelRole.TriggerOrigin) ? other.TriggerOrigin : TriggerOrigin,
-            AggregateTypes = mergeTypes(EventModelRole.AggregateTypes, AggregateTypes, other.AggregateTypes),
-            PublishedMessages = mergeTypes(EventModelRole.PublishedMessages, PublishedMessages, other.PublishedMessages),
-            ExternalSystems = mergeList(EventModelRole.ExternalSystems, ExternalSystems, other.ExternalSystems,
-                x => $"{x.Direction}:{x.Name}"),
-            Hotspots = mergeList(EventModelRole.Hotspots, Hotspots, other.Hotspots, x => $"{x.Origin}:{x.Text}"),
-            Specifications = mergeList(EventModelRole.Specifications, Specifications, other.Specifications,
-                x => x.Identity),
-            Domain = takeOther(EventModelRole.Domain) ? other.Domain : Domain,
+            Pattern = pattern,
+            TriggerKind = triggerKind,
+            TriggerOrigin = triggerOrigin,
+            AggregateTypes = aggregateTypes,
+            PublishedMessages = publishedMessages,
+            ExternalSystems = externalSystems,
+            Hotspots = hotspots,
+            Specifications = specifications,
+            Domain = domain,
             Provenance = higher(Provenance, other.Provenance),
+            ClaimedBy = claimedBy,
         };
+    }
 
-        return merged with { ClaimedBy = claimedBy };
+    private static string hotspotKey(HotspotDescriptor hotspot) => $"{hotspot.Origin}:{hotspot.Text}";
+
+    private static string render<T>(IReadOnlyList<T> items, Func<T, string> display)
+        => string.Join(", ", items.Select(display));
+
+    private static bool sameSet<T>(IReadOnlyList<T> first, IReadOnlyList<T> second, Func<T, string> key)
+    {
+        if (first.Count != second.Count) return false;
+
+        var keys = new HashSet<string>(first.Select(key), StringComparer.Ordinal);
+        return second.All(x => keys.Contains(key(x)));
     }
 
     /// <summary>The higher of two rungs, or whichever is set, or null when neither is.</summary>

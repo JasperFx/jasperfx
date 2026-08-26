@@ -42,6 +42,10 @@ public class EventModelWireRoundTripTests
             {
                 HotspotDescriptor.PendingSpecification("Place Order/Rejects empty cart"),
                 HotspotDescriptor.Prose("Refund policy unclear when partially shipped"),
+                // jasperfx#704: the third origin, with its structured pair of competing claims
+                HotspotDescriptor.SourceDisagreement(EventModelRole.EmittedEvents,
+                    new EventModelClaim(EventModelProvenance.Observed, "OrderPlaced, AuditRecorded"),
+                    new EventModelClaim(EventModelProvenance.Derived, "OrderPlaced")),
             },
             Specifications = new[]
             {
