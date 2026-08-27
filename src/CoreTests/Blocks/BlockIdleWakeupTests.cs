@@ -138,13 +138,18 @@ public class BlockIdleWakeupTests
     /// <summary>
     /// Post() enqueues; it must never absorb the action's latency. This measured 751ms for a 750ms
     /// action while continuations were synchronous.
+    ///
+    /// Deliberately asserts on ELAPSED TIME only, never on thread identity. Once the publisher awaits,
+    /// its thread goes back to the pool and the action can legitimately be scheduled onto that same
+    /// managed thread -- which is exactly what a 2-core CI runner did on net9.0. Thread identity is
+    /// only meaningful while the publisher is still occupying the thread, which is what
+    /// a_burst_posted_after_idle_never_executes_on_the_publisher measures instead.
     /// </summary>
     [Fact]
     public async Task post_does_not_absorb_the_latency_of_a_slow_action()
     {
         var firstDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var slowDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var handlerThread = 0;
 
         await using var block = new Block<string>(5, Block<string>.Unbounded, (item, _) =>
         {
@@ -154,7 +159,6 @@ public class BlockIdleWakeupTests
                 return Task.CompletedTask;
             }
 
-            Volatile.Write(ref handlerThread, Environment.CurrentManagedThreadId);
             Thread.Sleep(750);
             slowDone.TrySetResult();
             return Task.CompletedTask;
@@ -164,7 +168,6 @@ public class BlockIdleWakeupTests
         await firstDone.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         await Task.Delay(100, TestContext.Current.CancellationToken);
 
-        var publisher = Environment.CurrentManagedThreadId;
         var stopwatch = Stopwatch.StartNew();
         block.Post("slow");
         stopwatch.Stop();
@@ -172,6 +175,5 @@ public class BlockIdleWakeupTests
         stopwatch.ElapsedMilliseconds.ShouldBeLessThan(250);
 
         await slowDone.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-        Volatile.Read(ref handlerThread).ShouldNotBe(publisher);
     }
 }
