@@ -61,18 +61,31 @@ public class Block<T> : BlockBase<T>
         // A bounded channel using BoundedChannelFullMode.Wait gives us back pressure: writers wait for
         // capacity rather than silently dropping items (GH-3287). Post() honors this by blocking-waiting
         // for room when TryWrite fails. Unbounded channels never block or drop, but grow with memory.
+        // AllowSynchronousContinuations MUST stay false (wolverine#4167). With it on, a reader parked in
+        // WaitToReadAsync is resumed by TryWrite *on the publisher's thread*, so Post() runs the action
+        // inline instead of enqueuing it. Measured on a 5-worker unbounded block: after the workers went
+        // idle, 20 posted items all executed inline and serialized on the caller, and a Post() carrying a
+        // 750ms synchronous action took 751ms to return. A parallel block silently collapses into a
+        // synchronous call on whatever thread published -- which also stalls that thread's real work
+        // (e.g. a broker listener loop) for the duration of the action.
+        //
+        // This is NOT purely a .NET 10 regression. UnboundedChannel has always run these continuations
+        // inline; only BoundedChannel used to force them async, by ORing cancellationToken.CanBeCanceled
+        // into the waiter (a workaround for dotnet/runtime#33858 that dotnet/runtime#116021 removed in
+        // .NET 10 once the cancellation path no longer completed waiters under the channel lock). So
+        // unbounded blocks were always affected and bounded blocks regressed on net10.
         _channel = boundedCapacity == Unbounded
             ? Channel.CreateUnbounded<T>(new UnboundedChannelOptions
             {
                 SingleReader = parallelCount == 1,
                 SingleWriter = false,
-                AllowSynchronousContinuations = true
+                AllowSynchronousContinuations = false
             })
             : Channel.CreateBounded<T>(new BoundedChannelOptions(boundedCapacity)
             {
                 SingleReader = parallelCount == 1,
                 SingleWriter = false,
-                AllowSynchronousContinuations = true,
+                AllowSynchronousContinuations = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
 
