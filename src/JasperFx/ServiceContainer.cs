@@ -240,18 +240,29 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
             return family;
         }
 
-        if (serviceType.IsGenericType && serviceType.IsNotConcrete())
+        if (serviceType.IsGenericType)
         {
             var templateType = serviceType.GetGenericTypeDefinition();
             var templatedParameterTypes = serviceType.GetGenericArguments();
-        
+
+            // An open generic registration wins over the self-binding fallback below, and it has to win
+            // for CONCRETE closed types too -- this used to be gated on IsNotConcrete(), which quietly
+            // excluded every concrete generic. Lazy<T> is the one that hurt (wolverine#4159): a host
+            // registering the conventional `TryAddScoped(typeof(Lazy<>), typeof(LazyResolver<>))` adapter
+            // never had it consulted, because Lazy<T> is a concrete class, so codegen fell through to
+            // self-binding and emitted `new Lazy<ISomeService>()`. That compiles, and it is never usable:
+            // the parameterless constructor uses Activator.CreateInstance<T>(), so .Value throws
+            // MissingMemberException for any T without a public parameterless constructor -- which is
+            // every DI-registered service. It failed silently, at first use, on a host that had started
+            // healthy.
             if (_families.TryFind(templateType, out var generic))
             {
                 family = generic.Close(templatedParameterTypes);
                 _families = _families.AddOrUpdate(serviceType, family);
                 return family;
             }
-            else
+
+            if (serviceType.IsNotConcrete())
             {
                 // Memoize the "miss"
                 family = new ServiceFamily(serviceType, ArraySegment<ServiceDescriptor>.Empty);
