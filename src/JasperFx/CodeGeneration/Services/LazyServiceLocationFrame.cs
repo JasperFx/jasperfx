@@ -16,7 +16,15 @@ public class LazyServiceLocationVariableSource : IVariableSource
 
     public bool Matches(Type type)
     {
-        return type == _serviceType;
+        if (type == _serviceType) return true;
+
+        // An open generic service type matches every closed version of itself, so
+        // AlwaysUseServiceLocationFor(typeof(Lazy<>)) covers Lazy<IFoo>, Lazy<IBar> and the rest.
+        // The Type overload accepted an open generic without complaint and then matched nothing,
+        // which made it a silent no-op -- see wolverine#4159.
+        return _serviceType.IsGenericTypeDefinition
+               && type.IsConstructedGenericType
+               && type.GetGenericTypeDefinition() == _serviceType;
     }
 
     public Variable Create(Type type)

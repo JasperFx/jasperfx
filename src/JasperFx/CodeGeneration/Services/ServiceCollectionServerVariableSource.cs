@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using JasperFx.CodeGeneration.Frames;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,13 +15,49 @@ because at least one dependency is directly using IServiceProvider or has an opa
     private bool _usesScopedContainerDirectly;
     private readonly List<StandInVariable> _standins = new();
     private readonly List<InjectedSingleton> _fields = new();
-    private Variable _scoped = new ScopedContainerCreation().Scoped;
+    private Variable _scoped;
     private List<ServiceLocationReport> _serviceLocations = [];
     private bool _replacedServiceProvider;
 
     public ServiceCollectionServerVariableSource(IServiceContainer services)
     {
         _services = (ServiceContainer?)services;
+        _scoped = newScopedProvider();
+    }
+
+    /// <summary>
+    ///     Frames to emit immediately after the service-location child scope is created, before anything
+    ///     is resolved out of it. One frame is built per generated method, so each may hold per-method
+    ///     state. Frames implementing <see cref="IUsesServiceProviderFrame" /> are handed the scoped
+    ///     provider variable; a frame that finds nothing to do is expected to emit nothing.
+    /// </summary>
+    /// <remarks>
+    ///     This is how a host seeds the child scope with instances the generated code already owns --
+    ///     Wolverine primes it with the handler's MessageContext and the outbox-enrolled persistence
+    ///     session, so a service-located IMessageContext or IDocumentSession is that same instance
+    ///     rather than a second, un-enrolled one.
+    ///
+    ///     Attaching here rather than from a frame in the generated method is deliberate. A frame can
+    ///     only look for the scoped provider during <c>MethodFrameArranger</c>'s first resolution pass,
+    ///     but the scope for an opaque scoped/transient registration is not created until
+    ///     <see cref="ReplaceVariables" /> runs after it -- so a frame-based activator silently found
+    ///     nothing and attached nothing for exactly the chains that most needed it. See wolverine#4171.
+    ///
+    ///     Nothing is attached when <see cref="ReplaceServiceProvider" /> has supplied an external
+    ///     provider (e.g. Wolverine.HTTP's <c>httpContext.RequestServices</c>): no scope is created
+    ///     there, and that container belongs to the host, not to the generated method.
+    /// </remarks>
+    public List<Func<SyncFrame>> ScopePostProcessorSources { get; } = new();
+
+    private Variable newScopedProvider()
+    {
+        var creation = new ScopedContainerCreation();
+        foreach (var source in ScopePostProcessorSources)
+        {
+            creation.AddPostProcessor(source());
+        }
+
+        return creation.Scoped;
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2067:DynamicallyAccessedMembers",
@@ -112,7 +149,7 @@ because at least one dependency is directly using IServiceProvider or has an opa
     public void ResetServiceProvider()
     {
         _replacedServiceProvider = false;
-        _scoped = new ScopedContainerCreation().Scoped;
+        _scoped = newScopedProvider();
     }
 
     public ServiceLocationReport[] ServiceLocations()
@@ -153,7 +190,9 @@ because at least one dependency is directly using IServiceProvider or has an opa
     {
         if (!_replacedServiceProvider)
         {
-            _scoped = new ScopedContainerCreation().Scoped;
+            // A fresh scope -- and therefore a fresh set of postprocessor frames -- per generated
+            // method, because those frames carry per-method variable state.
+            _scoped = newScopedProvider();
         }
 
         _usesScopedContainerDirectly = false;
