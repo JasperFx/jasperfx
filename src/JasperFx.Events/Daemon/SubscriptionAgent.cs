@@ -260,6 +260,21 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     {
         await _execution.HardStopAsync().ConfigureAwait(false);
         await DisposeAsync().ConfigureAwait(false);
+
+        // jasperfx#716: set the agent's OWN status too, exactly as StopAndDrainAsync's finally does.
+        // Publishing AgentStatus="Stopped" on the tracker only reaches the observers and the persisted
+        // extended-progression row; an external supervisor that POLLS this object read Running on an
+        // agent this method has just disposed. Wolverine's EventSubscriptionAgent is exactly such a
+        // supervisor -- GH-3519 made its wrapper Status delegate here so NodeAgentController could see a
+        // dead shard -- and its own guards are spelled `Status != AgentStatus.Stopped`.
+        //
+        // The rebuild path happens to mask it: rebuildProjection hard-stops the continuous agent and
+        // then rebuildAgent's stopIfRunningAsync reaches the SAME registered object and StopAndDrains
+        // it, which does set Stopped. The exposure is a caller with nothing behind it -- most obviously
+        // tryStartAgentAsync's teardown of a faulted start, whose own comment cites GH-3519 as the thing
+        // it is protecting.
+        Status = AgentStatus.Stopped;
+
         await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)
         {
             Action = ShardAction.Stopped,
