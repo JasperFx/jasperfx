@@ -34,7 +34,9 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer where TId : notnull
     public async ValueTask<IReadOnlyList<object>> SliceAsync(EventRange range)
     {
         var groups = new List<object>();
-        var byTenant = range.Events.GroupBy(x => x.TenantId)
+        var byTenant = ForceSingleTenancy
+            ? [new TenantGroup(StorageConstants.DefaultTenantId, range.Events)]
+            : range.Events.GroupBy(x => x.TenantId)
             .Select(g => new TenantGroup(g.Key, g)).ToList();
         foreach (var tenantGroup in byTenant)
         {
@@ -42,7 +44,7 @@ public class TenantedEventSlicer<TDoc, TId> : IEventSlicer where TId : notnull
             {
                 Upstream = range.Upstream
             };
-            
+
             await _inner.SliceAsync(tenantGroup.Events, group);
             
             groups.Add(group);
