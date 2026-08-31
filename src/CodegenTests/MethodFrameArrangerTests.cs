@@ -25,6 +25,48 @@ public class MethodFrameArrangerTests
         code.ShouldContain("OpenSession(messageContext, tenantId)");
     }
 
+    // wolverine#4198. VariableSource.All / NotServices are FACTORIES -- they build what they cannot
+    // find. A caller that only wants to know whether the method already has one of these needs an
+    // answer that is not manufactured on the spot.
+    [Fact]
+    public void existing_does_not_manufacture_a_variable_from_a_source()
+    {
+        var assembly = GeneratedAssembly.Empty();
+        var type = assembly.AddType("GeneratedHandler", typeof(IHttpHandlerShape));
+        var method = type.MethodFor(nameof(IHttpHandlerShape.Handle));
+        method.Sources.Add(new MessageContextVariableSource());
+
+        var probe = new ProbeForExistingFrame(typeof(TestMessageContext));
+        method.Frames.Add(probe);
+
+        var code = assembly.GenerateCode();
+
+        // Nothing in this method wanted a message context, so asking for one does not conjure it up
+        probe.Found.ShouldBeNull();
+        code.ShouldNotContain("new CodegenTests.TestMessageContext()");
+    }
+
+    [Fact]
+    public void existing_finds_a_variable_the_method_already_has()
+    {
+        var assembly = GeneratedAssembly.Empty();
+        var type = assembly.AddType("GeneratedHandler", typeof(IHttpHandlerShape));
+        var method = type.MethodFor(nameof(IHttpHandlerShape.Handle));
+        method.Sources.Add(new MessageContextVariableSource());
+
+        // This frame genuinely wants the context, so by the time the probe asks, the method has one
+        method.Frames.Add(new UsesMessageBusFrame());
+
+        var probe = new ProbeForExistingFrame(typeof(TestMessageContext));
+        method.Frames.Add(probe);
+
+        var code = assembly.GenerateCode();
+
+        probe.Found.ShouldNotBeNull();
+        probe.Found.Usage.ShouldBe("messageContext");
+        CountOccurrences(code, "var messageContext = new CodegenTests.TestMessageContext()").ShouldBe(1);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         return haystack.Split(needle).Length - 1;
@@ -155,6 +197,37 @@ public class OpenOutboxedSessionFrame : SyncFrame
     public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
     {
         writer.WriteLine($"{_factory.Usage}.OpenSession({_context.Usage}, {_tenantId.Usage});");
+        Next?.GenerateCode(method, writer);
+    }
+}
+
+/// <summary>
+///     Asks the arranger whether the method ALREADY has a variable of the given type, and records the
+///     answer. See wolverine#4198.
+/// </summary>
+public class ProbeForExistingFrame : SyncFrame
+{
+    private readonly Type _type;
+
+    public ProbeForExistingFrame(Type type)
+    {
+        _type = type;
+    }
+
+    public Variable? Found { get; private set; }
+
+    public override IEnumerable<Variable> FindVariables(IMethodVariables chain)
+    {
+        Found = chain.TryFindVariable(_type, VariableSource.Existing);
+        if (Found != null)
+        {
+            yield return Found;
+        }
+    }
+
+    public override void GenerateCode(GeneratedMethod method, ISourceWriter writer)
+    {
+        writer.WriteLine($"// probe found: {Found?.Usage ?? "nothing"}");
         Next?.GenerateCode(method, writer);
     }
 }

@@ -88,6 +88,23 @@ During code arrangement, the engine resolves variables in this order:
 
 If a variable cannot be resolved through any of these sources, the code generation will throw an exception describing the missing dependency.
 
+::: warning A variable source is a factory, not a lookup
+Step 4 *builds* what the earlier steps could not find. That makes `IMethodVariables.TryFindVariable(type, VariableSource.All)`
+-- and `VariableSource.NotServices` -- a poor way to ask "does this method already have one of these?", because the answer
+is manufactured on the spot, and taking a dependency on it pulls the newly built frame into the method.
+
+Use `VariableSource.Existing` for that question instead. It answers only from steps 1-3 and returns `null` rather than
+consulting any `IVariableSource`:
+
+```csharp
+var session = chain.TryFindVariable(typeof(IDocumentSession), VariableSource.Existing);
+if (session != null)
+{
+    // ...the method really does have one, so it is safe to use
+}
+```
+:::
+
 ## InjectedField
 
 `InjectedField` is a specialized `Variable` that represents a constructor parameter and corresponding private field on the generated type:

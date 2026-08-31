@@ -233,6 +233,14 @@ internal class MethodFrameArranger : IMethodVariables
             return created;
         }
 
+        // Everything above this line is a lookup; everything below it is a factory. A caller asking
+        // VariableSource.Existing is asking whether this method ALREADY has one, and a manufactured
+        // answer would be a different answer. See wolverine#4198.
+        if (variableSource == VariableSource.Existing)
+        {
+            return null;
+        }
+
         var source = allVariableSources(variableSource).FirstOrDefault(x => x.Matches(type));
         return source?.Create(type);
     }
