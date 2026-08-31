@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Tags;
 using Shouldly;
 using Xunit;
@@ -61,6 +62,45 @@ public partial class StudentCourseEnrollment
     public void Apply(StudentDropped e)
     {
         IsDropped = true;
+    }
+}
+
+#endregion
+
+#region sample_compliance_dcb_boundary_aggregate
+
+/// <summary>
+/// A pure DCB boundary aggregate: conventional Apply methods, but no Id property and no
+/// [AggregateIdentity], because it is defined by a tag query spanning streams rather than by
+/// being keyed to one stream. <see cref="BoundaryAggregateAttribute"/> is what opts it into
+/// source-generated evolver emission; without it the generator cannot infer a TId and emits
+/// nothing.
+/// </summary>
+/// <remarks>
+/// Deliberately not registered in the suite's configuration -- neither snapshotted nor declared
+/// as a live aggregation. A store discovers a DCB aggregate lazily on first use, so the whole
+/// resolution path this type covers is the one that runs inside
+/// <c>AggregateByTagsAsync</c>/<c>FetchForWritingByTags</c>. See jasperfx#718.
+/// </remarks>
+[BoundaryAggregate]
+public class CourseLoad
+{
+    public int Enrollments { get; set; }
+    public int Assignments { get; set; }
+
+    public void Apply(StudentEnrolled e)
+    {
+        Enrollments++;
+    }
+
+    public void Apply(AssignmentSubmitted e)
+    {
+        Assignments++;
+    }
+
+    public void Apply(StudentDropped e)
+    {
+        Enrollments--;
     }
 }
 
@@ -299,6 +339,74 @@ public abstract class DcbTagQueryAndConsistencyCompliance<TFixture, TOperations,
         var aggregate = await EventsFor(session).AggregateByTagsAsync<StudentCourseEnrollment>(query, Cancellation);
         aggregate.ShouldBeNull();
     }
+
+    #region sample_compliance_dcb_identity_less_boundary_aggregate
+
+    [Fact]
+    public async Task can_aggregate_by_tags_into_identity_less_boundary_aggregate()
+    {
+        // CourseLoad has no Id and no [AggregateIdentity] -- a store that resolves a boundary
+        // aggregate through single-stream identity resolution fails here rather than treating
+        // [BoundaryAggregate] as an opt-out. The fold has to happen over events that actually
+        // matched: an empty boundary never reaches the aggregator at all, so it passes on a
+        // store that cannot fold the type. See jasperfx#718.
+        var studentId = new StudentId(Guid.NewGuid());
+        var courseId = new CourseId(Guid.NewGuid());
+        var streamId = Guid.NewGuid();
+
+        await using var session = OpenSession();
+
+        var enrolled = EventsFor(session).BuildEvent(new StudentEnrolled("Alice", "Math"));
+        enrolled.WithTag(studentId, courseId);
+
+        var submitted = EventsFor(session).BuildEvent(new AssignmentSubmitted("HW1", 95));
+        submitted.WithTag(studentId, courseId);
+
+        EventsFor(session).Append(streamId, enrolled, submitted);
+        await SaveChangesAsync(session);
+
+        var query = new EventTagQuery().Or<StudentId>(studentId);
+        var aggregate = await EventsFor(session).AggregateByTagsAsync<CourseLoad>(query, Cancellation);
+
+        aggregate.ShouldNotBeNull();
+        aggregate.Enrollments.ShouldBe(1);
+        aggregate.Assignments.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task can_fetch_for_writing_by_tags_with_identity_less_boundary_aggregate()
+    {
+        // Same identity-less type through the write surface, again with matching events present so
+        // the aggregator is genuinely resolved before anything is appended.
+        var studentId = new StudentId(Guid.NewGuid());
+        var courseId = new CourseId(Guid.NewGuid());
+
+        await using var session1 = OpenSession();
+        await AppendTaggedEventAsync(session1, Guid.NewGuid(), new StudentEnrolled("Alice", "Math"), studentId,
+            courseId);
+
+        await using var session2 = OpenSession();
+        var query = new EventTagQuery().Or<StudentId>(studentId);
+        var boundary = await EventsFor(session2).FetchForWritingByTags<CourseLoad>(query, Cancellation);
+
+        boundary.Aggregate.ShouldNotBeNull();
+        boundary.Aggregate!.Enrollments.ShouldBe(1);
+        boundary.LastSeenSequence.ShouldBeGreaterThan(0);
+
+        var submitted = EventsFor(session2).BuildEvent(new AssignmentSubmitted("HW1", 95));
+        submitted.WithTag(studentId, courseId);
+        boundary.AppendOne(submitted);
+
+        await SaveChangesAsync(session2);
+
+        await using var session3 = OpenSession();
+        var after = await EventsFor(session3).AggregateByTagsAsync<CourseLoad>(query, Cancellation);
+        after.ShouldNotBeNull();
+        after.Enrollments.ShouldBe(1);
+        after.Assignments.ShouldBe(1);
+    }
+
+    #endregion
 
     [Fact]
     public async Task can_fetch_for_writing_by_tags_happy_path()

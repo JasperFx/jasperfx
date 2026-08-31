@@ -166,6 +166,28 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | Subscriptions | `SubscriptionCompliance` |
 
+### Identity-less boundary aggregates (jasperfx#718)
+
+`DcbTagQueryAndConsistencyCompliance` carries one aggregate — `CourseLoad` — with no `Id` and no
+`[AggregateIdentity]`, marked `[BoundaryAggregate]`. It is there because every other DCB aggregate in
+the suite happens to have an identity, so a store could require one for a *boundary* aggregate and
+still pass the whole suite. Both SQL stores did: Fisher threw from its own identity resolution
+(fisher#135), Polecat from `DocumentMapping`'s constructor (polecat#521), despite the marker being
+the documented cross-stack answer.
+
+Its two facts fold **with matching events present**, and that is load-bearing rather than incidental.
+`FetchForWritingByTags` only resolves the aggregator when the query finds events, so a boundary over
+an empty result — the ordinary "this must not exist yet" assertion — succeeds on a store that cannot
+fold the type at all.
+
+The type is declared in the shared source rather than as a per-consumer partial, which works because
+the package ships as source: the attribute lands on the aggregate in the consumer's own compilation,
+which is both the compilation the generator emits `[GeneratedEvolver]` into and the assembly the
+runtime scans as `typeof(TDoc).Assembly`. It is deliberately never registered — no snapshot, no live
+aggregation — since a DCB aggregate is discovered lazily on first use, and registering it eagerly
+would move the failure to store construction, where it would take every other fact in the suite down
+with it.
+
 ### The document contract (jasperfx#647)
 
 A second, independent family covers the small *document* slice that `JasperFx.Events` now abstracts
