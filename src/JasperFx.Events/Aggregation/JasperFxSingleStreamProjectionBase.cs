@@ -2,6 +2,7 @@ using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
+using JasperFx.MultiTenancy;
 
 namespace JasperFx.Events.Aggregation;
 
@@ -16,16 +17,18 @@ namespace JasperFx.Events.Aggregation;
 /// <see href="https://github.com/JasperFx/jasperfx/issues/649" />.
 /// </para>
 /// <para>
-/// Concretely, as of Marten 9.23 / Polecat 5.12. Polecat's <c>SingleStreamProjection&lt;TDoc,TId&gt;</c>
-/// is an empty class body, so nothing is lost there. Marten's is not — it adds two behaviors:
+/// Concretely, as of Marten 9.23 / Polecat 5.12. Polecat's and Fisher's
+/// <c>SingleStreamProjection&lt;TDoc,TId&gt;</c> are empty class bodies, so nothing is lost there. Marten's
+/// is not — it adds two behaviors, one of which has since been resolved here:
 /// </para>
 /// <list type="bullet">
 ///   <item>
 ///     <description>
-///     <b><c>BuildSlicer</c></b> returns a <c>TenantedEventSlicer</c> with <c>ForceSingleTenancy</c> taken
-///     from the store's <c>EventGraph.TenancyStyle</c> — the fix for
-///     <see href="https://github.com/JasperFx/wolverine/issues/2053" />. This base returns the same slicer
-///     <em>without</em> it, so taking the base changes event slicing on a single-tenanted Marten store.
+///     <b><c>BuildSlicer</c></b> — <b>resolved as of jasperfx#723.</b> This base now sets
+///     <c>ForceSingleTenancy</c> itself, from <see cref="IEventTenancySource" /> on the session, so the
+///     wolverine#2053 fix no longer depends on which subclass you derive from. Marten's override, where
+///     still present, computes the same answer. A session that does not implement the seam yields the
+///     pre-#723 behavior.
 ///     </description>
 ///   </item>
 ///   <item>
@@ -38,11 +41,11 @@ namespace JasperFx.Events.Aggregation;
 ///   </item>
 /// </list>
 /// <para>
-/// Both are the kind of divergence that produces a wrong answer rather than an error, and both are
-/// invisible until something downstream is already wrong, which is why this warning is here rather than
-/// left to be rediscovered. The <c>BuildSlicer</c> comment below saying the method "needs to be
-/// overridable in Marten" is the other half of the same story: it is a deliberate escape hatch for the
-/// store, not a suggestion that the base is equivalent.
+/// The surviving one — <c>UseVersionFromMatchingStream</c> — is the kind of divergence that produces a
+/// wrong answer rather than an error, and is invisible until something downstream is already wrong, which
+/// is why this warning stays here rather than being left to be rediscovered. It is not hoisted because
+/// doing so needs a shared document-mapping abstraction, which
+/// <see href="https://github.com/JasperFx/jasperfx/issues/647" /> deliberately declined to build.
 /// </para>
 /// <para>
 /// <b>If you are writing one projection to compile against several stores</b>, the routes that work today
@@ -66,14 +69,21 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
     }
 
-    // This actually does need to be overridable in Marten -- and Marten does override it, to set
-    // ForceSingleTenancy from the store's TenancyStyle (wolverine#2053). A consumer deriving from THIS type
-    // rather than from Marten's subclass gets the slicer below instead, with no compile error and no runtime
-    // failure -- just different slicing on a single-tenanted store. See jasperfx#649 and the class remarks.
+    // ForceSingleTenancy is the wolverine#2053 / marten#4085 fix: on a single-tenanted store, events whose
+    // tenant_id values disagree must still fold into one aggregate. Marten used to be the only store that
+    // set it, by overriding this method -- so a consumer deriving from THIS type, and both other stores
+    // whose subclasses are empty class bodies, silently went without it. Resolving it here from the session
+    // closes that gap for every store at once. See jasperfx#723.
+    //
+    // A session that does not implement IEventTenancySource yields false, which is exactly the behavior
+    // this method had before the seam existed.
     public override IEventSlicer BuildSlicer(TQuerySession session)
     {
-        // Doesn't hurt anything if it's not actually tenanted
-        return new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>());
+        return new TenantedEventSlicer<TDoc, TId>(new ByStream<TDoc, TId>())
+        {
+            ForceSingleTenancy = session is IEventTenancySource source
+                                 && source.EventTenancyStyle == TenancyStyle.Single
+        };
     }
 
     Type IAggregatorSource<TQuerySession>.AggregateType => typeof(TDoc);
