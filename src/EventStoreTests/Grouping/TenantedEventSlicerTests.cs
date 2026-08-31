@@ -1,6 +1,7 @@
 using JasperFx;
 using JasperFx.Events;
 using JasperFx.Events.Grouping;
+using JasperFx.Events.Projections;
 using Shouldly;
 
 namespace EventStoreTests.Grouping;
@@ -109,6 +110,59 @@ public class TenantedEventSlicerTests
         var group = groups.OfType<SliceGroup<SimpleAggregate, Guid>>().Single();
         group.TenantId.ShouldBe(StorageConstants.DefaultTenantId);
         group.Slices[stream1].Events().ShouldBe([e1, e2]);
+    }
+
+    [Fact]
+    public async Task force_single_tenancy_ignores_tenant_grouping_on_the_event_range_overload()
+    {
+        var inner = new ByStream<SimpleAggregate, Guid>();
+        var slicer = new TenantedEventSlicer<SimpleAggregate, Guid>(inner)
+        {
+            ForceSingleTenancy = true
+        };
+
+        var stream1 = Guid.NewGuid();
+        var e1 = MakeEvent(new AEvent(), "tenant-a", stream1, 1);
+        var e2 = MakeEvent(new BEvent(), "tenant-b", stream1, 2);
+
+        var range = new EventRange(new ShardName("temp"), 10) { Events = [e1, e2] };
+
+        var groups = await slicer.SliceAsync(range);
+
+        // All events should be in a single group with default tenant
+        groups.Count.ShouldBe(1);
+        var group = groups.OfType<SliceGroup<SimpleAggregate, Guid>>().Single();
+        group.TenantId.ShouldBe(StorageConstants.DefaultTenantId);
+        group.Slices[stream1].Events().ShouldBe([e1, e2]);
+    }
+
+    [Fact]
+    public async Task event_range_overload_groups_by_tenant_when_not_forcing_single_tenancy()
+    {
+        var inner = new ByStream<SimpleAggregate, Guid>();
+        var slicer = new TenantedEventSlicer<SimpleAggregate, Guid>(inner);
+
+        var stream1 = Guid.NewGuid();
+        var stream2 = Guid.NewGuid();
+
+        var e1 = MakeEvent(new AEvent(), "tenant-a", stream1, 1);
+        var e2 = MakeEvent(new BEvent(), "tenant-b", stream2, 2);
+        var e3 = MakeEvent(new AEvent(), "tenant-a", stream1, 3);
+        var e4 = MakeEvent(new CEvent(), "tenant-b", stream2, 4);
+
+        var range = new EventRange(new ShardName("temp"), 10) { Events = [e1, e2, e3, e4] };
+
+        var groups = await slicer.SliceAsync(range);
+
+        groups.Count.ShouldBe(2);
+
+        var tenantA = groups.OfType<SliceGroup<SimpleAggregate, Guid>>()
+            .Single(g => g.TenantId == "tenant-a");
+        tenantA.Slices[stream1].Events().ShouldBe([e1, e3]);
+
+        var tenantB = groups.OfType<SliceGroup<SimpleAggregate, Guid>>()
+            .Single(g => g.TenantId == "tenant-b");
+        tenantB.Slices[stream2].Events().ShouldBe([e2, e4]);
     }
 
     [Fact]
