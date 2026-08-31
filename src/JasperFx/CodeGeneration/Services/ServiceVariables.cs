@@ -65,7 +65,15 @@ public class ServiceVariables : IEnumerable<Variable>, IMethodVariables
 
     Variable IMethodVariables.TryFindVariable(Type type, VariableSource source)
     {
-        if (type == typeof(IServiceProvider)) return _serviceProvider.Value;
+        if (type == typeof(IServiceProvider))
+        {
+            // _serviceProvider is lazy, and resolving it can spin up a brand new scope creation --
+            // which is exactly what VariableSource.Existing promises not to do.
+            if (source == VariableSource.Existing && !_serviceProvider.IsValueCreated) return null;
+
+            return _serviceProvider.Value;
+        }
+
         return null;
     }
 
