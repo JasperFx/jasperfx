@@ -233,6 +233,22 @@ public sealed class ComplianceStoreConfig
     }
 
     /// <summary>
+    /// Composite projections the suite asked the store to build, by name.
+    /// </summary>
+    public List<string> CompositeProjections { get; } = new();
+
+    /// <summary>
+    /// Build a composite projection with the given name and populate its stages.
+    /// </summary>
+    /// <inheritdoc cref="IComplianceStoreRegistrar.AddCompositeProjection" path="/remarks"/>
+    public ComplianceStoreConfig AddCompositeProjection(string name, Action<IComplianceCompositeBuilder> configure)
+    {
+        CompositeProjections.Add(name);
+        _registrations.Add(registrar => registrar.AddCompositeProjection(name, configure));
+        return this;
+    }
+
+    /// <summary>
     /// Register the shared compliance subscription with the store's async daemon.
     /// </summary>
     /// <inheritdoc cref="IComplianceStoreRegistrar.Subscribe" path="/remarks"/>

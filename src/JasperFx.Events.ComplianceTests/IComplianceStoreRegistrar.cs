@@ -130,6 +130,41 @@ public interface IComplianceStoreRegistrar
     void AddProjection(ProjectionBase projection, ProjectionLifecycle lifecycle);
 
     /// <summary>
+    /// Build a composite projection with the given name and populate its stages.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Routed through the registrar rather than <see cref="AddProjection" /> because a composite
+    /// cannot be constructed by a suite. Every product subclasses the shared
+    /// <c>CompositeProjection&lt;TOperations,TQuerySession&gt;</c> and keeps the constructor internal —
+    /// it needs the store's options — so a composite only ever comes into being through that product's
+    /// own <c>Projections.CompositeProjectionFor(name, configure)</c>, whose <c>configure</c> parameter
+    /// is typed to the product's own subclass.
+    /// </para>
+    /// <para>
+    /// The implementation is a forward plus an adapter, because the *calls* are identical across the
+    /// products even though the types are not — all three expose <c>Snapshot&lt;T&gt;(int stageNumber)</c>
+    /// on their composite (Marten returns a mapping expression, Polecat and Fisher return void, which is
+    /// why <see cref="IComplianceCompositeBuilder" /> declares its own void-returning member rather than
+    /// trying to name a shared return type):
+    /// </para>
+    /// <code>
+    /// public void AddCompositeProjection(string name, Action&lt;IComplianceCompositeBuilder&gt; configure)
+    ///     => _options.Projections.CompositeProjectionFor(name, c => configure(new Builder(c)));
+    /// </code>
+    /// <para>
+    /// Carries a throwing default for the same reason as <see cref="UseBinarySerializer{TEvent}" />: a
+    /// store that has not implemented composites does not enroll in
+    /// <see cref="CompositeProjectionCompliance{TFixture,TOperations,TQuerySession}" />, never reaches
+    /// this member, and keeps compiling. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/725" />.
+    /// </para>
+    /// </remarks>
+    void AddCompositeProjection(string name, Action<IComplianceCompositeBuilder> configure)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement AddCompositeProjection, so it cannot run the composite projection compliance suite.");
+
+    /// <summary>
     /// Register the shared compliance subscription with the store's async daemon.
     /// </summary>
     /// <remarks>
