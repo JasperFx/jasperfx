@@ -101,17 +101,50 @@ public class dcb_tag_query_and_consistency_compliance
 
 ### Opt-in capability suites
 
-Two suites cover capabilities that are opt-in rather than part of the baseline event contract, and
-their seam members on `IComplianceStoreRegistrar` carry throwing defaults: a store that has not
+Several suites cover capabilities that are opt-in rather than part of the baseline event contract,
+and their seam members on `IComplianceStoreRegistrar` carry throwing defaults: a store that has not
 implemented the capability does not enroll, never reaches the member, and keeps compiling.
 
-`AggregateWriteCacheCompliance` (jasperfx#674) is the newer of the two. `IAggregateWriteCache` is a
+`AggregateWriteCacheCompliance` (jasperfx#674) is the oldest of them. `IAggregateWriteCache` is a
 *baseline-only* cache — the stream version and every event after the cached version are still read on
 every fetch — so the suite's job is to prove that turning it on is unobservable except in latency,
 including when the cached baseline is wrong. Note the shape of the load-bearing assertion: every
 correctness fact about caching is vacuously true of a store that ignored the opt-in entirely, so the
 suite supplies its own `RecordingAggregateWriteCache` and asserts a nonzero hit count. Same reasoning
 as the gzipped serializer in `BinaryEventSerializationCompliance`.
+
+`CompositeProjectionCompliance` (jasperfx#725) is opt-in through
+`IComplianceStoreRegistrar.AddCompositeProjection`. It needs a seam because a composite cannot be
+constructed by a suite at all: every product subclasses the shared
+`CompositeProjection<TOperations,TQuerySession>` and keeps the constructor internal, since it needs the
+store's options, so a composite only comes into being through that product's own
+`Projections.CompositeProjectionFor(name, configure)` — whose `configure` parameter is typed to the
+product's own subclass. The implementation is a forward plus a small adapter, because the *calls* are
+identical across the products even where the types are not; all three expose
+`Snapshot<T>(int stageNumber)` on their composite, and `IComplianceCompositeBuilder` declares its own
+void-returning member only because Marten's returns a mapping expression while Polecat's and Fisher's
+return void:
+
+```csharp
+public void AddCompositeProjection(string name, Action<IComplianceCompositeBuilder> configure)
+    => _options.Projections.CompositeProjectionFor(name, c => configure(new Builder(c)));
+```
+
+Its load-bearing fact is the rebuild one, and the members are additive for that reason: a store that
+replayed the stream over surviving rows instead of tearing the member down reads back exactly doubled,
+which a last-write-wins aggregate would hide. Two of the three products already carry a *local* test
+named for that class of bug — `Bug_439_composite_member_teardown` and `composite_member_teardown` —
+which is what marks the behaviour as shared rather than product-owned.
+
+`SingleTenantedEventSlicingCompliance` (jasperfx#724) is opt-in for a different reason: it needs no
+registrar seam at all, but the precondition it constructs is unusual enough that a store should adopt
+it knowingly. On a single-tenanted store, events whose `tenant_id` values disagree must still fold into
+one aggregate — wolverine#2053 / marten#4085 — and only the *async daemon* ever got that wrong, so the
+suite drives the daemon rather than asserting on a live aggregate. Note its guard: it stamps
+disagreeing tenant ids through `IEvent.TenantId`, then reads the events back and **skips** if the store
+normalised them away, because an unmixed store satisfies the assertion for a reason that has nothing to
+do with the behaviour under test. Vacuous green is worse than a skip, since only one of the two is
+visible.
 
 ## Capability gates
 
@@ -165,6 +198,8 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | The projection error path and dead letters | `DeadLetterCompliance` |
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | Subscriptions | `SubscriptionCompliance` |
+| Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
+| Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
 
 ### Identity-less boundary aggregates (jasperfx#718)
 
