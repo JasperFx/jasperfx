@@ -41,6 +41,13 @@ internal static class ProjectionRunView
         if (report.Error.IsNotEmpty())
         {
             AnsiConsole.MarkupLine($"[red]{report.Error!.EscapeMarkup()}[/]");
+
+            if (report.Diagnosis.IsNotEmpty())
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine($"[yellow]{report.Diagnosis!.EscapeMarkup()}[/]");
+            }
+
             return;
         }
 

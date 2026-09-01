@@ -16,6 +16,11 @@ namespace JasperFx.Events.CommandLine;
 /// <param name="Truncated">True when <c>--max-events</c> stopped the source read early.</param>
 /// <param name="Aggregates">One timeline per aggregate identity the projection touched, ordered by identity.</param>
 /// <param name="Error">Operator-facing failure message, or null when the run succeeded.</param>
+/// <param name="Diagnosis">
+/// What to do about <paramref name="Error"/> when the cause is known — today, storage that was never
+/// migrated. Null when the failure was not diagnosed. Carried as its own field rather than folded into
+/// <paramref name="Error"/> so an agent can act on the remedy without parsing prose out of the message.
+/// </param>
 public sealed record ProjectionRunReport(
     string Projection,
     string? Store,
@@ -23,7 +28,8 @@ public sealed record ProjectionRunReport(
     int EventCount,
     bool Truncated,
     IReadOnlyList<ProjectionRunAggregateReport> Aggregates,
-    string? Error)
+    string? Error,
+    string? Diagnosis = null)
 {
     /// <summary>
     /// Fan the per-identity timelines out into report rows. Dictionary order is not guaranteed by
@@ -46,8 +52,10 @@ public sealed record ProjectionRunReport(
     }
 
     /// <summary>A run that never reached the projection: the source slice is still worth reporting.</summary>
-    public static ProjectionRunReport Failed(ProjectionRunInput input, Uri? store, string error)
-        => new(input.ProjectionName, store?.ToString(), ProjectionRunSourceReport.From(input), 0, false, [], error);
+    public static ProjectionRunReport Failed(ProjectionRunInput input, Uri? store, string error,
+        string? diagnosis = null)
+        => new(input.ProjectionName, store?.ToString(), ProjectionRunSourceReport.From(input), 0, false, [], error,
+            diagnosis);
 
     private static ProjectionRunStepReport toStep(ProjectionStepResultRaw step, int index)
         => new(index + 1, step.Event.Sequence, step.Event.StreamVersion, step.Event.StreamId,

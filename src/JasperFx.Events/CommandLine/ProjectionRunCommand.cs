@@ -62,7 +62,8 @@ public class ProjectionRunCommand: JasperFxAsyncCommand<ProjectionRunInput>
         }
         catch (Exception e)
         {
-            return fail(input, store.Subject, $"Unable to read the source events: {e.Message}");
+            return await failAsync(host, input, store.Subject, $"Unable to read the source events: {e.Message}")
+                .ConfigureAwait(false);
         }
 
         MultiAggregateProjectionResult result;
@@ -74,7 +75,7 @@ public class ProjectionRunCommand: JasperFxAsyncCommand<ProjectionRunInput>
         }
         catch (Exception e)
         {
-            return fail(input, store.Subject, e.Message);
+            return await failAsync(host, input, store.Subject, e.Message).ConfigureAwait(false);
         }
 
         var report = ProjectionRunReport.From(input, store.Subject, result, source.Events.Count, source.Truncated);
@@ -90,6 +91,21 @@ public class ProjectionRunCommand: JasperFxAsyncCommand<ProjectionRunInput>
     private static bool fail(ProjectionRunInput input, Uri? store, string error)
     {
         write(input, ProjectionRunReport.Failed(input, store, error));
+        return false;
+    }
+
+    /// <summary>
+    /// The same, for failures that happened against a built host — those are the ones worth asking
+    /// whether the application's storage was ever migrated. The command builds the host but never
+    /// starts it, so an un-migrated database is a first-class cause here rather than an exotic one,
+    /// and the raw store exception ("relation ... does not exist") says nothing about the fix.
+    /// </summary>
+    private static async Task<bool> failAsync(IHost host, ProjectionRunInput input, Uri? store, string error)
+    {
+        var diagnosis = await ProjectionRunSchemaDiagnosis
+            .TryDiagnoseAsync(host.Services, CancellationToken.None).ConfigureAwait(false);
+
+        write(input, ProjectionRunReport.Failed(input, store, error, diagnosis));
         return false;
     }
 
