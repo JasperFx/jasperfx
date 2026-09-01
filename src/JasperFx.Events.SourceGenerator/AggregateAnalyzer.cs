@@ -21,7 +21,15 @@ internal enum CandidateMode
     /// Only needs published type registration, not method generation.
     /// See https://github.com/JasperFx/marten/issues/4166
     /// </summary>
-    EventProjectionTypeRegistrationOnly
+    EventProjectionTypeRegistrationOnly,
+
+    /// <summary>
+    /// A type marked [BoundaryAggregate] that the generator cannot emit an evolver for, because it
+    /// declares neither an Evolve method nor any conventional Apply/Create methods. Carried through
+    /// the pipeline solely so the generator can report JFXEVT007 — nothing is emitted for it.
+    /// See https://github.com/JasperFx/jasperfx/issues/730
+    /// </summary>
+    InvalidBoundaryAggregate
 }
 
 internal sealed class ConventionalMethodInfo
@@ -251,12 +259,27 @@ internal static class AggregateAnalyzer
         CancellationToken ct)
     {
         // Check for Evolve/EvolveAsync methods first — these take priority
-        var evolveResult = AnalyzeSelfAggregatingEvolve(classDecl, classSymbol, ct);
+        var evolveResult = AnalyzeSelfAggregatingEvolve(classDecl, classSymbol, semanticModel, ct);
         if (evolveResult != null) return evolveResult;
 
         var methods = DiscoverConventionalMethods(classSymbol, classSymbol, null);
         var eventCtors = DiscoverEventConstructors(classSymbol);
-        if (methods.Count == 0 && eventCtors.Count == 0) return null;
+        if (methods.Count == 0 && eventCtors.Count == 0)
+        {
+            // Nothing to fold events with. Silent for an ordinary type, but [BoundaryAggregate] is an
+            // explicit opt-in, so a type carrying it and generating nothing is unambiguously wrong and
+            // the runtime failure lands far away (#730).
+            return HasBoundaryAggregateAttribute(classSymbol)
+                ? new CandidateInfo
+                {
+                    Mode = CandidateMode.InvalidBoundaryAggregate,
+                    ClassSymbol = classSymbol,
+                    ClassSyntax = classDecl,
+                    IsPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword),
+                    AggregateType = classSymbol
+                }
+                : null;
+        }
 
         // Infer TId from Id property or AggregateIdentityAttribute
         var idType = InferIdentityType(classSymbol);
@@ -335,13 +358,26 @@ internal static class AggregateAnalyzer
     private static CandidateInfo? AnalyzeSelfAggregatingEvolve(
         TypeDeclarationSyntax classDecl,
         INamedTypeSymbol classSymbol,
+        SemanticModel semanticModel,
         CancellationToken ct)
     {
         var evolveMethod = FindEvolveMethod(classSymbol);
         if (evolveMethod == null) return null;
 
         var idType = InferIdentityType(classSymbol);
-        if (idType == null) return null;
+        if (idType == null)
+        {
+            // Identity-less "boundary" aggregate (DCB), same opt-in as the Apply/Create path below.
+            // This branch used to be a bare `return null`, which made an Evolve-only boundary
+            // aggregate unreachable: the Evolve path bailed here, and the Apply/Create path — the
+            // only one that knew about [BoundaryAggregate] — then returned null at its "no
+            // conventional methods" guard before ever reaching the opt-in. So the attribute was
+            // honoured for Apply/Create and silently ignored for Evolve, and the consequence did not
+            // surface until FetchForWritingByTags<T> threw "No source-generated dispatcher found" at
+            // fetch time. See #730.
+            if (!HasBoundaryAggregateAttribute(classSymbol)) return null;
+            idType = semanticModel.Compilation.GetSpecialType(SpecialType.System_String);
+        }
 
         // Extract event types from the method body
         var methodSyntax = evolveMethod.Symbol.DeclaringSyntaxReferences
