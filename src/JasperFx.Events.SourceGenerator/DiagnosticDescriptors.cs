@@ -61,4 +61,26 @@ internal static class DiagnosticDescriptors
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A type carries <c>[BoundaryAggregate]</c> but the generator found nothing to fold events with,
+    /// so no evolver is emitted and <c>FetchForWritingByTags&lt;T&gt;</c> will throw
+    /// <c>InvalidProjectionException: No source-generated dispatcher found</c> the first time the type
+    /// is fetched.
+    /// </summary>
+    /// <remarks>
+    /// Error rather than warning, and unlike a bare no-<c>Id</c> aggregate — where silence is correct,
+    /// because a missing <c>Id</c> is far more likely a mistake than an intentional boundary aggregate
+    /// (#324) — this attribute is an explicit opt-in. A type carrying it and generating nothing is
+    /// unambiguously wrong, and the runtime failure it produces arrives at fetch time naming neither
+    /// the type nor the reason. See #730.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor BoundaryAggregateWithoutEvolver = new(
+        id: "JFXEVT007",
+        title: "Boundary aggregate has nothing to fold events with",
+        messageFormat:
+            "'{0}' is marked [BoundaryAggregate] but declares no Evolve method and no conventional Apply/Create methods, so no evolver can be generated and fetching it by tags will fail at runtime",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

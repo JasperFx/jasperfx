@@ -67,8 +67,42 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         if (node is ClassDeclarationSyntax or RecordDeclarationSyntax)
         {
             var typeDecl = (TypeDeclarationSyntax)node;
-            return typeDecl.Members.OfType<MethodDeclarationSyntax>()
-                .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete" or "Project" or "Transform" or "Evolve" or "EvolveAsync" or "ApplyAsync");
+            if (typeDecl.Members.OfType<MethodDeclarationSyntax>()
+                .Any(m => m.Identifier.ValueText is "Apply" or "Create" or "ShouldDelete" or "Project" or "Transform" or "Evolve" or "EvolveAsync" or "ApplyAsync"))
+            {
+                return true;
+            }
+
+            // A [BoundaryAggregate] with no conventional method at all is admitted purely so the
+            // analyzer can report JFXEVT007 on it. The attribute is an explicit opt-in, so silence
+            // for such a type is a bug rather than a courtesy — and the runtime failure it causes
+            // arrives at fetch time naming neither the type nor the reason. See #730.
+            return HasBoundaryAggregateAttributeSyntax(typeDecl);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Syntactic, name-only check for <c>[BoundaryAggregate]</c>. Deliberately not semantic: this runs
+    /// in the syntax predicate, which must stay cheap and has no semantic model. A false positive here
+    /// costs one extra symbol-level analysis that then declines the type.
+    /// </summary>
+    private static bool HasBoundaryAggregateAttributeSyntax(TypeDeclarationSyntax typeDecl)
+    {
+        foreach (var list in typeDecl.AttributeLists)
+        {
+            foreach (var attribute in list.Attributes)
+            {
+                var name = attribute.Name switch
+                {
+                    QualifiedNameSyntax qualified => qualified.Right.Identifier.ValueText,
+                    SimpleNameSyntax simple => simple.Identifier.ValueText,
+                    _ => null
+                };
+
+                if (name is "BoundaryAggregate" or "BoundaryAggregateAttribute") return true;
+            }
         }
 
         return false;
@@ -401,6 +435,18 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
             case CandidateMode.EventProjectionTypeRegistrationOnly:
                 EmitEventProjectionTypeRegistration(context, info);
+                break;
+
+            case CandidateMode.InvalidBoundaryAggregate:
+                // [BoundaryAggregate] is an explicit opt-in, so a type carrying it that generates
+                // nothing is unambiguously wrong — unlike a bare no-Id aggregate, where silence is
+                // correct because a missing Id is more likely a mistake than an intentional boundary
+                // aggregate. Without this the failure first appears as an InvalidProjectionException
+                // from FetchForWritingByTags<T>, naming neither the type nor the reason. See #730.
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.BoundaryAggregateWithoutEvolver,
+                    info.ClassSyntax.Identifier.GetLocation(),
+                    info.ClassSymbol.Name));
                 break;
 
             case CandidateMode.None:

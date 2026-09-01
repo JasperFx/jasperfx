@@ -426,6 +426,111 @@ public class Subscribed { }
         generated.ShouldContain("snapshot.Apply(data)");
     }
 
+    // #730: the Evolve path had no [BoundaryAggregate] fallback of its own, so an Evolve-only
+    // boundary aggregate fell through BOTH paths -- the Evolve analyzer bailed at the identity
+    // check, and the Apply/Create analyzer returned at its "no conventional methods" guard before
+    // ever reaching the opt-in. Nothing was emitted and nothing was reported; the failure first
+    // showed up as InvalidProjectionException from FetchForWritingByTags<T> at fetch time.
+    [Fact]
+    public void generates_string_keyed_evolver_for_boundary_aggregate_using_evolve()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public class EvolveSubscriptionState
+{
+    public int Capacity { get; set; }
+
+    public void Evolve(IEvent e)
+    {
+        switch (e.Data)
+        {
+            case CourseCreated created: Capacity = created.Capacity; break;
+            case CourseCapacityChanged changed: Capacity = changed.Capacity; break;
+        }
+    }
+}
+
+public class CourseCreated { public int Capacity { get; set; } }
+public class CourseCapacityChanged { public int Capacity { get; set; } }
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        generatedSources.Length.ShouldBeGreaterThan(0);
+        var generated = generatedSources[0];
+        // _String is the TId disambiguation suffix (the type has no Id of its own), and the trailing
+        // Evolve marks the Evolve-based dispatch mode.
+        generated.ShouldContain("EvolveSubscriptionState_StringEvolveEvolver");
+        // Keyed on string, matching the SingleStreamProjection<T, string> the DCB aggregator builds.
+        generated.ShouldContain("global::JasperFx.Events.Aggregation.IGeneratedSyncEvolver<global::Test.EvolveSubscriptionState, string>");
+        generated.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.EvolveSubscriptionState)");
+
+        diagnostics.ShouldNotContain(d => d.Id == "JFXEVT007");
+    }
+
+    // The Evolve path keeps the same opt-in discipline as the Apply/Create path: identity-less
+    // WITHOUT the marker still emits nothing, because a missing Id is far more likely a forgotten
+    // Id than an intentional boundary aggregate.
+    [Fact]
+    public void skips_identity_less_evolve_aggregate_without_boundary_attribute()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+
+namespace Test;
+
+public class EvolveSubscriptionState
+{
+    public int Capacity { get; set; }
+
+    public void Evolve(IEvent e)
+    {
+        if (e.Data is CourseCreated created) Capacity = created.Capacity;
+    }
+}
+
+public class CourseCreated { public int Capacity { get; set; } }
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        generatedSources.ShouldBeEmpty();
+        diagnostics.ShouldNotContain(d => d.Id == "JFXEVT007");
+    }
+
+    // #730: a [BoundaryAggregate] with nothing to fold events with is unambiguously wrong, because
+    // the attribute is an explicit opt-in. Silence here is what let the Evolve gap go unnoticed.
+    [Fact]
+    public void reports_a_diagnostic_for_a_boundary_aggregate_with_nothing_to_fold_with()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public class EmptyBoundaryState
+{
+    public int Capacity { get; set; }
+}
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        generatedSources.ShouldBeEmpty();
+
+        var diagnostic = diagnostics.ShouldHaveSingleItem();
+        diagnostic.Id.ShouldBe("JFXEVT007");
+        diagnostic.Severity.ShouldBe(DiagnosticSeverity.Error);
+        diagnostic.GetMessage().ShouldContain("EmptyBoundaryState");
+    }
+
     // Negative half of #324: the marker is required. An identity-less aggregate
     // WITHOUT [BoundaryAggregate] still emits nothing — a bare no-Id aggregate is far
     // more likely a forgot-the-Id mistake than an intentional boundary aggregate, and
