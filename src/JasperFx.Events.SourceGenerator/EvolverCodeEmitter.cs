@@ -1402,7 +1402,14 @@ internal static class EvolverCodeEmitter
 
     private static void EmitEventTypesProperty(StringBuilder sb, CandidateInfo info)
     {
-        var eventTypes = info.Methods.Select(m => Fqn(m.EventType)).Distinct().ToList();
+        // Event-shaped constructors (Bucket 1) are Create handlers just as much as a named
+        // `static Create` is, so their event types belong here too. Leaving them out kept the
+        // creating event off the projection's event filter even where the dispatch switch handled
+        // it correctly. See #733. EventConstructors is only populated for self-aggregating types;
+        // the projection-class path passes an empty list and is unaffected.
+        var eventTypes = info.Methods.Select(m => Fqn(m.EventType))
+            .Concat(info.EventConstructors.Select(c => Fqn(c.EventType)))
+            .Distinct().ToList();
         sb.Append("    public global::System.Type[] EventTypes => [");
         sb.Append(string.Join(", ", eventTypes.Select(t => $"typeof({t})")));
         sb.AppendLine("];");
@@ -1867,12 +1874,15 @@ internal static class EvolverCodeEmitter
             var deleteApply = applyMethods.FirstOrDefault(m =>
                 SymbolEqualityComparer.Default.Equals(m.EventType, method.EventType));
 
-            if (deleteCreate != null || deleteApply != null)
+            var deleteCtor = info.EventConstructors.FirstOrDefault(c =>
+                SymbolEqualityComparer.Default.Equals(c.EventType, method.EventType));
+
+            if (deleteCreate != null || deleteApply != null || deleteCtor != null)
             {
                 sb.AppendLine("                    else");
                 sb.AppendLine("                    {");
                 EmitSelfAggregatingCreateApplyStatements(sb, info, deleteCreate, deleteApply,
-                    "                        ");
+                    "                        ", deleteCtor != null);
                 sb.AppendLine("                    }");
             }
 
@@ -1883,9 +1893,14 @@ internal static class EvolverCodeEmitter
         var handledDeleteTypes = new HashSet<ITypeSymbol>(shouldDeleteMethods.Select(m => m.EventType),
             SymbolEqualityComparer.Default);
 
+        // Event-shaped constructors are folded in the same way the Evolve emitters do. Building this
+        // set from info.Methods alone dropped an event whose ONLY handler is `public T(SomeEvent e)`:
+        // no case arm at all, so the ctor never ran and the next Apply-only event built the aggregate
+        // through GetUninitializedObject instead, leaving field initializers unrun. See #733.
         var applyAndCreateTypes = info.Methods
             .Where(m => m.MethodName != "ShouldDelete")
             .Select(m => m.EventType)
+            .Concat(info.EventConstructors.Select(c => c.EventType))
             .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
             .Where(t => !handledDeleteTypes.Contains(t!))
             .OrderByDescending(t => GetTypeDepth(t!))
@@ -1898,6 +1913,8 @@ internal static class EvolverCodeEmitter
                 SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
             var applies = applyMethods.Where(m =>
                 SymbolEqualityComparer.Default.Equals(m.EventType, eventType)).ToList();
+            var eventCtor = info.EventConstructors.FirstOrDefault(c =>
+                SymbolEqualityComparer.Default.Equals(c.EventType, eventType));
 
             sb.AppendLine($"                case {eventTypeName} data:");
 
@@ -1908,6 +1925,19 @@ internal static class EvolverCodeEmitter
                 sb.Append("                        snapshot = ");
                 EmitSelfAggregatingCreateCall(sb, create, "data");
                 sb.AppendLine(";");
+
+                if (applies.Count > 0)
+                {
+                    sb.AppendLine("                    else");
+                    sb.Append("                        ");
+                    EmitSelfAggregatingApplyCall(sb, applies[0], "data");
+                }
+            }
+            else if (eventCtor != null)
+            {
+                // Implicit Create via public T(EventType) constructor.
+                sb.AppendLine("                    if (snapshot == null)");
+                sb.AppendLine($"                        snapshot = new {Fqn(info.AggregateType!)}(data);");
 
                 if (applies.Count > 0)
                 {
@@ -1960,15 +1990,26 @@ internal static class EvolverCodeEmitter
     /// event type as plain statements at <paramref name="indent"/>, for use inside a delete arm.
     /// </summary>
     private static void EmitSelfAggregatingCreateApplyStatements(StringBuilder sb, CandidateInfo info,
-        ConventionalMethodInfo? create, ConventionalMethodInfo? apply, string indent)
+        ConventionalMethodInfo? create, ConventionalMethodInfo? apply, string indent,
+        bool hasEventConstructor = false)
     {
-        if (create != null)
+        if (create != null || hasEventConstructor)
         {
             sb.AppendLine($"{indent}if (snapshot == null)");
             sb.AppendLine($"{indent}{{");
-            sb.Append($"{indent}    snapshot = ");
-            EmitSelfAggregatingCreateCall(sb, create, "data");
-            sb.AppendLine(";");
+            if (create != null)
+            {
+                sb.Append($"{indent}    snapshot = ");
+                EmitSelfAggregatingCreateCall(sb, create, "data");
+                sb.AppendLine(";");
+            }
+            else
+            {
+                // Implicit Create via public T(EventType) constructor, for an event type that is
+                // also covered by a ShouldDelete predicate returning false. See #733.
+                sb.AppendLine($"{indent}    snapshot = new {Fqn(info.AggregateType!)}(data);");
+            }
+
             sb.AppendLine($"{indent}}}");
 
             if (apply != null)
