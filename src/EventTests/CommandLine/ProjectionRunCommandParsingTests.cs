@@ -20,6 +20,15 @@ public class ProjectionRunCommandParsingTests
     }
 
     [Fact]
+    public void the_command_is_named_projection_run()
+    {
+        // CommandFactory.CommandNameFor strips the "Command" suffix and lowercases; it does NOT
+        // split PascalCase. Without an explicit Name this is "projectionrun", which is what
+        // shipped in 2.60.0 — a one-word sibling (ProjectionsCommand) is why it went unnoticed.
+        CommandFactory.CommandNameFor(typeof(ProjectionRunCommand)).ShouldBe("projection-run");
+    }
+
+    [Fact]
     public void the_projection_name_is_the_argument()
     {
         parse("Trips", "--stream", "trip-1").ProjectionName.ShouldBe("Trips");

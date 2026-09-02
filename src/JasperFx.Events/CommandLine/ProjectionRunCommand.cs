@@ -18,7 +18,10 @@ namespace JasperFx.Events.CommandLine;
 /// per-mode validation rules are deliberately identical, so an operator who learns one has learned
 /// the other.
 /// </remarks>
-[Description("Replay a projection over a stream, stream slice, or tag query and show the per-event before/after state")]
+// Name is explicit because CommandFactory.CommandNameFor only strips the "Command" suffix and
+// lowercases — it does not split PascalCase — so this would otherwise be "projectionrun".
+[Description("Replay a projection over a stream, stream slice, or tag query and show the per-event before/after state",
+    Name = "projection-run")]
 public class ProjectionRunCommand: JasperFxAsyncCommand<ProjectionRunInput>
 {
     public ProjectionRunCommand()
