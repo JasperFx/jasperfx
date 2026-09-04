@@ -11,6 +11,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
 using Shouldly;
+using Widgets1;
 using RunnerFrame = xunit.v3.stackwalk.standin.RunnerFrame;
 
 namespace CoreTests;
@@ -390,6 +391,29 @@ public class JasperFxOptionsTests
         var assembly = RunnerFrame.Invoke(JasperFxOptions.DetermineCallingAssembly);
 
         assembly.ShouldBe(GetType().Assembly);
+    }
+
+    [Fact]
+    public void anchors_on_its_own_call_chain_not_a_stale_jasperfx_frame_deeper_in_the_stack()
+    {
+        // Deterministic reconstruction of the stale-anchor layout that made Wolverine's identical walk
+        // suite-order-dependent (JasperFx/wolverine#4299): the stack does not always end at the
+        // registering caller. A callback invoked from JasperFx code -- or, in the wild, an async
+        // continuation chain a completing JasperFx task ran inline straight into the next piece of
+        // synchronous registration -- leaves a JasperFx frame DEEPER in the stack than the caller.
+        // Anchoring at the last JasperFx frame anywhere jumped past the real caller and resolved
+        // whoever invoked the OUTER JasperFx code: the test assembly here, and at AddJasperFx that
+        // poisoned answer can seed the process-wide RememberedApplicationAssembly pin.
+        //
+        // Each() is declared in the JasperFx assembly, so this call chain is, innermost first:
+        // [JasperFx: DetermineCallingAssembly] [Widgets1: Invoke] [CoreTests: lambda] [JasperFx: Each]
+        // [CoreTests: this test]. The anchor must stay on the innermost contiguous JasperFx run and
+        // resolve Widgets1 regardless of the stale Each frame below.
+        Assembly? captured = null;
+        new[] { 0 }.Each(_ => captured = WidgetRegistrationFrame.Invoke(JasperFxOptions.DetermineCallingAssembly));
+
+        captured.ShouldBe(typeof(WidgetRegistrationFrame).Assembly);
+        captured.ShouldNotBe(GetType().Assembly);
     }
 
     [Fact]
