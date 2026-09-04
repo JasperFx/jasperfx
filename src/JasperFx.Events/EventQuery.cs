@@ -14,6 +14,14 @@ namespace JasperFx.Events;
 /// that ordering. See <see cref="IReadOnlyEventStore.QueryEventsAsync"/>.
 /// </para>
 /// <para>
+/// <b>Window semantics:</b> both windows are inclusive at both ends. A half-open window (one bound
+/// null) is valid. An inverted window — a floor above its ceiling — is a well-formed range that
+/// contains nothing: it matches no events and returns an empty page with
+/// <see cref="PagedEvents.TotalCount"/> 0, the same as any other filter that matches nothing. It is
+/// never an error. Likewise an entry in <see cref="EventTypeNames"/> that matches no stored events
+/// simply contributes nothing to the union.
+/// </para>
+/// <para>
 /// <b>Guard rail (jasperfx#737):</b> an implementation that does not honor a supplied filter MUST
 /// refuse it with a <see cref="NotSupportedException"/> naming the field — never silently ignore
 /// it, because a silently-ignored filter returns unfiltered results that read as filtered. Call

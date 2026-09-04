@@ -274,4 +274,31 @@ public abstract class ConjoinedEventTenancyCompliance<TFixture, TOperations, TQu
         other.Events.Single().TenantId.ShouldBe(TenantB);
         other.Events.Single().Data.ShouldBeOfType<ConsignmentBooked>().Destination.ShouldBe("Lisbon");
     }
+
+    /// <summary>
+    /// The tenant filter AND-composes with the other <see cref="EventQuery"/> filters rather than
+    /// replacing them. Decoys in both directions: the matching tenant holds a non-matching event
+    /// type, and the other tenant holds a matching one — so dropping either filter changes the
+    /// answer. (Deliberately a type filter rather than a tag condition: tag types are not part of
+    /// this suite's store configuration, and tags-under-conjoined-tenancy is DCB-suite territory.)
+    /// </summary>
+    [Fact]
+    public async Task query_events_composes_the_tenant_filter_with_other_filters()
+    {
+        await appendAsync(TenantA, Guid.NewGuid(), new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+        await appendAsync(TenantA, Guid.NewGuid(), new ConsignmentBooked("Chicago"));
+        await appendAsync(TenantB, Guid.NewGuid(), new ConsignmentBooked("Lisbon"));
+
+        var result = await theFixture.EventStore.OpenReadOnlyEventStore().QueryEventsAsync(
+            new EventQuery
+            {
+                TenantId = TenantA, EventTypeName = EventTypeNameFor<ConsignmentBooked>(), PageSize = 1000
+            },
+            Cancellation);
+
+        result.TotalCount.ShouldBe(2);
+        result.Events.ShouldAllBe(x => x.TenantId == TenantA);
+        result.Events.Select(x => ((ConsignmentBooked)x.Data!).Destination)
+            .OrderBy(x => x).ShouldBe(["Boston", "Chicago"]);
+    }
 }
