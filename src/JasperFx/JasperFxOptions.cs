@@ -228,10 +228,37 @@ public class JasperFxOptions : SystemPartBase
         
         var stack = new StackTrace();
         var frames = stack.GetFrames();
-        var jasperfxFrame = frames.LastOrDefault(x =>
-            x.HasMethod() && x.GetMethod()?.DeclaringType?.Assembly.GetName().Name == "JasperFx");
 
-        var index = Array.IndexOf(frames, jasperfxFrame);
+        // Anchor at the end of the INNERMOST contiguous run of JasperFx frames — the call chain that
+        // led here — never at the last JasperFx frame anywhere in the stack. The stack does not always
+        // end at the registering caller: any JasperFx frame deeper in the stack (a callback invoked
+        // from JasperFx code, or an async continuation chain a completing JasperFx task ran inline)
+        // pulled a whole-stack anchor past the real caller, so the walk resolved whoever invoked the
+        // OUTER JasperFx code instead — or fell through to Assembly.GetEntryAssembly() when nothing
+        // adoptable remained beyond the stale frame. Wolverine's identical walk was caught doing
+        // exactly this in a full test-suite run (JasperFx/wolverine#4299): a prior test's completing
+        // tracked session ran its continuations inline straight through xunit into the next test's
+        // synchronous registration, leaving a stale framework frame 200+ frames down for LastOrDefault
+        // to anchor on. Here the poisoned result is worse than a wrong warning: at AddJasperFx it can
+        // seed the process-wide RememberedApplicationAssembly pin for the first host.
+        var index = -1;
+        for (var i = 0; i < frames.Length; i++)
+        {
+            if (!frames[i].HasMethod() || frames[i].GetMethod() is not { } method)
+            {
+                // A native transition or metadata-less frame neither extends nor ends the run
+                continue;
+            }
+
+            if (method.DeclaringType?.Assembly.GetName().Name == "JasperFx")
+            {
+                index = i;
+                continue;
+            }
+
+            // First method-bearing frame outside JasperFx: the contiguous run has ended
+            break;
+        }
 
         for (var i = index + 1; i < frames.Length; i++)
         {
