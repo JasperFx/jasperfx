@@ -301,4 +301,42 @@ public abstract class ConjoinedEventTenancyCompliance<TFixture, TOperations, TQu
         result.Events.Select(x => ((ConsignmentBooked)x.Data!).Destination)
             .OrderBy(x => x).ShouldBe(["Boston", "Chicago"]);
     }
+
+    /// <summary>
+    /// <c>QueryStreamStates(tenantId)</c> scopes the streams table to one tenant (jasperfx#740).
+    /// Lives here rather than in <c>StreamStateQueryCompliance</c> because this suite owns the
+    /// conjoined-tenancy store configuration — the same division of labor as the event-query and
+    /// explorer tenant coverage. Reuses one stream id across both tenants, this suite's sharpest
+    /// trick: under conjoined tenancy the identity of a stream is (tenant, id), so a store keying
+    /// on id alone returns one tenant's stream metadata to the other.
+    /// </summary>
+    [Fact]
+    public async Task query_stream_states_scoped_to_a_tenant()
+    {
+        var shared = Guid.NewGuid();
+        var onlyA = Guid.NewGuid();
+
+        await appendAsync(TenantA, shared, new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+        await appendAsync(TenantA, onlyA, new ConsignmentBooked("Chicago"));
+        await appendAsync(TenantB, shared, new ConsignmentBooked("Lisbon"));
+
+        var readOnly = theFixture.EventStore.OpenReadOnlyEventStore();
+
+        var forA = await Documents.DocumentQueryableExtensions.ToListAsync(
+            readOnly.QueryStreamStates(TenantA), Cancellation);
+
+        // Both directions, as everywhere in this suite: tenant A's two streams are there, tenant
+        // B's copy of the shared id is not — its version would bleed through as a wrong Version on
+        // the shared stream, so assert the version too.
+        forA.Count.ShouldBe(2);
+        forA.Select(x => x.Id).OrderBy(x => x).ShouldBe(new[] { shared, onlyA }.OrderBy(x => x));
+        forA.Single(x => x.Id == shared).Version.ShouldBe(2);
+
+        var forB = await Documents.DocumentQueryableExtensions.ToListAsync(
+            readOnly.QueryStreamStates(TenantB), Cancellation);
+
+        var bStream = forB.ShouldHaveSingleItem();
+        bStream.Id.ShouldBe(shared);
+        bStream.Version.ShouldBe(1);
+    }
 }

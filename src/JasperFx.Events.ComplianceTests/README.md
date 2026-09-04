@@ -198,6 +198,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | The projection error path and dead letters | `DeadLetterCompliance` |
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
+| The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |
 | Subscriptions | `SubscriptionCompliance` |
 | Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
