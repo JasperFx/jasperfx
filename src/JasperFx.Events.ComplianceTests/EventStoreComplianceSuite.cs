@@ -54,6 +54,9 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
     protected void SetCorrelationId(TOperations session, string? correlationId)
         => theFixture.SetCorrelationId(session, correlationId);
 
+    protected void SetUserName(TOperations session, string? userName)
+        => theFixture.SetUserName(session, userName);
+
     protected Task SaveChangesAsync(TOperations session) => theFixture.SaveChangesAsync(session, Cancellation);
 
     protected Task<T?> LoadDocumentAsync<T>(TQuerySession session, object id) where T : class

@@ -112,6 +112,17 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public abstract void SetCorrelationId(TOperations session, string? correlationId);
 
     /// <summary>
+    /// Assign the session's user name (last-modified-by) metadata, which the store stamps onto
+    /// appended events when user name metadata is enabled.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the same reason as <see cref="SetCorrelationId"/>: both products hang the member
+    /// off their own session type and <see cref="IStorageOperations"/> deliberately stays narrow.
+    /// Added for the jasperfx#737 event query suite, which filters on the user name column.
+    /// </remarks>
+    public abstract void SetUserName(TOperations session, string? userName);
+
+    /// <summary>
     /// The store itself, as the shared <see cref="IEventStore"/> surface. Suites reach for this on
     /// store-level contracts — the rebuild concurrency cap, usage descriptors — never for anything
     /// session-scoped.
