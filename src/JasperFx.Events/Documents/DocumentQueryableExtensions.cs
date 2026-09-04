@@ -4,7 +4,9 @@ namespace JasperFx.Events.Documents;
 
 /// <summary>
 /// Store-agnostic asynchronous terminators for a document <see cref="IQueryable{T}" /> returned by
-/// <see cref="IDocumentReadOperations.Query{T}" />.
+/// <see cref="IDocumentReadOperations.Query{T}" /> — and, since jasperfx#740, for the stream-state
+/// queryable returned by <see cref="IReadOnlyEventStore.QueryStreamStates" />, which dispatches
+/// through the same <see cref="IDocumentQueryExecutor" /> hook.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -128,6 +130,6 @@ public static class DocumentQueryableExtensions
         }
 
         throw new NotSupportedException(
-            $"The LINQ provider '{queryable.Provider.GetType().FullName}' does not implement {nameof(IDocumentQueryExecutor)}, so this query cannot be executed asynchronously. Queryables passed to {nameof(DocumentQueryableExtensions)} must originate from {nameof(IDocumentReadOperations)}.{nameof(IDocumentReadOperations.Query)}<T>() on a document store that supports the JasperFx document contract.");
+            $"The LINQ provider '{queryable.Provider.GetType().FullName}' does not implement {nameof(IDocumentQueryExecutor)}, so this query cannot be executed asynchronously. Queryables passed to {nameof(DocumentQueryableExtensions)} must originate from a store surface that supports the shared execution hook — {nameof(IDocumentReadOperations)}.{nameof(IDocumentReadOperations.Query)}<T>() on the document contract, or {nameof(IReadOnlyEventStore)}.{nameof(IReadOnlyEventStore.QueryStreamStates)}() on the event store read tier.");
     }
 }
