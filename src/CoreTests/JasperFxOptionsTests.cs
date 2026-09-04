@@ -578,4 +578,22 @@ public class JasperFxOptionsTests
             JasperFxOptions.RememberedApplicationAssembly = original;
         }
     }
+
+    [Fact]
+    public void has_reference_to_jasperfx_tool_fails_closed_when_the_runtime_cannot_enumerate_references()
+    {
+        // GH-742. The Native AOT runtime does not implement GetReferencedAssemblies() and throws
+        // PlatformNotSupportedException unconditionally -- and AddJasperFx reaches this method on
+        // EVERY bootstrap via DetermineCallingAssembly, so before the guard no Native AOT
+        // application could even start. The dotnet-tool detection is dev-time-only, so it fails
+        // closed instead of killing startup.
+        JasperFxOptions.HasReferenceToJasperFxTool(new NativeAotStandInAssembly()).ShouldBeFalse();
+    }
+
+    // Stands in for the Native AOT runtime's Assembly implementation, whose
+    // GetReferencedAssemblies() throws PlatformNotSupportedException.
+    private class NativeAotStandInAssembly : Assembly
+    {
+        public override AssemblyName[] GetReferencedAssemblies() => throw new PlatformNotSupportedException();
+    }
 }

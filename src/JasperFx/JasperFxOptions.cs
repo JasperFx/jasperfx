@@ -19,7 +19,22 @@ public class JasperFxOptions : SystemPartBase
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Walks assembly.GetReferencedAssemblies() and loads each by name. AOT-publishing apps statically reference their dependencies; the JasperFx-tool detection here is for the dotnet-tool flow which is dev-time.")]
     public static bool HasReferenceToJasperFxTool(Assembly assembly)
     {
-        var names = assembly.GetReferencedAssemblies();
+        // GH-742. The Native AOT runtime does not implement GetReferencedAssemblies() -- everything
+        // is linked into one native image, there is no reference metadata to enumerate -- and it
+        // throws PlatformNotSupportedException unconditionally. AddJasperFx reaches here on EVERY
+        // bootstrap (via DetermineCallingAssembly), so before this guard no Native AOT application
+        // could even start. The dotnet-tool detection this method performs is dev-time-only, so
+        // failing closed is the correct answer.
+        AssemblyName[] names;
+        try
+        {
+            names = assembly.GetReferencedAssemblies();
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return false;
+        }
+
         foreach (var name in names)
         {
             // Best-effort detection: an application's assembly graph routinely contains references
