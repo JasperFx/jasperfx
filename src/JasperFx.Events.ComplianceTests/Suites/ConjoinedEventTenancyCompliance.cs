@@ -242,4 +242,36 @@ public abstract class ConjoinedEventTenancyCompliance<TFixture, TOperations, TQu
         state.ShouldNotBeNull();
         state.Version.ShouldBe(1);
     }
+
+    /// <summary>
+    /// The <see cref="EventQuery.TenantId"/> filter on the cross-stream query surface. Lives here
+    /// rather than in <see cref="EventQueryCompliance{TFixture,TOperations,TQuerySession}"/> because
+    /// this suite owns the conjoined-tenancy store configuration — the same division of labor as
+    /// the explorer suite's per-tenant overloads. See jasperfx#737.
+    /// </summary>
+    [Fact]
+    public async Task query_events_filtered_by_tenant_id()
+    {
+        await appendAsync(TenantA, Guid.NewGuid(), new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+        await appendAsync(TenantB, Guid.NewGuid(), new ConsignmentBooked("Lisbon"));
+
+        var readOnly = theFixture.EventStore.OpenReadOnlyEventStore();
+
+        var result = await readOnly.QueryEventsAsync(
+            new EventQuery { TenantId = TenantA, PageSize = 1000 }, Cancellation);
+
+        // Both directions, as everywhere in this suite: tenant A's events are all there, and
+        // tenant B's event is not — a leak still returns correct answers for the tenant that
+        // happens to own the data.
+        result.TotalCount.ShouldBe(2);
+        result.Events.Count.ShouldBe(2);
+        result.Events.ShouldAllBe(x => x.TenantId == TenantA);
+
+        var other = await readOnly.QueryEventsAsync(
+            new EventQuery { TenantId = TenantB, PageSize = 1000 }, Cancellation);
+
+        other.TotalCount.ShouldBe(1);
+        other.Events.Single().TenantId.ShouldBe(TenantB);
+        other.Events.Single().Data.ShouldBeOfType<ConsignmentBooked>().Destination.ShouldBe("Lisbon");
+    }
 }

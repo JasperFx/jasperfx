@@ -66,6 +66,15 @@ public sealed class ComplianceStoreConfig
     public bool EnableCorrelationTracking { get; set; }
 
     /// <summary>
+    /// Persist the session's user name (last-modified-by) metadata onto appended events. Off by
+    /// default in both products and spelled differently in each — Marten's
+    /// <c>Events.MetadataConfig.UserNameEnabled</c>, Polecat's <c>Events.EnableUserName</c> — so the
+    /// fixture resolves it, exactly like <see cref="EnableCorrelationTracking"/>. Added for the
+    /// jasperfx#737 event query suite.
+    /// </summary>
+    public bool EnableUserNameTracking { get; set; }
+
+    /// <summary>
     /// Persist per-event header dictionaries. Off by default in both products and spelled
     /// differently in each — Marten's <c>Events.MetadataConfig.HeadersEnabled</c>, Polecat's
     /// <c>Events.EnableHeaders</c> — so the fixture resolves it, exactly like

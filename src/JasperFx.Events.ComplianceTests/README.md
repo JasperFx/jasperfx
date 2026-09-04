@@ -197,6 +197,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Projection rebuild and catch-up semantics | `RebuildAndCatchUpCompliance` |
 | The projection error path and dead letters | `DeadLetterCompliance` |
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
+| The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
 | Subscriptions | `SubscriptionCompliance` |
 | Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
