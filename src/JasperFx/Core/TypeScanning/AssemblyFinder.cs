@@ -67,6 +67,11 @@ public static class AssemblyFinder
         return assemblies.TopologicalSort((Func<Assembly, Assembly[]>)FindDependencies, false);
     }
 
+    // wolverine#4232: every public entry point into this walk already carries the attribute; the private
+    // iterator did not, so the trimmer reported the LoadFromAssemblyPath call from inside the generated
+    // MoveNext -- a warning a consumer could neither act on nor suppress. Annotating it puts the diagnostic
+    // where the decision actually is, on the public FindAssemblies overloads.
+    [RequiresUnreferencedCode("Scans a directory and loads each assembly it finds by name or path. The trimmer cannot statically reason about which types those assemblies contribute; AOT-publishing apps should rely on explicit assembly references and source-generated type lists instead.")]
     private static IEnumerable<Assembly> findAssemblies(string assemblyPath, Action<string> logFailure,
         bool includeExeFiles)
     {

@@ -1,4 +1,6 @@
-﻿using System.Reflection;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using JasperFx.CodeGeneration.Model;
 using JasperFx.CodeGeneration.Services;
 using JasperFx.Core;
@@ -141,15 +143,44 @@ public class GenerationRules
         }
     }
 
+    // wolverine#4232: the two dynamic loaders are RequiresUnreferencedCode + RequiresDynamicCode, and the
+    // #pragma that used to sit here only silenced the analyzer while JasperFx itself compiled. Trim and AOT
+    // analysis runs over IL in the CONSUMER's publish, where a pragma means nothing, so every app publishing
+    // AOT saw both warnings out of a method it does not call.
+    //
+    // The guard is not a suppression dressed up as a branch -- it is also simply true: neither loader can
+    // emit a type into a Native AOT image. Auto exists to adapt to the platform, so it adapts; Dynamic was
+    // asked for something the platform cannot do, and saying so here beats the obscure failure it used to
+    // reach later. The suppressions sit on the split overload below, where the constructions are.
     private static ITypeLoader DefaultLoaderFor(TypeLoadMode mode)
+        => DefaultLoaderFor(mode, RuntimeFeature.IsDynamicCodeSupported);
+
+    // Split for testability, the same way JasperFxOptions.CannotBeApplicationAssembly is: the
+    // dynamic-code-unsupported branch cannot be reached from a CoreCLR test process.
+    [UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "The dynamic loaders are only constructed on the dynamicCodeSupported branch, which a Native AOT image never takes; RuntimeFeature.IsDynamicCodeSupported is the only production caller's argument.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "The dynamic loaders are only constructed on the dynamicCodeSupported branch, which a Native AOT image never takes; RuntimeFeature.IsDynamicCodeSupported is the only production caller's argument.")]
+    internal static ITypeLoader DefaultLoaderFor(TypeLoadMode mode, bool dynamicCodeSupported)
     {
+        if (!dynamicCodeSupported)
+        {
+            if (mode == TypeLoadMode.Dynamic)
+            {
+                throw new PlatformNotSupportedException(
+                    $"{nameof(TypeLoadMode)}.{nameof(TypeLoadMode.Dynamic)} generates and loads types at runtime, which a Native AOT image cannot do. " +
+                    $"Use {nameof(TypeLoadMode)}.{nameof(TypeLoadMode.Static)} with types generated ahead of time by the 'codegen write' command, " +
+                    $"or assign {nameof(GenerationRules)}.{nameof(Loader)} your own {nameof(ITypeLoader)}.");
+            }
+
+            return new StaticTypeLoader();
+        }
+
         return mode switch
         {
             TypeLoadMode.Static => new StaticTypeLoader(),
-#pragma warning disable IL2026, IL3050
             TypeLoadMode.Dynamic => new DynamicTypeLoader(),
             TypeLoadMode.Auto => new AutoTypeLoader(),
-#pragma warning restore IL2026, IL3050
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
     }

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -45,6 +46,14 @@ internal static class EnumerableSingletons
     /// non-keyed registration of <paramref name="elementType"/>, sharing that registration's
     /// singleton instance (GetServices honors each registration's own lifetime).
     /// </summary>
+    // wolverine#4232: GetServices(IServiceProvider, Type) is RequiresDynamicCode because, in the general
+    // case, the IEnumerable<T> it resolves may have to be constructed at runtime. It does not have to be
+    // here. A mirror is only ever minted for a family the application registered and that something in the
+    // application injects as IEnumerable<elementType> -- that injection is what made ArrayPlan build the
+    // mirror at all -- so the closed generic is already rooted in the image by the code being mirrored.
+    // Annotating this instead would hand every AOT consumer a warning for a path that works.
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "IEnumerable<elementType> is rooted by the registration and injection this mirror shadows; a mirror is never minted for a family the application does not already resolve.")]
     public static ServiceDescriptor KeyedMirror(Type elementType, int nonKeyedOrdinal)
     {
         var ordinal = nonKeyedOrdinal;

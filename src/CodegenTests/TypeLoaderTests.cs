@@ -14,6 +14,36 @@ public class TypeLoaderTests
         rules.Loader.ShouldBeOfType<DynamicTypeLoader>();
     }
 
+    // wolverine#4232. Native AOT cannot emit a type into its image, so neither the dynamic loader nor the
+    // auto loader's fallback to it can work there. Auto exists to adapt to the platform, so it adapts;
+    // Dynamic asked for something the platform cannot do, and saying so beats the obscure failure it used
+    // to reach later. This is also what keeps the trimmer's IL2026/IL3050 out of a consumer's publish --
+    // ILC substitutes RuntimeFeature.IsDynamicCodeSupported with false and removes the branch that
+    // constructs them.
+    [Fact]
+    public void without_dynamic_code_auto_mode_falls_back_to_the_static_loader()
+    {
+        GenerationRules.DefaultLoaderFor(TypeLoadMode.Auto, dynamicCodeSupported: false)
+            .ShouldBeOfType<StaticTypeLoader>();
+    }
+
+    [Fact]
+    public void without_dynamic_code_static_mode_is_unchanged()
+    {
+        GenerationRules.DefaultLoaderFor(TypeLoadMode.Static, dynamicCodeSupported: false)
+            .ShouldBeOfType<StaticTypeLoader>();
+    }
+
+    [Fact]
+    public void without_dynamic_code_dynamic_mode_says_so_instead_of_failing_later()
+    {
+        var ex = Should.Throw<PlatformNotSupportedException>(() =>
+            GenerationRules.DefaultLoaderFor(TypeLoadMode.Dynamic, dynamicCodeSupported: false));
+
+        // The message has to name the way out, not just the wall.
+        ex.Message.ShouldContain(nameof(TypeLoadMode.Static));
+    }
+
     [Fact]
     public void default_loader_for_static_mode_is_StaticTypeLoader()
     {
