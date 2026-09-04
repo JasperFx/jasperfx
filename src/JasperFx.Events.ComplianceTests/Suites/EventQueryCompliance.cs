@@ -972,9 +972,14 @@ public abstract class EventQueryCompliance<TFixture, TOperations, TQuerySession>
         // Seven Inspected events interleaved with three Loaded, across streams, one save each —
         // so the Inspected sequences are non-contiguous and a store paging BEFORE filtering
         // produces short or bleeding pages.
+        //
+        // ⚠️ The noise predicate must yield exactly 3 noise / 7 matches over 0..9: `i % 3 == 0`
+        // yields FOUR noise events (0, 3, 6, 9) and made this fact unpassable on every store —
+        // caught independently by the Marten and Fisher enrollments, both answering the correct 6
+        // against the asserted 7.
         for (var i = 0; i < 10; i++)
         {
-            object @event = i % 3 == 0 ? new CargoLoaded($"noise-{i}") : new CargoInspected($"match-{i}");
+            object @event = i % 3 == 2 ? new CargoLoaded($"noise-{i}") : new CargoInspected($"match-{i}");
             await appendAsync(Guid.NewGuid(), @event);
         }
 
