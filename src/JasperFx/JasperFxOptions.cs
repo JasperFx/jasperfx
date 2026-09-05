@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.CodeGeneration;
 using JasperFx.CommandLine;
@@ -320,6 +321,13 @@ public class JasperFxOptions : SystemPartBase
         => CannotBeApplicationAssembly(assembly, LocationDistinguishesAssemblies);
 
     // Split for testability: the single-file case cannot be reproduced in a test process.
+    //
+    // wolverine#4232: IL3000 warns that Location is empty for a bundled assembly, which is precisely the
+    // condition this method is built around -- an empty Location is READ as a signal, never used as a path,
+    // and LocationDistinguishesAssemblies below turns the whole test off the moment the process is bundled.
+    // AppContext.BaseDirectory, which the diagnostic suggests, answers a different question entirely.
+    [UnconditionalSuppressMessage("SingleFile", "IL3000",
+        Justification = "Location is used as a signal, not a path, and the single-file case is exactly what LocationDistinguishesAssemblies detects and disables.")]
     internal static bool CannotBeApplicationAssembly(Assembly assembly, bool locationDistinguishesAssemblies)
     {
         if (assembly.IsDynamic)
@@ -336,8 +344,16 @@ public class JasperFxOptions : SystemPartBase
     // looking for. The entry assembly is the cheap tell: if even IT has no Location, we are bundled.
     // The walk then matches nothing and falls through to Assembly.GetEntryAssembly(), which is the right
     // answer for a single-file app anyway.
-    internal static readonly bool LocationDistinguishesAssemblies =
-        !string.IsNullOrEmpty(Assembly.GetEntryAssembly()?.Location);
+    internal static readonly bool LocationDistinguishesAssemblies = determineLocationDistinguishesAssemblies();
+
+    // wolverine#4232: read through a method rather than straight into the field initializer. A suppression
+    // on a field does not reach the static constructor the initializer compiles into, so IL3000 was reported
+    // against ".cctor()" -- a member no one can annotate. Reading an empty Location here IS the detection the
+    // diagnostic is describing, so it is suppressed where the read actually happens.
+    [UnconditionalSuppressMessage("SingleFile", "IL3000",
+        Justification = "An empty Location on the entry assembly is the single-file signal this method exists to capture; it is never used as a path.")]
+    private static bool determineLocationDistinguishesAssemblies()
+        => !string.IsNullOrEmpty(Assembly.GetEntryAssembly()?.Location);
 
     // GH-600: under an async test fixture the frames between JasperFx and the test class belong to the
     // test *runner*, not the test assembly, so the walk above would otherwise adopt something like

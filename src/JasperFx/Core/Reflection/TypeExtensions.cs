@@ -235,6 +235,11 @@ public static class TypeExtensions
 
     [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
         Justification = "Walks the interface chain via @interface.Closes(openType). Interfaces returned from GetInterfaces() don't statically carry DAM; the recursive walk is bounded by the interface hierarchy of `type`, which itself has [DAM(Interfaces)].")]
+    // wolverine#4232: the recursion actually reports IL2062, not the IL2072 the suppression above names --
+    // same cause, same justification, different diagnostic id -- so that suppression never applied and the
+    // warning reached every consumer's AOT publish.
+    [UnconditionalSuppressMessage("Trimming", "IL2062:DynamicallyAccessedMembers",
+        Justification = "Same recursion as above: the interface comes from GetInterfaces() on a type that already carries [DAM(Interfaces)], so every interface the walk visits is preserved along with it.")]
     public static bool Closes(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] this Type? type,
         Type openType)
