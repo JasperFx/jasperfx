@@ -258,6 +258,22 @@ public sealed class ComplianceStoreConfig
     }
 
     /// <summary>
+    /// Event upcast transformations the suite asked the store to register.
+    /// </summary>
+    public List<JasperFx.Events.Upcasting.UpcastTransformation> Upcasts { get; } = new();
+
+    /// <summary>
+    /// Register an event upcast transformation.
+    /// </summary>
+    /// <inheritdoc cref="IComplianceStoreRegistrar.Upcast" path="/remarks"/>
+    public ComplianceStoreConfig Upcast(JasperFx.Events.Upcasting.UpcastTransformation transformation)
+    {
+        Upcasts.Add(transformation);
+        _registrations.Add(registrar => registrar.Upcast(transformation));
+        return this;
+    }
+
+    /// <summary>
     /// Register the shared compliance subscription with the store's async daemon.
     /// </summary>
     /// <inheritdoc cref="IComplianceStoreRegistrar.Subscribe" path="/remarks"/>
