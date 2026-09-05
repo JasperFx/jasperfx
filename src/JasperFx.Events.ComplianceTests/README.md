@@ -146,6 +146,23 @@ normalised them away, because an unmixed store satisfies the assertion for a rea
 do with the behaviour under test. Vacuous green is worse than a skip, since only one of the two is
 visible.
 
+`AggregateToManyCompliance` and `AggregateToLinqOperatorCompliance` (jasperfx#754) are opt-in
+through fixture seam members rather than the registrar: the `AggregateToAsync` /
+`AggregateToManyAsync` operators ride on each product's raw-event LINQ query
+(`QueryAllRawEvents()`), which is deliberately not part of the shared `IQueryEventStore` contract,
+so `AggregateEventsToAsync` / `AggregateEventsToManyAsync` carry throwing defaults and the suites
+gate on `SupportsAggregateToLinqOperators` (default **false** — implement the pair, flip the flag).
+The seam is one optional predicate over the shared `IEvent` applied in a single `Where()`, then the
+product's own terminator — deliberately no ordering or paging, for the same reason `QueryTableAsync`
+is predicate-free: this must not grow into pinning a query provider's operator set. Enrolling also
+takes two more closed-generic aliases beside `ComplianceMultiStreamProjectionBase`
+(`ComplianceBalanceProjectionBase`, `ComplianceMemberLoyaltyProjectionBase` — see
+`Local/ComplianceAggregateToManyPlaceholders.cs` for the exact spelling), because the many-suite's
+whole point is that the operator drives the *registered projection* — identity routing, a
+session-reading custom grouper, `ShouldDelete` — rather than reimplementing the fold inline, and its
+projections are registered `Async` with the daemon never started so every asserted aggregate can
+only have come from the live fold.
+
 `UpcastingCompliance` (jasperfx#752) is opt-in twice over, because it is the first suite written
 *ahead of* any store implementing the behavior. The seam member —
 `IComplianceStoreRegistrar.Upcast(UpcastTransformation)` — carries the usual throwing default, and
@@ -217,6 +234,8 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Subscriptions | `SubscriptionCompliance` |
 | Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
+| `AggregateToAsync` over an event query | `AggregateToLinqOperatorCompliance` |
+| `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |
 | Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
 
 ### Identity-less boundary aggregates (jasperfx#718)
