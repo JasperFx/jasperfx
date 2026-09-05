@@ -77,6 +77,15 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
 
     protected Task<IProjectionDaemon> StartDaemonAsync() => theFixture.StartDaemonAsync();
 
+    /// <summary>
+    /// Build and start an application host with the store registered the documented way plus its
+    /// documented async daemon registration, for the projection coordinator suite. See
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.StartCoordinatorHostAsync(bool)"/>.
+    /// </summary>
+    protected Task<IComplianceCoordinatorHost<TOperations>> StartCoordinatorHostAsync(
+        bool includeAncillaryStore = false)
+        => theFixture.StartCoordinatorHostAsync(includeAncillaryStore);
+
     protected Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout)
         => theFixture.WaitForNonStaleProjectionDataAsync(timeout);
 

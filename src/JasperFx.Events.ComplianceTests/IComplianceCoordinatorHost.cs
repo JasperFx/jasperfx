@@ -1,0 +1,41 @@
+using System;
+
+namespace JasperFx.Events.ComplianceTests;
+
+/// <summary>
+/// A started application host wrapping a store registered the documented way — the product's
+/// <c>AddXxx(...)</c> service registration plus its documented async daemon registration — handed
+/// to <see cref="ProjectionCoordinatorCompliance{TFixture,TOperations,TQuerySession}"/> by
+/// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.StartCoordinatorHostAsync()"/>.
+/// </summary>
+/// <typeparam name="TOperations">The store's writable session type.</typeparam>
+/// <remarks>
+/// <para>
+/// Deliberately tiny. The suite resolves everything else through <see cref="Services"/> and the
+/// shared interfaces (<c>IProjectionCoordinator</c>, <c>IHostedService</c>,
+/// <c>IProjectionDaemon</c>); the one thing a generic suite cannot pull out of a container
+/// portably is a writable session typed as the fixture's session pair, which is what
+/// <see cref="OpenSession"/> supplies. Every other seam member the suite already has —
+/// <c>SaveChangesAsync</c>, <c>LoadDocumentAsync</c>, <c>EventsFor</c> — takes the session as a
+/// parameter, so it works against a hosted store's session unchanged.
+/// </para>
+/// <para>
+/// <see cref="IAsyncDisposable.DisposeAsync"/> must STOP the host gracefully before disposing it —
+/// Microsoft's <c>IHost.Dispose</c> alone does not call <c>StopAsync</c>, and an abandoned daemon
+/// host leaks agents into the next test.
+/// </para>
+/// </remarks>
+public interface IComplianceCoordinatorHost<out TOperations> : IAsyncDisposable
+{
+    /// <summary>
+    /// The started host's root service provider — the container an application would resolve
+    /// <c>IProjectionCoordinator</c> from.
+    /// </summary>
+    IServiceProvider Services { get; }
+
+    /// <summary>
+    /// Open a writable session against the hosted store — not against the fixture's own store
+    /// instance. Callers dispose it.
+    /// </summary>
+    TOperations OpenSession();
+}

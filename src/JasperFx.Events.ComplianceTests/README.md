@@ -253,6 +253,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | `AggregateToAsync` over an event query | `AggregateToLinqOperatorCompliance` |
 | `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |
 | Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
+| A reachable `IProjectionCoordinator` over the documented registration | `ProjectionCoordinatorCompliance` |
 
 ### Identity-less boundary aggregates (jasperfx#718)
 
@@ -275,6 +276,43 @@ runtime scans as `typeof(TDoc).Assembly`. It is deliberately never registered �
 aggregation — since a DCB aggregate is discovered lazily on first use, and registering it eagerly
 would move the failure to store construction, where it would take every other fact in the suite down
 with it.
+
+### A reachable `IProjectionCoordinator` (jasperfx#732)
+
+`ProjectionCoordinatorCompliance` is the one suite that builds a real application host, because what
+it pins cannot be observed any other way: every other daemon suite drives a daemon the fixture
+constructed by hand, which says nothing about whether the store's *documented DI registration*
+produces a coordinator application code can reach. Fisher shipped exactly that gap (fisher#138) —
+`AddAsyncDaemon` registered only an `IHostedService` over an internal class implementing nothing
+else, so `GetRequiredService<IProjectionCoordinator>()` threw and the
+`GetServices<IHostedService>().OfType<IProjectionCoordinator>()` fallback found nothing — and passed
+all 37 suites the whole time. Third instance of the jasperfx#700 / jasperfx#718 pattern, which is
+why it is a suite rather than a third fix.
+
+The seam is one fixture member plus the small `IComplianceCoordinatorHost<TOperations>` wrapper:
+build and **start** a host that registers the store the documented way — the product's `AddXxx(...)`
+plus its documented async daemon registration — replaying the suite's `ComplianceStoreConfig` onto
+the hosted store, over the same database as the fixture's own store. `Services` and `OpenSession()`
+reach the hosted store; `DisposeAsync` stops the host.
+
+The member carries a throwing default so a consumer keeps compiling across the bump, but there is
+deliberately **no `Supports` flag and no skip** for the core facts: a store that enrolls the suite
+without implementing the seam fails every fact rather than skipping, because a skippable
+registration check recreates the silent gap the suite exists to close. Two of the facts carry the
+weight. The same-instance fact is a correctness matter, not tidiness — two registrations of one
+coordinator are two daemons over one database, which for a single-writer store is two writers
+contending for one lock. And the pause/resume fact is the one that would have caught fisher#138's
+real bug: its `StartAsync` only started daemons for databases not already running, so a naive
+`ResumeAsync` restarted nothing — the suite's first append-and-wait round before the pause proves
+the daemon was genuinely running, so a post-resume timeout indicts resume rather than startup.
+
+The one gated fact is the ancillary store's marker-typed `IProjectionCoordinator<T>`, behind
+`SupportsAncillaryCoordinators` (default false), because not every store has ancillary registration
+at all. A store that flips it also implements `AncillaryCoordinatorFrom` — a fixture member because
+ancillary marker types cannot be shared: every product constrains them to its own store interface,
+so only the fixture can name one. The default host registers only the primary store, and that is
+load-bearing: the hosted-service walk asserts **exactly one** coordinator, so the ancillary store
+only joins the host the ancillary fact asks for (`includeAncillaryStore: true`).
 
 ### The document contract (jasperfx#647)
 
