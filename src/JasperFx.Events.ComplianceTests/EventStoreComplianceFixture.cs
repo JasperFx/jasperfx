@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Events.Daemon;
@@ -185,6 +186,57 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         string tableName, CancellationToken token);
 
     /// <summary>
+    /// Execute the store's raw-event LINQ query — <c>QueryAllRawEvents()</c> on both products —
+    /// with <paramref name="filter"/> applied in a single <c>Where()</c> call, and return the
+    /// matched events.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A seam member because the LINQ-returning methods are deliberately off
+    /// <see cref="IQueryEventStore"/> — they return product-specific queryable types. The shape is
+    /// the narrowest that works, on the same reasoning as <see cref="QueryTableAsync"/>: one
+    /// predicate over the shared <see cref="IEvent"/>, one <c>Where()</c>, executed. No ordering, no
+    /// paging, no queryable handed back — the moment this grows operators it starts pinning one
+    /// provider's LINQ surface, which the library keeps out of scope permanently. The single-Where
+    /// contract is itself load-bearing for the HasTag suite: its facts assert that a tag predicate
+    /// composes with ordinary event predicates <em>inside one predicate tree</em>, which two chained
+    /// <c>Where()</c> calls would not exercise.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default because HasTag-in-LINQ is an opt-in capability; the suite gates on
+    /// <see cref="SupportsHasTagLinqPredicates"/> and skips until a store implements this pair and
+    /// flips the flag.
+    /// </para>
+    /// </remarks>
+    public virtual Task<IReadOnlyList<IEvent>> QueryRawEventsAsync(TQuerySession session,
+        Expression<Func<IEvent, bool>> filter, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement QueryRawEventsAsync, so it cannot run the DCB HasTag LINQ compliance suite.");
+
+    /// <summary>
+    /// Build the store's own <c>HasTag&lt;TTag&gt;(value)</c> marker predicate, for composing into
+    /// the filter handed to <see cref="QueryRawEventsAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one part of a HasTag query a shared suite cannot write: both products translate the
+    /// marker by matching the method's <em>declaring type</em> in their LINQ parsers, so the
+    /// expression must invoke the product's own extension (Marten's
+    /// <c>Marten.Events.LinqExtensions.HasTag</c>, Polecat's <c>Polecat.Linq</c> equivalent) — a
+    /// lambda written here would carry the wrong <c>MethodInfo</c> and never be recognized. An
+    /// implementation is one line: <c>e =&gt; e.HasTag(value)</c>.
+    /// </para>
+    /// <para>
+    /// Building the expression must not itself validate the tag type: for an unregistered tag the
+    /// products throw <see cref="InvalidOperationException"/> at query translation, which is the
+    /// behavior the suite pins.
+    /// </para>
+    /// </remarks>
+    public virtual Expression<Func<IEvent, bool>> HasTagFilter<TTag>(TTag value) where TTag : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement HasTagFilter, so it cannot run the DCB HasTag LINQ compliance suite.");
+
+    /// <summary>
     /// Execute a batch data-masking operation against already-stored events.
     /// </summary>
     /// <remarks>
@@ -213,6 +265,19 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// False where the store cannot slice one database by tenant.
     /// </summary>
     public virtual bool SupportsConjoinedEventTenancy => true;
+
+    /// <summary>
+    /// True in a store that has implemented the <c>IEvent.HasTag&lt;TTag&gt;</c> LINQ marker over
+    /// its raw-event query and the <see cref="QueryRawEventsAsync"/> / <see cref="HasTagFilter{TTag}"/>
+    /// seam members that reach it.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false, unlike the older gates, because the seam members it guards carry throwing
+    /// defaults: a store that enrolls <c>DcbHasTagLinqCompliance</c> before implementing the seam
+    /// should skip cleanly rather than fail on the default. Implement the two members, flip this to
+    /// true.
+    /// </remarks>
+    public virtual bool SupportsHasTagLinqPredicates => false;
 
     /// <summary>
     /// False where the store cannot run the async projection daemon in the test environment.
