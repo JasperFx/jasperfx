@@ -245,6 +245,29 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </remarks>
     public virtual bool SupportsFlatTableProjections => true;
 
+    /// <summary>
+    /// True in a store that has implemented the shared event upcasting contract
+    /// (<c>JasperFx.Events.Upcasting</c>) — routing its read paths through
+    /// <c>EventRegistry.Upcasters</c> and implementing <c>IUpcastPayload</c> over its own reader
+    /// and serializer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Defaults to false, unlike the other gates, because the contract is being defined ahead of
+    /// any store implementing it (jasperfx#752): a consumer that enrolls
+    /// <c>UpcastingCompliance</c> today skips it wholesale and stays green, then flips this when
+    /// the store's read path honors the registry. Like
+    /// <see cref="SupportsFlatTableProjections" />, the suite is the specification a store
+    /// implements against, and the gate is meant to be flipped rather than lived with.
+    /// </para>
+    /// <para>
+    /// The gate also short-circuits configuration, not just facts: the suite never replays its
+    /// upcast registrations through <see cref="IComplianceStoreRegistrar.Upcast" /> (which has a
+    /// throwing default) while this is false.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsUpcasting => false;
+
 
     public virtual ValueTask InitializeAsync() => default;
 

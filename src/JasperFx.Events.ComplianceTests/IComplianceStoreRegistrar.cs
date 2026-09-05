@@ -165,6 +165,29 @@ public interface IComplianceStoreRegistrar
             $"{GetType().FullName} does not implement AddCompositeProjection, so it cannot run the composite projection compliance suite.");
 
     /// <summary>
+    /// Register an event upcast transformation. Maps to the shared
+    /// <c>EventRegistry.Upcasters.Register(transformation)</c>, plus whatever per-store wiring
+    /// makes the store's read path honor it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One member covers every registration shape — typed sync, typed async-only, raw
+    /// <c>JsonDocument</c> — because <c>JasperFx.Events.Upcasting.UpcastTransformation</c> is the
+    /// shared carrier all of them funnel into; the suite builds transformations through the shared
+    /// factories, so the registrar never needs the generic overload family.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default for the same reason as <see cref="UseBinarySerializer{TEvent}" />:
+    /// upcasting is gated (<c>SupportsUpcasting</c>, default false, see jasperfx#752), so a store
+    /// that has not implemented it never reaches this member and keeps compiling against a newer
+    /// compliance package.
+    /// </para>
+    /// </remarks>
+    void Upcast(JasperFx.Events.Upcasting.UpcastTransformation transformation)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement Upcast, so it cannot run the event upcasting compliance suite.");
+
+    /// <summary>
     /// Register the shared compliance subscription with the store's async daemon.
     /// </summary>
     /// <remarks>
