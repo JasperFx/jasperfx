@@ -90,6 +90,15 @@ public class EventRegistry : IEventRegistry
     public virtual AggregateWriteCacheOptions AggregateWriteCaching { get; } = new();
 
     /// <summary>
+    ///     Event upcasting registrations — transformations from old stored event schemas to the
+    ///     current CLR event types, applied by the store's read path. See
+    ///     <see cref="Upcasting.UpcastingRegistry" /> for the resolution semantics a store must
+    ///     honor, including the marten#4680 authority rule.
+    /// </summary>
+    [IgnoreDescription]
+    public virtual Upcasting.UpcastingRegistry Upcasters { get; } = new();
+
+    /// <summary>
     ///     Keep recently fetched snapshots of <typeparamref name="T" /> in a node-local cache so that
     ///     a subsequent <c>FetchForWriting</c> can skip loading the stored snapshot and read only the
     ///     events after it. Effectively an identity map for aggregates with a lifetime longer than a

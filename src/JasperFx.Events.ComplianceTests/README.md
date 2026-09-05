@@ -146,6 +146,21 @@ normalised them away, because an unmixed store satisfies the assertion for a rea
 do with the behaviour under test. Vacuous green is worse than a skip, since only one of the two is
 visible.
 
+`UpcastingCompliance` (jasperfx#752) is opt-in twice over, because it is the first suite written
+*ahead of* any store implementing the behavior. The seam member —
+`IComplianceStoreRegistrar.Upcast(UpcastTransformation)` — carries the usual throwing default, and
+the suite is additionally gated on `SupportsUpcasting`, the one capability flag that defaults to
+**false**: an enrolled store skips every fact (including configuration, so the throwing default is
+never reached) until it routes its read paths through the shared
+`JasperFx.Events.Upcasting.UpcastingRegistry` and implements `IUpcastPayload` over its own reader
+and serializer, then flips the gate and works the facts to green — the same
+declare-the-surface-then-implement ordering as `SupportsFlatTableProjections`. Most facts write
+rows through a "legacy" store configuration that has never heard of the upcasts, then read them
+back through the migrated configuration, because that is what a real schema migration looks like;
+the one single-store fact pins the marten#4680 authority rule — a typed append of the *old* CLR
+type, whose stored dotnet-type hint would otherwise swap the mapping back, must still read through
+the upcaster.
+
 ## Capability gates
 
 Where a store genuinely cannot support a behavior, override the `virtual bool Supports...` flags on
@@ -202,6 +217,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Subscriptions | `SubscriptionCompliance` |
 | Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
+| Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
 
 ### Identity-less boundary aggregates (jasperfx#718)
 
