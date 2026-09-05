@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Events.Daemon;
@@ -205,6 +206,48 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         Action<Protected.IEventDataMasking> configure, CancellationToken token);
 
     /// <summary>
+    /// Fold every event matched by the store's raw-event LINQ query into a single
+    /// <typeparamref name="T"/> — the product's <c>AggregateToAsync&lt;T&gt;</c> operator over
+    /// <c>QueryAllRawEvents()</c> — optionally seeded with <paramref name="initialState"/>.
+    /// Must return null when the query matches no events.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A seam member because nothing shared can reach the operator: the LINQ-returning members are
+    /// deliberately off <see cref="IQueryEventStore"/> (they return product-specific queryable
+    /// types), and <c>AggregateToAsync</c> itself is an extension in each product's own namespace.
+    /// The seam is deliberately the narrowest shape every fact needs — one optional predicate over
+    /// the shared <see cref="IEvent"/>, applied in a single <c>Where()</c>, then the product's own
+    /// terminator — for the same reason <see cref="QueryTableAsync"/> is predicate-free: the moment
+    /// this grows ordering or paging it starts pinning one provider's operator set, which the
+    /// library keeps out of scope permanently.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default because the operators are an opt-in capability rather than part of
+    /// the baseline event contract; the affected suites gate on
+    /// <see cref="SupportsAggregateToLinqOperators"/> and skip until a store implements the pair and
+    /// flips the flag.
+    /// </para>
+    /// </remarks>
+    public virtual Task<T?> AggregateEventsToAsync<T>(TQuerySession session,
+        Expression<Func<IEvent, bool>>? filter, T? initialState, CancellationToken token) where T : class
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement AggregateEventsToAsync, so it cannot run the AggregateTo LINQ operator compliance suite.");
+
+    /// <summary>
+    /// Run the events matched by the store's raw-event LINQ query through the multi-stream
+    /// projection registered for <typeparamref name="T"/> and return one aggregate per resulting
+    /// identity — the product's <c>AggregateToManyAsync&lt;T&gt;</c> operator over
+    /// <c>QueryAllRawEvents()</c>. Must throw <see cref="ArgumentException"/> when no registered
+    /// projection produces <typeparamref name="T"/>, even for an empty result set.
+    /// </summary>
+    /// <inheritdoc cref="AggregateEventsToAsync{T}" path="/remarks"/>
+    public virtual Task<IReadOnlyList<T>> AggregateEventsToManyAsync<T>(TQuerySession session,
+        Expression<Func<IEvent, bool>>? filter, CancellationToken token) where T : class
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement AggregateEventsToManyAsync, so it cannot run the aggregate-to-many compliance suite.");
+
+    /// <summary>
     /// False in stores that build live aggregators automatically and reject explicit registration.
     /// </summary>
     public virtual bool SupportsLiveAggregationRegistration => true;
@@ -244,6 +287,21 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </para>
     /// </remarks>
     public virtual bool SupportsFlatTableProjections => true;
+
+    /// <summary>
+    /// True in a store that has implemented the <c>AggregateToAsync</c> /
+    /// <c>AggregateToManyAsync</c> operators over its raw-event LINQ query and the
+    /// <see cref="AggregateEventsToAsync{T}"/> / <see cref="AggregateEventsToManyAsync{T}"/> seam
+    /// members that reach them.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false, unlike the older gates, because the seam members it guards carry throwing
+    /// defaults: a store that enrolls
+    /// <c>AggregateToManyCompliance</c> / <c>AggregateToLinqOperatorCompliance</c> before
+    /// implementing the seam should skip cleanly rather than fail on the default. Implement the two
+    /// members, flip this to true.
+    /// </remarks>
+    public virtual bool SupportsAggregateToLinqOperators => false;
 
 
     public virtual ValueTask InitializeAsync() => default;
