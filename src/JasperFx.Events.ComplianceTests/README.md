@@ -136,6 +136,21 @@ which a last-write-wins aggregate would hide. Two of the three products already 
 named for that class of bug — `Bug_439_composite_member_teardown` and `composite_member_teardown` —
 which is what marks the behaviour as shared rather than product-owned.
 
+`DcbHasTagLinqCompliance` (jasperfx#755) is opt-in through fixture seam members rather than the
+registrar. It pins the `IEvent.HasTag<TTag>(value)` LINQ marker — a DCB tag predicate composing with
+ordinary event predicates in one `Where()` over the raw-event query — which no shared surface can
+reach twice over: `QueryAllRawEvents()` is deliberately off `IQueryEventStore`, and both products'
+LINQ parsers recognize `HasTag` by the method's *declaring type*, so an expression written in shared
+source would carry the wrong `MethodInfo` and never be recognized. Two seam members with throwing
+defaults close the gap — `HasTagFilter<TTag>` builds the store's own marker predicate (one line:
+`e => e.HasTag(value)`), and `QueryRawEventsAsync` executes exactly one predicate through one
+`Where()` — gated on `SupportsHasTagLinqPredicates` (default **false** — implement the pair, flip
+the flag). The suite ANDs predicates into a single tree itself, so the parser meets `HasTag` as an
+`AndAlso` operand rather than a lone filter. This stays on the DCB-tag side of the general-LINQ
+exclusion below: the suite pins tag predicate semantics (tag matching, AND composition, tenant
+scoping, unregistered-tag throw), never a provider operator set. Marten's hstore-mode fact stayed
+behind as one engine's storage layout.
+
 `SingleTenantedEventSlicingCompliance` (jasperfx#724) is opt-in for a different reason: it needs no
 registrar seam at all, but the precondition it constructs is unusual enough that a store should adopt
 it knowingly. On a single-tenanted store, events whose `tenant_id` values disagree must still fold into
@@ -173,6 +188,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Self-aggregating `EvolveAsync` conventions | `SelfAggregatingEvolveCompliance` |
 | DCB tag queries and consistency | `DcbTagQueryAndConsistencyCompliance` |
 | `AssignTagWhere` | `AssignTagWhereCompliance` |
+| DCB `HasTag` predicates in event LINQ queries | `DcbHasTagLinqCompliance` |
 | Async daemon smoke + rebuild | `AsyncDaemonCompliance` |
 | Aggregate type auto-discovery | `AutoDiscoveredAggregateCompliance` |
 | `EventProjection` registration and enrichment | `EventProjectionRegistrationCompliance`, `EventProjectionEnrichmentCompliance` |
