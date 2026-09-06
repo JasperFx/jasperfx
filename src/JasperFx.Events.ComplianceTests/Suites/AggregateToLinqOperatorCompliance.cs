@@ -96,8 +96,20 @@ public abstract class AggregateToLinqOperatorCompliance<TFixture, TOperations, T
             e => e.StreamId == stream, initial, Cancellation);
 
         trail.ShouldNotBeNull();
-        trail.Name.ShouldBe("Long Trail");
+
+        // The fold CONTINUES the supplied state rather than restarting from it: 100 + 10.
         trail.Miles.ShouldBe(110);
+
+        // And the creator does not run, which is the other half of the same statement. A supplied
+        // initial state means the aggregate already exists, so ComplianceTrail.Create(TrailStarted)
+        // is skipped and Name is never assigned — TrailStarted contributes nothing but its place in
+        // the sequence.
+        //
+        // This originally asserted Name == "Long Trail" alongside Miles == 110, which no coherent
+        // implementation can satisfy: running the creator produces a NEW instance and discards the
+        // supplied state, so Name and Miles == 110 are mutually exclusive. Caught the first time the
+        // suite was executed against a real store (polecat#556).
+        trail.Name.ShouldBe(string.Empty);
     }
 
     [Fact]

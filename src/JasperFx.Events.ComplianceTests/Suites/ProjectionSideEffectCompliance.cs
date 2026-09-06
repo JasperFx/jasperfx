@@ -297,7 +297,12 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
 
         await daemon.StopAllAsync();
 
-        await daemon.RebuildProjectionAsync(nameof(ComplianceWatchtowerProjection), _timeout,
+        // nameof(ComplianceWatchtower), the DOCUMENT type, not the projection class:
+        // JasperFxAggregationProjectionBase's constructor sets Name = typeof(TDoc).NameInCode(),
+        // overriding ProjectionBase's class-name default, so an aggregation projection is known to
+        // the daemon by the type it produces. Naming the class here threw
+        // ArgumentOutOfRangeException on every store (found enrolling this suite in polecat#556).
+        await daemon.RebuildProjectionAsync(nameof(ComplianceWatchtower), _timeout,
             CancellationToken.None);
 
         var after = await eventsForAsync(streamId);
@@ -474,7 +479,12 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
 
         await daemon.StopAllAsync();
 
-        await daemon.RebuildProjectionAsync(nameof(ComplianceWatchtowerProjection), _timeout,
+        // nameof(ComplianceWatchtower), the DOCUMENT type, not the projection class:
+        // JasperFxAggregationProjectionBase's constructor sets Name = typeof(TDoc).NameInCode(),
+        // overriding ProjectionBase's class-name default, so an aggregation projection is known to
+        // the daemon by the type it produces. Naming the class here threw
+        // ArgumentOutOfRangeException on every store (found enrolling this suite in polecat#556).
+        await daemon.RebuildProjectionAsync(nameof(ComplianceWatchtower), _timeout,
             CancellationToken.None);
 
         _outbox.PublishedMessages.OfType<WatchtowerReported>().Count().ShouldBe(before);
