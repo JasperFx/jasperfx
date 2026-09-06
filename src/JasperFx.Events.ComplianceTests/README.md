@@ -254,6 +254,29 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |
 | Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
 | A reachable `IProjectionCoordinator` over the documented registration | `ProjectionCoordinatorCompliance` |
+| `AlwaysEnforceConsistency` — a version check with no events appended | `AlwaysEnforceConsistencyCompliance` |
+| The stream-fetch query plans, standalone and batched | `StreamQueryPlanCompliance` |
+
+### The empty unit of work (jasperfx#762)
+
+`AlwaysEnforceConsistencyCompliance` is a separate suite rather than more facts on
+`FetchForWritingCompliance`, and the reason generalises. Every concurrency assertion in that suite
+appends an event first, and appending is what makes the ordinary version check fire — so a store
+that ignored `IEventStream<T>.AlwaysEnforceConsistency` completely passes all of it. The flag exists
+for the case that suite structurally cannot reach: a decider that reads a stream, decides to emit
+nothing, and still needs to know its read was not stale. A behaviour whose whole point is what
+happens when *nothing* happens needs its own suite, because the natural setup for every neighbouring
+fact destroys it.
+
+`StreamQueryPlanCompliance` and the unarchive facts on `StreamArchivingCompliance` are both opt-in
+through `Supports` flags defaulting false, for the ordinary reason: each store declares its own
+`IQueryPlan<T>` / `IBatchQueryPlan<T>` and its own `QueryByPlan` route (so the plan types cannot be
+shared, only the results), and `UnArchiveStream` is on Polecat's own `IEventOperations` with no
+Marten equivalent, so it is not on `IEventStoreOperations` and cannot be. Note the query plan suite's
+`batched` axis: a plan implements two interfaces with two separate implementations — standalone it
+owns the whole command, batched it contributes a fragment to someone else's — so every fact runs
+twice, and the version cap, the one parameter that has to survive into the batched fragment's own
+SQL, is where the two paths are most likely to drift.
 
 ### Identity-less boundary aggregates (jasperfx#718)
 

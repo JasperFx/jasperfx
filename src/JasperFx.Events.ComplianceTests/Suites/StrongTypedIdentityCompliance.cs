@@ -125,6 +125,20 @@ public abstract class StrongTypedIdentityCompliance<TFixture, TOperations, TQuer
     };
 
     /// <summary>
+    /// The Guid-backed aggregate registered as a live aggregation — no persisted document at all.
+    /// </summary>
+    private static readonly Action<ComplianceStoreConfig> _liveConfiguration = config =>
+    {
+        config.SchemaName = "compliance_strong_typed_live";
+
+        config.AddEventType<PaymentRaised>();
+        config.AddEventType<PaymentSettled>();
+
+        config.RegisterValueType<CompliancePaymentId>();
+        config.LiveAggregation<CompliancePayment>();
+    };
+
+    /// <summary>
     /// The string-backed aggregate. Stream identity is a store-level setting, so the string-keyed
     /// half cannot share a store with the Guid-keyed half.
     /// </summary>
@@ -284,6 +298,74 @@ public abstract class StrongTypedIdentityCompliance<TFixture, TOperations, TQuer
         payment.ShouldNotBeNull();
         payment.Id.Value.ShouldBe(streamId);
         payment.Outstanding.ShouldBe(50m);
+    }
+
+    /// <summary>
+    /// The lifecycle matrix both products still carry locally — Marten's
+    /// <c>use_fetch_for_writing(ProjectionLifecycle)</c> theory in
+    /// <c>using_guid_based_strong_typed_id_for_aggregate_identity.cs</c>, and its string-based twin.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The facts above already cover <c>FetchForWriting</c> under an inline snapshot and
+    /// <c>FetchLatest</c> under an async one, but never the same call across all three registrations
+    /// of the same aggregate — and that is where strong-typed identity actually breaks. The three
+    /// lifecycles reach the id through three different code paths: live folds and never touches
+    /// document identity, inline resolves the id to write a snapshot in the same transaction, and
+    /// async resolves it inside the daemon's own storage. A store can get any one of the three right
+    /// on its own.
+    /// </para>
+    /// <para>
+    /// Note that the answer asserted is identical in all three cases, which is the actual contract:
+    /// the lifecycle changes when the document is written, never what <c>FetchForWriting</c> hands
+    /// back.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(ProjectionLifecycle.Live)]
+    [InlineData(ProjectionLifecycle.Inline)]
+    [InlineData(ProjectionLifecycle.Async)]
+    public async Task fetch_for_writing_by_strong_typed_id_under_every_lifecycle(ProjectionLifecycle lifecycle)
+    {
+        if (lifecycle == ProjectionLifecycle.Live)
+        {
+            Assert.SkipUnless(theFixture.SupportsLiveAggregationRegistration,
+                "This event store builds live aggregators automatically and rejects explicit registration");
+        }
+
+        if (lifecycle == ProjectionLifecycle.Async)
+        {
+            Assert.SkipUnless(theFixture.SupportsAsyncDaemon,
+                "This event store does not support the async projection daemon under test");
+        }
+
+        await theFixture.ConfigureAsync(lifecycle switch
+        {
+            ProjectionLifecycle.Live => _liveConfiguration,
+            ProjectionLifecycle.Async => _asyncConfiguration,
+            _ => _configuration
+        });
+
+        var streamId = await aPaymentAsync(new PaymentRaised(100m), new PaymentSettled(40m));
+
+        await using var session = OpenSession();
+        var stream = await EventsFor(session)
+            .FetchForWriting<CompliancePayment>(streamId, Cancellation);
+
+        stream.Aggregate.ShouldNotBeNull();
+        stream.Aggregate.Id.Value.ShouldBe(streamId);
+        stream.Aggregate.Outstanding.ShouldBe(60m);
+        stream.StartingVersion.ShouldBe(2);
+
+        stream.AppendOne(new PaymentSettled(60m));
+        await SaveChangesAsync(session);
+
+        await using var reader = OpenSession();
+        var payment = await EventsFor(reader)
+            .AggregateStreamAsync<CompliancePayment>(streamId, token: Cancellation);
+        payment.ShouldNotBeNull();
+        payment.Id.Value.ShouldBe(streamId);
+        payment.Settled.ShouldBeTrue();
     }
 
     // ---------- String-backed ----------
