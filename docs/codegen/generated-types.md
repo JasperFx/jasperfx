@@ -211,7 +211,7 @@ Argument kinds:
 |---------|------------|------------|
 | `AttributeArg.Type(typeof(T))` | `typeof(global::Ns.T)` | `typeof<Ns.T>` |
 | `AttributeArg.TypeNamed("Ns.T")` | `typeof(global::Ns.T)` | `typeof<Ns.T>` |
-| `AttributeArg.Enum(value)` | `global::Ns.E.Member` (`\|` for combined flags) | `Ns.E.Member` (`\|\|\|`) |
+| `AttributeArg.Enum(value)` | `global::Ns.E.Member`, combined flags joined with the C# bitwise-or | `Ns.E.Member`, combined flags joined with the F# bitwise-or |
 | `AttributeArg.Value(literal)` | `"text"` / `true` / `5L` / `null` | same, with F# numeric literal rules |
 | `AttributeArg.Raw(csharp, fsharp)` | verbatim | verbatim |
 
