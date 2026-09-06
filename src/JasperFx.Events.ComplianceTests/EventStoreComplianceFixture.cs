@@ -503,6 +503,73 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         => throw new NotSupportedException(
             $"{GetType().FullName} does not implement AncillaryCoordinatorFrom, so it cannot run the ancillary coordinator compliance fact.");
 
+    /// <summary>
+    /// True in a store that ships the two stream-fetch query plans — a <c>FetchStreamStatePlan</c>
+    /// and a <c>FetchStreamPlan</c> usable both standalone and inside a batched query — and has
+    /// implemented the two seam members that reach them.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false: the plan types and the <c>QueryByPlan</c> entry points are per-product
+    /// (each store declares its own <c>IQueryPlan&lt;T&gt;</c> / <c>IBatchQueryPlan&lt;T&gt;</c>), so
+    /// a store without them enrolls
+    /// <see cref="StreamQueryPlanCompliance{TFixture,TOperations,TQuerySession}"/> and skips.
+    /// </remarks>
+    public virtual bool SupportsStreamQueryPlans => false;
+
+    /// <summary>
+    /// Run the store's stream-state query plan for <paramref name="streamIdentity"/> — a
+    /// <see cref="Guid"/> or a <see cref="string"/>, matching the store's stream identity.
+    /// </summary>
+    /// <param name="batched">
+    /// When true the plan must be executed through the store's batched query surface rather than
+    /// standalone. Load-bearing rather than convenience: the two paths compose their SQL separately
+    /// on both products, so a plan that is correct standalone and wrong in a batch is the failure
+    /// this suite is looking for.
+    /// </param>
+    /// <remarks>
+    /// The result type is the shared <see cref="StreamState"/>, and the assertions are all about the
+    /// stream — so only the *route* to the plan is per-product, which is why this is a forwarding
+    /// member rather than an abstraction over query plans in general.
+    /// </remarks>
+    public virtual Task<StreamState?> FetchStreamStateByPlanAsync(
+        TQuerySession session, object streamIdentity, bool batched, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement FetchStreamStateByPlanAsync, so it cannot run the stream query plan compliance suite.");
+
+    /// <summary>
+    /// Run the store's raw-event stream query plan for <paramref name="streamIdentity"/>.
+    /// </summary>
+    /// <param name="version">
+    /// Inclusive version cap, or zero for no cap — the same meaning the shared
+    /// <c>FetchStreamAsync</c> overloads give it.
+    /// </param>
+    /// <param name="batched">See <see cref="FetchStreamStateByPlanAsync"/>.</param>
+    public virtual Task<IReadOnlyList<IEvent>> FetchStreamByPlanAsync(
+        TQuerySession session, object streamIdentity, long version, bool batched, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement FetchStreamByPlanAsync, so it cannot run the stream query plan compliance suite.");
+
+    /// <summary>
+    /// True in a store that has implemented <c>UnArchiveStream</c> — reversing an archive so the
+    /// stream's events are readable and appendable again.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false because the operation is genuinely not universal: Polecat declares it on
+    /// its own <c>IEventOperations</c> and Marten has no equivalent today, so it is not on the shared
+    /// <see cref="IEventStoreOperations"/> and cannot be. The suite's unarchive facts skip rather
+    /// than fail on a store without it; the archiving facts around them do not.
+    /// </remarks>
+    public virtual bool SupportsUnarchiveStream => false;
+
+    /// <summary>
+    /// Queue an unarchive of the given stream on the session — <paramref name="streamIdentity"/> is
+    /// a <see cref="Guid"/> or a <see cref="string"/>. Like <c>ArchiveStream</c>, this takes effect
+    /// on SaveChanges rather than immediately.
+    /// </summary>
+    public virtual void UnArchiveStream(TOperations session, object streamIdentity)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement UnArchiveStream, so it cannot run the unarchive compliance facts.");
+
 
     public virtual ValueTask InitializeAsync() => default;
 
