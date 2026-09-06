@@ -329,7 +329,12 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
 
         await using (var session = OpenSession())
         {
-            EventsFor(session).Append(streamId, new Archived("Closed out"));
+            // LedgerEntryPosted alongside the Archived, exactly as the inline fact above and all
+            // four of Marten's local variants do. Not decoration: a projection's AllEventTypes is
+            // derived from its Create/Apply handlers and ComplianceLedger handles no Archived, so a
+            // slice carrying ONLY an Archived fails AppliesTo and is screened out before the
+            // archival hook is ever reached. This fact asserted a path no store can serve.
+            EventsFor(session).Append(streamId, new LedgerEntryPosted(75), new Archived("Closed out"));
             await SaveChangesAsync(session);
         }
 
@@ -360,7 +365,8 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
 
         await using (var session = OpenSession())
         {
-            EventsFor(session).Append(key, new Archived("Closed out"));
+            // See the async fact above: an Archived-only slice never reaches the archival hook.
+            EventsFor(session).Append(key, new LedgerEntryPosted(75), new Archived("Closed out"));
             await SaveChangesAsync(session);
         }
 
