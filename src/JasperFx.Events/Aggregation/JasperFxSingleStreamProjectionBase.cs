@@ -69,6 +69,49 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         _streamActionSource = StreamAction.CreateAggregateIdentitySource<TId>();
     }
 
+    /// <summary>
+    /// A single stream projection always applies to <see cref="Archived" />, whether or not the
+    /// aggregate declares anything for it — jasperfx#778.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The gate outside the one jasperfx#780 closed</b>, and on a store where it bites, closing that
+    /// one alone changes nothing. <c>Archived</c> carries no state, so an aggregate has no reason to
+    /// declare an <c>Apply</c> for it — which leaves it out of <c>AllEventTypes</c>, so
+    /// <c>AppliesTo</c> answers false, <c>ApplyInline</c>'s opening
+    /// <c>streams.Where(AppliesTo(...))</c> screens the whole stream out before reading anything, and
+    /// the async shard's own event filter never delivers the event into a slice at all.
+    /// </para>
+    /// <para>
+    /// Verified on Fisher, whose <c>StreamArchivingCompliance</c> still failed both archived-event
+    /// facts against jasperfx#780 alone and passes both with this.
+    /// </para>
+    /// <para>
+    /// Only the single stream scope, because only it archives: <c>maybeArchiveStream</c> returns
+    /// immediately for any other scope, so widening a multi stream projection's event types would hand
+    /// its shard events it has nothing to do with.
+    /// </para>
+    /// <para>
+    /// Widening what the projection <em>sees</em> is not widening what it <em>archives</em>. Ownership
+    /// is still the marten#4093 rule — a snapshot present before or after the slice — so a sibling
+    /// projection in a composite that does not own the stream now sees the event and still declines.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>An empty set is left empty</b>, and skipping that guard is a real regression rather than a
+    /// tidiness point: <c>AppliesTo</c> reads an empty <c>AllEventTypes</c> as "applies to everything",
+    /// which is how a catch-all <c>Evolve(IEvent)</c> projection declares itself. Adding
+    /// <c>Archived</c> unconditionally turns that "everything" into "exactly one type", and such a
+    /// projection then sees nothing at all — seven of
+    /// <c>SelfAggregatingEvolveCompliance</c>'s facts, caught by the first cut of this override.
+    /// </para>
+    /// </remarks>
+    protected override Type[] determineEventTypes()
+    {
+        var types = base.determineEventTypes();
+
+        return types.Length == 0 ? types : [.. types, typeof(Archived)];
+    }
+
     // ForceSingleTenancy is the wolverine#2053 / marten#4085 fix: on a single-tenanted store, events whose
     // tenant_id values disagree must still fold into one aggregate. Marten used to be the only store that
     // set it, by overriding this method -- so a consumer deriving from THIS type, and both other stores
