@@ -274,6 +274,23 @@ public sealed class ComplianceStoreConfig
     }
 
     /// <summary>
+    /// The recording message outbox the suite asked the store to publish side effects through,
+    /// when it asked for one.
+    /// </summary>
+    public RecordingMessageOutbox? MessageOutbox { get; private set; }
+
+    /// <summary>
+    /// Install the shared recording message outbox.
+    /// </summary>
+    /// <inheritdoc cref="IComplianceStoreRegistrar.UseMessageOutbox" path="/remarks"/>
+    public ComplianceStoreConfig UseMessageOutbox(RecordingMessageOutbox outbox)
+    {
+        MessageOutbox = outbox;
+        _registrations.Add(registrar => registrar.UseMessageOutbox(outbox));
+        return this;
+    }
+
+    /// <summary>
     /// Register the shared compliance subscription with the store's async daemon.
     /// </summary>
     /// <inheritdoc cref="IComplianceStoreRegistrar.Subscribe" path="/remarks"/>

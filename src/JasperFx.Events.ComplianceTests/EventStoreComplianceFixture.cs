@@ -570,6 +570,45 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
         => throw new NotSupportedException(
             $"{GetType().FullName} does not implement UnArchiveStream, so it cannot run the unarchive compliance facts.");
 
+    /// <summary>
+    /// True in a store that has a message outbox — an <c>Events.MessageOutbox</c> a bus integration
+    /// replaces — and routes a projection's published side effects through it. Gates the outbox
+    /// facts of
+    /// <see cref="ProjectionSideEffectCompliance{TFixture,TOperations,TQuerySession}"/>; the
+    /// raised-event and rebuild-suppression facts need no outbox and are not gated on it.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>, the same declare-the-surface-then-implement ordering as
+    /// <see cref="SupportsUpcasting"/>: a store enrolls the suite, implements
+    /// <see cref="IComplianceStoreRegistrar.UseMessageOutbox"/> and the two consumer partials on
+    /// <see cref="RecordingMessageOutbox"/> / <see cref="RecordingMessageBatch"/>, then flips this.
+    /// Gated rather than always-on because the outbox facts also drive store <em>construction</em>
+    /// through the registrar member, so an ungated suite would reach its throwing default rather
+    /// than skipping.
+    /// </remarks>
+    public virtual bool SupportsMessageOutbox => false;
+
+    /// <summary>
+    /// True where the outbox's commit hooks may safely read committed state over a second session
+    /// while the first session's write transaction is still open.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Gates the one fact that proves the commit <em>boundary</em> rather than merely the hook
+    /// order — before-commit inside the transaction, after-commit outside it. It is separate from
+    /// <see cref="SupportsMessageOutbox"/> because the risk is the engine's, not the outbox's: the
+    /// before-commit probe reads a row the open transaction is in the middle of writing, which a
+    /// snapshot/WAL reader answers immediately but a lock-based reader can block on — and a probe
+    /// that blocks until the commit deadlocks against the hook that is holding the commit open.
+    /// </para>
+    /// <para>
+    /// Default <strong>false</strong> for that reason: a store flips it once it knows its readers
+    /// do not block behind an uncommitted write. Skipping costs one fact; guessing wrong hangs the
+    /// suite.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsCommitVisibilityProbe => false;
+
 
     public virtual ValueTask InitializeAsync() => default;
 
