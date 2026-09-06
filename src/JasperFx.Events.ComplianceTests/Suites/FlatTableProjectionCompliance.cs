@@ -16,6 +16,23 @@ public record FlatValuesAdded(int A, int B, int C, int D);
 
 public record FlatValuesSubtracted(int A, int B, int C, int D);
 
+/// <summary>
+/// An increment event that maps <em>every</em> non-key column in the table.
+/// </summary>
+/// <remarks>
+/// <para>
+/// It exists so that an increment can land on a row that does not exist yet and actually reach each
+/// map's insert expression. <see cref="FlatValuesAdded"/> cannot do that job: it leaves
+/// <c>member_count</c> unmapped, and at least one store (Marten, marten#4255) deliberately compiles
+/// an event that maps only some of the table's columns into an <em>update-only</em> statement, so
+/// that a first event of that shape cannot insert a half-populated row into columns it knows nothing
+/// about. That is a defensible rule and this suite does not challenge it — it routes around it, so
+/// the insert branch is reachable on every store and the fact is about increment semantics rather
+/// than about partial mappings.
+/// </para>
+/// </remarks>
+public record FlatValuesAccrued(int A, int B, int C, int D, int MemberCount);
+
 public record FlatValuesDeleted;
 
 #endregion
@@ -113,6 +130,22 @@ public partial class ComplianceFlatTableProjection
             map.SetValue("status", "old");
         });
 
+        // Every non-key column the table has, on purpose — see FlatValuesAccrued. Mapping the whole
+        // row is what keeps this event's insert branch reachable on every store, which is the only
+        // way a suite can pin what an increment does to a row that is not there yet.
+        Project<FlatValuesAccrued>(map =>
+        {
+            map.Increment(x => x.A);
+            map.Increment(x => x.B);
+            map.Increment(x => x.C);
+            map.Increment(x => x.D);
+            map.Increment(x => x.MemberCount);
+
+            map.Increment("revision");
+
+            map.SetValue("status", "accrued");
+        });
+
         Project<FlatValuesSubtracted>(map =>
         {
             map.Decrement(x => x.A);
@@ -143,6 +176,24 @@ public partial class ComplianceFlatTableProjection
 /// once — is exactly what two independent implementations get wrong in different ways.
 /// </para>
 /// <para>
+/// The increment-onto-a-missing-row edge is the one that went unpinned longest, and it is worth
+/// saying exactly how much of it is claimed here. Every fact but one starts by mapping a row into
+/// existence, so the increment maps' <em>insert</em> expressions were unreachable and three stores
+/// disagreed on them unnoticed: Marten counted the creating event as zero where Polecat, Fisher and
+/// the lifted <c>Weasel.Storage.Flattened</c> DSL all counted it as one. One is the ruling
+/// (marten#5341, fixed in marten#5342) and
+/// <c>an_increment_on_a_row_that_does_not_exist_yet_counts_the_creating_event</c> holds it there.
+/// </para>
+/// <para>
+/// Two neighbouring insert expressions are deliberately <em>not</em> asserted, because the stores do
+/// not agree and no ruling has been made. A by-column <c>Decrement(name)</c> inserts <c>0</c>
+/// everywhere, so a first event that is a decrement leaves the column at zero rather than at minus
+/// one — which reads as asymmetric now that increment counts its creating event, but changing it is
+/// a behavioural decision this suite has no standing to force (jasperfx#773). And a member-valued
+/// <c>Decrement(x =&gt; x.A)</c> inserts the negated value on one store and the value as given on the
+/// other three. Pinning either here would manufacture a contract rather than record one.
+/// </para>
+/// <para>
 /// Table *shape* is asserted only through the columns that come back with a row. The generated DDL,
 /// the upsert mechanism, index layout and identifier quoting are all storage layout and stay in
 /// each product's own tests.
@@ -159,6 +210,7 @@ public abstract class FlatTableProjectionCompliance<TFixture, TOperations, TQuer
 
         config.AddEventType<FlatValuesSet>();
         config.AddEventType<FlatValuesAdded>();
+        config.AddEventType<FlatValuesAccrued>();
         config.AddEventType<FlatValuesSubtracted>();
         config.AddEventType<FlatValuesDeleted>();
 
@@ -175,6 +227,7 @@ public abstract class FlatTableProjectionCompliance<TFixture, TOperations, TQuer
 
         config.AddEventType<FlatValuesSet>();
         config.AddEventType<FlatValuesAdded>();
+        config.AddEventType<FlatValuesAccrued>();
         config.AddEventType<FlatValuesSubtracted>();
         config.AddEventType<FlatValuesDeleted>();
 
@@ -336,6 +389,55 @@ public abstract class FlatTableProjectionCompliance<TFixture, TOperations, TQuer
 
         // Set to 1, incremented once, decremented once.
         intValue(row, "revision").ShouldBe(1);
+    }
+
+    /// <summary>
+    /// An increment is the first thing the table ever hears about this row.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every other fact in this suite opens with a <see cref="FlatValuesSet"/>, which creates the row
+    /// through <c>SetValue</c> and <c>Map</c>, so the increment maps only ever exercise their
+    /// <em>update</em> expressions. This one never sets anything, so each map has to answer the
+    /// question it was avoiding: what does this column start at when there is no row to add to?
+    /// </para>
+    /// <para>
+    /// The two halves are separate claims. A member-valued increment inserts the event's own value,
+    /// because a first sighting has nothing to add to and the bound parameter is the whole answer;
+    /// all four implementations of the DSL spell that identically. The by-column
+    /// <c>Increment("revision")</c> has no parameter to fall back on, and that is where the
+    /// disagreement was: it inserts <c>1</c>, counting the event that created the row, so N events
+    /// read N rather than N-1 (marten#5341 / marten#5342).
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task an_increment_on_a_row_that_does_not_exist_yet_counts_the_creating_event()
+    {
+        SkipUnlessFlatTablesAreSupported();
+
+        var streamId = Guid.NewGuid();
+
+        // Deliberately no FlatValuesSet first: this is the whole point of the fact.
+        await appendAsync(streamId, new FlatValuesAccrued(3, 4, 5, 6, 7));
+
+        var row = await rowAsync(streamId);
+        row.ShouldNotBeNull(
+            "An increment against a row that does not exist yet should insert it, not silently do nothing");
+
+        // A member-valued increment's insert expression is the bound parameter, so the row starts at
+        // the event's own values rather than at zero-plus-them.
+        intValue(row, "a").ShouldBe(3);
+        intValue(row, "b").ShouldBe(4);
+        intValue(row, "c").ShouldBe(5);
+        intValue(row, "d").ShouldBe(6);
+        intValue(row, "member_count").ShouldBe(7);
+
+        // SetValue writes its configured literal on the insert branch as much as on the update one.
+        row["status"].ShouldBe("accrued");
+
+        // The one that drifted: the creating event counts, so a single increment reads 1, not 0.
+        intValue(row, "revision").ShouldBe(1,
+            "Increment(column) should count the event that created the row (marten#5341)");
     }
 
     [Fact]
