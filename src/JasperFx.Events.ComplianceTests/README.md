@@ -639,12 +639,29 @@ neither store's comment referencing the other's. Matching test names over opposi
 is the failure mode this whole library exists to catch.
 
 **The maintainer ruled for strictly-greater**, so this suite pins it and Polecat changes
-(polecat#559). Seven facts: revision `0` is the auto sentinel and always wins, whatever is stored; a
+(polecat#559). Nine facts: revision `0` is the auto sentinel and always wins, whatever is stored; a
 new document lands at `1`; an explicit revision greater than the stored one is accepted and lands at
 *exactly* that value; an explicit revision **equal** to the stored one is refused, as is one below
 it; and an explicit revision may **jump non-contiguously** (3 → 10). That last one is the capability
 an equality rule cannot express, and it is much of why the ruling went this way — it is what lets a
 caller adopt a revision decided somewhere else rather than one the store is counting.
+
+The **insert path follows the same rule**, ruled separately once the update path settled: a brand-new
+document carrying an explicit revision lands at exactly that revision rather than at 1. Marten's
+insert value is `CASE WHEN ? = 0 THEN 1 ELSE ? END` and Fisher's is the same; Polecat hard-codes `1`
+and discards the caller's revision, which is now part of polecat#559 rather than an open question.
+Two facts cover it, and the second is the one that matters: a store ignoring revisions entirely still
+serializes `Version` as an ordinary property and hands the same value back on load, so reading the
+revision off a loaded document passes vacuously. Following the insert with an auto store — which must
+land at 8, not 2 — is what has teeth.
+
+Two neighbouring insert cases are deliberately **unpinned**. An explicit revision of `0` on a new
+document means auto and lands at 1, but that is already the `a_new_document_lands_at_revision_one`
+fact and is not restated. A **negative** revision is left alone because it is undefined rather than
+divergent: no store range-checks one, none tests it, Marten and Fisher would store it verbatim and
+then refuse every later write below it, and Polecat's hard-coded `1` would swallow it. Three
+accidents, not two contracts and a bug — the question there is which behavior to *choose*, and it
+should be ruled before it is pinned.
 
 The observable consequence is worth stating plainly because it is a sharp edge: loading a document at
 revision 5 and storing it back still carrying 5 is a `ConcurrencyException`, not a read-modify-write.

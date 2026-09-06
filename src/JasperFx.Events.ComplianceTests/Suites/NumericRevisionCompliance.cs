@@ -39,6 +39,35 @@ namespace JasperFx.Events.ComplianceTests;
 /// imported record. An equality rule can only ever step by one.
 /// </para>
 /// <para>
+/// <b>The insert path follows the same rule</b> (ruled separately on jasperfx#785 after the update
+/// path). An explicit revision on a brand-new document is honoured rather than discarded: the row
+/// lands at exactly that revision, not at 1. Marten spells the insert value
+/// <c>CASE WHEN ? = 0 THEN 1 ELSE ? END</c> and Fisher's <c>NumericRevision.InsertValueSql</c> is
+/// <c>case when ? = 0 then 1 else ? end</c> — identical, and identical to the update assignment in
+/// treating <c>?</c> as the target rather than something to increment past. Polecat hard-codes the
+/// insert to <c>1</c> and is the side that changes (polecat#559).
+/// </para>
+/// <para>
+/// Two neighbouring insert cases are deliberately <em>not</em> pinned, for opposite reasons:
+/// </para>
+/// <para>
+/// An explicit revision of <b>zero</b> on a new document means auto and lands at 1 — but that is
+/// already <see cref="a_new_document_lands_at_revision_one" />, which stores a document whose
+/// <c>Version</c> is the default <c>0</c>. It is the same assertion, so it is not restated here;
+/// verified against both stores' <c>WHEN ? = 0 THEN 1</c> branch rather than assumed from the update
+/// path's use of the same sentinel.
+/// </para>
+/// <para>
+/// A <b>negative</b> revision is left unpinned because it is genuinely undefined rather than
+/// divergent, and pinning it either way would invent a contract. No store guards against one — there
+/// is no range check anywhere in Marten's, Fisher's or Polecat's revision handling — and none has a
+/// test for it. Marten and Fisher would take the <c>ELSE ?</c> branch and store the negative
+/// verbatim, after which the strictly-greater update guard refuses everything below it, so the row
+/// sits at a revision no caller can have meant; Polecat's hard-coded <c>1</c> would swallow it. That
+/// is three accidents, not two contracts and a bug. If a consumer ever needs an answer, the question
+/// is which behavior to <em>choose</em>, and it should be ruled on before it is pinned.
+/// </para>
+/// <para>
 /// <b>No seam members.</b> Every fact here runs through
 /// <see cref="IDocumentWriteOperations.Store{T}" /> and <see cref="IRevisioned.Version" />, which is
 /// the whole of the reachable surface: <c>Store(doc, revision)</c>, <c>UpdateRevision</c> and
@@ -122,6 +151,58 @@ public abstract class NumericRevisionCompliance<TFixture> : DocumentStorageCompl
         await StoreAsync(id, "Acme", 0);
 
         (await StoredRevisionAsync(id)).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// <b>The insert-path ruling.</b> A brand-new document carrying an explicit revision lands at
+    /// exactly that revision. The revision is honoured, not discarded in favour of 1 — the same rule
+    /// the update path follows, one row earlier: an explicit revision is the version the caller is
+    /// asking for, and on an insert there is nothing stored for it to have to exceed.
+    /// </summary>
+    /// <remarks>
+    /// This is a jump on first write, and it is the capability that makes importing a record at the
+    /// revision it already had, or seeding a document at a version decided upstream, expressible at
+    /// all. A store that always starts at 1 forces the caller to insert and then immediately update.
+    /// </remarks>
+    [Fact]
+    public async Task a_new_document_lands_at_an_explicit_revision()
+    {
+        SkipUnlessSupported();
+
+        var id = Guid.NewGuid();
+        await StoreAsync(id, "Acme, imported at seven", 7);
+
+        (await StoredRevisionAsync(id)).ShouldBe(7);
+        (await StoredCustomerAsync(id)).ShouldBe("Acme, imported at seven");
+    }
+
+    /// <summary>
+    /// The insert really wrote 7 — the store is counting from it, not merely round-tripping the value
+    /// it was handed.
+    /// </summary>
+    /// <remarks>
+    /// This fact exists because the one above can pass <em>vacuously</em>. A store that ignores
+    /// revisions entirely still serializes <see cref="IRevisioned.Version" /> as an ordinary property
+    /// and hands the same 7 back on load, so reading the revision off a loaded document cannot by
+    /// itself distinguish "stored a revision of 7" from "stored a document with a field set to 7".
+    /// Following the insert with an auto store settles it: only a real stored revision increments to
+    /// 8, and only a real guard refuses the re-store at 7.
+    /// </remarks>
+    [Fact]
+    public async Task an_explicit_insert_revision_becomes_the_stored_revision()
+    {
+        SkipUnlessSupported();
+
+        var id = Guid.NewGuid();
+        await StoreAsync(id, "Acme, imported at seven", 7);
+
+        // The strictly-greater guard now applies from 7, not from 1.
+        await StoreShouldBeRefusedAsync(id, "Acme, stale", 7);
+
+        // And auto counts on from 7 rather than restarting.
+        await StoreAsync(id, "Acme, moved on", 0);
+        (await StoredRevisionAsync(id)).ShouldBe(8);
+        (await StoredCustomerAsync(id)).ShouldBe("Acme, moved on");
     }
 
     /// <summary>
