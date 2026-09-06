@@ -80,6 +80,26 @@ public abstract class AggregateToLinqOperatorCompliance<TFixture, TOperations, T
         trail.Miles.ShouldBe(22);
     }
 
+    /// <summary>
+    /// Supplied state is folded ONTO, not replaced: the seeded miles survive and the stream's events
+    /// accumulate on top of them.
+    /// </summary>
+    /// <remarks>
+    /// The <see cref="ComplianceTrail.Name"/> assertion this fact used to carry was removed in
+    /// marten#5343, the first run of this suite against a real event store, because it could not be
+    /// satisfied by any coherent implementation. <see cref="ComplianceTrail"/> handles
+    /// <see cref="TrailStarted"/> with a <c>Create</c> and no <c>Apply</c>, so over supplied state
+    /// there are only two possible behaviours, and the two assertions demanded one each: skip the
+    /// creator (the usual rule -- the aggregate already exists) and Name stays empty while Miles
+    /// reaches 110; or run the creator and its <c>new()</c> REPLACES the seed, so Name is set but
+    /// Miles is 10, not 110. Asserting both pinned a merge of creator output into supplied state that
+    /// no store does and that the shared contract has never specified.
+    ///
+    /// What the fact is actually for -- that the seed is honoured rather than discarded -- is what
+    /// the miles assertion proves, and it proves it on its own: 110 is only reachable from the seeded
+    /// 100. A separate fact covers identity stamping, and <c>ComplianceTrail.Name</c> is covered
+    /// where a creator legitimately runs, in the unseeded fact above.
+    /// </remarks>
     [Fact]
     public async Task can_aggregate_with_initial_state_asynchronously()
     {
@@ -96,7 +116,8 @@ public abstract class AggregateToLinqOperatorCompliance<TFixture, TOperations, T
             e => e.StreamId == stream, initial, Cancellation);
 
         trail.ShouldNotBeNull();
-        trail.Name.ShouldBe("Long Trail");
+
+        // 110 rather than 10: the seeded state was folded onto, not thrown away.
         trail.Miles.ShouldBe(110);
     }
 
