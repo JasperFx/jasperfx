@@ -574,6 +574,7 @@ alongside the event store — `JasperFx.Events.Documents`:
 | The route from a session to its event store | `DocumentSessionEventsCompliance` |
 | The stream actions a session has queued but not committed | `PendingStreamActionsCompliance` |
 | Post-commit session listeners and the change set they receive | `DocumentCommitListenerCompliance` |
+| What an explicit numeric revision means on the update path | `NumericRevisionCompliance` |
 
 Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
 **three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
@@ -625,6 +626,35 @@ the enclosing transaction rather than `SaveChangesAsync` is what makes the data 
 unconditionally). The second is unreachable from a suite in any case — enlistment is spelled on each
 product's own `SessionOptions`, which `IDocumentSessionFactory` does not expose — so it belongs in
 each store's own tests.
+
+`NumericRevisionCompliance` (jasperfx#785 §4.2) is opt-in through `SupportsNumericRevisions` (default
+**false**), and it is the one document suite that exists to record a *ruling* rather than to discover
+a shared behavior. The three stores did not agree. Marten and Fisher hold that an explicit revision
+must be **strictly greater** than the stored one — Marten's guard is
+`(? = 0 or {table}.{version} < ?)` with the assignment `CASE WHEN ? = 0 THEN {version} + 1 ELSE ? END`,
+and Fisher's `NumericRevision` is the same pair, with a comment saying it follows Marten on purpose.
+Polecat made the doc-carried revision an **equality** expectation instead
+(`AND (? = 0 OR t.version = ?)`, assigning `ELSE ? + 1`), also on purpose, also documented locally,
+neither store's comment referencing the other's. Matching test names over opposite contracts, which
+is the failure mode this whole library exists to catch.
+
+**The maintainer ruled for strictly-greater**, so this suite pins it and Polecat changes
+(polecat#559). Seven facts: revision `0` is the auto sentinel and always wins, whatever is stored; a
+new document lands at `1`; an explicit revision greater than the stored one is accepted and lands at
+*exactly* that value; an explicit revision **equal** to the stored one is refused, as is one below
+it; and an explicit revision may **jump non-contiguously** (3 → 10). That last one is the capability
+an equality rule cannot express, and it is much of why the ruling went this way — it is what lets a
+caller adopt a revision decided somewhere else rather than one the store is counting.
+
+The observable consequence is worth stating plainly because it is a sharp edge: loading a document at
+revision 5 and storing it back still carrying 5 is a `ConcurrencyException`, not a read-modify-write.
+Callers spell it `doc.Version + 1`. Refusal is asserted as the shared `JasperFx.ConcurrencyException`
+rather than any store's own type, since that base is what a store-agnostic consumer catches.
+
+No seam members, and none were needed: `Store` passes the document's own `IRevisioned.Version` as the
+expected revision, so setting `Version` before storing names the revision. `Store(doc, revision)`,
+`UpdateRevision` and `TryUpdateRevision` stay product API and off the contract. `SupportsNumericRevisions`
+is `virtual`, not `abstract` — the fixture's three abstract members are still three.
 
 `BuildStoreAsync` must honor `config.ValueTypes` as well as `config.DocumentTypes` — every store
 spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndStoreCompliance` hold

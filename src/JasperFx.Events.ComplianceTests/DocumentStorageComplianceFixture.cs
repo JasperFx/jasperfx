@@ -81,6 +81,26 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     /// </remarks>
     public abstract Task CleanDocumentDataAsync();
 
+    /// <summary>
+    /// Does this store implement numeric revisions — the <see cref="IRevisioned" /> marker and the
+    /// concurrency guard behind it? Gates <see cref="NumericRevisionCompliance{TFixture}" />.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A capability flag, not a seam: it is <c>virtual</c> rather than <c>abstract</c>, so the three
+    /// abstract members stay three and every existing fixture keeps compiling untouched. The suite it
+    /// gates reaches the whole behavior through <see cref="IDocumentWriteOperations.Store{T}" /> and
+    /// <see cref="IRevisioned.Version" />, so nothing here reaches past the contract — which is
+    /// exactly the bar the class-level remarks set.
+    /// </para>
+    /// <para>
+    /// Default <b>false</b>, following the established pattern, because numeric revisions are opt-in
+    /// storage behavior rather than part of the eight-operation contract: a store can implement the
+    /// document contract completely and stamp no revisions at all. Flip it after implementing them.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsNumericRevisions => false;
+
     public virtual ValueTask InitializeAsync() => default;
 
     public virtual ValueTask DisposeAsync() => default;

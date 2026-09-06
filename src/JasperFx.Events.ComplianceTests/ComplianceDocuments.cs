@@ -60,3 +60,35 @@ public class ComplianceCoupon
     public string Description { get; set; } = string.Empty;
     public int PercentOff { get; set; }
 }
+
+/// <summary>
+/// A document opting into numeric revisions through <see cref="IRevisioned" /> — the marker every
+/// Critter Stack store already shares (it lives in <c>JasperFx</c>, not in any product), so a store
+/// needs no compliance-specific configuration to recognize it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Separate from <see cref="ComplianceWidget" /> rather than a flag on it, because the marker is not
+/// a property of an instance: implementing <see cref="IRevisioned" /> changes the storage the store
+/// builds for the type, so the concurrency-checked and unchecked cases cannot share a document.
+/// </para>
+/// <para>
+/// <c>Version</c> is the only member the numeric revision contract needs. It carries the expected
+/// revision on the way in and the landed revision on the way out, which is what makes
+/// <see cref="NumericRevisionCompliance{TFixture}" /> writable through
+/// <see cref="Documents.IDocumentWriteOperations.Store{T}" /> alone — <c>UpdateRevision</c> and
+/// <c>TryUpdateRevision</c> are product API and stay off the shared contract (jasperfx#785 §5.3).
+/// </para>
+/// </remarks>
+public class ComplianceLedgerEntry: IRevisioned
+{
+    public Guid Id { get; set; }
+    public string Customer { get; set; } = string.Empty;
+    public int Amount { get; set; }
+
+    /// <summary>
+    /// The revision. Zero means "auto" on the way in; after a commit or a load it carries whatever
+    /// the store has stored.
+    /// </summary>
+    public int Version { get; set; }
+}
