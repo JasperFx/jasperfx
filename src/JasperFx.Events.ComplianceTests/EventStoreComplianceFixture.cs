@@ -676,6 +676,53 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
             $"{GetType().FullName} does not implement CreateProjectionScenario, so it cannot run the projection scenario compliance suite.");
 
 
+    /// <summary>
+    /// The exception type this store throws for a given failure category. Defaults to the matching
+    /// exception lifted into <c>JasperFx.Events</c>, so a store that adopted the lifted types — by
+    /// throwing them or by subclassing them — needs no override at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Virtual with a total default rather than abstract, deliberately: an abstract member would
+    /// break every consuming store on the next package bump for the sake of a seam most of them do
+    /// not need. Polecat and Fisher subclass the lifted types, so the default answers correctly for
+    /// both.
+    /// </para>
+    /// <para>
+    /// The seam exists because a store may legitimately own its exception hierarchy and therefore
+    /// be unable to subclass a lifted type. Marten is the concrete case: its
+    /// <c>all_exceptions_should_derive_from_MartenException</c> convention test requires every
+    /// exception Marten throws to derive from <c>MartenException</c>, and C# has single
+    /// inheritance, so a Marten type cannot derive from both that base and the lifted JasperFx
+    /// type. Marten keeps its own six declarations in <c>Marten.Exceptions</c> and names them here.
+    /// That is a store design decision the compliance library has no business overruling.
+    /// </para>
+    /// <para>
+    /// Note what this does <strong>not</strong> loosen. The suites still demand an exception of the
+    /// nominated type — the store picks the name, not whether the assertion has teeth. Nor does it
+    /// touch the categories that are genuinely shared already: <c>JasperFx.ConcurrencyException</c>
+    /// and <see cref="EventStreamUnexpectedMaxEventIdException"/> live in JasperFx, every store
+    /// throws them directly, and the suites keep asserting those types outright.
+    /// </para>
+    /// <para>
+    /// Resist the urge to "tidy" a <see cref="ComplianceExceptionKind"/> assertion back to a hard
+    /// type. Doing so silently re-imposes a shared hierarchy on stores that have declined it, and
+    /// the failure lands on the store rather than here.
+    /// </para>
+    /// </remarks>
+    public virtual Type ExceptionTypeFor(ComplianceExceptionKind kind) =>
+        kind switch
+        {
+            ComplianceExceptionKind.UnknownEventType => typeof(UnknownEventTypeException),
+            ComplianceExceptionKind.NonExistentStream => typeof(NonExistentStreamException),
+            ComplianceExceptionKind.ExistingStreamIdCollision => typeof(ExistingStreamIdCollisionException),
+            ComplianceExceptionKind.EventDeserializationFailure => typeof(EventDeserializationFailureException),
+            ComplianceExceptionKind.StreamLocked => typeof(StreamLockedException),
+            ComplianceExceptionKind.DefaultTenantUsageDisabled => typeof(DefaultTenantUsageDisabledException),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind,
+                $"{GetType().FullName} was asked for an unknown compliance exception category.")
+        };
+
     public virtual ValueTask InitializeAsync() => default;
 
     public virtual ValueTask DisposeAsync() => default;

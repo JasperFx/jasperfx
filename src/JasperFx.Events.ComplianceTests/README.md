@@ -345,6 +345,44 @@ Where a store genuinely cannot support a behavior, override the `virtual bool Su
 the fixture; the affected tests skip rather than fail. Gates are meant to be temporary and tracked —
 a suite failing on your store is usually a product bug, not a test to soften.
 
+## Variable exception types
+
+A handful of facts assert that an operation *fails a particular way*. Where the failure category is
+shared across every store but the exception type is not, the suite names a
+`ComplianceExceptionKind` and the fixture resolves it:
+
+```csharp
+await ShouldFailWithAsync(ComplianceExceptionKind.ExistingStreamIdCollision,
+    () => SaveChangesAsync(session));
+```
+
+`EventStoreComplianceFixture.ExceptionTypeFor(kind)` is **virtual, not abstract**, and defaults to
+the matching exception lifted into `JasperFx.Events` (`UnknownEventTypeException`,
+`NonExistentStreamException`, `ExistingStreamIdCollisionException`,
+`EventDeserializationFailureException`, `StreamLockedException`,
+`DefaultTenantUsageDisabledException`). A store that adopted those — Polecat and Fisher subclass
+them — overrides nothing.
+
+The seam exists because a store may legitimately own its exception hierarchy. Marten is the standing
+example: its `all_exceptions_should_derive_from_MartenException` convention test requires every
+Marten exception to derive from `MartenException`, and C# single inheritance forbids deriving from
+both that base and the lifted type. So Marten keeps its own six in `Marten.Exceptions` and nominates
+them from `MartenComplianceFixture`. That is a store design decision, not a compliance gap.
+
+Two things this does **not** mean:
+
+* It is not a weakening. An exception of the nominated type is still required — "something threw"
+  does not pass, and neither does the wrong type.
+* It does not extend to categories that are genuinely shared already. `JasperFx.ConcurrencyException`
+  and `EventStreamUnexpectedMaxEventIdException` live in JasperFx, every store throws them directly,
+  and `AlwaysEnforceConsistencyCompliance`, `FetchForWritingCompliance`,
+  `AggregateWriteCacheCompliance` and `StringStreamIdentityCompliance` keep asserting those types
+  outright. Do not route them through this seam.
+
+Resist "tidying" a `ComplianceExceptionKind` assertion back to a hard type. Doing so quietly
+re-imposes a shared hierarchy on a store that has declined it, and the failure lands on the store
+rather than here.
+
 ## Local dev loop
 
 Both current consumers accept a `ComplianceSourceDir` property that swaps the published suites for a

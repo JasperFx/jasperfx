@@ -431,10 +431,29 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
     /// A unit of work that fails publishes nothing.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A stream id collision is caught by the append itself, well before either hook — so neither
     /// runs, and the messages the session buffered go nowhere. Asserted as "no hook fired" rather
     /// than "the after hook did not fire", because the weaker claim would pass even if the failure
     /// had never reached the hook boundary at all.
+    /// </para>
+    /// <para>
+    /// The failure is named as <see cref="ComplianceExceptionKind.ExistingStreamIdCollision"/>
+    /// rather than as a fixed exception type. What this fact is about is that a failed unit of work
+    /// publishes nothing; <em>which</em> exception announced the collision is the store's business.
+    /// The lifted <see cref="ExistingStreamIdCollisionException"/> remains the default, so a store
+    /// that adopted the shared types names nothing — but a store may legitimately own its exception
+    /// hierarchy instead. Marten is the standing example: its
+    /// <c>all_exceptions_should_derive_from_MartenException</c> convention test requires every
+    /// Marten exception to derive from <c>MartenException</c>, and single inheritance forbids
+    /// deriving from that base and the lifted type at once, so Marten keeps
+    /// <c>Marten.Exceptions.ExistingStreamIdCollisionException</c> and nominates it from its
+    /// fixture.
+    /// </para>
+    /// <para>
+    /// Do not "tidy" this back to a hard type. The assertion is not loosened by being variable —
+    /// the nominated type is still required, and "something threw" still fails.
+    /// </para>
     /// </remarks>
     [Fact]
     public async Task a_unit_of_work_that_fails_publishes_nothing()
@@ -452,7 +471,8 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
         // Same id, so the append itself fails.
         EventsFor(session).StartStream(streamId, new WatchtowerManned("Halifirien again"));
 
-        await ShouldFailWithAsync<ExistingStreamIdCollisionException>(() => SaveChangesAsync(session));
+        await ShouldFailWithAsync(ComplianceExceptionKind.ExistingStreamIdCollision,
+            () => SaveChangesAsync(session));
 
         _outbox.CommittedBatches.ShouldBeEmpty();
     }
