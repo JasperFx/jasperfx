@@ -398,6 +398,34 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </remarks>
     public virtual bool SupportsUpcasting => false;
 
+    /// <summary>
+    /// True in a store that maintains a natural key lookup for aggregates carrying a
+    /// <c>[NaturalKey]</c> property, and resolves the shared
+    /// <see cref="IEventStoreOperations.FetchForWriting{T,TId}" /> /
+    /// <see cref="IEventStoreOperations.FetchForExclusiveWriting{T,TId}" /> /
+    /// <see cref="IEventStoreOperations.FetchLatest{T,TId}" /> triple through it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Unusually for a capability gate, this one guards <em>no seam member at all</em>. The whole
+    /// natural key surface is already shared: the <c>[NaturalKey]</c> / <c>[NaturalKeySource]</c>
+    /// attributes and <c>NaturalKeyDefinition</c> live in <c>JasperFx.Events.Aggregation</c>,
+    /// discovery runs in the shared <c>JasperFxAggregationProjectionBase</c>, the fetch triple is on
+    /// <see cref="IEventStoreOperations"/>, and registration is the existing
+    /// <see cref="ComplianceStoreConfig.Snapshot{TDoc}"/> plus
+    /// <see cref="ComplianceStoreConfig.RegisterValueType{TValue}"/>. What varies is only whether a
+    /// store has built the storage half — the lookup table and the read paths into it — which is
+    /// exactly what <see cref="NaturalKeyCompliance{TFixture,TOperations,TQuerySession}"/> asserts.
+    /// </para>
+    /// <para>
+    /// Defaults to false like the other recent gates, so a consumer can enroll the suite across the
+    /// bump and flip it when the storage half lands. The gate short-circuits configuration as well
+    /// as the facts, because a store with no natural key support may fail while <em>building</em> a
+    /// store whose aggregates declare one.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsNaturalKeys => false;
+
 
     /// <summary>
     /// Build and START an application host whose container registers this store the way the

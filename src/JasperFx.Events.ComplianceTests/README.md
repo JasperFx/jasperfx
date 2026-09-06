@@ -223,6 +223,50 @@ the one single-store fact pins the marten#4680 authority rule — a typed append
 type, whose stored dotnet-type hint would otherwise swap the mapping back, must still read through
 the upcaster.
 
+`NaturalKeyCompliance` (jasperfx#764) is opt-in through `SupportsNaturalKeys` (default **false**), and
+is the one opt-in suite that adds **no seam member at all** — worth stating, because the natural key
+cluster looks like it should need one. It does not: the `[NaturalKey]` / `[NaturalKeySource]`
+attributes and `NaturalKeyDefinition` already live in `JasperFx.Events.Aggregation`, discovery
+already runs inside the shared `JasperFxAggregationProjectionBase` every product's aggregation
+projection derives from, and the fetch triple (`FetchForWriting<T,TId>`,
+`FetchForExclusiveWriting<T,TId>`, `FetchLatest<T,TId>`) is already on `IEventStoreOperations`.
+Registration is the existing `Snapshot<T>(lifecycle)` — what all three products spell, whether the
+user writes Marten's `Snapshot<T>(Inline)` or Polecat's `Add<SingleStreamProjection<T,TId>>(Inline)`
+— plus `RegisterValueType<T>()` for the wrapper. Only the storage half varies, and that is behavior,
+so one gate carries it.
+
+Its load-bearing facts are the rebuild pair (marten#4788 / marten#4966 / polecat#259): the lookup is
+maintained by the inline append path, which drives off newly-appended stream actions, so a daemon
+rebuild replayed events without ever repopulating the table and every natural key fetch missed
+afterwards. Those facts register the snapshot **Async** rather than Inline, and that is the whole
+trick — under an async registration the inline path never runs, so a lookup row can only have come
+from the daemon. The obvious alternative (append inline, rebuild, fetch) passes vacuously on any
+store whose rebuild leaves the table untouched, the same failure mode `AggregateWriteCacheCompliance`
+counts cache hits to avoid. The products' own versions delete the table with raw SQL and count rows;
+the table name is per-product, so the async registration buys the same guarantee portably.
+
+The cluster contains more genuine disagreement than its matching test names suggest, and four things
+stayed behind. The **miss on `FetchForWriting`** is three products and two contracts — Marten returns
+a null aggregate at version 0, Polecat throws `InvalidOperationException`, Fisher throws
+`UnknownNaturalKeyException` — so every "does not resolve" assertion in the suite is written against
+`FetchLatest`, the one miss Marten and Polecat spell identically. **Uniqueness of a key across
+streams** is the sharpest divergence: Fisher refuses a second stream claiming a live key while
+Polecat's `MERGE` repoints it at the newcomer, and Fisher's own test comment names the disagreement,
+so pinning either side would make the other's deliberate choice a compliance failure. **Rollback of
+the key row** is real and shared but needs a poisoned unit of work, which no shared surface can
+produce on demand. And the **"live lifecycle" pair** shares a name across Marten and Polecat but not
+a precondition — Marten registers `LiveStreamAggregation<T>()`, Polecat's same-named tests register
+`Inline` with a comment saying the inline registration is what creates the lookup at all — so the
+shared precondition does not exist yet.
+
+One thing consumers should expect: the source generator emits an assembly-level
+`NaturalKeyAggregateAttribute` for every type carrying a `[NaturalKey]` property, so a store may
+auto-register these aggregates and their lookup infrastructure at startup merely because the suite
+was compiled in — including `ComplianceNaturalKeyOrderByKey`, a string-identity aggregate, into
+Guid-identity stores. Unlike the DCB suite's `CourseLoad`, which is discovered lazily and can sit
+unregistered, this is eager. Watch for it at store construction rather than assuming the gate
+defends against it.
+
 `ProjectionSideEffectCompliance` (jasperfx#763) covers `RaiseSideEffects`, which is genuinely shared
 — declared on `JasperFxAggregationProjectionBase`, drained by the shared single- and multi-stream
 bases into `IProjectionBatch.PublishMessageAsync` and `EventSlice.BuildOperations` — while the half
@@ -325,6 +369,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
 | Projection `RaiseSideEffects` — raised events and published messages | `ProjectionSideEffectCompliance` |
 | A reachable `IProjectionCoordinator` over the documented registration | `ProjectionCoordinatorCompliance` |
+| Natural keys — reaching a stream by its business identifier | `NaturalKeyCompliance` |
 
 ### Identity-less boundary aggregates (jasperfx#718)
 
