@@ -160,21 +160,30 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
                 // Moved out of the application to avoid it getting double called
                 (_, transformed) = tryApplyMetadata(stream.Events, transformed, id, storage);
                 
-                if (transformed == null && action != ActionType.Delete && action != ActionType.HardDelete) continue;
+                // Ownership is signalled by a pre-loaded snapshot OR a materialized one from the
+                // slice. In a composite projection with multiple single-stream children, sibling
+                // projections that do not own this stream skip the archive. See marten#4093.
+                var ownsStream = snapshot != null || transformed != null;
 
-                storage.ApplyInline(transformed, action, id, stream.TenantId);
-
-                // Gate archival on whether this projection owns the stream. Ownership
-                // is signalled by a pre-loaded snapshot OR a materialized one from the
-                // slice. In a composite projection with multiple single-stream children,
-                // sibling projections that do not own this stream skip the archive.
-                // See issue JasperFx/marten#4093.
-                maybeArchiveStream(storage, stream, id, ownsStream: snapshot != null || transformed != null);
-
-                if (session.EnableSideEffectsOnInlineProjections)
+                if (transformed != null || action == ActionType.Delete || action == ActionType.HardDelete)
                 {
-                    await processSideEffectMessages(session, id, stream, transformed).ConfigureAwait(false);
+                    storage.ApplyInline(transformed, action, id, stream.TenantId);
+
+                    if (session.EnableSideEffectsOnInlineProjections)
+                    {
+                        await processSideEffectMessages(session, id, stream, transformed).ConfigureAwait(false);
+                    }
                 }
+
+                // Deliberately NOT inside the block above, and this is the whole of marten#5343's
+                // archiving finding: an Archived event appended on its own -- with no other event the
+                // aggregate handles in the same batch -- leaves transformed null, so the early
+                // `continue` this replaces skipped archival entirely and the stream stayed live.
+                // Ownership does not depend on the aggregate having CHANGED; a pre-loaded snapshot
+                // establishes it on its own, which is what the `snapshot != null` disjunct above was
+                // always for. Under the old shape that disjunct was unreachable -- dead code
+                // documenting the intent the `continue` defeated.
+                maybeArchiveStream(storage, stream, id, ownsStream: ownsStream);
             }
         }
     }

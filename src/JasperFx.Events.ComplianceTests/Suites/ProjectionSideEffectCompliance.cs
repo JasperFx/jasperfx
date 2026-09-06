@@ -54,6 +54,28 @@ public partial class ComplianceWatchtower
 /// </remarks>
 public partial class ComplianceWatchtowerProjection: ComplianceWatchtowerProjectionBase
 {
+    /// <summary>
+    /// The name the daemon knows this projection by, pinned explicitly rather than left to whatever
+    /// each store's default naming convention produces.
+    /// </summary>
+    /// <remarks>
+    /// Found by marten#5343, the first run of this suite against a real event store. The two rebuild
+    /// facts below asked the daemon for <c>nameof(ComplianceWatchtowerProjection)</c>, which silently
+    /// assumes every store derives a projection's registered name from the PROJECTION type. Marten
+    /// derives it from the aggregated DOCUMENT type instead, so both facts died on "No registered
+    /// projection matches the name 'ComplianceWatchtowerProjection'. Available names are
+    /// 'ComplianceWatchtower'". Neither convention is wrong, which is precisely why a shared suite
+    /// must not depend on either: naming the projection here makes it the same on every store, and
+    /// the deliberately distinct value keeps it from colliding with a default either convention
+    /// would produce.
+    /// </remarks>
+    public const string ProjectionName = "ComplianceWatchtowerSideEffects";
+
+    public ComplianceWatchtowerProjection()
+    {
+        Name = ProjectionName;
+    }
+
     public static ComplianceWatchtower Create(IEvent<WatchtowerManned> @event) =>
         new() { Id = @event.StreamId, Name = @event.Data.Name };
 
@@ -297,7 +319,7 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
 
         await daemon.StopAllAsync();
 
-        await daemon.RebuildProjectionAsync(nameof(ComplianceWatchtowerProjection), _timeout,
+        await daemon.RebuildProjectionAsync(ComplianceWatchtowerProjection.ProjectionName, _timeout,
             CancellationToken.None);
 
         var after = await eventsForAsync(streamId);
@@ -474,7 +496,7 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
 
         await daemon.StopAllAsync();
 
-        await daemon.RebuildProjectionAsync(nameof(ComplianceWatchtowerProjection), _timeout,
+        await daemon.RebuildProjectionAsync(ComplianceWatchtowerProjection.ProjectionName, _timeout,
             CancellationToken.None);
 
         _outbox.PublishedMessages.OfType<WatchtowerReported>().Count().ShouldBe(before);
