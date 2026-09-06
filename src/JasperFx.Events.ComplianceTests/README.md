@@ -372,6 +372,39 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Natural keys — reaching a stream by its business identifier | `NaturalKeyCompliance` |
 | `AlwaysEnforceConsistency` — a version check with no events appended | `AlwaysEnforceConsistencyCompliance` |
 | The stream-fetch query plans, standalone and batched | `StreamQueryPlanCompliance` |
+| The `ProjectionScenario` test harness | `ProjectionScenarioCompliance` |
+
+### Pinning a shared *harness* (jasperfx#769)
+
+`ProjectionScenarioCompliance` is the odd one out, and worth reading before adding anything like it.
+Everything else here pins shared *behaviour* implemented separately by each store.
+`ProjectionScenario<TOperations, TQuerySession>` is shared *code* — it lives in
+`JasperFx.Events/TestSupport`, and every product subclasses it over a five-member seam
+(`DeleteExistingDataAsync`, `HasAnyAsyncProjections`, `BuildDaemonAsync`, `OpenSession`,
+`LoadDocumentAsync`). One copy of the sequencing logic exists, so the failures worth catching are the
+ones a store introduces *underneath* it: a store can subclass the harness perfectly, wire one of
+those five wrongly, and leave every other suite in this library green. Every fact in the suite is
+aimed at one of the five, and asserts observable store state rather than the harness's own
+bookkeeping.
+
+That is also why the fixture has two seam members rather than one.
+`RunProjectionScenarioAsync` must **forward** to the store's own documented entry point — Marten's
+and Polecat's `Advanced.EventProjectionScenario`, Fisher's `EventProjectionScenarioAsync` — never
+re-implement it. All three spell that entry point as three lines (construct, configure,
+`ExecuteAsync`), and a fixture that inlined those three lines would pass the whole suite while the
+store's advertised entry point was missing or pointed at a different store. `CreateProjectionScenario`
+exists only for the facts the run entry point structurally cannot reach: a scenario's steps are
+consumed by its first run, so `a_scenario_cannot_be_executed_twice` needs a handle the entry point
+constructs and throws away.
+
+Two things it deliberately does not cover. The composite-projection form of the clean-slate fact
+(marten#5169 — the wipe list came from `StorageTypes` rather than `PublishedTypes()`, so a composite
+read side wiped nothing and every scenario after the first ran against the previous one's documents
+while its events were gone) would force every store enrolling this suite to support composites, which
+are opt-in through an unrelated seam; the portable half of that fact is asserted and the rest stays
+with the product. Multi-tenanted scenarios are out for the same shape of reason: pairing this gate
+with the conjoined-tenancy one would make the most valuable facts skip on a store that has one but
+not the other.
 
 ### The empty unit of work (jasperfx#762)
 
