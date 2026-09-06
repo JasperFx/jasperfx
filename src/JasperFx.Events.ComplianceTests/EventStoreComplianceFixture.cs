@@ -31,6 +31,13 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     private Action<ComplianceStoreConfig>? _lastConfiguration;
 
     /// <summary>
+    /// The most recently built store-neutral configuration — what
+    /// <see cref="StartCoordinatorHostAsync(bool)"/> replays into a hosted store so the suite's
+    /// projections are registered there as well as on the fixture's own store.
+    /// </summary>
+    protected ComplianceStoreConfig? CurrentConfig { get; private set; }
+
+    /// <summary>
     /// Cancellation token handed to every store call the suites make. Overridable rather than
     /// hard-coded so a consumer can swap in its own budget.
     /// </summary>
@@ -57,6 +64,7 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
 
         await BuildStoreAsync(config).ConfigureAwait(false);
 
+        CurrentConfig = config;
         _lastConfiguration = configure;
     }
 
@@ -389,6 +397,83 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </para>
     /// </remarks>
     public virtual bool SupportsUpcasting => false;
+
+
+    /// <summary>
+    /// Build and START an application host whose container registers this store the way the
+    /// product documents it — the product's own <c>AddXxx(...)</c> service registration plus its
+    /// documented async daemon registration — replaying <paramref name="config"/> so the suite's
+    /// projections are registered on the hosted store. Point the hosted store at the same database
+    /// (and the config's schema) as the fixture's own store, so the per-test
+    /// <see cref="CleanEventDataAsync"/> isolation covers it. Disposing the returned wrapper must
+    /// stop the host.
+    /// </summary>
+    /// <param name="config">The suite's store-neutral configuration, to replay onto the hosted store.</param>
+    /// <param name="includeAncillaryStore">
+    /// True only when <see cref="SupportsAncillaryCoordinators"/> is true and the ancillary fact is
+    /// running: additionally register one ancillary store (Marten's <c>AddMartenStore&lt;T&gt;</c>
+    /// and its siblings) with its documented daemon registration, whose coordinator
+    /// <see cref="AncillaryCoordinatorFrom"/> resolves. False for every other fact, and load-bearing
+    /// there: the suite asserts the hosted-service walk finds EXACTLY one coordinator, so the
+    /// default host must register only the primary store.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// The seam jasperfx#732 names. Every other daemon suite drives a daemon the fixture built by
+    /// hand (<see cref="StartDaemonAsync"/>), which can never observe whether the documented DI
+    /// registration produces a reachable <see cref="IProjectionCoordinator"/> — fisher#138 shipped
+    /// exactly that gap, and passed all 37 suites while it did.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default so consumers keep compiling across the bump, but unlike the
+    /// opt-in capability members there is deliberately NO <c>Supports</c> flag and no skip. A store
+    /// that enrolls <see cref="ProjectionCoordinatorCompliance{TFixture,TOperations,TQuerySession}"/>
+    /// without implementing this member fails every fact rather than skipping, because a skippable
+    /// registration check recreates the silent gap the suite exists to close — the third instance
+    /// of the jasperfx#700 / jasperfx#718 pattern, and the reason the suite exists at all.
+    /// </para>
+    /// </remarks>
+    protected virtual Task<IComplianceCoordinatorHost<TOperations>> StartCoordinatorHostAsync(
+        ComplianceStoreConfig config, bool includeAncillaryStore)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement StartCoordinatorHostAsync, so it cannot run the projection coordinator compliance suite (jasperfx#732).");
+
+    /// <summary>
+    /// Start the coordinator host for the suite's current configuration — the one the last
+    /// <see cref="ConfigureAsync"/> built.
+    /// </summary>
+    public Task<IComplianceCoordinatorHost<TOperations>> StartCoordinatorHostAsync(
+        bool includeAncillaryStore = false)
+    {
+        if (CurrentConfig == null)
+        {
+            throw new InvalidOperationException(
+                "ConfigureAsync must run before a coordinator host can be started.");
+        }
+
+        return StartCoordinatorHostAsync(CurrentConfig, includeAncillaryStore);
+    }
+
+    /// <summary>
+    /// True in a store that supports ancillary store registration (Marten's
+    /// <c>AddMartenStore&lt;T&gt;</c> and its siblings) whose hosted daemon registers a
+    /// marker-typed <see cref="IProjectionCoordinator{T}"/>. Gates only the ancillary fact of
+    /// <see cref="ProjectionCoordinatorCompliance{TFixture,TOperations,TQuerySession}"/> — the
+    /// core coordinator facts deliberately have no gate.
+    /// </summary>
+    public virtual bool SupportsAncillaryCoordinators => false;
+
+    /// <summary>
+    /// Resolve the ancillary store's marker-typed coordinator from a host started with
+    /// <c>includeAncillaryStore: true</c> — typically
+    /// <c>services.GetRequiredService&lt;IProjectionCoordinator&lt;TMarker&gt;&gt;()</c> over the
+    /// fixture's own marker type. A fixture member because the marker type cannot be shared: every
+    /// product constrains ancillary markers to its own store interface, so only the fixture can
+    /// name one.
+    /// </summary>
+    public virtual IProjectionCoordinator AncillaryCoordinatorFrom(IServiceProvider services)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement AncillaryCoordinatorFrom, so it cannot run the ancillary coordinator compliance fact.");
 
 
     public virtual ValueTask InitializeAsync() => default;
