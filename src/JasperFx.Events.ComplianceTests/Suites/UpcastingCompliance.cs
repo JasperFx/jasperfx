@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using JasperFx.Events.Projections;
@@ -119,8 +121,8 @@ public abstract class UpcastingCompliance<TFixture, TOperations, TQuerySession>
             {
                 var root = document.RootElement;
                 return new UpcastDiscountApplied(
-                    root.GetProperty("CartId").GetGuid(),
-                    root.GetProperty("Percent").GetInt32() / 100.0);
+                    Property(root, "CartId").GetGuid(),
+                    Property(root, "Percent").GetInt32() / 100.0);
             },
             _couponEventTypeName));
 
@@ -131,6 +133,42 @@ public abstract class UpcastingCompliance<TFixture, TOperations, TQuerySession>
     };
 
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
+
+    /// <summary>
+    /// Read one property of a stored event body <b>case-insensitively</b>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <see cref="JsonElement.GetProperty(string)"/> is case-sensitive, and property casing is a
+    /// store-serializer decision rather than anything this contract fixes: Marten's default
+    /// <c>PropertyNamingPolicy</c> is null (so <c>"CartId"</c>) while Polecat's and Fisher's is
+    /// <see cref="JsonNamingPolicy.CamelCase"/> (so <c>"cartId"</c>). Reading the stored JSON is the
+    /// whole point of the raw-JSON registration shape — it is what lets an application upcast
+    /// without keeping the old CLR type in the codebase — so the transformation genuinely sees
+    /// whatever that store's serializer wrote. See jasperfx#787.
+    /// </para>
+    /// <para>
+    /// Deliberately not solved by pinning a <c>PropertyNamingPolicy</c> on the fixture's serializer:
+    /// that would make this fact a test of the fixture's configuration rather than of upcasting, and
+    /// it would stop reproducing the thing an application actually meets. The typed registration
+    /// shapes get the same tolerance for free, from <c>PropertyNameCaseInsensitive</c> on each
+    /// store's own deserializer.
+    /// </para>
+    /// </remarks>
+    private static JsonElement Property(JsonElement root, string name)
+    {
+        foreach (var property in root.EnumerateObject())
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return property.Value;
+            }
+        }
+
+        throw new KeyNotFoundException(
+            $"The stored event body has no property named '{name}' in any casing. Present: "
+            + string.Join(", ", root.EnumerateObject().Select(x => x.Name)));
+    }
 
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(60);
 
