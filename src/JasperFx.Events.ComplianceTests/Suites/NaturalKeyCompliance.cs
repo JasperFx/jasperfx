@@ -173,13 +173,6 @@ public partial class ComplianceNaturalKeyInvoice
 /// and that is what every "does not resolve" assertion below is written against.
 /// </description></item>
 /// <item><description>
-/// <b>Uniqueness of a key across streams.</b> Fisher refuses a second stream claiming a live key
-/// (<c>DuplicateNaturalKeyException</c>); Polecat's <c>MERGE</c> repoints the key at the newcomer.
-/// Fisher's own test comment names the disagreement explicitly. This is the sharpest divergence in
-/// the cluster and pinning either side would make the other's deliberate choice a compliance
-/// failure, so it stays product-owned pending a decision.
-/// </description></item>
-/// <item><description>
 /// <b>Transactional rollback of the key row</b> (Fisher). The property is real and shared, but
 /// provoking it needs a poisoned unit of work — Fisher's test queues raw SQL that fails the batch —
 /// and no shared surface can fail a transaction on demand.
@@ -201,6 +194,14 @@ public partial class ComplianceNaturalKeyInvoice
 /// <see cref="SnapshotLifecycleCompliance{TFixture,TOperations,TQuerySession}"/>'s job.
 /// </description></item>
 /// </list>
+/// <para>
+/// <b>Uniqueness across streams was the one open question, and it is now settled</b> (jasperfx#764).
+/// Fisher refused a second stream claiming a live key while Polecat's <c>MERGE</c> repointed it at
+/// the newcomer; refusing is the contract, and
+/// <see cref="a_second_stream_cannot_claim_a_live_natural_key" /> pins it — with the shared
+/// <see cref="DuplicateNaturalKeyException" /> and, more importantly, with the original mapping read
+/// back afterwards. Polecat carries the behavioral change (polecat#549).
+/// </para>
 /// <para>
 /// <b>The load-bearing facts are the rebuild pair</b> (marten#4788 / marten#4966 / polecat#259).
 /// The natural key lookup is maintained by the inline append path, which drives off newly-appended
@@ -547,6 +548,72 @@ public abstract class NaturalKeyCompliance<TFixture, TOperations, TQuerySession>
         (await EventsFor(query)
             .FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(original, Cancellation))
             .ShouldBeNull();
+    }
+
+    // ---------- uniqueness ----------
+
+    /// <summary>
+    /// jasperfx#764: a natural key already mapped to a live stream is <em>refused</em> to a second
+    /// claimant, and the original mapping survives the attempt.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This was the one open product question in the cluster, and it is settled: refusing is the
+    /// contract. Fisher refuses with <c>DuplicateNaturalKeyException</c>; Polecat's <c>MERGE</c>
+    /// lookup write repointed the key at the newcomer, which leaves the original stream in place but
+    /// unreachable by the identifier it was created with, and reports nothing. A natural key exists
+    /// to name one stream, so a second claimant is a bug in the caller's key derivation rather than
+    /// an instruction — and of the two failure modes, the silent one is worse. Polecat carries the
+    /// behavioral change (polecat#549).
+    /// </para>
+    /// <para>
+    /// <b>The second half is the half that does the work.</b> Asserting only the throw would pass on
+    /// a store that repoints the row and <em>then</em> fails the transaction, or that writes the new
+    /// mapping through a path the failure does not roll back — the mapping is the thing being
+    /// protected, so it has to be read back. It is checked through <c>FetchLatest</c>, the one miss
+    /// the products spell identically, and by stream id rather than by nullness so a store that
+    /// repointed the key still fails here rather than passing on "something resolves".
+    /// </para>
+    /// <para>
+    /// Distinct from the two neighbouring behaviors that are <em>not</em> duplicates and are pinned
+    /// elsewhere: re-asserting the same mapping on its own stream is idempotent by design, and
+    /// renaming a key retires the superseded one — see
+    /// <see cref="renaming_the_natural_key_retires_the_previous_key" />, which is what frees an
+    /// identifier for a later stream to claim legitimately.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task a_second_stream_cannot_claim_a_live_natural_key()
+    {
+        SkipUnlessNaturalKeysAreSupported();
+
+        var number = aNumber("ORD-DUP");
+        var originalId = await anOrderAsync(number, new NaturalKeyOrderItemAdded("Widget", 9.99m));
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceNaturalKeyOrder>(Guid.NewGuid(),
+                new NaturalKeyOrderPlaced(number, "Mallory"));
+
+            var ex = await Should.ThrowAsync<DuplicateNaturalKeyException>(() => SaveChangesAsync(session));
+
+            // Unwrapped, not the ComplianceOrderNumber wrapper: NaturalKeyDefinition unwraps before
+            // the lookup is written, so the value in the row — and therefore at the throw site — is
+            // the inner string.
+            ex.Key.ShouldBe(number.Value);
+            ex.AggregateType.ShouldBe(typeof(ComplianceNaturalKeyOrder));
+        }
+
+        // The mapping the refusal exists to protect. A store that throws but has already repointed
+        // the row fails here, which is the whole point of reading it back.
+        await using var query = OpenSession();
+        var order = await EventsFor(query)
+            .FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(number, Cancellation);
+
+        order.ShouldNotBeNull();
+        order.Id.ShouldBe(originalId);
+        order.Customer.ShouldBe("Alice");
+        order.Total.ShouldBe(9.99m);
     }
 
     // ---------- archiving and cleaning ----------
