@@ -188,6 +188,32 @@ public interface IComplianceStoreRegistrar
             $"{GetType().FullName} does not implement Upcast, so it cannot run the event upcasting compliance suite.");
 
     /// <summary>
+    /// Install the shared recording message outbox — every store spells it
+    /// <c>Events.MessageOutbox = outbox</c> — so the suites can see what a projection's
+    /// <c>RaiseSideEffects</c> actually published.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Typed as the concrete <see cref="RecordingMessageOutbox"/> for the same reason as
+    /// <see cref="Subscribe"/>: <c>IMessageOutbox</c> is a per-product interface — Marten's
+    /// <c>CreateBatch</c> takes its internal <c>DocumentSessionBase</c>, Polecat's and Fisher's take
+    /// their own <c>IDocumentSession</c> — so there is no shared type to accept here. The library
+    /// owns the recording type and each consumer completes it as a partial implementing its own
+    /// interface, so naming the concrete type is the one spelling that works everywhere.
+    /// </para>
+    /// <para>
+    /// Carries a throwing default for the same reason as <see cref="UseBinarySerializer{TEvent}"/>:
+    /// a store that has no message outbox does not enroll in
+    /// <see cref="ProjectionSideEffectCompliance{TFixture,TOperations,TQuerySession}"/>, never
+    /// reaches this member, and keeps compiling against a newer compliance package. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/763" />.
+    /// </para>
+    /// </remarks>
+    void UseMessageOutbox(RecordingMessageOutbox outbox)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement UseMessageOutbox, so it cannot run the projection side effect compliance suite.");
+
+    /// <summary>
     /// Register the shared compliance subscription with the store's async daemon.
     /// </summary>
     /// <remarks>

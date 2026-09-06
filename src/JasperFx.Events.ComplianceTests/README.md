@@ -15,7 +15,7 @@ differences between the repos.
 Reference the package from a test project that already has xunit v3 and Shouldly, then supply three
 things.
 
-**1. Five global aliases naming your store's own types.** The shared suites declare aggregates and
+**1. Six global aliases naming your store's own types.** The shared suites declare aggregates and
 projections at file scope, so they cannot reach the `<TOperations, TQuerySession>` pair the suite
 classes are generic over. The source generator resolves these by type name, so aliases are enough:
 
@@ -29,14 +29,17 @@ global using ComplianceStringPartyProjectionBase =
 global using ComplianceMultiStreamProjectionBase =
     Marten.Events.Projections.MultiStreamProjection<
         JasperFx.Events.ComplianceTests.ComplianceDepartment, string>;
+global using ComplianceWatchtowerProjectionBase =
+    Marten.Events.Aggregation.SingleStreamProjection<
+        JasperFx.Events.ComplianceTests.ComplianceWatchtower, System.Guid>;
 ```
 
 `ComplianceQuerySession` binds the `EvolveAsync(IEvent, …)` convention on the self-aggregating
 fixtures; the next two bind the EventProjection suites to your product's own projection base and
-writable session. The last two are *closed* generics, because the single stream and multi stream
-projection bases are generic over both the document and its identity — they bind the string-identity
-and multi-stream suites' custom projections to your product's `SingleStreamProjection<TDoc, TId>`
-and `MultiStreamProjection<TDoc, TId>`.
+writable session. The last three are *closed* generics, because the single stream and multi stream
+projection bases are generic over both the document and its identity — they bind the string-identity,
+multi-stream and side-effect suites' custom projections to your product's
+`SingleStreamProjection<TDoc, TId>` and `MultiStreamProjection<TDoc, TId>`.
 
 **2. A concrete fixture** closing `EventStoreComplianceFixture<TOperations, TQuerySession>` over your
 store's session pair. Everything portable in the suites runs through the shared JasperFx surfaces
@@ -44,7 +47,7 @@ store's session pair. Everything portable in the suites runs through the shared 
 no shared interface declares — store construction from a `ComplianceStoreConfig`, session
 acquisition, `SaveChangesAsync`, document load-back, batched DCB queries, and teardown.
 
-**3. Two partial classes**, for the two suites whose shared type cannot be reached by an alias.
+**3. Three partial classes**, for the suites whose shared type cannot be reached by an alias.
 
 `FlatTableProjectionCompliance` is the first: every product's flat-table projection base takes
 constructor arguments describing where the table lives, and those signatures genuinely differ, so no
@@ -91,6 +94,33 @@ public partial class ComplianceSubscription : ISubscription   // your product's 
 
 Your registrar's `Subscribe` should pin the name to `ComplianceSubscription.SubscriptionName`;
 progression is keyed on it and the products disagree on what an unnamed subscription defaults to.
+
+`RecordingMessageOutbox` — with its companion `RecordingMessageBatch` — is the third, and it is the
+same shape as the second one more time. Every product declares its own `IMessageOutbox` and
+`IMessageBatch`, and here even the *members* differ: Marten's `IMessageBatch : IMessageSink,
+IChangeListener` takes `(IDocumentSession, IChangeSet, CancellationToken)` on both commit hooks,
+while Polecat's and Fisher's take a bare `CancellationToken`. The library owns the recording, the
+ordering, the commit probe and the shared `IMessageSink` half; a consumer supplies four one-line
+members. Only `ProjectionSideEffectCompliance` needs these, so a store that has no message outbox
+simply leaves `SupportsMessageOutbox` false and never writes them.
+
+```csharp
+namespace JasperFx.Events.ComplianceTests;
+
+public partial class RecordingMessageOutbox : IMessageOutbox   // your product's IMessageOutbox
+{
+    public ValueTask<IMessageBatch> CreateBatch(DocumentSessionBase session) => new(NewBatch());
+}
+
+public partial class RecordingMessageBatch : IMessageBatch     // your product's IMessageBatch
+{
+    public Task BeforeCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+        => RecordBeforeCommitAsync();
+
+    public Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+        => RecordAfterCommitAsync();
+}
+```
 
 Then enroll each suite with an empty subclass:
 
@@ -193,6 +223,46 @@ the one single-store fact pins the marten#4680 authority rule — a typed append
 type, whose stored dotnet-type hint would otherwise swap the mapping back, must still read through
 the upcaster.
 
+`ProjectionSideEffectCompliance` (jasperfx#763) covers `RaiseSideEffects`, which is genuinely shared
+— declared on `JasperFxAggregationProjectionBase`, drained by the shared single- and multi-stream
+bases into `IProjectionBatch.PublishMessageAsync` and `EventSlice.BuildOperations` — while the half
+underneath it is not. Building the append operations and handing out a message batch is each store's
+own, and that half has shipped **stubbed empty** twice (fisher#61, polecat#420), dropping every
+raised event with no error and no log. A projection whose side effects go nowhere passes every other
+suite here, which is the whole argument for this one.
+
+Its cost is the highest of any suite in the library, and each piece is forced. One more closed
+generic alias beside `ComplianceStringPartyProjectionBase` (`ComplianceWatchtowerProjectionBase` —
+see `Local/ComplianceSideEffectProjectionPlaceholder.cs` for the exact spelling), because the
+suite's projection has to *override* `RaiseSideEffects` and so must derive from the product's own
+`SingleStreamProjection<TDoc, TId>`. And **two more per-consumer partials**,
+`RecordingMessageOutbox` and `RecordingMessageBatch`, for the same reason as `ComplianceSubscription`:
+`IMessageOutbox` and `IMessageBatch` are per-product types whose members genuinely differ — Marten
+declares `IMessageBatch : IMessageSink, IChangeListener`, so its hooks take
+`(IDocumentSession, IChangeSet, CancellationToken)`, while Polecat's and Fisher's take a bare
+`CancellationToken`. The library owns the recording, the ordering and the probe; a consumer writes
+four one-line members. The `IMessageSink` half — `PublishAsync<T>(T, string)` — is shared and stays
+in the library.
+
+The load-bearing shape is the same as `AggregateWriteCacheCompliance`'s: the suite supplies the
+outbox so it can assert a **nonzero publish count**. "The document came out right" and "nothing
+threw" are both vacuously true of a store that discarded the side effects, and the rebuild fact is
+where that matters most — "no messages were published during the rebuild" is trivially satisfied by
+a store that published none at all, so the pre-rebuild count is required to be positive first.
+Likewise the suppression fact asserts on the *stream*, not the aggregate: a rebuild that re-raised
+would append the audit event again on every rebuild, and the projected document is idempotent under
+that and looks identical either way.
+
+Two seams, both gated, both default false. `SupportsMessageOutbox` gates the outbox facts, and it is
+a gate rather than a plain non-enrollment because installing the outbox drives store *construction*
+through `IComplianceStoreRegistrar.UseMessageOutbox` — so the suite keeps the outbox out of its
+standard configuration and reconfigures only after the gate passes, and the raised-event facts run
+either way. `SupportsCommitVisibilityProbe` gates the single fact that proves the commit *boundary*
+rather than the hook order, because that fact deliberately reads a row an open transaction is
+writing: a snapshot reader answers, a lock-based one blocks, and a probe that blocks until the
+commit deadlocks against the hook holding the commit open. Hook order alone does not prove the
+boundary — the two would fire in that order even if both ran before the commit.
+
 ## Capability gates
 
 Where a store genuinely cannot support a behavior, override the `virtual bool Supports...` flags on
@@ -253,6 +323,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | `AggregateToAsync` over an event query | `AggregateToLinqOperatorCompliance` |
 | `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |
 | Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
+| Projection `RaiseSideEffects` — raised events and published messages | `ProjectionSideEffectCompliance` |
 | A reachable `IProjectionCoordinator` over the documented registration | `ProjectionCoordinatorCompliance` |
 
 ### Identity-less boundary aggregates (jasperfx#718)
