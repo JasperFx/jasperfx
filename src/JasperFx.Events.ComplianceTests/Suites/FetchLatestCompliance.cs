@@ -195,6 +195,121 @@ public abstract class FetchLatestCompliance<TFixture, TOperations, TQuerySession
         projected.Closed.ShouldBe(fetched.Closed);
     }
 
+    /// <summary>
+    /// The one thing that separates <c>ProjectLatest</c> from <c>FetchLatest</c>: events appended to
+    /// the session but not yet committed are folded in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Note the deliberate contrast with
+    /// <see cref="fetch_latest_after_fetch_for_writing_and_save_is_not_stale"/>, whose remarks record
+    /// that <c>FetchLatest</c> does <em>not</em> promise uncommitted visibility. <c>ProjectLatest</c>
+    /// does, in both products, and that promise is what makes it usable inside a decider that wants
+    /// to see the effect of what it has already decided. Without a fact here, the two entry points
+    /// are indistinguishable from a compliance suite's point of view —
+    /// <see cref="project_latest_agrees_with_fetch_latest"/> is satisfied by a store that simply
+    /// aliases one to the other.
+    /// </para>
+    /// <para>
+    /// Nothing is saved: the assertion runs against a session holding pending events, and the store
+    /// must not have persisted anything to answer it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task project_latest_includes_events_pending_in_the_session()
+    {
+        var streamId = Guid.NewGuid();
+
+        await using var session = OpenSession();
+        EventsFor(session).StartStream<ComplianceTab>(streamId,
+            new TabOpened("Ada"), new DrinkOrdered(4), new DrinkOrdered(6));
+
+        var tab = await EventsFor(session).ProjectLatest<ComplianceTab>(streamId, Cancellation);
+
+        tab.ShouldNotBeNull();
+        tab.Customer.ShouldBe("Ada");
+        tab.Total.ShouldBe(10);
+    }
+
+    [Fact]
+    public async Task project_latest_merges_committed_and_pending_events()
+    {
+        var streamId = await aTabAsync(new DrinkOrdered(4));
+
+        await using var session = OpenSession();
+        EventsFor(session).Append(streamId, new DrinkOrdered(6), new TabClosed());
+
+        var tab = await EventsFor(session).ProjectLatest<ComplianceTab>(streamId, Cancellation);
+
+        tab.ShouldNotBeNull();
+        tab.Total.ShouldBe(10);
+        tab.Closed.ShouldBeTrue();
+
+        // Still pending: the merge is a read-side fold, not an early commit.
+        await using var other = OpenSession();
+        var persisted = await EventsFor(other).FetchStreamStateAsync(streamId, Cancellation);
+        persisted.ShouldNotBeNull();
+        persisted.Version.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// <c>no_pending_events_behaves_like_fetch_latest</c> — the same fact both products carry
+    /// verbatim. The merge must not cost correctness when there is nothing to merge.
+    /// </summary>
+    [Fact]
+    public async Task project_latest_with_no_pending_events_behaves_like_fetch_latest()
+    {
+        var streamId = await aTabAsync(new DrinkOrdered(4), new DrinkOrdered(6));
+
+        await using var session = OpenSession();
+
+        var fromProjectLatest = await EventsFor(session).ProjectLatest<ComplianceTab>(streamId, Cancellation);
+        var fromFetchLatest = await EventsFor(session).FetchLatest<ComplianceTab>(streamId, Cancellation);
+
+        fromProjectLatest.ShouldNotBeNull();
+        fromFetchLatest.ShouldNotBeNull();
+        fromProjectLatest.Customer.ShouldBe(fromFetchLatest.Customer);
+        fromProjectLatest.Total.ShouldBe(fromFetchLatest.Total);
+        fromProjectLatest.Closed.ShouldBe(fromFetchLatest.Closed);
+    }
+
+    [Fact]
+    public async Task project_latest_for_an_unknown_stream_with_nothing_pending_is_null()
+    {
+        await using var session = OpenSession();
+        var tab = await EventsFor(session).ProjectLatest<ComplianceTab>(Guid.NewGuid(), Cancellation);
+
+        tab.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task project_latest_gives_the_same_answer_with_no_snapshot_registered()
+    {
+        // Live: the aggregate is registered nowhere, so pending events have to be folded on top of a
+        // live fold rather than on top of a persisted document. Both products get one of the two
+        // paths right more easily than the other.
+        await theFixture.ConfigureAsync(_liveConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var streamId = Guid.NewGuid();
+
+        await using (var writer = OpenSession())
+        {
+            EventsFor(writer).StartStream<ComplianceTab>(streamId, new TabOpened("Ada"), new DrinkOrdered(4));
+            await SaveChangesAsync(writer);
+        }
+
+        await using var session = OpenSession();
+        EventsFor(session).Append(streamId, new DrinkOrdered(6), new TabClosed());
+
+        var tab = await EventsFor(session).ProjectLatest<ComplianceTab>(streamId, Cancellation);
+
+        tab.ShouldNotBeNull();
+        tab.Customer.ShouldBe("Ada");
+        tab.Total.ShouldBe(10);
+        tab.Closed.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task fetch_latest_gives_the_same_answer_with_no_snapshot_registered()
     {

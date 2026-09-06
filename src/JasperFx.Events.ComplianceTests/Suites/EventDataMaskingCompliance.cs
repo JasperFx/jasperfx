@@ -45,6 +45,17 @@ public class SubjectClosed
     public string Reason { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Carries <em>two</em> rules registered against this one concrete type — not an interface and its
+/// implementation, the same type twice. See
+/// <c>EventDataMaskingCompliance.every_rule_against_one_concrete_type_runs</c>.
+/// </summary>
+public class SubjectRelocated
+{
+    public string PreviousAddress { get; set; } = string.Empty;
+    public string NewAddress { get; set; } = string.Empty;
+}
+
 #endregion
 
 /// <summary>
@@ -92,6 +103,7 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
         config.AddEventType<SubjectContacted>();
         config.AddEventType<SubjectNoteAdded>();
         config.AddEventType<SubjectClosed>();
+        config.AddEventType<SubjectRelocated>();
 
         // Contravariant: one rule against the interface reaches both implementing event types.
         config.AddMaskingRule<IComplianceSubjectEvent>(x => x.Subject = Masked);
@@ -101,6 +113,10 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
 
         // The replacing form, which is the only one a record with init-only members can use.
         config.AddMaskingRule<SubjectNoteAdded>(x => x with { Note = Masked });
+
+        // Two rules against the SAME concrete type. See every_rule_against_one_concrete_type_runs.
+        config.AddMaskingRule<SubjectRelocated>(x => x.PreviousAddress = Masked);
+        config.AddMaskingRule<SubjectRelocated>(x => x.NewAddress = Masked);
     };
 
     /// <summary>
@@ -127,6 +143,7 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
         new SubjectRegistered { Subject = "Hilda Ravenswood", Email = "hilda@example.com" },
         new SubjectContacted { Subject = "Hilda Ravenswood", Channel = "email" },
         new SubjectNoteAdded("caseworker", "Lives at 14 Rookery Lane"),
+        new SubjectRelocated { PreviousAddress = "14 Rookery Lane", NewAddress = "3 Mill Row" },
         new SubjectClosed { Reason = "resolved" }
     ];
 
@@ -173,6 +190,39 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
         // The interface rule and the concrete rule both ran against the same event.
         registered.Subject.ShouldBe(Masked);
         registered.Email.ShouldBe(Masked);
+    }
+
+    /// <summary>
+    /// marten#5199 / polecat#422, in its sharpest form: two rules registered against the <em>same
+    /// concrete type</em>, both of which must run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="rules_compose_rather_than_replace_one_another"/> already pins the bug as it was
+    /// reported — an interface rule and a concrete rule matching one event, where a short-circuiting
+    /// <c>||=</c> over the rule list let the first match stop every later rule from being invoked,
+    /// and the operation still reported success. For a right-to-erasure feature that means protected
+    /// information silently survives a masking pass.
+    /// </para>
+    /// <para>
+    /// This fact closes the neighbouring hole: a store that keyed its rules by event type — a
+    /// dictionary rather than a list — passes the interface/concrete version, because those are two
+    /// different keys, and silently drops one of the two rules here. Same failure, same silence,
+    /// different mistake.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task every_rule_against_one_concrete_type_runs()
+    {
+        var streamId = await aSubjectAsync();
+
+        await theFixture.ApplyEventDataMaskingAsync(x => x.IncludeStream(streamId), Cancellation);
+
+        var events = await eventsForAsync(streamId);
+        var relocated = events.Select(x => x.Data).OfType<SubjectRelocated>().Single();
+
+        relocated.PreviousAddress.ShouldBe(Masked);
+        relocated.NewAddress.ShouldBe(Masked);
     }
 
     [Fact]
@@ -243,11 +293,11 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
 
         var state = await EventsFor(query).FetchStreamStateAsync(streamId, Cancellation);
         state.ShouldNotBeNull();
-        state.Version.ShouldBe(4);
+        state.Version.ShouldBe(5);
 
         var events = await EventsFor(query).FetchStreamAsync(streamId, token: Cancellation);
-        events.Count.ShouldBe(4);
-        events.Select(x => x.Version).ShouldBe(new long[] { 1, 2, 3, 4 });
+        events.Count.ShouldBe(5);
+        events.Select(x => x.Version).ShouldBe(new long[] { 1, 2, 3, 4, 5 });
     }
 
     [Fact]
