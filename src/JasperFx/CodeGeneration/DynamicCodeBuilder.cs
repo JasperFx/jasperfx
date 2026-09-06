@@ -135,6 +135,10 @@ public class DynamicCodeBuilder
                 foreach (var file in collection.BuildFiles())
                 {
                     var generatedAssembly = collection.StartAssembly(collection.Rules);
+
+                    // #743: the target language has to be visible to AssembleTypes so an ICodeFile
+                    // can decline to emit C#-only artifacts (AOT rooting companions) under --language fsharp.
+                    generatedAssembly.TargetLanguage = Language;
                     file.AssembleTypes(generatedAssembly);
 
                     // #2991: apply any per-file service-provider override (e.g. HTTP's
@@ -187,6 +191,7 @@ public class DynamicCodeBuilder
         foreach (var file in collection.BuildFiles())
         {
             var generatedAssembly = collection.StartAssembly(collection.Rules);
+            generatedAssembly.TargetLanguage = Language;
             try
             {
                 file.AssembleTypes(generatedAssembly);
@@ -230,6 +235,7 @@ public class DynamicCodeBuilder
             foreach (var file in collection.BuildFiles())
             {
                 var generatedAssembly = collection.StartAssembly(collection.Rules);
+                generatedAssembly.TargetLanguage = Language;
                 file.AssembleTypes(generatedAssembly);
 
                 // #2991: see WriteGeneratedCode.

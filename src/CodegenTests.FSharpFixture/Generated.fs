@@ -8,6 +8,7 @@ open Microsoft.Extensions.DependencyInjection
 open System
 open System.Threading.Tasks
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
     let _greetingService = greetingService
 
@@ -19,6 +20,7 @@ type GeneratedGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
             let result = result_of_CreateGreeting.ToUpper()
             result
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
     let _greetingService = greetingService
 
@@ -31,6 +33,7 @@ type GeneratedAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingService)
                 return result_of_CreateGreetingAsync
             }
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedDirectAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingService) =
     let _greetingService = greetingService
 
@@ -40,6 +43,7 @@ type GeneratedDirectAsyncGreeter(greetingService: FSharpCodegenTarget.GreetingSe
             let salutation = FSharpCodegenTarget.Salutation(name)
             _greetingService.CreateGreetingAsync(salutation)
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedAccumulator(accumulatorService: FSharpCodegenTarget.AccumulatorService) =
     let _accumulatorService = accumulatorService
 
@@ -49,6 +53,7 @@ type GeneratedAccumulator(accumulatorService: FSharpCodegenTarget.AccumulatorSer
             mutableBox <- _accumulatorService.Advance(mutableBox)
             mutableBox
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedConditionalGreeter(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
     let _controlFlowService = controlFlowService
 
@@ -59,6 +64,7 @@ type GeneratedConditionalGreeter(controlFlowService: FSharpCodegenTarget.Control
             else
                 _controlFlowService.Echo(input)
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedFSharpSagaGuard(sagaService: FSharpCodegenTarget.SagaService) =
     let _sagaService = sagaService
 
@@ -69,6 +75,7 @@ type GeneratedFSharpSagaGuard(sagaService: FSharpCodegenTarget.SagaService) =
             else
                 _sagaService.Echo(saga)
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedToggle(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
     let _controlFlowService = controlFlowService
 
@@ -77,6 +84,7 @@ type GeneratedToggle(controlFlowService: FSharpCodegenTarget.ControlFlowService)
             if flag then
                 _controlFlowService.Record()
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedResourceRunner(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
     let _controlFlowService = controlFlowService
 
@@ -88,6 +96,7 @@ type GeneratedResourceRunner(controlFlowService: FSharpCodegenTarget.ControlFlow
             finally
                 _controlFlowService.End()
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedOrderHandler(confirmationFactory: FSharpCodegenTarget.ConfirmationFactory, orderRepository: FSharpCodegenTarget.IOrderRepository) =
     let _confirmationFactory = confirmationFactory
     let _orderRepository = orderRepository
@@ -102,6 +111,7 @@ type GeneratedOrderHandler(confirmationFactory: FSharpCodegenTarget.Confirmation
                 return orderConfirmation
             }
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedSyncTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
     let _controlFlowService = controlFlowService
 
@@ -110,12 +120,14 @@ type GeneratedSyncTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFlo
             _controlFlowService.Record()
             System.Threading.Tasks.Task.CompletedTask
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedCalculator() =
     inherit FSharpCodegenTarget.CalculatorBase()
     override this.Compute(seed: int) : int =
         let result_of_Bump = this.Bump(seed)
         result_of_Bump
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedThingHandler(thingDescriber: FSharpCodegenTarget.ThingDescriber) =
     let _thingDescriber = thingDescriber
 
@@ -124,6 +136,7 @@ type GeneratedThingHandler(thingDescriber: FSharpCodegenTarget.ThingDescriber) =
             let thing = FSharpCodegenTarget.Thing()
             _thingDescriber.Describe((thing :> FSharpCodegenTarget.IThing))
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedScopedConsumer(serviceScopeFactory: Microsoft.Extensions.DependencyInjection.IServiceScopeFactory) =
     let _serviceScopeFactory = serviceScopeFactory
 
@@ -136,11 +149,13 @@ type GeneratedScopedConsumer(serviceScopeFactory: Microsoft.Extensions.Dependenc
                 do! scopedThing.DoAsync()
             }
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedActivityEmitter() =
     interface FSharpCodegenTarget.IActivityEmitter with
         member this.Emit() : unit =
             if not (isNull System.Diagnostics.Activity.Current) then System.Diagnostics.Activity.Current.AddEvent(System.Diagnostics.ActivityEvent("sample.activity.event")) |> ignore
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedNowHandler(clockService: FSharpCodegenTarget.ClockService) =
     let _clockService = clockService
 
@@ -149,6 +164,7 @@ type GeneratedNowHandler(clockService: FSharpCodegenTarget.ClockService) =
             let now = System.DateTime.UtcNow
             _clockService.Stamp(now)
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedValueTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFlowService) =
     let _controlFlowService = controlFlowService
 
@@ -157,6 +173,7 @@ type GeneratedValueTaskHandler(controlFlowService: FSharpCodegenTarget.ControlFl
             let result_of_Fallback = _controlFlowService.Fallback()
             System.Threading.Tasks.ValueTask<string>(result_of_Fallback)
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedMemberAccessHandler() =
     interface FSharpCodegenTarget.IMemberAccessHandler with
         member this.Read() : int =
@@ -164,6 +181,7 @@ type GeneratedMemberAccessHandler() =
             let value = mutableBox.Value
             value
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedArrayHandler(thingA: FSharpCodegenTarget.Thing, thingB: FSharpCodegenTarget.Thing) =
     let _thingA = thingA
     let _thingB = thingB
@@ -173,6 +191,7 @@ type GeneratedArrayHandler(thingA: FSharpCodegenTarget.Thing, thingB: FSharpCode
             let thingArray = [| _thingA; _thingB |]
             thingArray
 
+[<System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")>]
 type GeneratedLazyHandler(provider: System.IServiceProvider) =
     let _provider = provider
 

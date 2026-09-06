@@ -184,6 +184,64 @@ public static string AddCustomMethod()
 
 `AddVoidMethod` and `AddMethodThatReturns<T>` let you define methods that do not come from a base class or interface.
 
+### Static Methods
+
+`AddStaticVoidMethod` emits a `static void` method. Unlike the other `Add*Method` calls it also tolerates an empty `Frames` collection, because a method whose entire payload is its attributes is a legitimate thing to generate — see [Rooting pre-generated types](./aot#rooting-pre-generated-types).
+
+```cs
+var companion = assembly.AddType("AotRoots");
+var pin = companion.AddStaticVoidMethod("Pin");
+```
+
+## Attributes
+
+Every `GeneratedType` and `GeneratedMethod` carries an `Attributes` collection of `GeneratedAttribute`. Attributes are *modeled* rather than smuggled as raw text so each language writer renders them in its own syntax -- `[Foo(...)]` in C#, `[<Foo(...)>]` in F#:
+
+```cs
+type.Attributes.Add(new GeneratedAttribute(typeof(ObsoleteAttribute), AttributeArg.Value("use the new one")));
+
+method.Attributes.Add(new GeneratedAttribute(typeof(DynamicDependencyAttribute),
+    AttributeArg.Enum(DynamicallyAccessedMemberTypes.All),
+    AttributeArg.TypeNamed("MyApp.Generated.SomeGeneratedHandler")));
+```
+
+Argument kinds:
+
+| Factory | Emits (C#) | Emits (F#) |
+|---------|------------|------------|
+| `AttributeArg.Type(typeof(T))` | `typeof(global::Ns.T)` | `typeof<Ns.T>` |
+| `AttributeArg.TypeNamed("Ns.T")` | `typeof(global::Ns.T)` | `typeof<Ns.T>` |
+| `AttributeArg.Enum(value)` | `global::Ns.E.Member` (`\|` for combined flags) | `Ns.E.Member` (`\|\|\|`) |
+| `AttributeArg.Value(literal)` | `"text"` / `true` / `5L` / `null` | same, with F# numeric literal rules |
+| `AttributeArg.Raw(csharp, fsharp)` | verbatim | verbatim |
+
+`AttributeArg.TypeNamed` is the important one for generated code: a *sibling generated type* has no runtime `Type` while `codegen write` is running, so it can only be referenced by name. Rendering is always fully qualified, so attributes never depend on the `using` / `open` statements at the top of the file.
+
+Every generated type is seeded with the `[GeneratedCode("JasperFx", "1.0.0")]` marker through this same mechanism.
+
+::: tip
+`GeneratedType.Header` / `GeneratedMethod.Header` can still smuggle arbitrary text in front of a declaration, but raw C# attribute text in a `Header` silently corrupts `codegen write --language fsharp` output. Prefer `Attributes`.
+:::
+
+## Target Language
+
+`GeneratedAssembly.TargetLanguage` reports which language the assembly is about to be rendered as. `DynamicCodeBuilder` stamps it *before* it calls `ICodeFile.AssembleTypes`, so a code file can vary what it emits by language:
+
+```cs
+public void AssembleTypes(GeneratedAssembly assembly)
+{
+    var handler = assembly.AddType("SomeHandler", typeof(MessageHandler));
+    // ...
+
+    if (assembly.TargetLanguage == CodegenLanguage.csharp)
+    {
+        // C#-only artifact
+    }
+}
+```
+
+It defaults to `CodegenLanguage.csharp`, and the runtime Roslyn path never changes it.
+
 ## Frames Collection
 
 The `Frames` property on `GeneratedMethod` is a `FramesCollection`. You interact with it primarily through:

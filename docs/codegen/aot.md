@@ -142,6 +142,47 @@ If publish fails with IL warnings-as-errors, the build output tells you exactly 
 | `IL3050: …RequiresDynamicCodeAttribute` on `MakeGenericType` / `Activator.CreateInstance` in your own code | You're doing reflection. | Refactor to source-generated code, or to `JasperFx.Core.Reflection.GenericFactoryCache.BuildAs<T>(...)` with a delegate factory. |
 | `Unable to load type 'X' from assembly 'Y' at runtime` | The trimmer dropped a type that was reachable only by reflection. | Annotate the reflective call site with `[DynamicallyAccessedMembers]` on the relevant `Type` parameter, or add a `[DynamicDependency]` to keep the type alive. |
 
+### Rooting pre-generated types
+
+There is a trap in the two-phase model above. Pre-generated types are only ever *reached* reflectively — the host scans the application assembly's exported types and calls `Activator.CreateInstance`. ILC sees no static reference to any of them, so it trims them, and `TypeLoadMode.Static` then degrades into a scan that finds nothing. The failure is quiet: the app boots, the scan comes up empty, and the behavior you pre-generated simply isn't there.
+
+The fix is to root the generated types from the generated code itself, which is the one place that knows every type involved. JasperFx emits that as an **AOT roots companion** — a generated class whose single `static void` method carries a `[ModuleInitializer]` plus one `[DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(...))]` per rooted type. A module initializer is an unconditional ILC root, so the whole graph is anchored with no application-side code:
+
+```cs
+// inside an ICodeFile.AssembleTypes(GeneratedAssembly assembly)
+assembly.AddAotRoots("AotRoots", new[]
+{
+    "MyApp.Generated.GeneratedHandlerRegistry",
+    "MyApp.Generated.SomeGeneratedHandler",
+    "MyApp.Messages.CreateOrder"
+});
+```
+
+which emits:
+
+```cs
+// Native AOT rooting companion
+[global::System.CodeDom.Compiler.GeneratedCode("JasperFx", "1.0.0")]
+public sealed class AotRoots
+{
+    [global::System.Runtime.CompilerServices.ModuleInitializer]
+    [global::System.Diagnostics.CodeAnalysis.DynamicDependency(global::System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All, typeof(global::MyApp.Generated.GeneratedHandlerRegistry))]
+    [global::System.Diagnostics.CodeAnalysis.DynamicDependency(global::System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All, typeof(global::MyApp.Generated.SomeGeneratedHandler))]
+    [global::System.Diagnostics.CodeAnalysis.DynamicDependency(global::System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.All, typeof(global::MyApp.Messages.CreateOrder))]
+    public static void Pin()
+    {
+        // Intentionally empty. The [DynamicDependency] attributes above are the payload...
+    }
+}
+```
+
+Notes:
+
+- Pass sibling *generated* types by name (the `IEnumerable<string>` overload). They do not exist as runtime `Type`s while `codegen write` is running. There are also overloads taking `IEnumerable<Type>` for types that do already exist, and `IEnumerable<AttributeArg>` when you need to mix the two.
+- `[DynamicDependency]` has `AttributeUsage(Constructor | Field | Method)`, so it cannot sit on the class — the method is the only legal home for the block.
+- The companion is **C# only**. The F# compiler does not honor `ModuleInitializerAttribute` (an F# module's `do` bindings initialize lazily and are not an ILC root), so `AddAotRoots` returns `null` and emits nothing when `assembly.TargetLanguage` is `fsharp` rather than emitting rooting that silently does nothing.
+- Deciding *which* types to root is the consuming framework's call — see [jasperfx#743](https://github.com/JasperFx/jasperfx/issues/743) and [wolverine#4287](https://github.com/JasperFx/wolverine/issues/4287).
+
 ### Verification
 
 The published binary should run with no AOT-specific warnings on the console:

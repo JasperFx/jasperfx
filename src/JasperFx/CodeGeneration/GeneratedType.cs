@@ -50,6 +50,22 @@ public class GeneratedType : IVariableSource, IGeneratedType
     /// </summary>
     public ICodeFragment? Footer { get; set; }
 
+    /// <summary>
+    ///     Attributes emitted immediately in front of this type's declaration, rendered in the
+    ///     syntax of whichever language is being generated. Seeded with the
+    ///     <c>[GeneratedCode("JasperFx", "1.0.0")]</c> marker that every generated type carries.
+    /// </summary>
+    /// <remarks>
+    ///     Prefer this over smuggling raw attribute text through <see cref="Header" />: a C#
+    ///     attribute in a <c>Header</c> corrupts <c>codegen write --language fsharp</c> output.
+    ///     See jasperfx#743.
+    /// </remarks>
+    public IList<GeneratedAttribute> Attributes { get; } = new List<GeneratedAttribute>
+    {
+        new(typeof(System.CodeDom.Compiler.GeneratedCodeAttribute), AttributeArg.Value("JasperFx"),
+            AttributeArg.Value("1.0.0"))
+    };
+
     public string Namespace { get; internal set; }
 
     public Type? BaseType { get; private set; }
@@ -189,6 +205,26 @@ public class GeneratedType : IVariableSource, IGeneratedType
         return method;
     }
 
+    /// <summary>
+    ///     Add a <c>static void</c> method to this type. Unlike <see cref="AddVoidMethod" />, the
+    ///     method is allowed to have an empty body — the motivating case is a method whose only
+    ///     payload is its <see cref="GeneratedMethod.Attributes" />, such as the
+    ///     <c>[ModuleInitializer]</c> AOT rooting companion from jasperfx#743.
+    /// </summary>
+    public GeneratedMethod AddStaticVoidMethod(string name, params Argument[] args)
+    {
+        var method = new GeneratedMethod(name, typeof(void), args)
+        {
+            ParentType = this,
+            IsStatic = true,
+            AllowEmptyBody = true
+        };
+
+        AddMethod(method);
+
+        return method;
+    }
+
     public GeneratedMethod AddMethodThatReturns<TReturn>(string name, params Argument[] args)
     {
         var method = new GeneratedMethod(name, typeof(TReturn), args) { ParentType = this };
@@ -236,6 +272,8 @@ public class GeneratedType : IVariableSource, IGeneratedType
         var ctorArgs = AllInjectedFields
             .Select(x => $"{x.CtorArg}: {x.ArgType.FSharpName()}")
             .Join(", ");
+
+        writeAttributes(writer, CodegenLanguage.fsharp);
 
         writer.Write($"BLOCK:type {TypeName}({ctorArgs}) =");
 
@@ -326,7 +364,7 @@ public class GeneratedType : IVariableSource, IGeneratedType
     private void writeDeclaration(ISourceWriter writer)
     {
         var implemented = implements().ToArray();
-        writer.WriteLine("[global::System.CodeDom.Compiler.GeneratedCode(\"JasperFx\", \"1.0.0\")]");
+        writeAttributes(writer, CodegenLanguage.csharp);
         if (implemented.Any())
         {
             writer.Write(
@@ -336,6 +374,11 @@ public class GeneratedType : IVariableSource, IGeneratedType
         {
             writer.Write($"BLOCK:public sealed class {TypeName}");
         }
+    }
+
+    private void writeAttributes(ISourceWriter writer, CodegenLanguage language)
+    {
+        foreach (var attribute in Attributes) attribute.Write(writer, language);
     }
 
     private IEnumerable<Type> implements()
@@ -386,6 +429,13 @@ public class GeneratedType : IVariableSource, IGeneratedType
         }
 
         foreach (var @interface in _interfaces) yield return @interface.Assembly;
+
+        // An attribute's own assembly (and any assembly named by its arguments) has to be
+        // referenced for the runtime Roslyn path to compile an attributed generated type.
+        foreach (var assembly in Attributes.SelectMany(x => x.AssemblyReferences())) yield return assembly;
+
+        foreach (var assembly in _methods.SelectMany(m => m.Attributes).SelectMany(x => x.AssemblyReferences()))
+            yield return assembly;
     }
 
     public T CreateInstance<T>(params object[] arguments)
