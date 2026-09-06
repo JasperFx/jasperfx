@@ -215,19 +215,31 @@ store whose rebuild leaves the table untouched, the same failure mode `Aggregate
 counts cache hits to avoid. The products' own versions delete the table with raw SQL and count rows;
 the table name is per-product, so the async registration buys the same guarantee portably.
 
-The cluster contains more genuine disagreement than its matching test names suggest, and four things
-stayed behind. The **miss on `FetchForWriting`** is three products and two contracts — Marten returns
-a null aggregate at version 0, Polecat throws `InvalidOperationException`, Fisher throws
+**Uniqueness of a key across streams was the one open product question, and it is settled**
+(jasperfx#764): a natural key already mapped to a live stream is *refused* to a second claimant.
+Fisher refused; Polecat's `MERGE` repointed the key at the newcomer, which leaves the original stream
+in place but unreachable by the identifier it was created with, and reports nothing. Refusing is the
+contract, `a_second_stream_cannot_claim_a_live_natural_key` pins it, and Polecat carries the
+behavioral change (polecat#549). The exception is the shared
+`JasperFx.Events.DuplicateNaturalKeyException`, lifted from Fisher's copy alongside the jasperfx#751
+exception types with its message adopted verbatim.
+
+That fact asserts two things, and **the second is the one that does the work**: the throw, *and* that
+the original stream's mapping still resolves afterwards. An implementation could throw and still have
+written the row — repoint, then fail the transaction, or write the mapping through a path the failure
+does not roll back — so asserting only the exception would pass on a repointing store. The mapping is
+read back by stream id rather than by nullness, for the same reason.
+
+The cluster still contains more genuine disagreement than its matching test names suggest, and three
+things stayed behind. The **miss on `FetchForWriting`** is three products and two contracts — Marten
+returns a null aggregate at version 0, Polecat throws `InvalidOperationException`, Fisher throws
 `UnknownNaturalKeyException` — so every "does not resolve" assertion in the suite is written against
-`FetchLatest`, the one miss Marten and Polecat spell identically. **Uniqueness of a key across
-streams** is the sharpest divergence: Fisher refuses a second stream claiming a live key while
-Polecat's `MERGE` repoints it at the newcomer, and Fisher's own test comment names the disagreement,
-so pinning either side would make the other's deliberate choice a compliance failure. **Rollback of
-the key row** is real and shared but needs a poisoned unit of work, which no shared surface can
-produce on demand. And the **"live lifecycle" pair** shares a name across Marten and Polecat but not
-a precondition — Marten registers `LiveStreamAggregation<T>()`, Polecat's same-named tests register
-`Inline` with a comment saying the inline registration is what creates the lookup at all — so the
-shared precondition does not exist yet.
+`FetchLatest`, the one miss Marten and Polecat spell identically. **Rollback of the key row** is real
+and shared but needs a poisoned unit of work, which no shared surface can produce on demand. And the
+**"live lifecycle" pair** shares a name across Marten and Polecat but not a precondition — Marten
+registers `LiveStreamAggregation<T>()`, Polecat's same-named tests register `Inline` with a comment
+saying the inline registration is what creates the lookup at all — so the shared precondition does
+not exist yet.
 
 One thing consumers should expect: the source generator emits an assembly-level
 `NaturalKeyAggregateAttribute` for every type carrying a `[NaturalKey]` property, so a store may
@@ -298,7 +310,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |
 | Event upcasting — old stored schemas read as the current types | `UpcastingCompliance` |
 | A reachable `IProjectionCoordinator` over the documented registration | `ProjectionCoordinatorCompliance` |
-| Natural keys — reaching a stream by its business identifier | `NaturalKeyCompliance` |
+| Natural keys — reaching a stream by its business identifier, and its uniqueness across streams | `NaturalKeyCompliance` |
 | `AlwaysEnforceConsistency` — a version check with no events appended | `AlwaysEnforceConsistencyCompliance` |
 | The stream-fetch query plans, standalone and batched | `StreamQueryPlanCompliance` |
 
