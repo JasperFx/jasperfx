@@ -33,6 +33,18 @@ public record FlatValuesSubtracted(int A, int B, int C, int D);
 /// </remarks>
 public record FlatValuesAccrued(int A, int B, int C, int D, int MemberCount);
 
+/// <summary>
+/// The decrementing mirror of <see cref="FlatValuesAccrued"/>, mapping <em>every</em> non-key column
+/// for the same reason.
+/// </summary>
+/// <remarks>
+/// <see cref="FlatValuesSubtracted"/> cannot stand in: it leaves <c>member_count</c> unmapped, and
+/// Marten compiles a partial mapping into an update-only statement (marten#4255), so a first event
+/// of that shape never reaches the decrement maps' insert expressions at all. Mapping the whole row
+/// routes around that rule rather than challenging it — see <see cref="FlatValuesAccrued"/>.
+/// </remarks>
+public record FlatValuesDrawnDown(int A, int B, int C, int D, int MemberCount);
+
 public record FlatValuesDeleted;
 
 #endregion
@@ -146,6 +158,24 @@ public partial class ComplianceFlatTableProjection
             map.SetValue("status", "accrued");
         });
 
+        // The decrementing mirror of FlatValuesAccrued, whole-row for the same reason — see
+        // FlatValuesDrawnDown. This is what makes the decrement maps' insert branch reachable, and
+        // therefore what lets the suite pin that a decrement onto a missing row goes negative.
+        Project<FlatValuesDrawnDown>(map =>
+        {
+            map.Decrement(x => x.A);
+            map.Decrement(x => x.B);
+            map.Decrement(x => x.C);
+            map.Decrement(x => x.D);
+            map.Decrement(x => x.MemberCount);
+
+            // Mapped because the row needs every non-key column, but deliberately not asserted: the
+            // by-column form's insert value is the half of jasperfx#773 that is still open.
+            map.Decrement("revision");
+
+            map.SetValue("status", "drawn down");
+        });
+
         Project<FlatValuesSubtracted>(map =>
         {
             map.Decrement(x => x.A);
@@ -185,13 +215,25 @@ public partial class ComplianceFlatTableProjection
 /// <c>an_increment_on_a_row_that_does_not_exist_yet_counts_the_creating_event</c> holds it there.
 /// </para>
 /// <para>
-/// Two neighbouring insert expressions are deliberately <em>not</em> asserted, because the stores do
-/// not agree and no ruling has been made. A by-column <c>Decrement(name)</c> inserts <c>0</c>
-/// everywhere, so a first event that is a decrement leaves the column at zero rather than at minus
-/// one — which reads as asymmetric now that increment counts its creating event, but changing it is
-/// a behavioural decision this suite has no standing to force (jasperfx#773). And a member-valued
-/// <c>Decrement(x =&gt; x.A)</c> inserts the negated value on one store and the value as given on the
-/// other three. Pinning either here would manufacture a contract rather than record one.
+/// The member-valued decrement's insert expression was the neighbouring question, and it has since
+/// been ruled: jasperfx#773 settled that <c>Decrement(x =&gt; x.A)</c> onto a row that does not exist
+/// yet inserts the <em>negated</em> value, so a first event carrying <c>5</c> lands the column at
+/// <c>-5</c>. That was Marten's behaviour against three stores doing the opposite — Polecat, Fisher
+/// and the lifted <c>Weasel.Storage.Flattened</c> DSL all inserted the value as given, which made a
+/// decrement event raise the column, and the majority was the wrong side.
+/// <c>a_decrement_on_a_row_that_does_not_exist_yet_goes_negative</c> holds the ruling, and it will
+/// fail on any store that has not adopted it yet; that is the point of writing it down rather than a
+/// reason to soften it. The rule that makes both halves consistent is that the insert branch applies
+/// the event to an implicit zero row.
+/// </para>
+/// <para>
+/// One insert expression is still deliberately <em>not</em> asserted, because no ruling has been made
+/// on it. A by-column <c>Decrement(name)</c> inserts <c>0</c> on all four stores, so a first event
+/// that is a decrement leaves the column at zero rather than at minus one — which reads as asymmetric
+/// beside both rulings above, but the stores agree today and changing them is a behavioural decision
+/// this suite has no standing to force (jasperfx#773, still open on that half). The projection maps
+/// <c>Decrement("revision")</c> on the drawdown event anyway, because the row needs every non-key
+/// column mapped to reach the insert branch at all; it is simply not asserted.
 /// </para>
 /// <para>
 /// Table *shape* is asserted only through the columns that come back with a row. The generated DDL,
@@ -211,6 +253,7 @@ public abstract class FlatTableProjectionCompliance<TFixture, TOperations, TQuer
         config.AddEventType<FlatValuesSet>();
         config.AddEventType<FlatValuesAdded>();
         config.AddEventType<FlatValuesAccrued>();
+        config.AddEventType<FlatValuesDrawnDown>();
         config.AddEventType<FlatValuesSubtracted>();
         config.AddEventType<FlatValuesDeleted>();
 
@@ -228,6 +271,7 @@ public abstract class FlatTableProjectionCompliance<TFixture, TOperations, TQuer
         config.AddEventType<FlatValuesSet>();
         config.AddEventType<FlatValuesAdded>();
         config.AddEventType<FlatValuesAccrued>();
+        config.AddEventType<FlatValuesDrawnDown>();
         config.AddEventType<FlatValuesSubtracted>();
         config.AddEventType<FlatValuesDeleted>();
 
@@ -438,6 +482,63 @@ public abstract class FlatTableProjectionCompliance<TFixture, TOperations, TQuer
         // The one that drifted: the creating event counts, so a single increment reads 1, not 0.
         intValue(row, "revision").ShouldBe(1,
             "Increment(column) should count the event that created the row (marten#5341)");
+    }
+
+    /// <summary>
+    /// A decrement is the first thing the table ever hears about this row, and it goes negative.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The mirror of <see cref="an_increment_on_a_row_that_does_not_exist_yet_counts_the_creating_event"/>,
+    /// and the settling of jasperfx#773. The insert branch applies the event to an implicit zero row,
+    /// so a member-valued <c>Decrement(x =&gt; x.A)</c> carrying <c>5</c> inserts <c>-5</c>. Stated
+    /// the other way round, which is the form worth keeping in mind while reading a failure here: a
+    /// decrement event must never leave a column <em>higher</em> than it found it.
+    /// </para>
+    /// <para>
+    /// This was Marten's behaviour alone. Polecat, Fisher and the lifted
+    /// <c>Weasel.Storage.Flattened</c> DSL all inserted the bound parameter unchanged, so the same
+    /// first event landed at <c>+5</c> — the majority, and the wrong side. A store that has not
+    /// adopted the ruling yet fails this test with the value's sign flipped, which is the intended
+    /// way for it to surface.
+    /// </para>
+    /// <para>
+    /// Only the member-valued form is asserted. <c>Decrement("revision")</c> is mapped on the same
+    /// event — it has to be, or Marten compiles the mapping update-only and there is no insert branch
+    /// to test — but its insert value is the half of jasperfx#773 that remains open, so nothing here
+    /// pins it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task a_decrement_on_a_row_that_does_not_exist_yet_goes_negative()
+    {
+        SkipUnlessFlatTablesAreSupported();
+
+        var streamId = Guid.NewGuid();
+
+        // Deliberately no FlatValuesSet first: this is the whole point of the fact.
+        await appendAsync(streamId, new FlatValuesDrawnDown(3, 4, 5, 6, 7));
+
+        var row = await rowAsync(streamId);
+        row.ShouldNotBeNull(
+            "A decrement against a row that does not exist yet should insert it, not silently do nothing");
+
+        // Decremented from an implicit zero, so the row starts at the negation of the event's values.
+        intValue(row, "a").ShouldBe(-3, "Decrement(member) should insert the negated value (jasperfx#773)");
+        intValue(row, "b").ShouldBe(-4);
+        intValue(row, "c").ShouldBe(-5);
+        intValue(row, "d").ShouldBe(-6);
+        intValue(row, "member_count").ShouldBe(-7);
+
+        // The same claim as a rule rather than as five numbers: a decrement never raises a column.
+        foreach (var column in new[] { "a", "b", "c", "d", "member_count" })
+        {
+            intValue(row, column).ShouldBeLessThan(0,
+                $"A decrement event left '{column}' positive, so a decrement raised the column");
+        }
+
+        // Proof the row came from this event's insert branch rather than from anything else.
+        row["status"].ShouldBe("drawn down");
     }
 
     [Fact]
