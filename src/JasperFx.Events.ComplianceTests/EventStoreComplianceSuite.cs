@@ -107,23 +107,55 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
     /// in parallel and aggregates. The failure semantics are identical, so the suites assert the
     /// semantics and let the exception shape vary.
     /// </remarks>
-    protected static async Task ShouldFailWithAsync<TException>(Func<Task> action) where TException : Exception
+    protected static Task ShouldFailWithAsync<TException>(Func<Task> action) where TException : Exception
+        => ShouldFailWithAsync(typeof(TException), action);
+
+    /// <summary>
+    /// Assert that an operation fails with the exception type this store nominates for
+    /// <paramref name="kind"/>, whether thrown directly or wrapped in an
+    /// <see cref="AggregateException"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Used where the failure <em>category</em> is shared across every store but the exception
+    /// <em>type</em> is not. The six event store exceptions lifted into <c>JasperFx.Events</c> are
+    /// the default answer, so a store that adopted them names nothing; a store that owns its own
+    /// hierarchy overrides
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.ExceptionTypeFor"/>.
+    /// </para>
+    /// <para>
+    /// Marten is the concrete reason this is variable: its
+    /// <c>all_exceptions_should_derive_from_MartenException</c> convention test forces every Marten
+    /// exception onto <c>MartenException</c>, and single inheritance means a Marten type cannot
+    /// also derive from the lifted JasperFx type. Owning your exception hierarchy is a legitimate
+    /// store decision, so the suite asserts the behaviour and lets the store name the type.
+    /// </para>
+    /// <para>
+    /// This is not a weakening. An exception of the nominated type is still required — "something
+    /// threw" would not pass. Do not replace a <see cref="ComplianceExceptionKind"/> assertion with
+    /// a hard type; that re-imposes a shared hierarchy on stores that have declined it.
+    /// </para>
+    /// </remarks>
+    protected Task ShouldFailWithAsync(ComplianceExceptionKind kind, Func<Task> action)
+        => ShouldFailWithAsync(theFixture.ExceptionTypeFor(kind), action);
+
+    private static async Task ShouldFailWithAsync(Type expectedType, Func<Task> action)
     {
         var exception = await Should.ThrowAsync<Exception>(action).ConfigureAwait(false);
 
-        if (exception is TException)
+        if (expectedType.IsInstanceOfType(exception))
         {
             return;
         }
 
         if (exception is AggregateException aggregate &&
-            aggregate.Flatten().InnerExceptions.Any(x => x is TException))
+            aggregate.Flatten().InnerExceptions.Any(expectedType.IsInstanceOfType))
         {
             return;
         }
 
         throw new ShouldAssertException(
-            $"Expected {typeof(TException).Name}, directly or aggregated, but got {exception.GetType().FullName}: {exception.Message}");
+            $"Expected {expectedType.Name}, directly or aggregated, but got {exception.GetType().FullName}: {exception.Message}");
     }
 
     /// <summary>
