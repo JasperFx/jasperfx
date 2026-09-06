@@ -55,6 +55,28 @@ public class CodegenLanguageTests
         File.ReadAllText(fsFile).ShouldContain("namespace");
     }
 
+    [Fact]
+    public void assemble_types_observes_the_target_language()
+    {
+        // #743: an ICodeFile has to be able to see the language *while it is assembling types* so
+        // it can decline to emit C#-only artifacts (AOT rooting companions) under --language fsharp.
+        var recorder = new LanguageRecordingFile("Greeter");
+        var collection = new SampleCollection(new GenerationRules("Generated"), recorder);
+
+        new DynamicCodeBuilder(new ServiceCollection().BuildServiceProvider(), [collection])
+        {
+            Language = CodegenLanguage.fsharp
+        }.GenerateAllCode();
+
+        recorder.Observed.ShouldBe(CodegenLanguage.fsharp);
+    }
+
+    [Fact]
+    public void a_generated_assembly_defaults_to_csharp()
+    {
+        GeneratedAssembly.Empty().TargetLanguage.ShouldBe(CodegenLanguage.csharp);
+    }
+
     private static DynamicCodeBuilder Build(CodegenLanguage language, GenerationRules? rules = null)
     {
         var collection = new SampleCollection(rules ?? new GenerationRules("Generated"), new SampleFile("Greeter"));
@@ -80,6 +102,33 @@ public class CodegenLanguageTests
         public string FileName { get; } = fileName;
 
         public void AssembleTypes(GeneratedAssembly assembly) => assembly.AddType(FileName + "Type", typeof(object));
+
+        public Task<bool> AttachTypes(GenerationRules rules, System.Reflection.Assembly assembly,
+            IServiceProvider? services, string containingNamespace) => Task.FromResult(false);
+
+        public bool AttachTypesSynchronously(GenerationRules rules, System.Reflection.Assembly assembly,
+            IServiceProvider? services, string containingNamespace) => false;
+
+        public void AssertServiceLocationsAreAllowed(ServiceLocationReport[] reports, IServiceProvider? services) { }
+
+        public bool TryReplaceServiceProvider(out Variable serviceProvider)
+        {
+            serviceProvider = default!;
+            return false;
+        }
+    }
+
+    private sealed class LanguageRecordingFile(string fileName) : ICodeFile
+    {
+        public CodegenLanguage? Observed { get; private set; }
+
+        public string FileName { get; } = fileName;
+
+        public void AssembleTypes(GeneratedAssembly assembly)
+        {
+            Observed = assembly.TargetLanguage;
+            assembly.AddType(FileName + "Type", typeof(object));
+        }
 
         public Task<bool> AttachTypes(GenerationRules rules, System.Reflection.Assembly assembly,
             IServiceProvider? services, string containingNamespace) => Task.FromResult(false);

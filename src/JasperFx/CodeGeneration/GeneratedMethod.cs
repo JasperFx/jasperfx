@@ -91,6 +91,25 @@ public class GeneratedMethod : IGeneratedMethod
     public ICodeFragment? Header { get; set; }
 
     /// <summary>
+    ///     Attributes emitted immediately in front of this method's declaration, rendered in the
+    ///     syntax of whichever language is being generated. See jasperfx#743.
+    /// </summary>
+    public IList<GeneratedAttribute> Attributes { get; } = new List<GeneratedAttribute>();
+
+    /// <summary>
+    ///     Emit this method as <c>static</c>. Mutually exclusive with <see cref="Overrides" />.
+    /// </summary>
+    public bool IsStatic { get; set; }
+
+    /// <summary>
+    ///     Permit an empty <see cref="Frames" /> collection. Normally an empty method body is a
+    ///     configuration mistake and <see cref="ArrangeFrames" /> throws; a method whose only
+    ///     payload is its <see cref="Attributes" /> is the exception. Set by
+    ///     <see cref="GeneratedType.AddStaticVoidMethod" />.
+    /// </summary>
+    public bool AllowEmptyBody { get; set; }
+
+    /// <summary>
     ///     The name of the method being generated
     /// </summary>
     public string MethodName { get; }
@@ -169,11 +188,17 @@ public class GeneratedMethod : IGeneratedMethod
 
         Header?.Write(writer);
 
+        foreach (var attribute in Attributes) attribute.Write(writer, CodegenLanguage.csharp);
+
         var returnValue = determineReturnExpression();
 
         if (Overrides)
         {
             returnValue = "override " + returnValue;
+        }
+        else if (IsStatic)
+        {
+            returnValue = "static " + returnValue;
         }
 
         var arguments = Arguments.Select(x => x.Declaration).Join(", ");
@@ -205,6 +230,8 @@ public class GeneratedMethod : IGeneratedMethod
 
         Header?.Write(writer);
 
+        foreach (var attribute in Attributes) attribute.Write(writer, CodegenLanguage.fsharp);
+
         // Propagate IsReferenced from DerivedVariables to Arguments that share the same Usage name.
         // Handles the case where a method argument (e.g. `context: MessageContext`) is exposed under
         // an interface alias in DerivedVariables (e.g. `ContextVariable("context", IMessageContext)`):
@@ -222,13 +249,15 @@ public class GeneratedMethod : IGeneratedMethod
 
         var arguments = Arguments.Select(x => $"{(x.IsReferenced ? x.Usage : "_" + x.Usage)}: {x.VariableType.FSharpName()}").Join(", ");
         var returnType = ReturnType.FSharpName();
-        var keyword = Overrides ? "override" : "member";
+        var keyword = Overrides ? "override" : IsStatic ? "static member" : "member";
 
         // A named `this` self identifier is required so emitted frames can call inherited instance
         // members (e.g. a base class's `WriteJsonAsync`/`ReadJsonAsync`) — F# has no implicit `this`,
         // and `member _.` would discard the instance. F# does not warn on an unused member self
         // identifier (unlike an unused `let` binding), so this is safe. See jasperfx#393.
-        writer.Write($"BLOCK:{keyword} this.{MethodName}({arguments}) : {returnType} =");
+        // A static member has no instance to name, so it takes no self identifier at all.
+        var selfIdentifier = IsStatic && !Overrides ? "" : "this.";
+        writer.Write($"BLOCK:{keyword} {selfIdentifier}{MethodName}({arguments}) : {returnType} =");
 
         if (AsyncMode == AsyncMode.AsyncTask)
         {
@@ -284,7 +313,14 @@ public class GeneratedMethod : IGeneratedMethod
     {
         if (!Frames.Any())
         {
-            throw new ArgumentOutOfRangeException(nameof(Frames), "Cannot be an empty list");
+            if (!AllowEmptyBody)
+            {
+                throw new ArgumentOutOfRangeException(nameof(Frames), "Cannot be an empty list");
+            }
+
+            // The arranger still has to run (it computes the async mode and builds the frame
+            // chain), so stand a do-nothing frame up rather than special casing _top.
+            Frames.Add(new NoOpFrame());
         }
 
         services?.StartNewMethod();

@@ -33,6 +33,19 @@ public class GeneratedAssembly
     public Assembly? Assembly { get; private set; }
 
     /// <summary>
+    ///     The language this assembly is about to be rendered as. Stamped by
+    ///     <see cref="DynamicCodeBuilder" /> *before* it calls <see cref="ICodeFile.AssembleTypes" />,
+    ///     so an <see cref="ICodeFile" /> can vary what it emits by language — the motivating case
+    ///     being AOT rooting companions, which are meaningful in C# only. Defaults to
+    ///     <see cref="CodegenLanguage.csharp" />; the runtime Roslyn path never changes it.
+    /// </summary>
+    /// <remarks>
+    ///     This is per-emission-run state, which is why it lives here rather than on the
+    ///     long-lived <see cref="GenerationRules" />. See jasperfx#743.
+    /// </remarks>
+    public CodegenLanguage TargetLanguage { get; set; } = CodegenLanguage.csharp;
+
+    /// <summary>
     ///     Optional code fragment to write at the beginning of this
     ///     code file
     /// </summary>
@@ -52,6 +65,22 @@ public class GeneratedAssembly
     public void ReferenceAssembly(Assembly assembly)
     {
         _assemblies.Fill(assembly);
+    }
+
+    /// <summary>
+    ///     Add a standalone generated type with no base class and no implemented interfaces.
+    /// </summary>
+    public GeneratedType AddType(string typeName)
+    {
+        if (Assembly != null)
+        {
+            throw new InvalidOperationException("This generated assembly has already been compiled");
+        }
+
+        var generatedType = new GeneratedType(this, typeName) { ParentAssembly = this };
+        _generatedTypes.Add(generatedType);
+
+        return generatedType;
     }
 
     public GeneratedType AddType(
