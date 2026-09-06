@@ -624,6 +624,57 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </remarks>
     public virtual bool SupportsSubscriptionEventFilters => false;
 
+    /// <summary>
+    /// True in a store that subclasses the shared
+    /// <see cref="TestSupport.ProjectionScenario{TOperations,TQuerySession}"/> harness, exposes a
+    /// scenario entry point on its own advanced operations, and has implemented the two seam members
+    /// below.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to false so a store can enroll
+    /// <see cref="ProjectionScenarioCompliance{TFixture,TOperations,TQuerySession}"/> and skip until
+    /// the harness is wired up.
+    /// </remarks>
+    public virtual bool SupportsProjectionScenario => false;
+
+    /// <summary>
+    /// Run a projection scenario through the store's <em>own documented entry point</em> — Marten's
+    /// and Polecat's <c>Advanced.EventProjectionScenario(configure, token)</c>, Fisher's
+    /// <c>Advanced.EventProjectionScenarioAsync</c> — forwarding <paramref name="configure"/> to it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Implement this as a forward, never as a re-implementation. All three products spell the entry
+    /// point as construct-the-scenario, invoke the configuration, <c>ExecuteAsync</c>; a fixture that
+    /// inlined those three lines would pass the whole suite while the store's advertised entry point
+    /// was missing or wired to the wrong store. That route is the thing under test as much as the
+    /// harness behind it.
+    /// </para>
+    /// <para>
+    /// The parameter is typed to the shared base rather than the product's subclass, which needs no
+    /// adaptation: the product's <c>Action&lt;TheirScenario&gt;</c> is satisfied by a lambda that
+    /// hands its argument to this delegate.
+    /// </para>
+    /// </remarks>
+    public virtual Task RunProjectionScenarioAsync(
+        Action<TestSupport.ProjectionScenario<TOperations, TQuerySession>> configure, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement RunProjectionScenarioAsync, so it cannot run the projection scenario compliance suite.");
+
+    /// <summary>
+    /// Construct a scenario against the store without running it.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the one fact the run entry point structurally cannot reach: a scenario's steps are
+    /// consumed by its first run, so proving a second run fails loudly rather than passing as a
+    /// silent no-op needs a handle on the instance, and every product's entry point constructs one
+    /// and throws it away. Both Marten's and Polecat's own tests reach for
+    /// <c>new ProjectionScenario(theStore)</c> for exactly this.
+    /// </remarks>
+    public virtual TestSupport.ProjectionScenario<TOperations, TQuerySession> CreateProjectionScenario()
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement CreateProjectionScenario, so it cannot run the projection scenario compliance suite.");
+
 
     public virtual ValueTask InitializeAsync() => default;
 
