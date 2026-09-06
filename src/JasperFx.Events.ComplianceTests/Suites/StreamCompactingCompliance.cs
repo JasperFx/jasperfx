@@ -123,6 +123,16 @@ public abstract class StreamCompactingCompliance<TFixture, TOperations, TQuerySe
         config.Snapshot<ComplianceStringMeter>(SnapshotLifecycle.Inline);
     };
 
+    /// <summary>
+    /// The async half needs its own store: the projection has to be <see cref="SnapshotLifecycle.Async"/>
+    /// so a shard, and therefore the shard's event filter, is in the picture at all — jasperfx#796.
+    /// </summary>
+    private static readonly Action<ComplianceStoreConfig> _asyncConfiguration = config =>
+    {
+        config.SchemaName = "compliance_compacting_async";
+        config.Snapshot<ComplianceMeter>(SnapshotLifecycle.Async);
+    };
+
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
 
     /// <summary>
@@ -415,6 +425,77 @@ public abstract class StreamCompactingCompliance<TFixture, TOperations, TQuerySe
             .AggregateStreamAsync<ComplianceStringMeter>(streamKey, token: Cancellation);
         meter.ShouldNotBeNull();
         meter.Total.ShouldBe(210);
+    }
+
+    /// <summary>
+    /// An async shard whose projection declares an event list must still see <c>Compacted&lt;T&gt;</c>,
+    /// or it folds a stream that has been compacted from nothing — jasperfx#796.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the edge that three implementations got wrong independently, and the reason it needs a
+    /// fact rather than a per-store test: every store composes its async loader's allow list from the
+    /// projection's <c>IncludedEventTypes</c>, and <c>Compacted&lt;T&gt;</c> was not in it. Marten
+    /// patched around the gap locally; Polecat (polecat#557) and Fisher (fisher#203) did not.
+    /// </para>
+    /// <para>
+    /// The marker is not an extra event beside the history — <c>CompactStreamAsync</c> <em>deletes</em>
+    /// the events it folds, so the marker is the only thing left of them. A shard that filters it out
+    /// catches up over a compacted stream from a null snapshot, folds only what was appended after the
+    /// compaction, and persists that. Nothing throws and nothing is logged, which is why the assertion
+    /// here is on the projected totals rather than on an exception.
+    /// </para>
+    /// <para>
+    /// The trailing <c>MeterRead(90)</c> matters: without it the filtered shard sees an empty slice and
+    /// writes no document at all, which a "document is missing" assertion would catch for the wrong
+    /// reason. With it, the broken shard produces a <em>plausible</em> document built from the one event
+    /// it was handed, and only the totals tell the two apart.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task an_async_shard_folds_a_compacted_stream_from_the_marker()
+    {
+        Assert.SkipUnless(theFixture.SupportsAsyncDaemon,
+            "This event store does not support the async projection daemon under test");
+
+        await theFixture.ConfigureAsync(_asyncConfiguration);
+
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceMeter>(streamId, theNineEvents());
+            await SaveChangesAsync(session);
+        }
+
+        // Compact BEFORE the daemon ever runs, so the shard's only route to the first nine events is
+        // the marker itself.
+        await using (var session = OpenSession())
+        {
+            await EventsFor(session).CompactStreamAsync<ComplianceMeter>(streamId);
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(streamId, new MeterRead(90));
+            await SaveChangesAsync(session);
+        }
+
+        await StartDaemonAsync();
+        await WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(60));
+
+        await using var query = OpenSession();
+        var meter = await LoadDocumentAsync<ComplianceMeter>(query, streamId);
+
+        meter.ShouldNotBeNull();
+
+        // Location comes only from MeterInstalled, which the compaction deleted -- it survives solely
+        // in the marker's snapshot.
+        meter.Location.ShouldBe("Substation A");
+        meter.Total.ShouldBe(300);
+        meter.ReadCount.ShouldBe(7);
+        meter.ServiceCount.ShouldBe(2);
     }
 
     /// <summary>

@@ -70,8 +70,9 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     }
 
     /// <summary>
-    /// A single stream projection always applies to <see cref="Archived" />, whether or not the
-    /// aggregate declares anything for it — jasperfx#778.
+    /// A single stream projection always applies to <see cref="Archived" /> and to
+    /// <see cref="Compacted{T}" /> over its own aggregate, whether or not the aggregate declares
+    /// anything for either — jasperfx#778 and jasperfx#796.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -104,12 +105,41 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
     /// projection then sees nothing at all — seven of
     /// <c>SelfAggregatingEvolveCompliance</c>'s facts, caught by the first cut of this override.
     /// </para>
+    /// <para>
+    /// <b><c>Compacted&lt;TDoc&gt;</c> is the same defect one type over, and a worse one</b> —
+    /// jasperfx#796. A dropped <c>Archived</c> loses an archival; a dropped <c>Compacted&lt;TDoc&gt;</c>
+    /// loses the stream's <em>entire pre-compaction history</em>, because <c>CompactStreamAsync</c>
+    /// deletes the events it folds and leaves the marker in their place. The marker is not an extra
+    /// event beside the history — it is the only thing left of it, and
+    /// <see cref="Compacted{T}.MaybeFastForward" /> is what restarts a fold from it. So a filtered
+    /// async shard catching up over a compacted stream from a null snapshot folds only what was
+    /// appended <em>after</em> compaction and persists an aggregate missing everything before it, with
+    /// no exception and no log line, while an unfiltered shard over the identical rows disagrees.
+    /// </para>
+    /// <para>
+    /// Two of the three stores got this wrong independently — polecat#557 and fisher#203 — because
+    /// every store composes its loader filter from <c>IncludedEventTypes</c>, and only Marten patched
+    /// around the gap locally in <c>buildEventLoaderFilters</c>. Appending it here is what makes it
+    /// right for every store at once.
+    /// </para>
+    /// <para>
+    /// <b>The append is deduplicated</b>, which it was not before jasperfx#796.
+    /// <c>AssembleAndAssertValidity</c> ends with <c>IncludedEventTypes.Fill(determineEventTypes())</c>,
+    /// so the marker this override appends is written back into <c>IncludedEventTypes</c> — and the
+    /// next evaluation concats that list again, past the base's own <c>Distinct()</c>, and appends the
+    /// marker a second time. <c>AllEventTypes</c> came back as
+    /// <c>[AEvent, Archived, Archived]</c>. Harmless to <c>AppliesTo</c>, but every store composes its
+    /// async loader's allow list straight from these types, so the duplicate reaches the generated SQL
+    /// as a repeated <c>IN</c> member and a repeated parameter slot.
+    /// </para>
     /// </remarks>
     protected override Type[] determineEventTypes()
     {
         var types = base.determineEventTypes();
 
-        return types.Length == 0 ? types : [.. types, typeof(Archived)];
+        if (types.Length == 0) return types;
+
+        return types.Concat([typeof(Archived), typeof(Compacted<TDoc>)]).Distinct().ToArray();
     }
 
     // ForceSingleTenancy is the wolverine#2053 / marten#4085 fix: on a single-tenanted store, events whose
