@@ -87,13 +87,33 @@ public partial class ComplianceSubscription : ISubscription   // your product's 
         IDocumentOperations operations, CancellationToken cancellationToken)
     {
         Record(page.Events);
-        return Task.FromResult<IChangeListener>(NullChangeListener.Instance);
+
+        // The two guarantees SubscriptionCompliance pins beyond delivery: writes through the
+        // supplied session, and the listener the store is supposed to call after the commit.
+        foreach (var note in NotesFor(page)) operations.Store(note);
+
+        return Task.FromResult<IChangeListener>(new Listener(this));
+    }
+
+    private sealed class Listener(ComplianceSubscription subscription) : IChangeListener
+    {
+        public Task AfterCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+            => subscription.RecordCommitAsync();
+
+        public Task BeforeCommitAsync(IDocumentSession session, IChangeSet commit, CancellationToken token)
+            => Task.CompletedTask;
     }
 }
 ```
 
 Your registrar's `Subscribe` should pin the name to `ComplianceSubscription.SubscriptionName`;
 progression is keyed on it and the products disagree on what an unnamed subscription defaults to.
+It should also replay `subscription.IncludedEventTypes` onto whatever its own registration carries
+filters on — every product wraps a bare `ISubscription` in its own `SubscriptionBase`, and it is the
+wrapper the daemon reads filters from, so a list declared on the shared object reaches nothing on its
+own. That one is gated (`SupportsSubscriptionEventFilters`, default false); the store-side note and
+the listener are **not**, because a store that hands out a session it never commits, or drops the
+listener it was handed, passes every delivery fact in the suite.
 
 `RecordingMessageOutbox` — with its companion `RecordingMessageBatch` — is the third, and it is the
 same shape as the second one more time. Every product declares its own `IMessageOutbox` and
@@ -361,7 +381,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
 | The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |
-| Subscriptions | `SubscriptionCompliance` |
+| Subscriptions — delivery, rewind, filters, session writes, the change listener | `SubscriptionCompliance` |
 | Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
 | `AggregateToAsync` over an event query | `AggregateToLinqOperatorCompliance` |
@@ -485,6 +505,48 @@ ancillary marker types cannot be shared: every product constrains them to its ow
 so only the fixture can name one. The default host registers only the primary store, and that is
 load-bearing: the hosted-service walk asserts **exactly one** coordinator, so the ancillary store
 only joins the host the ancillary fact asks for (`includeAncillaryStore: true`).
+
+### Subscriptions beyond delivery (jasperfx#768)
+
+`SubscriptionCompliance` started as six facts about delivery — the right events, in sequence order,
+from every stream, once each — which is the easy half. What a subscription is *for* went unpinned,
+and two of the gaps were the kind that pass in silence.
+
+**Writes through the supplied session are committed with the batch.** The session is handed over
+precisely so a subscription's writes land in the batch's transaction alongside the progression row;
+that is what makes them exactly-once against the store's own database and what makes a subscription
+a peer of a projection rather than a webhook. A store that hands out a session it never commits
+satisfies all six delivery facts. **And the change listener returned by `ProcessEventsAsync` is
+called, after the commit.** A store that drops the return value passes all six as well. Neither is
+gated, for the reason `ProjectionCoordinatorCompliance` gives: a skippable check recreates the
+silence the fact exists to break. Both cost a consumer two lines in its `ComplianceSubscription`
+partial, shown above.
+
+The listener fact carries a probe rather than just a counter, because "it ran" and "it ran after the
+commit" are different claims and only the second is the contract — a listener called from inside the
+batch delegate fires again on every retry of a transaction that had already committed, which is the
+bug Fisher's local copy of this test records. The probe reads over a separate session and is safe,
+unlike the outbox's before-commit probe in `ProjectionSideEffectCompliance`, because the batch's
+transaction is already closed by the time it runs. It also does not wait on non-stale data and then
+assert: the progression row is written inside the batch's transaction, so non-stale is true strictly
+*before* a post-commit listener runs, and waiting on it is a race that fails perhaps one full-suite
+run in several. The listener is its own signal.
+
+Rewind is pinned in both forms — from scratch, and to a sequence floor — and the second is also how
+the suite reaches a **start position floor** at all. A configuration-time floor
+(`SubscribeFromSequence(n)` and its siblings) cannot be asserted portably: the floor is a literal in
+a static configuration delegate while the sequences under test are assigned at run time, so a suite
+could only guess a constant and would end up asserting either "everything arrived" or nothing.
+`RewindSubscriptionAsync` takes the same floor, is on the shared `IProjectionDaemon`, and lets the
+floor be chosen *after* the events exist — which is what turns the exclusion into a claim.
+
+Only the event-type filter fact is gated (`SupportsSubscriptionEventFilters`, default false), and
+for a reason worth stating so it does not read as timidity: the allow list has to survive a hop no
+shared code can make. Every product wraps a bare `ISubscription` in its own `SubscriptionBase`, the
+daemon reads filters from the *wrapper*, and Marten's `SubscriptionWrapper` copies none across — so
+a registrar has to replay `ComplianceSubscription.IncludedEventTypes` onto its own registration
+call, and until it does, the filter reaches nothing and the fact would fail for a wiring reason
+rather than a behavioral one.
 
 ### The document contract (jasperfx#647)
 

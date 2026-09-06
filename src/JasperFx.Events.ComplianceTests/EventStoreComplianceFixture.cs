@@ -610,6 +610,21 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsCommitVisibilityProbe => false;
 
     /// <summary>
+    /// True in a store whose registrar replays <see cref="ComplianceSubscription.IncludedEventTypes"/>
+    /// onto its own subscription registration, so a declared allow list actually reaches the daemon.
+    /// Gates the one event-filter fact of
+    /// <see cref="SubscriptionCompliance{TFixture,TOperations,TQuerySession}"/>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong> because the filter has to survive a hop no shared code can
+    /// make for it: every product's bare-<c>ISubscription</c> registration wraps the subscription in
+    /// its own <c>SubscriptionBase</c>, and the daemon reads filters from the <em>wrapper</em>, which
+    /// copies none across. Implementing it is one loop inside the registrar's <c>Subscribe</c> —
+    /// replay each type onto the store's own <c>IncludeType</c> — and then this flips.
+    /// </remarks>
+    public virtual bool SupportsSubscriptionEventFilters => false;
+
+    /// <summary>
     /// True in a store that subclasses the shared
     /// <see cref="TestSupport.ProjectionScenario{TOperations,TQuerySession}"/> harness, exposes a
     /// scenario entry point on its own advanced operations, and has implemented the two seam members
