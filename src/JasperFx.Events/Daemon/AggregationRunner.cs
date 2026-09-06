@@ -399,6 +399,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         if (action == ActionType.Nothing)
         {
+            // ⚠️ jasperfx#778, the async half of what jasperfx#780 closed inline. Archival is decided
+            // by the slice's events and by ownership, never by whether the aggregate changed —
+            // Archived carries no state, so an aggregate has no reason to declare an Apply for it and
+            // a slice carrying it alone leaves the action at Nothing, which used to return here and
+            // never archive. Ownership is the pre-loaded snapshot alone, since Nothing means no new
+            // one was produced.
+            maybeArchiveUnchangedStream(storage, slice);
+
             return;
         }
 
@@ -486,6 +494,45 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             _caches = _caches.AddOrUpdate(tenantId, cache);
 
             return cache;
+        }
+    }
+
+    /// <summary>
+    /// Archive the stream of a slice that produced no aggregate change — jasperfx#778.
+    /// </summary>
+    /// <remarks>
+    /// Split out rather than inlined because the deferred rebuild window (jasperfx#525) cannot simply
+    /// take a <c>recordDeferredWrite(..., ActionType.Nothing, ...)</c> here: the window keys one
+    /// pending write per aggregate id and a later record overwrites the earlier one, so a bare Nothing
+    /// write would discard a <c>Store</c> already buffered for the same id in this window and lose its
+    /// snapshot. The archive intent is merged onto whatever is already pending instead, and only
+    /// becomes a write of its own when there is nothing to merge with.
+    /// </remarks>
+    private void maybeArchiveUnchangedStream(IProjectionStorage<TDoc, TId> storage, EventSlice<TDoc, TId> slice)
+    {
+        // Nothing means no new snapshot was produced, so a pre-loaded one is the only ownership signal
+        // there is — the same rule the delete path above applies. marten#4093.
+        var ownsStream = slice.Snapshot != null;
+
+        if (!wouldArchiveStream(slice, ownsStream))
+        {
+            return;
+        }
+
+        if (!_deferWrites)
+        {
+            storage.ArchiveStream(slice.Id, slice.TenantId);
+
+            return;
+        }
+
+        lock (_bufferLock)
+        {
+            var pending = _flush!.TryGetPending(storage.TenantId, slice.Id, out var existing)
+                ? existing with { ArchiveStream = true }
+                : new PendingWrite(ActionType.Nothing, default, null, true);
+
+            _flush.Record(storage.TenantId, slice.Id, pending);
         }
     }
 
