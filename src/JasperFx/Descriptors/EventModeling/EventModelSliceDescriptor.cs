@@ -292,7 +292,7 @@ public sealed record EventModelSliceDescriptor(
         }
 
         IReadOnlyList<T> mergeList<T>(EventModelRole role, IReadOnlyList<T> mine, IReadOnlyList<T> theirs,
-            Func<T, string> key, Func<T, string> display)
+            Func<T, string> key, Func<T, string> display, Func<T, string>? ifIndistinguishable = null)
         {
             var myRung = ProvenanceFor(role);
             var theirRung = other.ProvenanceFor(role);
@@ -307,15 +307,40 @@ public sealed record EventModelSliceDescriptor(
 
             if (!sameSet(mine, theirs, key))
             {
-                disagree(role, tookTheirs, render(mine, display), render(theirs, display));
+                var mineValue = render(mine, display);
+                var theirsValue = render(theirs, display);
+
+                if (mineValue == theirsValue && ifIndistinguishable is not null)
+                {
+                    mineValue = render(mine, ifIndistinguishable);
+                    theirsValue = render(theirs, ifIndistinguishable);
+                }
+
+                disagree(role, tookTheirs, mineValue, theirsValue);
             }
 
             return tookTheirs ? theirs : mine;
         }
 
+        // Key on FullName only when BOTH sides have a real one. A declared type does not exist
+        // yet, so its FullName is synthesized from the model's single namespace — and the code it
+        // describes puts types in whatever namespaces it likes, typically one per domain. Keying
+        // on a guess made `CritterCrush.Appointment` and `CritterCrush.Appointments.Appointment`
+        // disagree, which is a thing disagreeing with itself (jasperfx#798). An empty
+        // AssemblyName is exactly the marker for "this is a declaration, not a type".
         IReadOnlyList<TypeDescriptor> mergeTypes(EventModelRole role, IReadOnlyList<TypeDescriptor> mine,
             IReadOnlyList<TypeDescriptor> theirs)
-            => mergeList(role, mine, theirs, x => x.FullName, x => x.Name);
+        {
+            var declared = mine.Concat(theirs).Any(x => string.IsNullOrEmpty(x.AssemblyName));
+
+            return mergeList(role, mine, theirs,
+                key: declared ? x => x.Name : x => x.FullName,
+                display: x => x.Name,
+                // Simple names are what a reader wants, right up until both sides render the same
+                // string — "Derived claims Appointment; Declared claims Appointment" says nothing.
+                // That is exactly when the full name is the only thing that distinguishes them.
+                ifIndistinguishable: x => x.FullName);
+        }
 
         var triggerLabel = mergeScalar(EventModelRole.TriggerLabel, TriggerLabel, other.TriggerLabel, x => x);
         var triggerType = mergeScalar(EventModelRole.TriggerType, TriggerType, other.TriggerType, x => x.Name);

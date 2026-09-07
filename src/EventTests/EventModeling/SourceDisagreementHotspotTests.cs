@@ -232,3 +232,76 @@ public class SourceDisagreementHotspotTests
     public class OrderShipped { }
     public class AuditRecorded { }
 }
+
+/// <summary>
+/// jasperfx#798: a declared type and the real type it names are the same claim, not a disagreement.
+/// </summary>
+/// <remarks>
+/// A declared type does not exist yet, so its FullName is synthesized from the model's single
+/// namespace while the code puts types in whatever namespaces it likes — typically one per domain.
+/// Keying on that guess made <c>CritterCrush.Appointment</c> and
+/// <c>CritterCrush.Appointments.Appointment</c> disagree, and the hotspot then rendered both sides
+/// as "Appointment": a thing disagreeing with itself. Six of six merged slices in the first real
+/// model to reach this code path.
+/// </remarks>
+public class DeclaredTypeEqualityTests
+{
+    private const string Role = "AggregateTypes";
+
+    /// <summary>A declaration: name-only, FullName synthesized, no assembly.</summary>
+    private static TypeDescriptor Declared(string name, string ns) => new(name, $"{ns}.{name}", string.Empty);
+
+    /// <summary>A real type: the namespace the code actually uses, and an assembly.</summary>
+    private static TypeDescriptor Real(string name, string ns) => new(name, $"{ns}.{name}", "CritterCrush");
+
+    private static EventModelSliceDescriptor Slice(EventModelProvenance provenance, params TypeDescriptor[] aggregates)
+        => EventModelSliceDescriptor.Named("ConfirmAppointment") with
+        {
+            Provenance = provenance,
+            AggregateTypes = aggregates,
+        };
+
+    private static IReadOnlyList<HotspotDescriptor> DisagreementsIn(EventModelSliceDescriptor slice)
+        => slice.Hotspots.Where(x => x.Origin == HotspotOrigin.SourceDisagreement).ToList();
+
+    [Fact]
+    public void a_declared_type_matches_the_real_type_of_the_same_name()
+    {
+        var declared = Slice(EventModelProvenance.Declared, Declared("Appointment", "CritterCrush"));
+        var derived = Slice(EventModelProvenance.Derived, Real("Appointment", "CritterCrush.Appointments"));
+
+        var merged = declared.Merge(derived);
+
+        DisagreementsIn(merged).ShouldBeEmpty();
+        merged.AggregateTypes.Select(x => x.Name).ShouldBe(["Appointment"]);
+    }
+
+    [Fact]
+    public void a_declared_type_the_code_does_not_have_still_disagrees()
+    {
+        // The relaxation must not swallow the case the merge exists for: the model says one thing
+        // and the code does another.
+        var declared = Slice(EventModelProvenance.Declared, Declared("Appointment", "CritterCrush"));
+        var derived = Slice(EventModelProvenance.Derived, Real("Booking", "CritterCrush.Appointments"));
+
+        var hotspot = DisagreementsIn(declared.Merge(derived)).ShouldHaveSingleItem();
+
+        hotspot.Role.ShouldBe(Enum.Parse<EventModelRole>(Role));
+        hotspot.WinningClaim!.Value.ShouldBe("Booking");
+        hotspot.LosingClaim!.Value.ShouldBe("Appointment");
+    }
+
+    [Fact]
+    public void two_real_types_of_the_same_name_disagree_and_say_which_is_which()
+    {
+        // Both sides real, so equality stays on FullName — and the message falls back to the full
+        // name, because "claims Appointment; claims Appointment" is useless precisely here.
+        var derived = Slice(EventModelProvenance.Derived, Real("Appointment", "CritterCrush.Appointments"));
+        var observed = Slice(EventModelProvenance.Observed, Real("Appointment", "CritterCrush.Legacy"));
+
+        var hotspot = DisagreementsIn(derived.Merge(observed)).ShouldHaveSingleItem();
+
+        hotspot.WinningClaim!.Value.ShouldBe("CritterCrush.Legacy.Appointment");
+        hotspot.LosingClaim!.Value.ShouldBe("CritterCrush.Appointments.Appointment");
+    }
+}
