@@ -58,4 +58,12 @@ public enum AggregateKind
 public sealed record AggregateDescriptor(
     TypeDescriptor Type,
     AggregateKind Kind,
-    IReadOnlyList<TypeDescriptor> AppliedEvents);
+    IReadOnlyList<TypeDescriptor> AppliedEvents)
+{
+    /// <summary>
+    /// Event types the aggregate consumes, in declaration order. Never null: System.Text.Json leaves
+    /// a constructor parameter the JSON does not carry at its <c>default</c>, so a payload that omits
+    /// the member would otherwise hand back a null list from a non-nullable slot (jasperfx#807).
+    /// </summary>
+    public IReadOnlyList<TypeDescriptor> AppliedEvents { get; init; } = AppliedEvents ?? Array.Empty<TypeDescriptor>();
+}
