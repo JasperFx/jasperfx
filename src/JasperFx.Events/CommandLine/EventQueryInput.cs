@@ -60,7 +60,7 @@ public class EventQueryInput: NetCoreInput
     [FlagAlias("sequence-ceiling", longAliasOnly: true)]
     public long? SequenceCeilingFlag { get; set; }
 
-    [Description("Tag conditions as a JSON object of tag type name to tag value, e.g. '{\"StudentId\":\"s-1\"}'. Conditions are OR'd, then AND-combined with the other filters")]
+    [Description("Tag filter as a JSON object of tag name to tag value, e.g. '{\"StudentId\":\"s-1\"}'. A name is the tag type's name or its registered table suffix; entries are AND'd, then AND-combined with the other filters")]
     [FlagAlias("tags", longAliasOnly: true)]
     public string? TagsFlag { get; set; }
 
@@ -145,9 +145,13 @@ public class EventQueryInput: NetCoreInput
             SequenceFloor = SequenceFloorFlag,
             SequenceCeiling = SequenceCeilingFlag,
             PageNumber = PageFlag,
-            PageSize = PageSizeFlag,
-            TagConditions = TryParseTags(TagsFlag).Spec
+            PageSize = PageSizeFlag
         };
+
+        if (TryParseTags(TagsFlag).Tags is { } tags)
+        {
+            query.TagValues = tags;
+        }
 
         if (EventTypeFlag.IsNotEmpty())
         {
@@ -162,13 +166,27 @@ public class EventQueryInput: NetCoreInput
     }
 
     /// <summary>
-    /// Parse the <c>--tags</c> JSON object into the wire-serializable <see cref="EventTagQuerySpec"/>.
-    /// Each property becomes one tag-only condition (any event type carrying the tag); the property
-    /// name is the tag type as the store's registered tag graph knows it, and the value is passed
-    /// through as-is for the store side to deserialize against the resolved tag type.
+    /// Parse the <c>--tags</c> JSON object into <see cref="EventQuery.TagValues"/> — the lossy
+    /// name/value tag filter (jasperfx#801). Each property is one entry: the name as the store's
+    /// registered tag graph knows it (the tag type's name or its registered table suffix), the value
+    /// rendered as text for the store to match against the stored tag value's string form.
     /// </summary>
-    /// <returns>The spec, or the operator-facing error. A missing flag is (null, null): no tag filter.</returns>
-    public static (EventTagQuerySpec? Spec, string? Error) TryParseTags(string? json)
+    /// <remarks>
+    /// <para>
+    /// This is the lossy form rather than the rich <see cref="EventTagQuerySpec"/> one, because the
+    /// rich form's tag <em>types</em> can only be resolved against the store's registered graph, and
+    /// the CLI has a name. Building a spec here meant manufacturing a
+    /// <see cref="TypeDescriptor"/> whose <c>FullName</c> was the bare name, which
+    /// <see cref="EventTagQuerySpec.ResolverFor"/> — a full-name match — could never resolve for a
+    /// tag type in a namespace. See jasperfx#803.
+    /// </para>
+    /// <para>
+    /// Entries are therefore AND'd rather than OR'd, which is also what an operator naming two tags
+    /// means, and what the store's own dictionary tag query has always done.
+    /// </para>
+    /// </remarks>
+    /// <returns>The tag entries, or the operator-facing error. A missing flag is (null, null): no tag filter.</returns>
+    public static (Dictionary<string, string>? Tags, string? Error) TryParseTags(string? json)
     {
         if (json.IsEmpty())
         {
@@ -189,33 +207,44 @@ public class EventQueryInput: NetCoreInput
         {
             if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
-                return (null, "--tags must be a JSON object of tag type name to tag value, e.g. '{\"StudentId\":\"s-1\"}'");
+                return (null, "--tags must be a JSON object of tag name to tag value, e.g. '{\"StudentId\":\"s-1\"}'");
             }
 
-            var conditions = new List<EventTagQueryConditionSpec>();
+            var tags = new Dictionary<string, string>();
             foreach (var property in document.RootElement.EnumerateObject())
             {
                 if (property.Value.ValueKind == JsonValueKind.Null)
                 {
-                    return (null, $"--tags value for '{property.Name}' is null; a tag condition needs a value");
+                    return (null, $"--tags value for '{property.Name}' is null; a tag filter needs a value");
                 }
 
-                // Clone: the element must outlive the parsed document.
-                conditions.Add(new EventTagQueryConditionSpec(
-                    EventType: null,
-                    TagType: new TypeDescriptor(property.Name, property.Name, string.Empty),
-                    TagValue: property.Value.Clone()));
+                // A tag value is always a strong-typed id over a primitive -- TagTypeRegistration
+                // requires a simple inner type -- so a composite has no faithful text form and is a
+                // mangled invocation rather than a query. Refused rather than stringified, because
+                // a stringified object would match nothing and read as "no such events".
+                if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                {
+                    return (null,
+                        $"--tags value for '{property.Name}' is a JSON {property.Value.ValueKind.ToString().ToLowerInvariant()}; " +
+                        "a tag value is the id itself, written as a string, number or boolean");
+                }
+
+                tags[property.Name] = property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString()!
+                    // Numbers and booleans keep their literal spelling; the store matches on the
+                    // stored value's string form.
+                    : property.Value.GetRawText();
             }
 
-            if (conditions.Count == 0)
+            if (tags.Count == 0)
             {
                 // An empty object filters nothing, and a tag filter that filters nothing is far more
                 // likely a mangled invocation than an intent — refuse it rather than quietly running
                 // the query unfiltered.
-                return (null, "--tags is an empty JSON object; supply at least one tag condition or omit the flag");
+                return (null, "--tags is an empty JSON object; supply at least one tag filter or omit the flag");
             }
 
-            return (new EventTagQuerySpec(conditions), null);
+            return (tags, null);
         }
     }
 

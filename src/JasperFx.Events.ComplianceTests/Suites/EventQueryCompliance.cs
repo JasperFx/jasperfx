@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using JasperFx.Events.CommandLine;
 using JasperFx.Events.Tags;
 using Shouldly;
 using Xunit;
@@ -1458,6 +1459,40 @@ public abstract class EventQueryCompliance<TFixture, TOperations, TQuerySession>
             TagValues = { ["manifest"] = manifest.Value.ToString() },
             PageSize = 1000
         }));
+    }
+
+    /// <summary>
+    /// The <c>event-query --tags</c> flag end to end: what the command builds must be a query this
+    /// store can actually answer. See jasperfx#803.
+    /// </summary>
+    /// <remarks>
+    /// The flag used to build the rich <see cref="EventTagQuerySpec"/> form out of a manufactured
+    /// <c>TypeDescriptor</c> whose <c>FullName</c> was the bare property name, which
+    /// <c>EventTagQuerySpec.ResolverFor</c> — a full-name match — could not resolve for a tag type in
+    /// a namespace. So the flag threw against every real store, and stayed green in the abstraction's
+    /// own tests, which only asserted that a spec had been <em>built</em>. This suite runs the
+    /// command's own output through the store, which is the only place that gap was ever visible.
+    /// </remarks>
+    [Fact]
+    public async Task the_event_query_commands_tags_flag_builds_a_filter_this_store_can_answer()
+    {
+        var (matching, _) = await seedTaggedManifestsAsync();
+
+        var input = new EventQueryInput
+        {
+            // The tag name as an operator would type it: this suite registers ManifestId under the
+            // table suffix "manifest", and the CLR type lives in a namespace.
+            TagsFlag = $$"""{"manifest":"{{matching.Value}}"}""",
+            PageSizeFlag = 1000
+        };
+
+        input.Validate().ShouldBeNull();
+
+        var result = await queryAsync(input.BuildQuery());
+
+        result.TotalCount.ShouldBe(2);
+        result.Events.ShouldContain(x => x.Data is CargoLoaded);
+        result.Events.ShouldContain(x => x.Data is CargoInspected);
     }
 
     /// <summary>

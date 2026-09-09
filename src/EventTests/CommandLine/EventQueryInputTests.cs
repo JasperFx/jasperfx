@@ -60,16 +60,16 @@ public class EventQueryInputTests
         query.TimestampTo.ShouldBe(new DateTimeOffset(2026, 9, 2, 0, 0, 0, TimeSpan.Zero));
         query.SequenceFloor.ShouldBe(10);
         query.SequenceCeiling.ShouldBe(200);
-        query.TagConditions.ShouldNotBeNull();
+        query.TagValues["ManifestId"].ShouldBe("m-1");
         query.PageNumber.ShouldBe(3);
         query.PageSize.ShouldBe(25);
 
-        // Everything but the single-name spelling (the CLI always builds the list form) and the
-        // lossy TagValues spelling — the command's --tags flag builds the rich TagConditions form,
-        // and the two are mutually exclusive (jasperfx#801).
+        // Everything but the single-name spelling (the CLI always builds the list form) and the rich
+        // TagConditions spelling — the command's --tags flag carries names, so it builds the lossy
+        // TagValues form, and the two tag members are mutually exclusive (jasperfx#801/#803).
         query.SpecifiedFilters.ShouldBe(
-            EventQueryFilters.All & ~EventQueryFilters.EventTypeName & ~EventQueryFilters.TagValues);
-        query.TagValues.ShouldBeEmpty();
+            EventQueryFilters.All & ~EventQueryFilters.EventTypeName & ~EventQueryFilters.TagConditions);
+        query.TagConditions.ShouldBeNull();
     }
 
     [Fact]
@@ -84,34 +84,54 @@ public class EventQueryInputTests
         query.CombinedEventTypeNames().ShouldBe(["cargo_loaded", "cargo_unloaded"]);
     }
 
+    /// <summary>
+    /// jasperfx#803: the flag carries tag NAMES, not type descriptors. The previous shape built an
+    /// <c>EventTagQuerySpec</c> whose TypeDescriptor.FullName was the bare property name, which
+    /// <c>EventTagQuerySpec.ResolverFor</c> — a full-name match — could never resolve for a tag type
+    /// in a namespace, so the flag threw <c>UnknownTagQueryTypeException</c> against every real store.
+    /// </summary>
     [Fact]
-    public void tags_parse_into_or_conditions_with_no_event_type_scope()
+    public void tags_parse_into_the_lossy_name_value_filter()
     {
-        var (spec, error) = EventQueryInput.TryParseTags("{\"StudentId\":\"s-1\",\"CourseId\":\"c-2\"}");
+        var (tags, error) = EventQueryInput.TryParseTags("{\"StudentId\":\"s-1\",\"course\":\"c-2\"}");
 
         error.ShouldBeNull();
-        spec.ShouldNotBeNull();
-        spec.Conditions.Count.ShouldBe(2);
+        tags.ShouldNotBeNull();
+        tags.Count.ShouldBe(2);
 
-        spec.Conditions[0].TagType.FullName.ShouldBe("StudentId");
-        spec.Conditions[0].EventType.ShouldBeNull();
-        spec.Conditions[0].TagValue.GetString().ShouldBe("s-1");
-
-        spec.Conditions[1].TagType.FullName.ShouldBe("CourseId");
-        spec.Conditions[1].TagValue.GetString().ShouldBe("c-2");
+        // Either spelling passes through untouched — the store resolves the name against its own tag
+        // graph, where the graph actually is.
+        tags["StudentId"].ShouldBe("s-1");
+        tags["course"].ShouldBe("c-2");
     }
 
     [Fact]
-    public void a_non_string_tag_value_is_passed_through_as_given()
+    public void a_scalar_tag_value_keeps_its_literal_spelling()
     {
-        // The store side deserializes the value against the resolved tag type, so the CLI passes
-        // whatever JSON the operator supplied rather than insisting on strings.
-        var (spec, error) = EventQueryInput.TryParseTags("{\"OrderId\":{\"value\":42}}");
+        // The store matches on the stored tag value's string form, so a number or boolean carries
+        // through as the text the operator wrote rather than being quoted or reformatted.
+        var (tags, error) = EventQueryInput.TryParseTags("{\"OrderId\":42,\"Active\":true}");
 
         error.ShouldBeNull();
-        spec.ShouldNotBeNull();
-        spec.Conditions.Single().TagValue.ValueKind.ShouldBe(JsonValueKind.Object);
-        spec.Conditions.Single().TagValue.GetProperty("value").GetInt32().ShouldBe(42);
+        tags.ShouldNotBeNull();
+        tags["OrderId"].ShouldBe("42");
+        tags["Active"].ShouldBe("true");
+    }
+
+    [Fact]
+    public void a_composite_tag_value_is_refused()
+    {
+        // A tag value is always a strong-typed id over a primitive, so an object or array is a
+        // mangled invocation. Refused rather than stringified: a stringified object matches nothing
+        // and would read back as "no such events".
+        var (tags, error) = EventQueryInput.TryParseTags("{\"OrderId\":{\"value\":42}}");
+
+        tags.ShouldBeNull();
+        error.ShouldNotBeNull();
+        error.ShouldContain("OrderId");
+        error.ShouldContain("object");
+
+        EventQueryInput.TryParseTags("{\"OrderId\":[1,2]}").Error.ShouldNotBeNull();
     }
 
     [Fact]
@@ -119,14 +139,31 @@ public class EventQueryInputTests
     {
         EventQueryInput.TryParseTags(null).ShouldBe((null, null));
         EventQueryInput.TryParseTags("").ShouldBe((null, null));
+
+        new EventQueryInput().BuildQuery().TagValues.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void the_tags_flag_lands_on_tag_values_not_tag_conditions()
+    {
+        var query = new EventQueryInput { TagsFlag = "{\"manifest\":\"m-1\",\"shipper\":\"acme\"}" }.BuildQuery();
+
+        query.TagConditions.ShouldBeNull();
+        query.TagValues.Count.ShouldBe(2);
+        query.TagValues["manifest"].ShouldBe("m-1");
+        query.TagValues["shipper"].ShouldBe("acme");
+
+        // And the query stays well formed, so the store's guard rail passes it through.
+        Should.NotThrow(() => query.AssertIsWellFormed());
+        query.SpecifiedFilters.ShouldBe(EventQueryFilters.TagValues);
     }
 
     [Fact]
     public void unparseable_tags_json_is_refused()
     {
-        var (spec, error) = EventQueryInput.TryParseTags("{not json");
+        var (tags, error) = EventQueryInput.TryParseTags("{not json");
 
-        spec.ShouldBeNull();
+        tags.ShouldBeNull();
         error.ShouldNotBeNull();
         error.ShouldContain("--tags is not valid JSON");
     }
@@ -134,9 +171,9 @@ public class EventQueryInputTests
     [Fact]
     public void tags_that_are_not_an_object_are_refused()
     {
-        var (spec, error) = EventQueryInput.TryParseTags("[\"StudentId\"]");
+        var (tags, error) = EventQueryInput.TryParseTags("[\"StudentId\"]");
 
-        spec.ShouldBeNull();
+        tags.ShouldBeNull();
         error.ShouldNotBeNull();
         error.ShouldContain("must be a JSON object");
     }
@@ -146,9 +183,9 @@ public class EventQueryInputTests
     {
         // {} filters nothing; running the query unfiltered would be the silently-ignored-filter
         // failure mode the whole jasperfx#737 surface is built to refuse.
-        var (spec, error) = EventQueryInput.TryParseTags("{}");
+        var (tags, error) = EventQueryInput.TryParseTags("{}");
 
-        spec.ShouldBeNull();
+        tags.ShouldBeNull();
         error.ShouldNotBeNull();
         error.ShouldContain("empty JSON object");
     }
@@ -156,9 +193,9 @@ public class EventQueryInputTests
     [Fact]
     public void a_null_tag_value_is_refused()
     {
-        var (spec, error) = EventQueryInput.TryParseTags("{\"StudentId\":null}");
+        var (tags, error) = EventQueryInput.TryParseTags("{\"StudentId\":null}");
 
-        spec.ShouldBeNull();
+        tags.ShouldBeNull();
         error.ShouldNotBeNull();
         error.ShouldContain("StudentId");
     }
