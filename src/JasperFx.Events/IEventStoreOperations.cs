@@ -105,15 +105,25 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     /// Configure the request. The default compacts at the latest point in the stream.
     /// </param>
     /// <remarks>
+    /// <para>
     /// A default-implemented member rather than an abstract one, so a store that has not implemented
     /// compacting stays source-compatible -- the same treatment the event store explorer surface gets
     /// on <see cref="IEventStore"/>. <see cref="Protected.StreamCompactingRequest{T}"/> already lived
     /// here; only the declaration was duplicated per product (marten#5153).
+    /// </para>
+    /// <para>
+    /// The refusal names the <em>capability</em> rather than a list of stores, because a store list in
+    /// an exception message goes stale in both directions and did: it named Marten and Polecat while
+    /// Fisher implemented compacting and went unmentioned, and while Polecat implemented this typed
+    /// overload but refused the untyped <see cref="IEventStore.CompactStreamAsync(Guid, CancellationToken)"/>
+    /// -- which is the one a caller holding a runtime <see cref="Type"/> actually needs. Support is
+    /// per-overload, so no store name is a safe answer here. See jasperfx#800, polecat#572.
+    /// </para>
     /// </remarks>
     Task CompactStreamAsync<T>(Guid streamId, Action<Protected.StreamCompactingRequest<T>>? configure = null)
         where T : class
         => throw new NotSupportedException(
-            "Stream compacting is not implemented on this event store. Use Marten or Polecat.");
+            "Stream compacting is not implemented on this event store. Use an event store that implements stream compacting.");
 
     /// <summary>
     /// Compact a stream by replacing its earlier events with a single <c>Compacted&lt;T&gt;</c> event
@@ -129,7 +139,7 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     Task CompactStreamAsync<T>(string streamKey, Action<Protected.StreamCompactingRequest<T>>? configure = null)
         where T : class
         => throw new NotSupportedException(
-            "Stream compacting is not implemented on this event store. Use Marten or Polecat.");
+            "Stream compacting is not implemented on this event store. Use an event store that implements stream compacting.");
 
     /// <summary>
     /// Fetch the projected aggregate T by id with built-in optimistic concurrency checks

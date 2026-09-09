@@ -66,6 +66,30 @@ public partial class ComplianceStringMeter
     public void Apply(MeterServiced _) => ServiceCount++;
 }
 
+/// <summary>
+/// The same fold again, under a type this suite deliberately never registers as a snapshot — the
+/// aggregate for the jasperfx#800 inference fact. Identical members to <see cref="ComplianceMeter"/>
+/// so a failure is about the registration and nothing else.
+/// </summary>
+public partial class ComplianceUnregisteredMeter
+{
+    public Guid Id { get; set; }
+    public string Location { get; set; } = string.Empty;
+    public int Total { get; set; }
+    public int ReadCount { get; set; }
+    public int ServiceCount { get; set; }
+
+    public static ComplianceUnregisteredMeter Create(MeterInstalled e) => new() { Location = e.Location };
+
+    public void Apply(MeterRead e)
+    {
+        Total += e.Reading;
+        ReadCount++;
+    }
+
+    public void Apply(MeterServiced _) => ServiceCount++;
+}
+
 #endregion
 
 /// <summary>
@@ -94,6 +118,13 @@ public partial class ComplianceStringMeter
 /// version rather than version one. Only one product's own tests pinned this before the suite
 /// existed; the other asserted merely that appending afterwards still worked, which passes
 /// vacuously if the version rewound and then climbed again.
+/// </para>
+/// <para>
+/// <strong>An aggregation projection registered for T is not a precondition</strong> (jasperfx#800).
+/// The typed overload names T outright, and that is the declaration of intent; requiring a
+/// registration on top of it would mean a compaction policy could only ever target an aggregate the
+/// application already snapshots — a constraint invisible until runtime, and a portability gap
+/// between the stores rather than a safety property.
 /// </para>
 /// <para>
 /// Out of scope on purpose: the <c>Timestamp</c> cut-off on the request. Deriving a cut-off that
@@ -495,6 +526,79 @@ public abstract class StreamCompactingCompliance<TFixture, TOperations, TQuerySe
         meter.Location.ShouldBe("Substation A");
         meter.Total.ShouldBe(300);
         meter.ReadCount.ShouldBe(7);
+        meter.ServiceCount.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// <c>CompactStreamAsync&lt;T&gt;</c> folds <typeparamref name="T"/> from its own
+    /// <c>Create</c>/<c>Apply</c> conventions, with no aggregation projection registered for it.
+    /// See jasperfx#800.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The stores disagreed here and the suite pinned neither, so the same policy declaration worked
+    /// on one store and was refused on another — a <em>portability</em> gap, not a performance one,
+    /// and invisible until runtime. This fact settles it in favour of inference.
+    /// </para>
+    /// <para>
+    /// Requiring the registration is defensible as explicitness, but its real consequence is a
+    /// constraint nobody would infer from the API: a compaction policy could only ever target an
+    /// aggregate the application already snapshots. The typed overload names <typeparamref name="T"/>
+    /// outright, which is the same declaration of intent a registration would be, and every store
+    /// already owns machinery that builds an aggregator for a type on demand.
+    /// </para>
+    /// <para>
+    /// Deliberately the whole round trip rather than "the call did not throw": the fold has to be
+    /// real. A store could satisfy a call-succeeds assertion by writing an empty snapshot and
+    /// destroying the stream's history doing it, which is the worst outcome available here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task compacting_infers_the_fold_for_an_unregistered_aggregate()
+    {
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceUnregisteredMeter>(streamId, theNineEvents());
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            await EventsFor(session).CompactStreamAsync<ComplianceUnregisteredMeter>(streamId);
+            await SaveChangesAsync(session);
+        }
+
+        await using var query = OpenSession();
+        var events = await EventsFor(query).FetchStreamAsync(streamId, token: Cancellation);
+
+        events.Count.ShouldBe(1);
+        var compacted = events.Single().Data.ShouldBeOfType<Compacted<ComplianceUnregisteredMeter>>();
+
+        // A real fold, not a placeholder: Location comes only from MeterInstalled and the total is
+        // the sum of all six reads.
+        compacted.Snapshot.ShouldNotBeNull();
+        compacted.Snapshot.Location.ShouldBe("Substation A");
+        compacted.Snapshot.Total.ShouldBe(210);
+        compacted.Snapshot.ReadCount.ShouldBe(6);
+        compacted.Snapshot.ServiceCount.ShouldBe(2);
+
+        // And compacting an unregistered aggregate is held to the same version contract as a
+        // registered one — destructive to rows, never rewinding the stream.
+        var state = await EventsFor(query).FetchStreamStateAsync(streamId, Cancellation);
+        state.ShouldNotBeNull();
+        state.Version.ShouldBe(9);
+        events.Single().Version.ShouldBe(9);
+
+        // The read side is unchanged by any of it, which is the whole point of compacting.
+        var meter = await EventsFor(query)
+            .AggregateStreamAsync<ComplianceUnregisteredMeter>(streamId, token: Cancellation);
+
+        meter.ShouldNotBeNull();
+        meter.Location.ShouldBe("Substation A");
+        meter.Total.ShouldBe(210);
+        meter.ReadCount.ShouldBe(6);
         meter.ServiceCount.ShouldBe(2);
     }
 

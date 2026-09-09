@@ -125,12 +125,17 @@ public interface IEventStore
     /// Compact a stream by aggregating events into a snapshot.
     /// Resolves aggregate type from stream state.
     /// </summary>
+    /// <remarks>
+    /// This untyped overload is the one a caller holding a runtime <see cref="Type"/> needs — a
+    /// monitoring console or a compaction policy driven by configuration rather than by a compile-time
+    /// aggregate. Support is per-overload: a store can implement the typed
+    /// <c>IEventStoreOperations.CompactStreamAsync&lt;T&gt;</c> and still refuse this one, so ask the
+    /// store you are actually calling rather than assuming compacting is one capability. See
+    /// jasperfx#800, polecat#572.
+    /// </remarks>
     Task CompactStreamAsync(Guid streamId, CancellationToken token = default);
 
-    /// <summary>
-    /// Compact a stream by aggregating events into a snapshot.
-    /// Resolves aggregate type from stream state.
-    /// </summary>
+    /// <inheritdoc cref="CompactStreamAsync(Guid, CancellationToken)"/>
     Task CompactStreamAsync(string streamKey, CancellationToken token = default);
 
     /// <summary>
