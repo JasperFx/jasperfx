@@ -10,6 +10,26 @@ namespace CoreTests.Blocks;
 // three of the four failed on net9.0 as well -- only the bounded case was net10-specific.
 public class BlockIdleWakeupTests
 {
+    /// <summary>
+    /// Count deliberately includes the item currently in flight: Post() increments before the write and
+    /// the consumer loop decrements in a finally AFTER the action returns, which is what lets
+    /// WaitForCompletionAsync and Wolverine's back-pressure agent read it as "work not yet finished".
+    ///
+    /// So it cannot be read straight off the back of a TaskCompletionSource that the action itself
+    /// completed -- that continuation runs while the action is still on the stack, one decrement short.
+    /// These tests flaked on exactly that (net10 lost more races than net9). Quiesce the block first:
+    /// WaitForCompletionAsync only returns once every consumer task has finished its current item, so
+    /// the count it leaves behind is the real one. A leaked increment still fails the assertion --
+    /// the drain loop exits on the completed, empty channel rather than spinning until Count hits zero.
+    /// </summary>
+    private static async Task assertFullyDrained<T>(Block<T> block)
+    {
+        await block.WaitForCompletionAsync()
+            .WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        block.Count.ShouldBe(0u);
+    }
+
     [Fact]
     public async Task post_after_idle_does_not_process_inline_on_the_publisher()
     {
@@ -45,7 +65,7 @@ public class BlockIdleWakeupTests
 
         await secondDone.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Volatile.Read(ref processed).ShouldBe(2);
-        block.Count.ShouldBe(0u);
+        await assertFullyDrained(block);
     }
 
     [Fact]
@@ -83,7 +103,7 @@ public class BlockIdleWakeupTests
 
         await done.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Volatile.Read(ref processed).ShouldBe(1 + wave);
-        block.Count.ShouldBe(0u);
+        await assertFullyDrained(block);
     }
 
     /// <summary>
@@ -132,7 +152,7 @@ public class BlockIdleWakeupTests
 
         await done.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Volatile.Read(ref processed).ShouldBe(1 + wave);
-        block.Count.ShouldBe(0u);
+        await assertFullyDrained(block);
     }
 
     /// <summary>
