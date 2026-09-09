@@ -49,6 +49,24 @@ public sealed record EventModelSliceDescriptor(
     public static EventModelSliceDescriptor Named(string name)
         => new(name, null, null, null, null, Array.Empty<TypeDescriptor>(), Array.Empty<TypeDescriptor>(), Array.Empty<TypeDescriptor>());
 
+    // jasperfx#807. A partial slice is the designed-for shape -- Merge folds several sources' halves
+    // together by Name, and a source is by definition partial -- but System.Text.Json hands `default`
+    // to any constructor parameter the JSON does not carry. So a slice sent without `emittedEvents` /
+    // `projectionTypes` / `readModelTypes` arrived with them NULL despite the non-nullable
+    // declaration, and buildGraph() blew up on the way back OUT, through the computed Elements
+    // getter. The init-only collections below never had the problem: their initializers hold when the
+    // member is absent. Redeclaring these three gives them the same treatment, so the non-nullable
+    // declaration means what it says however the record was built.
+
+    /// <summary>Event types emitted by the slice, in declaration order. Never null.</summary>
+    public IReadOnlyList<TypeDescriptor> EmittedEvents { get; init; } = EmittedEvents ?? Array.Empty<TypeDescriptor>();
+
+    /// <summary>Projection types that consume the slice's events. Never null.</summary>
+    public IReadOnlyList<TypeDescriptor> ProjectionTypes { get; init; } = ProjectionTypes ?? Array.Empty<TypeDescriptor>();
+
+    /// <summary>Read-model types the slice reads from or produces. Never null.</summary>
+    public IReadOnlyList<TypeDescriptor> ReadModelTypes { get; init; } = ReadModelTypes ?? Array.Empty<TypeDescriptor>();
+
     /// <summary>
     /// Which of the four canonical Event Modeling patterns this slice is. Null until a source
     /// derives it.
@@ -568,6 +586,10 @@ public sealed record EventModelDescriptor(
     string Name,
     IReadOnlyList<EventModelSliceDescriptor> Slices)
 {
+    /// <summary>Slices that make up the model, in declaration order. Never null (jasperfx#807).</summary>
+    public IReadOnlyList<EventModelSliceDescriptor> Slices { get; init; }
+        = Slices ?? Array.Empty<EventModelSliceDescriptor>();
+
     /// <summary>
     /// The aggregate elements of the model — one per aggregate-shaped CLR type, with its kind and
     /// applied events. Slices point at these through

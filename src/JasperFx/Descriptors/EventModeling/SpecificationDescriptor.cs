@@ -30,6 +30,13 @@ public sealed record SpecificationDescriptor(
     {
     }
 
+    /// <summary>
+    /// CLR types the specification's steps resolved against the compilation, in step order. Never
+    /// null: a JSON payload that omits the member leaves the constructor parameter at its
+    /// <c>default</c>, which for a non-nullable list is null (jasperfx#807).
+    /// </summary>
+    public IReadOnlyList<TypeDescriptor> ResolvedTypes { get; init; } = ResolvedTypes ?? Array.Empty<TypeDescriptor>();
+
     /// <summary>The <c>{Feature}</c> half of <see cref="Identity"/>, or the whole identity when it has no separator.</summary>
     [JsonIgnore]
     public string Feature

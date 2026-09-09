@@ -231,6 +231,110 @@ public class EventModelWireRoundTripTests
         slice.Elements.Select(e => e.Kind).ShouldBe(new[] { EventModelElementKind.Command });
     }
 
+    // jasperfx#807. Partial descriptors are the intended shape -- Merge folds several sources'
+    // halves together by slice name, and a source is by definition partial. System.Text.Json leaves
+    // any constructor parameter the JSON does not carry at its `default`, which for a non-nullable
+    // IReadOnlyList is null, so the halves below used to deserialize into a descriptor that threw
+    // on the way back OUT, through the computed Elements getter.
+    private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+
+    [Fact]
+    public void a_slice_that_omits_the_constructor_collections_round_trips()
+    {
+        // Verbatim from jasperfx#807: the Bobcat half of a Critter Stack model, which knows the
+        // specifications and nothing else.
+        const string partial = """
+            {
+              "name": "BankAccount",
+              "slices": [
+                { "name": "EnrollClient",
+                  "specifications": [ { "identity": "Bank Account Event Sourcing/Enroll a client" } ] }
+              ]
+            }
+            """;
+
+        var model = JsonSerializer.Deserialize<EventModelDescriptor>(partial, Web)!;
+
+        var slice = model.Slices.Single();
+        slice.EmittedEvents.ShouldBeEmpty();
+        slice.ProjectionTypes.ShouldBeEmpty();
+        slice.ReadModelTypes.ShouldBeEmpty();
+        slice.Specifications.Single().Identity.ShouldBe("Bank Account Event Sourcing/Enroll a client");
+        slice.Specifications.Single().ResolvedTypes.ShouldBeEmpty();
+
+        // The failure landed here, not at the parse: Elements is computed on every read and the
+        // serializer reads it.
+        Should.NotThrow(() => JsonSerializer.Serialize(model, Web));
+
+        JsonSerializer.Deserialize<EventModelDescriptor>(JsonSerializer.Serialize(model, Web), Web)!
+            .Slices.Single().Specifications.Single().Identity
+            .ShouldBe("Bank Account Event Sourcing/Enroll a client");
+    }
+
+    [Fact]
+    public void the_two_halves_of_a_model_merge_after_a_round_trip()
+    {
+        // The scenario the bug blocked: each source pushes its half over the wire, and the
+        // consumer merges them by slice name.
+        var host = roundTrip(
+            """
+            { "name": "BankAccount", "slices": [ { "name": "EnrollClient",
+              "commandType": { "name": "EnrollClient", "fullName": "Bank.EnrollClient", "assemblyName": "Bank" },
+              "emittedEvents": [ { "name": "ClientEnrolled", "fullName": "Bank.ClientEnrolled", "assemblyName": "Bank" } ] } ] }
+            """);
+
+        var specs = roundTrip(
+            """
+            { "name": "BankAccount", "slices": [ { "name": "EnrollClient",
+              "specifications": [ { "identity": "Bank Account Event Sourcing/Enroll a client" } ] } ] }
+            """);
+
+        var merged = EventModelDescriptor.Merge("BankAccount", new[] { host, specs });
+
+        var slice = merged.Slices.Single();
+        slice.EmittedEvents.Single().Name.ShouldBe("ClientEnrolled");
+        slice.Specifications.Single().Identity.ShouldBe("Bank Account Event Sourcing/Enroll a client");
+        slice.Elements.Select(x => x.Kind)
+            .ShouldBe(new[] { EventModelElementKind.Command, EventModelElementKind.Event });
+    }
+
+    private static EventModelDescriptor roundTrip(string json)
+    {
+        var descriptor = JsonSerializer.Deserialize<EventModelDescriptor>(json, Web)!;
+        return JsonSerializer.Deserialize<EventModelDescriptor>(JsonSerializer.Serialize(descriptor, Web), Web)!;
+    }
+
+    [Fact]
+    public void a_model_that_omits_slices_round_trips()
+    {
+        var model = JsonSerializer.Deserialize<EventModelDescriptor>("""{"name":"BankAccount"}""", Web)!;
+
+        model.Slices.ShouldBeEmpty();
+        model.Aggregates.ShouldBeEmpty();
+        Should.NotThrow(() => JsonSerializer.Serialize(model, Web));
+        model.WithProvenance(EventModelProvenance.Declared).Slices.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void the_rest_of_the_family_normalizes_its_constructor_collections_too()
+    {
+        JsonSerializer.Deserialize<AggregateDescriptor>(
+                """{"type":{"name":"Order","fullName":"x.Order","assemblyName":"x"}}""", Web)!
+            .AppliedEvents.ShouldBeEmpty();
+
+        JsonSerializer.Deserialize<SpecificationDescriptor>("""{"identity":"F/S"}""", Web)!
+            .ResolvedTypes.ShouldBeEmpty();
+
+        var handler = JsonSerializer.Deserialize<HandlerRelationshipDescriptor>(
+            """
+            { "handlerType": { "name": "H", "fullName": "x.H", "assemblyName": "x" },
+              "messageType": { "name": "M", "fullName": "x.M", "assemblyName": "x" } }
+            """, Web)!;
+
+        handler.EmittedEvents.ShouldBeEmpty();
+        handler.ToSliceDescriptor().EmittedEvents.ShouldBeEmpty();
+    }
+
     [Fact]
     public void specification_feature_and_scenario_are_derived_and_not_on_the_wire()
     {

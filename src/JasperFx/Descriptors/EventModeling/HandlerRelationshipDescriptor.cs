@@ -49,6 +49,13 @@ public sealed record HandlerRelationshipDescriptor(
     TypeDescriptor? TargetAggregate)
 {
     /// <summary>
+    /// Event types the handler emits, in declaration order. Never null: System.Text.Json leaves a
+    /// constructor parameter the JSON does not carry at its <c>default</c>, so a payload that omits
+    /// the member would otherwise hand back a null list from a non-nullable slot (jasperfx#807).
+    /// </summary>
+    public IReadOnlyList<TypeDescriptor> EmittedEvents { get; init; } = EmittedEvents ?? Array.Empty<TypeDescriptor>();
+
+    /// <summary>
     /// How the emitting code is triggered. Defaults to <see cref="PublisherKind.Handler"/>
     /// — the historical behavior where the trigger is the incoming <see cref="MessageType"/>.
     /// Non-<c>Handler</c> kinds (HTTP/gRPC endpoints, projection side-effects, scheduled work)
