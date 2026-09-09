@@ -323,6 +323,15 @@ public class Block<T> : BlockBase<T>
         }
     }
 
+    /// <summary>
+    /// The number of items posted to this block whose processing has not yet finished — both the ones
+    /// still buffered in the channel AND the ones currently in flight inside the action. The increment
+    /// happens in Post/PostAsync before the write and the decrement in the consumer loop's finally,
+    /// after the action returns, so a caller that observes this from within the action (or from a
+    /// continuation the action itself scheduled) still sees that item counted. That is the point:
+    /// consumers read this as "work not yet finished", and dropping the in-flight item would let
+    /// <see cref="WaitForCompletionAsync"/> report a block as drained while an action was still running.
+    /// </summary>
     public override uint Count => _count;
 
     public override ValueTask DisposeAsync()
