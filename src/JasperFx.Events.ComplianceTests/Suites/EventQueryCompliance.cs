@@ -18,9 +18,17 @@ public record CargoInspected(string Inspector);
 public record CargoUnloaded(string Port);
 
 /// <summary>
-/// Strong-typed tag identity for the folded tag-condition filter.
+/// Strong-typed tag identity for the folded tag-condition filter. Guid-valued deliberately: the
+/// lossy <see cref="EventQuery.TagValues"/> form matches on the tag value's <em>string</em> form, and
+/// engines render a Guid in different casing.
 /// </summary>
 public record ManifestId(Guid Value);
+
+/// <summary>
+/// A second, string-valued tag identity, so the AND-across-entries semantics of
+/// <see cref="EventQuery.TagValues"/> can be exercised with two different tag types at once.
+/// </summary>
+public record ShipperCode(string Value);
 
 #endregion
 
@@ -63,8 +71,11 @@ public abstract class EventQueryCompliance<TFixture, TOperations, TQuerySession>
         config.EnableCorrelationTracking = true;
         config.EnableUserNameTracking = true;
 
-        // No aggregate association: the tag is used purely as a query dimension here.
+        // No aggregate association: the tags are used purely as query dimensions here. The table
+        // suffixes are deliberately NOT the CLR type names, because jasperfx#801's lossy tag filter
+        // accepts either spelling and the suite has to be able to tell them apart.
         config.RegisterTagType<ManifestId>("manifest");
+        config.RegisterTagType<ShipperCode>("shipper");
     };
 
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
@@ -1169,6 +1180,367 @@ public abstract class EventQueryCompliance<TFixture, TOperations, TQuerySession>
         result.Events.Select(x => x.Sequence).ShouldBe(taggedSequences);
     }
 
+    // ---- the lossy name/value tag filter (jasperfx#801) ----
+    //
+    // EventQuery.TagValues is the same input the dictionary QueryByTagsAsync overload takes, made
+    // composable: a caller holding a tag NAME rather than a CLR tag type can now AND it with every
+    // other filter, and keeps paging and TotalCount doing it. The semantics differ from
+    // TagConditions in two ways this section pins down — entries are AND'd rather than OR'd, and
+    // names/values are matched as text — so a store cannot implement one by delegating to the other
+    // without noticing.
+
+    /// <summary>
+    /// Two tagged events and two decoys: one carrying the same tag type at a different value, one
+    /// carrying no tag at all. Both decoys survive a store that drops the filter.
+    /// </summary>
+    private async Task<(ManifestId Matching, ManifestId Other)> seedTaggedManifestsAsync()
+    {
+        var matching = new ManifestId(Guid.NewGuid());
+        var other = new ManifestId(Guid.NewGuid());
+
+        await using var session = OpenSession();
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded("grain"), matching);
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoInspected("alice"), matching);
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded("coal"), other);
+        await appendAsync(Guid.NewGuid(), new CargoUnloaded("Lisbon"));
+
+        return (matching, other);
+    }
+
+    [Fact]
+    public async Task filters_by_a_tag_name_and_value()
+    {
+        var (matching, _) = await seedTaggedManifestsAsync();
+
+        var result = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = matching.Value.ToString() }, PageSize = 1000
+        });
+
+        result.TotalCount.ShouldBe(2);
+        result.Events.Count.ShouldBe(2);
+        result.Events.ShouldContain(x => x.Data is CargoLoaded);
+        result.Events.ShouldContain(x => x.Data is CargoInspected);
+    }
+
+    /// <summary>
+    /// Either spelling of the name resolves to the same registered tag type — the CLR simple name or
+    /// the registered table suffix, which this suite deliberately registers as different strings. A
+    /// remote caller cannot discover which spelling an engine prefers, so both must work everywhere;
+    /// see <c>TagTypeRegistrationExtensions.FindByTagName</c>, the shared matcher.
+    /// </summary>
+    [Fact]
+    public async Task a_tag_name_is_either_the_table_suffix_or_the_clr_type_name()
+    {
+        var (matching, _) = await seedTaggedManifestsAsync();
+
+        var bySuffix = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = matching.Value.ToString() }, PageSize = 1000
+        });
+
+        var byTypeName = await queryAsync(new EventQuery
+        {
+            TagValues = { ["ManifestId"] = matching.Value.ToString() }, PageSize = 1000
+        });
+
+        bySuffix.TotalCount.ShouldBe(2);
+        byTypeName.TotalCount.ShouldBe(2);
+        byTypeName.Events.Select(x => x.Sequence).ShouldBe(bySuffix.Events.Select(x => x.Sequence));
+    }
+
+    [Fact]
+    public async Task tag_name_matching_is_case_insensitive()
+    {
+        var (matching, _) = await seedTaggedManifestsAsync();
+
+        foreach (var name in new[] { "MANIFEST", "Manifest", "manifestid", "MANIFESTID" })
+        {
+            var result = await queryAsync(new EventQuery
+            {
+                TagValues = { [name] = matching.Value.ToString() }, PageSize = 1000
+            });
+
+            result.TotalCount.ShouldBe(2, $"the tag name spelling '{name}' should have resolved");
+        }
+    }
+
+    /// <summary>
+    /// The value is matched against the string form of the stored tag value, case-insensitively —
+    /// the contract on <see cref="EventQuery.TagValues"/>. A Guid-valued tag is where it bites: the
+    /// engines render one in different casing, and an operator's copy-pasted id must not depend on
+    /// which store answered.
+    /// </summary>
+    [Fact]
+    public async Task a_tag_value_matches_regardless_of_its_casing()
+    {
+        var (matching, _) = await seedTaggedManifestsAsync();
+
+        var lower = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = matching.Value.ToString().ToLowerInvariant() }, PageSize = 1000
+        });
+
+        var upper = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = matching.Value.ToString().ToUpperInvariant() }, PageSize = 1000
+        });
+
+        lower.TotalCount.ShouldBe(2);
+        upper.TotalCount.ShouldBe(2);
+        upper.Events.Select(x => x.Sequence).ShouldBe(lower.Events.Select(x => x.Sequence));
+    }
+
+    /// <summary>
+    /// Entries are AND'd — the opposite of <see cref="EventQuery.TagConditions"/>, whose conditions
+    /// are OR'd. A store implementing this member by folding it into the rich form without changing
+    /// the combinator answers three here instead of one.
+    /// </summary>
+    [Fact]
+    public async Task multiple_tag_entries_are_combined_with_and()
+    {
+        var manifest = new ManifestId(Guid.NewGuid());
+        var shipper = new ShipperCode("acme");
+
+        await using var session = OpenSession();
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded("both"), manifest, shipper);
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoInspected("manifest-only"), manifest);
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoUnloaded("shipper-only"), shipper);
+
+        var result = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = manifest.Value.ToString(), ["shipper"] = shipper.Value },
+            PageSize = 1000
+        });
+
+        // Exactly the event carrying both, once — a tag-table join without a distinct reads the
+        // doubly-tagged row twice.
+        result.TotalCount.ShouldBe(1);
+        result.Events.Single().Data.ShouldBeOfType<CargoLoaded>().Cargo.ShouldBe("both");
+        result.Events.Select(x => x.Sequence).Distinct().Count().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task tag_values_combine_with_the_other_filters_as_and()
+    {
+        var manifest = new ManifestId(Guid.NewGuid());
+
+        await using var session = OpenSession();
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded("tagged-early"), manifest);
+        await appendAsync(Guid.NewGuid(), new CargoLoaded("untagged"));
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded("tagged-late"), manifest);
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoInspected("wrong-type"), manifest);
+
+        var all = await queryAllAsync();
+        var sequences = all.Events.Select(x => x.Sequence).ToList();
+
+        // The window admits positions 1..3, the type filter keeps the two Loaded events of that
+        // span, and the tag filter drops the untagged one. Each decoy fails exactly one filter.
+        var result = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = manifest.Value.ToString() },
+            EventTypeName = EventTypeNameFor<CargoLoaded>(),
+            SequenceFloor = sequences[1],
+            SequenceCeiling = sequences[3],
+            PageSize = 1000
+        });
+
+        result.TotalCount.ShouldBe(1);
+        result.Events.Single().Sequence.ShouldBe(sequences[2]);
+        result.Events.Single().Data.ShouldBeOfType<CargoLoaded>().Cargo.ShouldBe("tagged-late");
+    }
+
+    /// <summary>
+    /// The property jasperfx#801 exists to preserve: unlike the unpaged <c>IAsyncEnumerable</c> the
+    /// dictionary tag query returns, this stays on the <see cref="PagedEvents"/> path, so a tag query
+    /// keeps paging and a truthful <see cref="PagedEvents.TotalCount"/>.
+    /// </summary>
+    [Fact]
+    public async Task the_lossy_tag_filter_keeps_paging_and_the_total_count()
+    {
+        var manifest = new ManifestId(Guid.NewGuid());
+
+        await using var session = OpenSession();
+        for (var i = 0; i < 5; i++)
+        {
+            await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded($"match-{i}"), manifest);
+
+            // Interleaved untagged noise, so the matching sequences are non-contiguous and a store
+            // paging BEFORE filtering produces short or bleeding pages.
+            await appendAsync(Guid.NewGuid(), new CargoInspected($"noise-{i}"));
+        }
+
+        var unpaged = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = manifest.Value.ToString() }, PageSize = 1000
+        });
+        unpaged.TotalCount.ShouldBe(5);
+
+        var pages = new List<PagedEvents>();
+        for (var pageNumber = 1; pageNumber <= 3; pageNumber++)
+        {
+            pages.Add(await queryAsync(new EventQuery
+            {
+                TagValues = { ["manifest"] = manifest.Value.ToString() },
+                PageNumber = pageNumber,
+                PageSize = 2
+            }));
+        }
+
+        foreach (var page in pages)
+        {
+            // The filtered total, identical on every page — not the page size and not the store size.
+            page.TotalCount.ShouldBe(5);
+            page.Events.ShouldAllBe(x => x.Data is CargoLoaded);
+        }
+
+        pages[0].Events.Count.ShouldBe(2);
+        pages[1].Events.Count.ShouldBe(2);
+        pages[2].Events.Count.ShouldBe(1);
+
+        pages.SelectMany(x => x.Events).Select(x => x.Sequence)
+            .ShouldBe(unpaged.Events.Select(x => x.Sequence));
+    }
+
+    [Fact]
+    public async Task a_tag_value_matching_nothing_is_an_empty_answer_not_an_error()
+    {
+        var (_, _) = await seedTaggedManifestsAsync();
+
+        // A registered tag name at a value nothing carries: a truthful zero, never a throw — the
+        // mirror image of the unregistered-name refusal below.
+        var result = await queryAsync(new EventQuery
+        {
+            TagValues = { ["manifest"] = Guid.NewGuid().ToString() }, PageSize = 1000
+        });
+
+        result.TotalCount.ShouldBe(0);
+        result.Events.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// An unregistered tag name is refused rather than answered empty: "that tag type does not exist
+    /// here" and "no event carries that tag" must not read alike, or a caller with a typo believes
+    /// the store and concludes the events are gone.
+    /// </summary>
+    [Fact]
+    public async Task an_unregistered_tag_name_is_refused()
+    {
+        await seedInterleavedAsync();
+
+        var ex = await Should.ThrowAsync<ArgumentException>(async () => await queryAsync(new EventQuery
+        {
+            TagValues = { ["no_such_tag"] = "whatever" }, PageSize = 1000
+        }));
+
+        ex.Message.ShouldContain("no_such_tag");
+
+        // And it names what IS registered, so the caller can correct the typo from the message.
+        ex.Message.ShouldContain(nameof(ManifestId));
+    }
+
+    /// <summary>
+    /// The two tag spellings are alternatives, not a combination, and supplying both is refused —
+    /// the <see cref="EventQuery.AssertIsWellFormed"/> rule, asserted through the store because it
+    /// only protects a caller if the store's implementation actually runs the guard rail.
+    /// </summary>
+    [Fact]
+    public async Task supplying_both_tag_spellings_is_refused()
+    {
+        var manifest = new ManifestId(Guid.NewGuid());
+
+        await using var session = OpenSession();
+        await AppendTaggedEventAsync(session, Guid.NewGuid(), new CargoLoaded("grain"), manifest);
+
+        await Should.ThrowAsync<ArgumentException>(async () => await queryAsync(new EventQuery
+        {
+            TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(manifest)),
+            TagValues = { ["manifest"] = manifest.Value.ToString() },
+            PageSize = 1000
+        }));
+    }
+
+    /// <summary>
+    /// The <see cref="a_kitchen_sink_query_isolates_exactly_one_event"/> twin, in the lossy tag
+    /// spelling: every filter the suite's configuration can express, at once, with each decoy failing
+    /// a different single one.
+    /// </summary>
+    [Fact]
+    public async Task a_kitchen_sink_query_with_the_lossy_tag_filter_isolates_exactly_one_event()
+    {
+        var manifest = new ManifestId(Guid.NewGuid());
+        var shipper = new ShipperCode("acme");
+        var streamId = Guid.NewGuid();
+        var correlation = $"sink-{Guid.NewGuid():N}";
+
+        Activity.DefaultIdFormat = ActivityIdFormat.W3C;
+        var parent = new Activity("lossy-sink-parent").Start();
+        var child = new Activity("lossy-sink-child").Start();
+
+        string? causation;
+        try
+        {
+            await using var session = OpenSession();
+            causation = CausationIdFor(session);
+            SetCorrelationId(session, correlation);
+            SetUserName(session, "sink-user");
+
+            var target = EventsFor(session).BuildEvent(new CargoLoaded("bullseye"));
+            target.WithTag(manifest, shipper);
+            EventsFor(session).Append(streamId, target);
+
+            // Fails only the event type filter.
+            var wrongType = EventsFor(session).BuildEvent(new CargoInspected("decoy"));
+            wrongType.WithTag(manifest, shipper);
+            EventsFor(session).Append(streamId, wrongType);
+
+            // Fails only the second tag entry — the trap for a store that stops at the first one.
+            var missingShipper = EventsFor(session).BuildEvent(new CargoLoaded("no-shipper"));
+            missingShipper.WithTag(manifest);
+            EventsFor(session).Append(streamId, missingShipper);
+
+            // Fails only the stream filter.
+            var wrongStream = EventsFor(session).BuildEvent(new CargoLoaded("wrong-stream"));
+            wrongStream.WithTag(manifest, shipper);
+            EventsFor(session).Append(Guid.NewGuid(), wrongStream);
+
+            await SaveChangesAsync(session);
+        }
+        finally
+        {
+            child.Stop();
+            parent.Stop();
+        }
+
+        causation.ShouldNotBeNull();
+
+        // Fails the tag, correlation, causation and user filters at once.
+        await appendAsync(streamId, new CargoLoaded("untagged"));
+
+        var all = await queryAllAsync();
+        all.Events.Count.ShouldBe(5);
+
+        var result = await queryAsync(new EventQuery
+        {
+            StreamId = streamId.ToString(),
+            EventTypeName = EventTypeNameFor<CargoLoaded>(),
+            EventTypeNames = [EventTypeNameFor<CargoUnloaded>()],
+            CorrelationId = correlation,
+            CausationId = causation,
+            UserName = "sink-user",
+            TimestampFrom = all.Events[0].Timestamp,
+            TimestampTo = all.Events[^1].Timestamp,
+            SequenceFloor = all.Events[0].Sequence,
+            SequenceCeiling = all.Events[^1].Sequence,
+            // Both spellings of a name in one query, so neither is special-cased.
+            TagValues = { ["manifest"] = manifest.Value.ToString(), ["ShipperCode"] = shipper.Value },
+            PageSize = 1000
+        });
+
+        result.TotalCount.ShouldBe(1);
+        result.Events.Single().Data.ShouldBeOfType<CargoLoaded>().Cargo.ShouldBe("bullseye");
+    }
+
     // ---- filters against data that contains none of it ----
 
     /// <summary>
@@ -1189,7 +1561,8 @@ public abstract class EventQueryCompliance<TFixture, TOperations, TQuerySession>
             new() { CorrelationId = $"corr-{Guid.NewGuid():N}" },
             new() { CausationId = $"cause-{Guid.NewGuid():N}" },
             new() { UserName = $"user-{Guid.NewGuid():N}" },
-            new() { TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(new ManifestId(Guid.NewGuid()))) }
+            new() { TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(new ManifestId(Guid.NewGuid()))) },
+            new() { TagValues = { ["manifest"] = Guid.NewGuid().ToString() } }
         };
 
         foreach (var query in nonMatching)
