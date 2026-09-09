@@ -89,11 +89,18 @@ public sealed record EventTagQuerySpec(IReadOnlyList<EventTagQueryConditionSpec>
 
     /// <summary>
     /// Build a <see cref="TypeDescriptor"/>-to-<see cref="Type"/> resolver over a known set of
-    /// types — the store's registered tag types and event types. Matches on full name (falling
-    /// back to simple name when full names are ambiguous only across differing assemblies is not
-    /// a concern for the registered graph). Returns <see langword="null"/> for an unknown type so
-    /// <see cref="Resolve"/> can raise a precise error.
+    /// types — the store's registered tag types and event types. Returns <see langword="null"/> for
+    /// an unknown type so <see cref="Resolve"/> can raise a precise error.
     /// </summary>
+    /// <remarks>
+    /// Matching is on <see cref="TypeDescriptor.FullName"/> and <b>only</b> full name — deliberately
+    /// exact, with no simple-name fallback. Every descriptor this resolver is meant to see was
+    /// produced by <see cref="From"/> from a real <see cref="Type"/>, so it carries a real full name;
+    /// a descriptor that does not is a hand-built one, and guessing at the type it means is how a
+    /// query silently binds to the wrong tag. (An earlier version of this comment claimed a
+    /// simple-name fallback that the code never had, and the <c>event-query --tags</c> flag was built
+    /// against that claim — see jasperfx#803. That flag now carries names rather than descriptors.)
+    /// </remarks>
     /// <param name="knownTypes">The registered tag/event graph types the query may reference.</param>
     public static Func<TypeDescriptor, Type?> ResolverFor(IEnumerable<Type> knownTypes)
     {
