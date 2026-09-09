@@ -49,12 +49,20 @@ public class EventQueryTests
 
         var spec = EventTagQuerySpec.From(new EventTagQuery().Or(new QueryManifest("m-1")));
         new EventQuery { TagConditions = spec }.SpecifiedFilters.ShouldBe(EventQueryFilters.TagConditions);
+
+        new EventQuery { TagValues = { ["manifest"] = "m-1" } }
+            .SpecifiedFilters.ShouldBe(EventQueryFilters.TagValues);
     }
 
+    /// <summary>
+    /// Every filter at once, in each of its two tag spellings. There is deliberately no single query
+    /// that specifies <see cref="EventQueryFilters.All"/>: the two tag members are exclusive
+    /// (jasperfx#801), so <c>All</c> is what a store declares, not what one query can carry.
+    /// </summary>
     [Fact]
-    public void a_fully_loaded_query_specifies_all()
+    public void a_fully_loaded_query_specifies_all_but_one_tag_spelling()
     {
-        var query = new EventQuery
+        EventQuery loaded() => new()
         {
             EventTypeName = "a",
             EventTypeNames = ["b"],
@@ -66,14 +74,78 @@ public class EventQueryTests
             TimestampFrom = DateTimeOffset.UtcNow.AddDays(-1),
             TimestampTo = DateTimeOffset.UtcNow,
             SequenceFloor = 1,
-            SequenceCeiling = 100,
-            TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(new QueryManifest("m-1")))
+            SequenceCeiling = 100
         };
 
-        query.SpecifiedFilters.ShouldBe(EventQueryFilters.All);
+        var rich = loaded();
+        rich.TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(new QueryManifest("m-1")));
+        rich.SpecifiedFilters.ShouldBe(EventQueryFilters.All & ~EventQueryFilters.TagValues);
 
-        // A fully implemented store declares All and takes anything.
-        Should.NotThrow(() => query.AssertFiltersAreSupported(EventQueryFilters.All));
+        var lossy = loaded();
+        lossy.TagValues["manifest"] = "m-1";
+        lossy.SpecifiedFilters.ShouldBe(EventQueryFilters.All & ~EventQueryFilters.TagConditions);
+
+        // A fully implemented store declares All and takes either.
+        Should.NotThrow(() => rich.AssertFiltersAreSupported(EventQueryFilters.All));
+        Should.NotThrow(() => lossy.AssertFiltersAreSupported(EventQueryFilters.All));
+    }
+
+    [Fact]
+    public void an_empty_tag_values_dictionary_is_no_filter()
+    {
+        // Same reason as the empty EventTypeNames list: the default instance must not read as a
+        // supplied filter, or every existing caller would trip the guard rail on a store that has
+        // not implemented jasperfx#801 yet.
+        new EventQuery().SpecifiedFilters.ShouldBe(EventQueryFilters.None);
+        new EventQuery { TagValues = new Dictionary<string, string>() }
+            .SpecifiedFilters.ShouldBe(EventQueryFilters.None);
+    }
+
+    [Fact]
+    public void the_two_tag_spellings_cannot_be_combined()
+    {
+        var query = new EventQuery
+        {
+            TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(new QueryManifest("m-1"))),
+            TagValues = { ["manifest"] = "m-1" }
+        };
+
+        var ex = Should.Throw<ArgumentException>(() => query.AssertIsWellFormed());
+        ex.Message.ShouldContain("EventQuery.TagConditions");
+        ex.Message.ShouldContain("EventQuery.TagValues");
+
+        // And the guard rail every implementation already calls carries the same refusal, so a store
+        // does not have to remember a second assertion. It refuses ahead of the support check —
+        // "you cannot ask for both" beats "I do not support one of them".
+        Should.Throw<ArgumentException>(() => query.AssertFiltersAreSupported(EventQueryFilters.All));
+        Should.Throw<ArgumentException>(() => query.AssertFiltersAreSupported(EventQueryFilters.Baseline));
+    }
+
+    [Fact]
+    public void either_tag_spelling_alone_is_well_formed()
+    {
+        Should.NotThrow(() => new EventQuery
+        {
+            TagConditions = EventTagQuerySpec.From(new EventTagQuery().Or(new QueryManifest("m-1")))
+        }.AssertIsWellFormed());
+
+        Should.NotThrow(() => new EventQuery { TagValues = { ["manifest"] = "m-1" } }.AssertIsWellFormed());
+        Should.NotThrow(() => new EventQuery().AssertIsWellFormed());
+    }
+
+    [Fact]
+    public void a_store_without_the_lossy_tag_form_refuses_it_by_name()
+    {
+        var query = new EventQuery { StreamId = "s", TagValues = { ["manifest"] = "m-1" } };
+
+        // The jasperfx#801 member joined EventQueryFilters.All, so a store that has not implemented
+        // it must subtract it from its declaration — and then refuse the filter by name rather than
+        // returning events that ignore it.
+        var ex = Should.Throw<NotSupportedException>(
+            () => query.AssertFiltersAreSupported(EventQueryFilters.All & ~EventQueryFilters.TagValues));
+
+        ex.Message.ShouldContain("EventQuery.TagValues");
+        ex.Message.ShouldNotContain("EventQuery.StreamId");
     }
 
     [Fact]
@@ -85,6 +157,7 @@ public class EventQueryTests
 
         EventQueryFilters.TimestampWindow.ShouldBe(EventQueryFilters.TimestampFrom | EventQueryFilters.TimestampTo);
         EventQueryFilters.SequenceWindow.ShouldBe(EventQueryFilters.SequenceFloor | EventQueryFilters.SequenceCeiling);
+        EventQueryFilters.Tags.ShouldBe(EventQueryFilters.TagConditions | EventQueryFilters.TagValues);
     }
 
     [Fact]
@@ -186,5 +259,32 @@ public class EventQueryTests
         condition.EventType.ShouldBe(typeof(ManifestOpened));
         condition.TagType.ShouldBe(typeof(QueryManifest));
         condition.TagValue.ShouldBe(new QueryManifest("m-1"));
+    }
+
+    /// <summary>
+    /// The lossy tag form's whole reason to exist is a caller that holds a name/value pair and no CLR
+    /// type graph — which is a caller on the far side of a wire — so it has to survive the hop.
+    /// </summary>
+    [Fact]
+    public void the_lossy_tag_form_round_trips_through_json()
+    {
+        var original = new EventQuery
+        {
+            EventTypeNames = ["manifest_opened"],
+            SequenceFloor = 10,
+            TagValues = { ["QueryManifest"] = "m-1", ["manifest"] = "m-2" }
+        };
+
+        var query = JsonSerializer.Deserialize<EventQuery>(JsonSerializer.Serialize(original));
+
+        query.ShouldNotBeNull();
+        query.TagValues.Count.ShouldBe(2);
+        query.TagValues["QueryManifest"].ShouldBe("m-1");
+        query.TagValues["manifest"].ShouldBe("m-2");
+        query.TagConditions.ShouldBeNull();
+
+        query.SpecifiedFilters.ShouldBe(original.SpecifiedFilters);
+        query.SpecifiedFilters.ShouldBe(
+            EventQueryFilters.EventTypeNames | EventQueryFilters.SequenceFloor | EventQueryFilters.TagValues);
     }
 }

@@ -131,6 +131,46 @@ public class EventQuery
     public EventTagQuerySpec? TagConditions { get; set; }
 
     /// <summary>
+    /// Optional tag filter in the lossy name/value form — the same input
+    /// <c>IEventStore.QueryByTagsAsync(IReadOnlyDictionary&lt;string,string&gt;, …)</c> takes, now
+    /// expressible on the composable query object so it can be AND-combined with the event type,
+    /// window, stream, metadata and tenant filters instead of forcing a caller to choose. Empty
+    /// applies no tag filter. See jasperfx#801.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Semantics.</b> Every entry must match: an event is selected when it carries <em>all</em> of
+    /// the named tags at the given values (AND across entries, unlike <see cref="TagConditions"/>,
+    /// whose conditions are OR'd). That selection is then AND-combined with every other filter, and
+    /// the result stays on the <see cref="PagedEvents"/> path — a tag query keeps paging and
+    /// <see cref="PagedEvents.TotalCount"/>.
+    /// </para>
+    /// <para>
+    /// <b>Names.</b> A key names a registered tag type, matched case-insensitively against either the
+    /// tag type's CLR simple name (<c>"StudentId"</c>) or its registered table suffix
+    /// (<c>"student"</c>) — see <see cref="TagTypeRegistrationExtensions.FindByTagName"/>, which is
+    /// the shared matcher every store is expected to use. A key naming no registered tag type is an
+    /// <see cref="ArgumentException"/>, never an empty answer: "that tag type does not exist here"
+    /// and "no event carries that tag" must not read alike.
+    /// </para>
+    /// <para>
+    /// <b>Values.</b> A value is matched against the <em>string form</em> of the stored tag value,
+    /// ordinal case-insensitively. Case-insensitive because this form's whole purpose is text a
+    /// caller typed or forwarded rather than a CLR value it holds, and the string form of a Guid tag
+    /// is rendered in different casing by different engines — an operator's copy-pasted Guid must not
+    /// depend on which store answered. A caller that holds real CLR tag values should use
+    /// <see cref="TagConditions"/> instead, which compares the typed value.
+    /// </para>
+    /// <para>
+    /// <b>Not combinable with <see cref="TagConditions"/>.</b> The two are alternative spellings of
+    /// one filter — one lossy and AND'd, one rich and OR'd — and supplying both is an
+    /// <see cref="ArgumentException"/> from <see cref="AssertIsWellFormed"/> rather than a silent
+    /// precedence rule.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, string> TagValues { get; set; } = new();
+
+    /// <summary>
     /// The effective event type name filter: the union of <see cref="EventTypeName"/> and
     /// <see cref="EventTypeNames"/>, distinct, in declaration order with the single name first.
     /// Empty means no event type filter. Implementations should consume this rather than reading
@@ -183,6 +223,7 @@ public class EventQuery
             if (SequenceFloor != null) filters |= EventQueryFilters.SequenceFloor;
             if (SequenceCeiling != null) filters |= EventQueryFilters.SequenceCeiling;
             if (TagConditions != null) filters |= EventQueryFilters.TagConditions;
+            if (TagValues.Count > 0) filters |= EventQueryFilters.TagValues;
 
             return filters;
         }
@@ -201,8 +242,29 @@ public class EventQuery
         (EventQueryFilters.TimestampTo, nameof(TimestampTo)),
         (EventQueryFilters.SequenceFloor, nameof(SequenceFloor)),
         (EventQueryFilters.SequenceCeiling, nameof(SequenceCeiling)),
-        (EventQueryFilters.TagConditions, nameof(TagConditions))
+        (EventQueryFilters.TagConditions, nameof(TagConditions)),
+        (EventQueryFilters.TagValues, nameof(TagValues))
     ];
+
+    /// <summary>
+    /// Assert that this query is internally consistent, independently of what any store supports:
+    /// today, that it does not carry both spellings of the tag filter at once. Called first thing by
+    /// <see cref="AssertFiltersAreSupported"/>, so an implementation that follows the guard-rail
+    /// convention gets it without a second call.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// Both <see cref="TagConditions"/> and <see cref="TagValues"/> were supplied.
+    /// </exception>
+    public void AssertIsWellFormed()
+    {
+        if (TagConditions != null && TagValues.Count > 0)
+        {
+            throw new ArgumentException(
+                $"{nameof(EventQuery)}.{nameof(TagConditions)} and {nameof(EventQuery)}.{nameof(TagValues)} are " +
+                "alternative spellings of the tag filter — the rich OR'd condition form and the lossy AND'd " +
+                "name/value form — and cannot be combined. Supply one or the other. See jasperfx#801.");
+        }
+    }
 
     /// <summary>
     /// The jasperfx#737 guard rail, centralized: throw <see cref="NotSupportedException"/> naming
@@ -213,9 +275,15 @@ public class EventQuery
     /// unfiltered results that read as filtered.
     /// </summary>
     /// <param name="supportedFilters">The set of filters the calling implementation honors.</param>
+    /// <exception cref="ArgumentException">The query is not well formed — see <see cref="AssertIsWellFormed"/>.</exception>
     /// <exception cref="NotSupportedException">A filter was supplied that the implementation did not declare.</exception>
     public void AssertFiltersAreSupported(EventQueryFilters supportedFilters)
     {
+        // Well-formedness first: a query carrying both tag spellings is malformed whether or not this
+        // store implements either one, and "you cannot ask for both" is the more useful answer than
+        // "I do not support one of them".
+        AssertIsWellFormed();
+
         var unsupported = SpecifiedFilters & ~supportedFilters;
         if (unsupported == EventQueryFilters.None)
         {
@@ -253,6 +321,7 @@ public enum EventQueryFilters
     SequenceFloor = 1 << 9,
     SequenceCeiling = 1 << 10,
     TagConditions = 1 << 11,
+    TagValues = 1 << 12,
 
     /// <summary>
     /// Both halves of the inclusive timestamp window.
@@ -270,9 +339,23 @@ public enum EventQueryFilters
     Baseline = EventTypeName | StreamId | CorrelationId | CausationId | UserName | TenantId,
 
     /// <summary>
+    /// Both spellings of the tag filter: the rich OR'd <see cref="TagConditions"/> and the lossy
+    /// AND'd <see cref="TagValues"/>. Only one of the two can appear on any single query.
+    /// </summary>
+    Tags = TagConditions | TagValues,
+
+    /// <summary>
     /// Every filter <see cref="EventQuery"/> can carry. What a fully implemented store declares.
     /// </summary>
-    All = Baseline | EventTypeNames | TimestampWindow | SequenceWindow | TagConditions
+    /// <remarks>
+    /// This grows as <see cref="EventQuery"/> grows — <see cref="TagValues"/> joined it in
+    /// jasperfx#801 — so a store that declares <c>All</c> and then upgrades the package silently
+    /// claims support for a filter it has not written yet, which is the failure the guard rail exists
+    /// to prevent. A store adopting a release that widened this enum either implements the new filter
+    /// or subtracts it from its declaration (<c>EventQueryFilters.All &amp; ~EventQueryFilters.TagValues</c>)
+    /// until it does.
+    /// </remarks>
+    All = Baseline | EventTypeNames | TimestampWindow | SequenceWindow | Tags
 }
 
 /// <summary>

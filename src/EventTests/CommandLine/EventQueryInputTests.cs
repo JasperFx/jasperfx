@@ -64,7 +64,12 @@ public class EventQueryInputTests
         query.PageNumber.ShouldBe(3);
         query.PageSize.ShouldBe(25);
 
-        query.SpecifiedFilters.ShouldBe(EventQueryFilters.All & ~EventQueryFilters.EventTypeName);
+        // Everything but the single-name spelling (the CLI always builds the list form) and the
+        // lossy TagValues spelling — the command's --tags flag builds the rich TagConditions form,
+        // and the two are mutually exclusive (jasperfx#801).
+        query.SpecifiedFilters.ShouldBe(
+            EventQueryFilters.All & ~EventQueryFilters.EventTypeName & ~EventQueryFilters.TagValues);
+        query.TagValues.ShouldBeEmpty();
     }
 
     [Fact]
