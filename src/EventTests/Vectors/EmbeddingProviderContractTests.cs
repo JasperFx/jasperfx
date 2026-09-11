@@ -12,7 +12,7 @@ public class EmbeddingProviderContractTests
     {
         IEmbeddingProvider provider = new FakeProvider(dimensions: 3);
 
-        var vectors = await provider.GenerateEmbeddingsAsync(["alpha", "beta"]);
+        var vectors = await provider.GenerateEmbeddingsAsync(["alpha", "beta"], TestContext.Current.CancellationToken);
 
         vectors.Length.ShouldBe(2);
         vectors[0].Length.ShouldBe(3);
@@ -26,7 +26,7 @@ public class EmbeddingProviderContractTests
     {
         var provider = new FakeProvider(dimensions: 3);
 
-        var vectors = await provider.GenerateEmbeddingsAsync([]);
+        var vectors = await provider.GenerateEmbeddingsAsync([], TestContext.Current.CancellationToken);
 
         vectors.ShouldBeEmpty();
         provider.ModelCalls.ShouldBe(0);
@@ -37,7 +37,7 @@ public class EmbeddingProviderContractTests
     {
         var provider = new FakeProvider(dimensions: 3);
 
-        var vector = await provider.GenerateEmbeddingAsync("gamma");
+        var vector = await provider.GenerateEmbeddingAsync("gamma", TestContext.Current.CancellationToken);
 
         vector.Length.ShouldBe(3);
         vector.Span[0].ShouldBe("gamma".Length);

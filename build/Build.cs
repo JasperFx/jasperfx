@@ -54,7 +54,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestSourceGenerators, TestAspire, SmokeTestAot);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -164,6 +164,19 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
+    // The Microsoft.Extensions.AI adapter for IEmbeddingProvider (#813). Its own project so
+    // Microsoft.Extensions.AI.Abstractions never reaches EventTests.
+    Target TestMicrosoftExtensionsAI => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
     Target SmokeTestCommands => _ => _.DependsOn(Compile)
         .Executes(() =>
         {
@@ -214,7 +227,8 @@ partial class Build : NukeBuild
                 Solution.JasperFx_Events_ComplianceTests,
                 Solution.src.JasperFx_Events_SourceGenerator,
                 Solution.src.JasperFx_SourceGenerator,
-                Solution.src.JasperFx_Aspire
+                Solution.src.JasperFx_Aspire,
+                Solution.src.JasperFx_Events_MicrosoftExtensionsAI
             };
 
             foreach (var project in projects)

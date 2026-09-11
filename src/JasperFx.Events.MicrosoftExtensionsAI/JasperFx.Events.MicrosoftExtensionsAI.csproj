@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Description>Adapts a Microsoft.Extensions.AI IEmbeddingGenerator to the Critter Stack's store-neutral IEmbeddingProvider, so an embedding model configured once for OpenAI, Azure OpenAI, Ollama or any other M.E.AI provider drives vector search in Marten, Polecat and Fisher.</Description>
+        <AssemblyName>JasperFx.Events.MicrosoftExtensionsAI</AssemblyName>
+        <PackageId>JasperFx.Events.MicrosoftExtensionsAI</PackageId>
+        <Version>$(JasperFxVersion)</Version>
+        <PackageTags>jasperfx;events;vector;embeddings;microsoft-extensions-ai;critter-stack</PackageTags>
+        <IsAotCompatible>true</IsAotCompatible>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
+        <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="JasperFx.Events.MicrosoftExtensionsAI.Tests" />
+    </ItemGroup>
+</Project>
