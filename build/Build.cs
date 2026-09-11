@@ -214,7 +214,8 @@ partial class Build : NukeBuild
                 Solution.JasperFx_Events_ComplianceTests,
                 Solution.src.JasperFx_Events_SourceGenerator,
                 Solution.src.JasperFx_SourceGenerator,
-                Solution.src.JasperFx_Aspire
+                Solution.src.JasperFx_Aspire,
+                Solution.src.JasperFx_Events_MicrosoftExtensionsAI
             };
 
             foreach (var project in projects)

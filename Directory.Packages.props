@@ -78,6 +78,9 @@
   <ItemGroup>
     <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.7.0" />
+    <!-- JasperFx.Events.MicrosoftExtensionsAI (#813): the abstractions package only, no vendor SDK.
+         Same line Wolverine and CritterWatch pin. -->
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
     <!--
       MTP's collector, replacing coverlet.collector, which is VSTest-only (#581). Note that no build
       target asks for coverage today, so this is capability parity rather than something in use.

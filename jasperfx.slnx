@@ -22,6 +22,8 @@
     <Project Path="src/FSharpTypes/FSharpTypes.fsproj" />
     <Project Path="src/JasperFx.Aspire.Tests/JasperFx.Aspire.Tests.csproj" />
     <Project Path="src/JasperFx.Aspire/JasperFx.Aspire.csproj" />
+    <Project Path="src/JasperFx.Events.MicrosoftExtensionsAI.Tests/JasperFx.Events.MicrosoftExtensionsAI.Tests.csproj" />
+    <Project Path="src/JasperFx.Events.MicrosoftExtensionsAI/JasperFx.Events.MicrosoftExtensionsAI.csproj" />
     <Project Path="src/JasperFx.Events.SourceGenerator.Tests/JasperFx.Events.SourceGenerator.Tests.csproj" />
     <Project Path="src/JasperFx.Events.SourceGenerator/JasperFx.Events.SourceGenerator.csproj" />
     <Project Path="src/JasperFx.SourceGenerator.Tests/JasperFx.SourceGenerator.Tests.csproj" />
