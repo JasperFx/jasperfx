@@ -100,6 +100,11 @@ jobs:
         run: ./build.sh test-aspire
         shell: bash
 
+      - name: test-microsoft-extensions-ai
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-microsoft-extensions-ai
+        shell: bash
+
       # End-to-end CLI smoke tests, including `codegen preview --language fsharp`: proves the F# flag
       # is wired through the CLI and the F# emit path runs without throwing. It does NOT prove the
       # output compiles -- `preview` only prints, and GeneratorTarget feeds codegen a raw C# CodeFrame
