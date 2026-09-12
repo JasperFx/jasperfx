@@ -74,28 +74,15 @@ public class DocumentComplianceConfigTests
     }
 
     /// <remarks>
-    /// jasperfx#819 §2, and the guard that keeps the two revision suites from testing the same route
-    /// twice. The declared suite's document deliberately does not implement <see cref="IRevisioned" />,
-    /// so if the config declaration went missing it would not merely test the wrong route — it would
-    /// test no route at all, and fail for a reason unrelated to the store's revision handling.
+    /// The numeric revision suite reaches its document through the marker interface alone, and after
+    /// jasperfx#819 §2 that is settled rather than provisional: the other declaration route projects
+    /// no revision onto the document, so a second suite over it would have nothing to set or read.
+    /// Asserted rather than assumed because the config member for that route still exists, and an
+    /// unused member is exactly the kind of thing that gets wired in later without the finding being
+    /// re-read.
     /// </remarks>
     [Fact]
-    public void the_declared_revision_suite_declares_numeric_revisions_through_the_config()
-    {
-        var config = new DocumentComplianceConfig();
-        ExposedDeclaredNumericRevisionCompliance.TheConfiguration(config);
-
-        config.NumericRevisionTypes.ShouldContain(typeof(ComplianceMeterReading));
-
-        typeof(IRevisioned).IsAssignableFrom(typeof(ComplianceMeterReading)).ShouldBeFalse();
-    }
-
-    /// <remarks>
-    /// The other half of the pair: the original suite declares its document through the marker only,
-    /// which is what makes the two suites cover two routes rather than one.
-    /// </remarks>
-    [Fact]
-    public void the_marker_revision_suite_declares_nothing_through_the_config()
+    public void the_revision_suite_declares_its_document_through_the_marker_only()
     {
         var config = new DocumentComplianceConfig();
         ExposedNumericRevisionCompliance.TheConfiguration(config);
@@ -144,10 +131,4 @@ public class DocumentComplianceConfigTests
             new ExposedNumericRevisionCompliance().Configuration;
     }
 
-    private class ExposedDeclaredNumericRevisionCompliance
-        : DeclaredNumericRevisionCompliance<InMemoryDocumentComplianceFixture>
-    {
-        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
-            new ExposedDeclaredNumericRevisionCompliance().Configuration;
-    }
 }

@@ -14,22 +14,25 @@ namespace JasperFx.Events.ComplianceTests;
 /// <typeparam name="TDoc">The document under test.</typeparam>
 /// <remarks>
 /// <para>
-/// Split out of <see cref="NumericRevisionCompliance{TFixture}" /> by jasperfx#819 §2. The nine facts
-/// are thorough about revision <em>semantics</em>, and the one thing they could not vary was how the
-/// document says it uses numeric revisions — because the suite was written against
-/// <see cref="IRevisioned" /> throughout. That was not an oversight; it was the only route the shared
-/// config could express. fisher#228 is what lived in the gap: <c>Store(doc, revision)</c> and the
-/// operation's expected revision were both gated on the marker, so a type that opted in through
-/// <c>Schema.For&lt;T&gt;().UseNumericRevisions()</c> had its supplied revision dropped and guarded on
-/// <c>0</c> — which means auto. A backwards write was accepted and nothing was dropped: a silent lost
-/// update, in the method whose entire purpose is to prevent one. The two routes are documented as
-/// equivalent and only one of them worked.
+/// Split out of <see cref="NumericRevisionCompliance{TFixture}" /> by jasperfx#819 §2, which proposed
+/// running the nine facts a second time against a type that declared itself through the store's own
+/// configuration rather than through <see cref="IRevisioned" /> — the one thing the suite cannot vary,
+/// and the asymmetry fisher#228 lived in.
 /// </para>
 /// <para>
-/// Three hooks, all of them about <em>reaching</em> the document rather than about behavior:
-/// construction and two member reads. The marker suite reads them through
-/// <see cref="IRevisioned" />; the declared suite reads the same members off a type that implements
-/// nothing.
+/// <b>That second suite does not exist, and the split is kept anyway.</b> Written and run against
+/// Fisher, seven of the nine failed for a reason that is not a store bug: the declared route has no
+/// document member. Fisher's own DSL test says it outright — "no <c>IRevisioned</c> member to project
+/// onto, so the value lives only in the column" — and Marten is the same shape. Every fact below
+/// works by setting the document's revision before <c>Store</c> and reading it back off a load, so
+/// with no member there is nothing to set and nothing to observe. See
+/// <see cref="DocumentComplianceConfig.NumericRevisionTypes" /> for the whole of that finding.
+/// </para>
+/// <para>
+/// The three hooks are all about <em>reaching</em> the document rather than about behavior —
+/// construction and two member reads — so a suite that gets a member to read (a mapped-revision seam,
+/// or a store that projects one onto a DSL-declared type) inherits all nine facts by supplying them.
+/// That is cheaper to keep than to re-derive, which is why the generic base stays.
 /// </para>
 /// </remarks>
 public abstract class NumericRevisionComplianceBase<TFixture, TDoc> : DocumentStorageComplianceSuite<TFixture>
@@ -369,9 +372,10 @@ public abstract class NumericRevisionComplianceBase<TFixture, TDoc> : DocumentSt
 /// under test — see <see cref="GuidOptimisticConcurrencyCompliance{TFixture}" />.)
 /// </para>
 /// <para>
-/// <b>The declaration route this suite cannot vary</b> is the other half, and it has its own suite:
-/// <see cref="DeclaredNumericRevisionCompliance{TFixture}" /> runs these same nine facts against a
-/// type that opted in through the store's own configuration instead of through the marker.
+/// <b>The declaration route this suite cannot vary</b> stays unvaried, and jasperfx#819 §2 is why
+/// rather than an oversight: the other route projects no revision onto the document at all, so there
+/// is no member for a second run of these facts to set or read. The finding is written up on
+/// <see cref="DocumentComplianceConfig.NumericRevisionTypes" />.
 /// </para>
 /// </remarks>
 public abstract class NumericRevisionCompliance<TFixture>

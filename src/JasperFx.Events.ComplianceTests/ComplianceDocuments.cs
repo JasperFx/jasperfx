@@ -95,39 +95,6 @@ public class ComplianceLedgerEntry: IRevisioned
 }
 
 /// <summary>
-/// The same numeric-revision document as <see cref="ComplianceLedgerEntry" />, declared the
-/// <em>other</em> way — through the store's own <c>Schema.For&lt;T&gt;().UseNumericRevisions()</c>
-/// rather than through the <see cref="IRevisioned" /> marker (jasperfx#819 §2).
-/// </summary>
-/// <remarks>
-/// <para>
-/// Pointedly <b>not</b> implementing <see cref="IRevisioned" />, which is the entire reason it is a
-/// second type: <see cref="NumericRevisionCompliance{TFixture}" /> is written against the marker
-/// throughout, so the one thing its nine facts cannot vary is <em>how the document says it uses
-/// numeric revisions</em>. The two routes are documented as equivalent, and fisher#228 is what
-/// happens when only one of them works — <c>Store(doc, revision)</c> and the operation's expected
-/// revision were both gated on the marker, so a DSL-declared type had its revision dropped and
-/// guarded on <c>0</c>, which means auto. A backwards write was accepted and nothing was reported:
-/// a silent lost update, in the method whose entire purpose is to prevent one.
-/// </para>
-/// <para>
-/// <c>Version</c> is spelled identically to the marker's member on purpose. Every store's
-/// <c>UseNumericRevisions()</c> resolves a conventionally-named revision member, so keeping the name
-/// means the only variable between the two suites is the declaration route — which is the variable
-/// under test.
-/// </para>
-/// </remarks>
-public class ComplianceMeterReading
-{
-    public Guid Id { get; set; }
-    public string Meter { get; set; } = string.Empty;
-    public int Reading { get; set; }
-
-    /// <inheritdoc cref="ComplianceLedgerEntry.Version" />
-    public int Version { get; set; }
-}
-
-/// <summary>
 /// A document opting into <see cref="Guid" /> optimistic concurrency through
 /// <see cref="IVersioned" /> — the marker that lives in <c>JasperFx.Metadata</c> rather than in any
 /// product, lifted by jasperfx#330 and given the same status as <see cref="IRevisioned" />.

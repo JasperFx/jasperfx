@@ -183,25 +183,29 @@ public sealed class DocumentComplianceConfig
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The seam <see cref="NumericRevisionCompliance{TFixture}" /> was missing. Its nine facts are
-    /// thorough about revision <em>semantics</em> and cannot vary the one thing fisher#228 broke: how
-    /// the document says it uses revisions. Both routes are documented as equivalent and only one
-    /// worked, which is precisely the asymmetry a shared suite is uniquely placed to see — one type,
-    /// two ways of saying the same thing, and a store where only one of them does anything.
+    /// <b>No suite populates this yet, and the reason is worth recording</b> rather than leaving for
+    /// the next person to rediscover. jasperfx#819 §2 proposed running
+    /// <see cref="NumericRevisionCompliance{TFixture}" />'s nine facts a second time against a type
+    /// that declared itself this way, on the argument that both routes are documented as equivalent
+    /// and fisher#228 is what happens when only one works. Written and run against Fisher, seven of
+    /// the nine failed — and not because of a store bug.
     /// </para>
     /// <para>
-    /// Scoped to the <em>implicit</em> path deliberately. <c>Store(doc, revision)</c>,
-    /// <c>UpdateRevision</c> and <c>TryUpdateRevision</c> are ruled off the document contract by
-    /// jasperfx#785 §5.3 and stay off; what <see cref="DeclaredNumericRevisionCompliance{TFixture}" />
-    /// runs is the existing nine facts a second time, against a type that declared itself the other
-    /// way.
+    /// <b>The declared route has no document member.</b> Fisher's own DSL test says it outright: "no
+    /// <c>IRevisioned</c> member to project onto, so the value lives only in the column". Marten is the
+    /// same shape — projecting a revision onto a member takes the marker interface or an explicit
+    /// <c>Metadata.Revision.MapTo(...)</c>. Every one of the nine facts works by setting the
+    /// document's revision before <see cref="Documents.IDocumentWriteOperations.Store{T}" /> and
+    /// reading it back off a load, so with no member the suite can neither name a revision nor observe
+    /// one. §2 is therefore <em>not</em> Tier 1: it needs the mapped-member seam that §3 deliberately
+    /// deferred, and on Fisher there would be nothing to bind that seam to — so the suite could never
+    /// run on the store whose bug motivated it.
     /// </para>
     /// <para>
-    /// The <em>mapped member</em> route — marten#5372's <c>Metadata.Version.MapTo(x =&gt; x.Rev)</c>,
-    /// declaring an arbitrary member as the version — is deliberately not here. There is no
-    /// store-neutral way to say it with a <see cref="Type" /> alone, it would need an expression hook,
-    /// and Fisher has no revision member to bind one to. Landing the two declaration routes that are
-    /// expressible today is worth more than blocking on a seam design for the third.
+    /// This member is kept because it is the half of the declaration a <see cref="Type" /> alone
+    /// <em>can</em> carry, and a fixture replaying it costs nothing. What a suite would additionally
+    /// need is a way to say which member is the revision, which is a decision rather than an
+    /// omission.
     /// </para>
     /// </remarks>
     public List<Type> NumericRevisionTypes { get; } = new();
