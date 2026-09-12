@@ -36,13 +36,14 @@ public partial class SignalTally
 
 /// <summary>
 /// An <see cref="ProjectionLifecycle.Inline" /> snapshot, registered so the suite can hold the
-/// no-shards case to a definition.
+/// no-daemon-agent case to a definition.
 /// </summary>
 /// <remarks>
-/// An inline projection runs no daemon agent, so there is nothing whose runtime state could be
-/// reported. Polecat synthesised a shard for it and put the lifecycle string in the
-/// <see cref="ShardStatus.State" /> slot, which is what makes this a registration worth carrying
-/// rather than an obvious case.
+/// An inline projection runs no daemon agent, so there is no runtime state to report — and Polecat
+/// filled the gap with the lifecycle string in the <see cref="ShardStatus.State" /> slot, which is
+/// what makes this a registration worth carrying rather than an obvious case. Whether a shard is
+/// listed at all is left to the store; see
+/// <see cref="ProjectionStatusCompliance{TFixture,TOperations,TQuerySession}.an_inline_projection_never_reports_a_lifecycle_in_the_state_slot" />.
 /// </remarks>
 public partial class SignalBoard
 {
@@ -199,18 +200,29 @@ public abstract class ProjectionStatusCompliance<TFixture, TOperations, TQuerySe
     }
 
     /// <summary>
-    /// A projection that runs no async shards reports an empty shard list, and its lifecycle is the
-    /// thing that explains why.
+    /// An Inline projection is reported with its lifecycle, and the <see cref="ShardStatus.State" />
+    /// slot never carries that lifecycle.
     /// </summary>
     /// <remarks>
-    /// The second assertion is the load-bearing one. Polecat synthesised a shard for an Inline
-    /// registration and put <c>Lifecycle.ToString()</c> in the <see cref="ShardStatus.State" /> slot,
-    /// so that one field meant a daemon state on some rows and a lifecycle on others — and a console
-    /// filtering "show me everything that isn't Running" surfaced every inline projection in the
-    /// store as though something were wrong with it.
+    /// <para>
+    /// Polecat synthesised a shard for an Inline registration and put <c>Lifecycle.ToString()</c> in
+    /// the <c>State</c> slot, so one field meant a daemon state on some rows and a lifecycle on
+    /// others — and a console filtering "show me everything that isn't Running" surfaced every inline
+    /// projection in the store as though something were wrong with it. That is what is pinned.
+    /// </para>
+    /// <para>
+    /// <b>Whether the shard list is empty is deliberately NOT pinned.</b> jasperfx#818 proposed
+    /// requiring it, on the reading that a projection running no daemon agent has no shard to report.
+    /// Run against the stores, only Fisher answers that way: Marten reports
+    /// <c>SignalBoard:All / Unknown / 0 / 0</c>, which is a coherent answer of a different kind — a
+    /// shard name is a registry fact, <c>Projections.All</c> has one for an inline registration, and
+    /// "here is the shard, nothing is running it" is exactly what <c>Unknown</c> means everywhere else
+    /// in this suite. Two readings, both defensible, and Marten's is the one that stands. The harmful
+    /// half is the <c>State</c> slot, and it is harmful on its own.
+    /// </para>
     /// </remarks>
     [Fact]
-    public async Task an_inline_projection_reports_no_shards_and_its_lifecycle()
+    public async Task an_inline_projection_never_reports_a_lifecycle_in_the_state_slot()
     {
         SkipUnlessSupported();
 
@@ -219,8 +231,15 @@ public abstract class ProjectionStatusCompliance<TFixture, TOperations, TQuerySe
         var board = statusFor(statuses, nameof(SignalBoard));
 
         board.Lifecycle.ShouldBe(nameof(ProjectionLifecycle.Inline));
-        board.Shards.ShouldBeEmpty(
-            "An Inline projection runs no daemon agent, so it has no shard whose runtime state could be reported. ProjectionStatus.Lifecycle already says why the list is empty.");
+
+        foreach (var shard in board.Shards)
+        {
+            shard.State.ShouldNotBe(board.Lifecycle,
+                $"Shard '{shard.ShardName}' reported its projection's lifecycle in the State slot, so that field means a daemon state on some rows and a lifecycle on others. ProjectionStatus.Lifecycle already carries it.");
+
+            ShardStatusState.All.ShouldContain(shard.State,
+                $"Shard '{shard.ShardName}' reported a State of '{shard.State}', which is not in the ShardStatusState vocabulary.");
+        }
     }
 
     /// <summary>

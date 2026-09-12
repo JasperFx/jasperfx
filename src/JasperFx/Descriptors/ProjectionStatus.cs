@@ -19,18 +19,17 @@ namespace JasperFx.Descriptors;
 /// <c>IEventDatabase.FetchProjectionLagAsync</c> — which is the pairing jasperfx#815 exists for.
 /// </para>
 /// <para>
-/// <b>A projection with no async shards reports an empty shard list.</b> An Inline or Live projection
-/// runs no daemon agent, so there is no shard and nothing to report progress for.
-/// <see cref="Lifecycle"/> already says why the list is empty, so a store must not synthesise a
-/// stand-in shard to fill it — see the warning on <see cref="ShardStatus.State"/>.
+/// <b>An Inline or Live projection runs no daemon agent</b>, and what it reports for
+/// <see cref="Shards"/> is left to the store: an empty list, or the registered shard with a
+/// <see cref="ShardStatusState.Unknown"/> state and no progress, are both legitimate — the second is
+/// Marten's, and it is the same reading of <c>Unknown</c> that applies everywhere else ("here is the
+/// shard, nothing is running it"). What is <em>not</em> legitimate is putting the lifecycle in the
+/// <see cref="ShardStatus.State"/> slot; see the warning there.
 /// </para>
 /// </remarks>
 /// <param name="ProjectionName">Configured name of the projection.</param>
 /// <param name="Lifecycle">String form of the projection's lifecycle (Inline / Async / Live).</param>
-/// <param name="Shards">
-/// Per-shard status records for this projection. Empty — never a synthesised placeholder — when the
-/// projection runs no async shards.
-/// </param>
+/// <param name="Shards">Per-shard status records for this projection.</param>
 public sealed record ProjectionStatus(
     string ProjectionName,
     string Lifecycle,
@@ -72,10 +71,12 @@ public sealed record ProjectionStatus(
 /// reading an operator acts on.
 /// </para>
 /// <para>
-/// <b>Never a lifecycle.</b> A projection that runs no shards reports an empty
-/// <see cref="ProjectionStatus.Shards"/> list; it does not get a synthesised shard carrying
-/// <c>"Inline"</c> or <c>"Live"</c> in this slot. Doing so makes one field mean a daemon state on some
-/// rows and a lifecycle on others, and <see cref="ProjectionStatus.Lifecycle"/> already carries it.
+/// <b>Never a lifecycle.</b> A shard reported for an Inline or Live projection carries
+/// <see cref="ShardStatusState.Unknown"/> — there is no daemon agent to ask — and never
+/// <c>"Inline"</c> or <c>"Live"</c>. Putting the lifecycle here makes one field mean a daemon state on
+/// some rows and a lifecycle on others, and <see cref="ProjectionStatus.Lifecycle"/> already carries
+/// it. A console filtering "show me everything that isn't Running" otherwise surfaces every inline
+/// projection in the store as though something were wrong with it.
 /// </para>
 /// </param>
 /// <param name="ProcessedSequence">
