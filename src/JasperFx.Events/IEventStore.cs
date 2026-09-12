@@ -167,6 +167,27 @@ public interface IEventStore
     /// view. The default implementation throws <see cref="NotImplementedException"/>;
     /// concrete event stores (Marten, Polecat) override it.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A store-global explorer read on a multi-database store must not silently answer from one
+    /// database</b> (jasperfx#810). This overload and its tenant-less siblings mean "everything this
+    /// store has", and on a store whose <see cref="DatabaseCardinality" /> is not
+    /// <see cref="DatabaseCardinality.Single" /> the obvious implementation opens the default session
+    /// — one session, one database — and returns a result indistinguishable from a complete answer.
+    /// Either fan out across <see cref="AllDatabases" /> and merge, or throw pointing at the
+    /// database-scoped overload. Both are fine; the current behavior is the one wrong option, because
+    /// a caller cannot tell a complete answer from one database out of 512.
+    /// </para>
+    /// <para>
+    /// The tenant-scoped overloads have a second, independent rule.
+    /// <b>Whether to filter on <c>tenant_id</c> is decided by tenancy style, not by cardinality</b>:
+    /// filter whenever events are conjoined, <em>and</em> open the tenant's database whenever there is
+    /// more than one. Deciding from cardinality alone rests on the premise that every stream in a
+    /// tenant's database belongs to that tenant, which holds for database-per-tenant and does not hold
+    /// for sharded tenancy, where many tenants share each database. Those are two axes, and sharded
+    /// tenancy is the case that needs both.
+    /// </para>
+    /// </remarks>
     /// <param name="count">Maximum number of streams to return.</param>
     /// <param name="ct">Cancellation token.</param>
     Task<IReadOnlyList<StreamSummary>> GetRecentStreamsAsync(int count, CancellationToken ct)

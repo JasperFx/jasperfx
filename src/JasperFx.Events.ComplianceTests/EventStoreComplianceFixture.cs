@@ -341,6 +341,52 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsExplorerSurface => true;
 
     /// <summary>
+    /// Can this fixture build a store backed by more than one database, from
+    /// <see cref="ComplianceStoreConfig.TenantDatabases" />? Gates the multi-database explorer arms
+    /// (jasperfx#810).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Default <b>false</b>, unlike most gates here, because this one is about the <em>fixture</em>
+    /// rather than the store: replaying a tenant-to-database map means creating and dropping real
+    /// databases, and a fixture that has never had to do it keeps compiling and skipping rather than
+    /// failing on a bump. Fisher is legitimately false — one file, one database.
+    /// </para>
+    /// <para>
+    /// Saying true is a commitment to both halves: replay
+    /// <see cref="ComplianceStoreConfig.TenantDatabases" />, and implement
+    /// <see cref="DatabaseForTenantAsync" />. A fixture that says true and replays nothing does not
+    /// skip — the isolation facts pass <em>vacuously</em> against a single-database store, which is
+    /// the failure mode the arms exist to catch.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsMultipleDatabases => false;
+
+    /// <summary>
+    /// The <see cref="IEventDatabase" /> a tenant's data lives in, per
+    /// <see cref="ComplianceStoreConfig.TenantDatabases" />. Needed because
+    /// <see cref="IEventStore{TOperations,TQuerySession}.OpenSession(IEventDatabase,string)" /> takes
+    /// a database, and nothing store-neutral resolves one from a tenant id.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Deliberately a fixture member and not a suite one. Every store spells this — Marten's
+    /// <c>Tenancy.FindOrCreateDatabase(tenantId)</c> — but on its own tenancy object, and matching
+    /// <see cref="IEventDatabase.Identifier" /> against a logical name from the config would only
+    /// work for a fixture that happened to name its physical databases the same way.
+    /// </para>
+    /// <para>
+    /// Throwing rather than returning the first of <see cref="IEventStore.AllDatabases" />: on a
+    /// multi-database store the wrong database is not a degraded answer but a different one, and a
+    /// fallback here would make the isolation facts assert about whichever database the store
+    /// happened to hand back.
+    /// </para>
+    /// </remarks>
+    public virtual ValueTask<IEventDatabase> DatabaseForTenantAsync(string tenantId)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement DatabaseForTenantAsync, so it cannot run the multi-database explorer compliance arms (jasperfx#810).");
+
+    /// <summary>
     /// False in a store that has no flat-table event projection — an <c>EventProjection</c> writing
     /// into a plain relational table rather than a document.
     /// </summary>

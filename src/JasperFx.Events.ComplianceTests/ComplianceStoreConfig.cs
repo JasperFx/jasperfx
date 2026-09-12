@@ -106,6 +106,42 @@ public sealed class ComplianceStoreConfig
     /// </remarks>
     public bool ConjoinedEventTenancy { get; set; }
 
+    /// <summary>
+    /// Tenant id → logical database name, for the suites that need a store backed by more than one
+    /// database (jasperfx#810). Empty leaves the store single-database, which is every other suite.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two distinct values is database-per-tenant. Two tenants sharing a value, alongside
+    /// <see cref="ConjoinedEventTenancy" />, is sharded tenancy — a pool of databases with many
+    /// tenants co-located in each. Those are genuinely independent axes, which is the whole of
+    /// jasperfx#810's gap 2: Marten decides whether to apply a <c>tenant_id</c> predicate from
+    /// <em>cardinality</em>, on the premise that every stream in a tenant's database belongs to that
+    /// tenant — true for database-per-tenant, false for sharding.
+    /// </para>
+    /// <para>
+    /// Logical names, not connection strings. The fixture owns the physical databases and maps each
+    /// name onto one it creates; nothing in a suite ever reads a name back, because
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.DatabaseForTenantAsync" />
+    /// resolves the <see cref="IEventDatabase" /> a suite actually needs. Distinct names must map to
+    /// distinct databases and equal names to the same one — that is the only thing a suite assumes.
+    /// </para>
+    /// <para>
+    /// A fixture that cannot build a multi-database store declares
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.SupportsMultipleDatabases" />
+    /// false and the affected suites skip. A fixture that says it can and then ignores this does not
+    /// skip — the suites fail, because a single-database store passes the isolation facts vacuously.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, string> TenantDatabases { get; } = new();
+
+    /// <inheritdoc cref="TenantDatabases" />
+    public ComplianceStoreConfig AssignTenantToDatabase(string tenantId, string databaseName)
+    {
+        TenantDatabases[tenantId] = databaseName;
+        return this;
+    }
+
     public List<Type> EventTypes { get; } = new();
 
     public List<(Type Tag, string Suffix, Type? Aggregate)> TagTypes { get; } = new();
