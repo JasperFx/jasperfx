@@ -116,4 +116,13 @@ public enum EventModelRole
 
     /// <summary><see cref="EventModelSliceDescriptor.Domain"/>.</summary>
     Domain,
+
+    /// <summary><see cref="EventModelSliceDescriptor.ConsumedEvents"/> (jasperfx#824).</summary>
+    ConsumedEvents,
+
+    /// <summary><see cref="EventModelSliceDescriptor.ReadsFrom"/> (jasperfx#824).</summary>
+    ReadsFrom,
+
+    /// <summary><see cref="EventModelSliceDescriptor.Chapter"/> (jasperfx#824).</summary>
+    Chapter,
 }

@@ -60,6 +60,11 @@ public class EventModelWireRoundTripTests
             TriggerKind = TriggerKind.Human,
             TriggerLabel = "Orders screen",
             ReadModelTypes = new[] { T<OrderSummary>() },
+            // jasperfx#824: what the slice READS. OrderPlaced is emitted by PlaceOrder above, so this
+            // is also the EventConsumed half of the cross-slice links under test.
+            ConsumedEvents = new[] { T<OrderPlaced>() },
+            ReadsFrom = new[] { T<OrderSummary>() },
+            Chapter = "Ordering",
         },
         EventModelSliceDescriptor.Named("NotifyOnPlaced") with
         {
@@ -147,6 +152,9 @@ public class EventModelWireRoundTripTests
                 actual.Specifications[j].ResolvedTypes.ShouldBe(expected.Specifications[j].ResolvedTypes);
             }
             actual.Domain.ShouldBe(expected.Domain);
+            actual.ConsumedEvents.ShouldBe(expected.ConsumedEvents);
+            actual.ReadsFrom.ShouldBe(expected.ReadsFrom);
+            actual.Chapter.ShouldBe(expected.Chapter);
             actual.Provenance.ShouldBe(expected.Provenance);
             actual.ClaimedBy.Count.ShouldBe(expected.ClaimedBy.Count);
             foreach (var claim in expected.ClaimedBy)
@@ -157,6 +165,39 @@ public class EventModelWireRoundTripTests
             actual.Elements.ShouldBe(expected.Elements);
             actual.Edges.ShouldBe(expected.Edges);
         }
+
+        // jasperfx#823: links are computed, never accepted as input — so a document that carries
+        // them deserializes to the same answer the roles produce, exactly as elements and edges do.
+        back.Links.ShouldBe(model.Links);
+        back.Links.ShouldNotBeEmpty();
+    }
+
+    /// <summary>
+    /// A payload whose <c>links</c> disagree with its roles is ignored and recomputed, which is the
+    /// whole reason the member is computed rather than stored.
+    /// </summary>
+    /// <remarks>
+    /// The same treatment <c>elements</c> and <c>edges</c> already get. Without it a stale or
+    /// hand-edited document could assert a relationship the slices do not have, and a viewer would
+    /// draw an arrow between two stickies with nothing behind it.
+    /// </remarks>
+    [Theory]
+    [MemberData(nameof(Options))]
+    public void a_payload_that_carries_links_has_them_ignored_and_recomputed(JsonSerializerOptions options)
+    {
+        var json = JsonSerializer.Serialize(fullModel(), options);
+
+        // Replace the whole links array with a fabricated one naming slices that do not relate.
+        var node = System.Text.Json.Nodes.JsonNode.Parse(json)!;
+        var linkProperty = node.AsObject().ContainsKey("links") ? "links" : "Links";
+        node[linkProperty] = System.Text.Json.Nodes.JsonNode.Parse("""
+            [{"fromSlice":"nonsense","fromElementId":"a","toSlice":"nonsense","toElementId":"b","kind":"eventTriggers","via":{"name":"X","fullName":"X","assemblyName":"X"}}]
+            """);
+
+        var back = JsonSerializer.Deserialize<EventModelDescriptor>(node.ToJsonString(), options)!;
+
+        back.Links.ShouldBe(fullModel().Links);
+        back.Links.ShouldNotContain(x => x.FromSlice == "nonsense");
     }
 
     [Fact]
@@ -183,6 +224,21 @@ public class EventModelWireRoundTripTests
         first.GetProperty("kind").GetString().ShouldBe("trigger");
         first.GetProperty("lane").GetString().ShouldBe("wireframe");
         slice.GetProperty("edges")[0].GetProperty("fromId").GetString().ShouldNotBeNullOrEmpty();
+
+        // jasperfx#824: the two read roles and the chapter, on the View slice
+        var view = doc.RootElement.GetProperty("slices")[1];
+        view.GetProperty("chapter").GetString().ShouldBe("Ordering");
+        view.GetProperty("consumedEvents").GetArrayLength().ShouldBe(1);
+        view.GetProperty("readsFrom").GetArrayLength().ShouldBe(1);
+
+        // jasperfx#823: the cross-slice links, beside elements and edges
+        var links = doc.RootElement.GetProperty("links");
+        links.GetArrayLength().ShouldBeGreaterThan(0);
+        var link = links[0];
+        link.GetProperty("fromSlice").GetString().ShouldNotBeNullOrEmpty();
+        link.GetProperty("fromElementId").GetString().ShouldNotBeNullOrEmpty();
+        link.GetProperty("kind").GetString().ShouldBe("eventConsumed");
+        link.GetProperty("via").GetProperty("name").GetString().ShouldBe("OrderPlaced");
 
         // the model-level aggregate element
         doc.RootElement.GetProperty("aggregates")[0].GetProperty("kind").GetString().ShouldBe("writeAggregate");

@@ -121,6 +121,61 @@ public sealed record EventModelSliceDescriptor(
     public string? Domain { get; init; }
 
     /// <summary>
+    /// Events this slice's projection, read model or automation <em>applies</em> — what it reads,
+    /// as against what <see cref="EmittedEvents"/> says it writes (jasperfx#824).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The vocabulary recorded only what a slice produced. A State View slice — event → read model,
+    /// across slices — is the arrow people most expect on an Event Modeling board, and nothing in the
+    /// descriptor could say "this projection applies <c>AccountOpened</c>". The only place consumption
+    /// was recorded at all was <see cref="AggregateDescriptor.AppliedEvents"/>: model level, aggregates
+    /// only.
+    /// </para>
+    /// <para>
+    /// Each entry becomes an <see cref="EventModelElementKind.Event"/> element in this slice's own
+    /// event-stream lane — the "repeat the sticky where it is consumed" convention, and what a canvas
+    /// needs as the <em>To</em> end of an <see cref="EventModelLinkKind.EventConsumed"/> link. An event
+    /// both emitted and consumed by one slice is one element, not two.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<TypeDescriptor> ConsumedEvents { get; init; } = Array.Empty<TypeDescriptor>();
+
+    /// <summary>
+    /// Read models this slice reads <em>before deciding</em> — an Automation's input, a UI's query
+    /// (jasperfx#824).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Splits the half of <see cref="ReadModelTypes"/> that was overloaded. That member is documented
+    /// as "read-model types the slice reads from <em>or</em> produces", and Wolverine folded
+    /// <c>[ReadModel]</c>/<c>[Entity]</c> parameters (reads) and <c>IStorageAction&lt;T&gt;</c> returns
+    /// (writes) into it alike — so the Automation pattern's input, Event → Read Model → ⚙ Command,
+    /// could not be drawn at all: nothing linked a read model <em>to</em> a processor.
+    /// </para>
+    /// <para>
+    /// <see cref="ReadModelTypes"/> keeps its meaning for compatibility and is what a slice
+    /// <em>produces</em> once a source has split them; this is what it reads. Each entry becomes a
+    /// <see cref="EventModelElementKind.ReadModel"/> element linked into the slice's processor, and
+    /// the <em>To</em> end of an <see cref="EventModelLinkKind.ReadModelRead"/> link.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<TypeDescriptor> ReadsFrom { get; init; } = Array.Empty<TypeDescriptor>();
+
+    /// <summary>
+    /// A named span of slices — the navigation unit above <see cref="Domain"/> (jasperfx#824). Null
+    /// when unchaptered.
+    /// </summary>
+    /// <remarks>
+    /// Every Event Modeling tool surveyed uses chapters as the answer to "zoom into a part of the
+    /// model": eventmodelers.ai's wide arrow spanning several slices, Miro frames, emlang's
+    /// per-chapter documents. <see cref="Domain"/> is a bounded context and does not do that job — a
+    /// chapter is a span of the timeline, and one domain has many. Bobcat's emlang import threw the
+    /// chapter name away at this boundary because there was nowhere to put it.
+    /// </remarks>
+    public string? Chapter { get; init; }
+
+    /// <summary>
     /// Which rung of the provenance ladder the source that produced this slice sits on
     /// (jasperfx#703). Null means unattributed, which <see cref="ProvenanceFor"/> reads as
     /// <see cref="EventModelProvenance.Declared"/> — so a model whose sources have not been stamped
@@ -181,6 +236,9 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.Hotspots => Hotspots.Count > 0,
         EventModelRole.Specifications => Specifications.Count > 0,
         EventModelRole.Domain => Domain is not null,
+        EventModelRole.ConsumedEvents => ConsumedEvents.Count > 0,
+        EventModelRole.ReadsFrom => ReadsFrom.Count > 0,
+        EventModelRole.Chapter => Chapter is not null,
         _ => false,
     };
 
@@ -379,6 +437,13 @@ public sealed record EventModelSliceDescriptor(
             x => x.Identity, x => x.Identity);
         var domain = mergeScalar(EventModelRole.Domain, Domain, other.Domain, x => x);
 
+        // jasperfx#824. The two new lists merge as every other type list does; Chapter merges as
+        // Domain does -- first non-null wins on a tie, and a genuine disagreement becomes a
+        // SourceDisagreement hotspot rather than a silent drop.
+        var consumedEvents = mergeTypes(EventModelRole.ConsumedEvents, ConsumedEvents, other.ConsumedEvents);
+        var readsFrom = mergeTypes(EventModelRole.ReadsFrom, ReadsFrom, other.ReadsFrom);
+        var chapter = mergeScalar(EventModelRole.Chapter, Chapter, other.Chapter, x => x);
+
         // Hotspots are annotations rather than claims about the system, so they always union: a
         // higher rung replacing the list would throw away the findings recorded here.
         takeOther(EventModelRole.Hotspots);
@@ -396,6 +461,9 @@ public sealed record EventModelSliceDescriptor(
             Hotspots = hotspots,
             Specifications = specifications,
             Domain = domain,
+            ConsumedEvents = consumedEvents,
+            ReadsFrom = readsFrom,
+            Chapter = chapter,
             Provenance = higher(Provenance, other.Provenance),
             ClaimedBy = claimedBy,
         };
@@ -503,9 +571,30 @@ public sealed record EventModelSliceDescriptor(
         var events = EmittedEvents.Select(x => add(EventModelElement.ForType(Name, EventModelElementKind.Event, x))).ToList();
         var messages = PublishedMessages.Select(x => add(EventModelElement.ForType(Name, EventModelElementKind.Message, x))).ToList();
 
+        // jasperfx#824. A consumed event is the same sticky repeated where it is read, so an event a
+        // slice both emits and consumes is ONE element -- the ids collide by construction, and adding
+        // it twice would put two overlapping stickies on the canvas and double every edge off it.
+        // Consumed events feed the projection / read model edges below exactly as emitted ones do;
+        // what they do NOT get is an edge from the processor, because the slice did not write them.
+        var consumed = ConsumedEvents
+            .Select(x => EventModelElement.ForType(Name, EventModelElementKind.Event, x))
+            .Where(x => events.All(e => e.Id != x.Id))
+            .Select(x => add(x, EventModelRole.ConsumedEvents))
+            .ToList();
+
+        var inboundEvents = events.Concat(consumed).ToList();
+
         // Read model lane: projections, read models
         var projections = ProjectionTypes.Select(x => add(EventModelElement.ForType(Name, EventModelElementKind.Projection, x))).ToList();
         var readModels = ReadModelTypes.Select(x => add(EventModelElement.ForType(Name, EventModelElementKind.ReadModel, x))).ToList();
+
+        // Same dedupe rule as consumed events, for the same reason: a slice that both reads and
+        // produces one read model draws one sticky.
+        var readsFrom = ReadsFrom
+            .Select(x => EventModelElement.ForType(Name, EventModelElementKind.ReadModel, x))
+            .Where(x => readModels.All(r => r.Id != x.Id))
+            .Select(x => add(x, EventModelRole.ReadsFrom))
+            .ToList();
 
         var outboundSystems = ExternalSystems
             .Where(x => x.Direction == ExternalSystemDirection.Outbound)
@@ -539,7 +628,7 @@ public sealed record EventModelSliceDescriptor(
 
         if (projections.Count > 0)
         {
-            foreach (var evt in events)
+            foreach (var evt in inboundEvents)
             foreach (var projection in projections)
             {
                 link(evt, projection);
@@ -553,15 +642,23 @@ public sealed record EventModelSliceDescriptor(
         }
         else
         {
-            foreach (var evt in events)
+            foreach (var evt in inboundEvents)
             foreach (var readModel in readModels)
             {
                 link(evt, readModel);
             }
         }
 
+        // jasperfx#824. The Automation pattern's input edge: a read model consulted before deciding
+        // points AT the processor, the opposite direction from one the slice produces. When there is
+        // no processor at all this is a UI read, so it points at the trigger instead.
+        foreach (var read in readsFrom)
+        {
+            link(read, entry ?? trigger);
+        }
+
         // A view slice with no events of its own reads straight from its read models
-        if (events.Count == 0 && processor is null && trigger is not null)
+        if (inboundEvents.Count == 0 && processor is null && trigger is not null)
         {
             foreach (var readModel in readModels) link(readModel, trigger);
         }
@@ -605,6 +702,25 @@ public sealed record EventModelDescriptor(
     /// wireframe lane.
     /// </summary>
     public IReadOnlyList<HotspotDescriptor> Hotspots { get; init; } = Array.Empty<HotspotDescriptor>();
+
+    /// <summary>
+    /// The cross-slice cause→effect relationships, by element id — computed from the roles every
+    /// slice already stamps, on every read (jasperfx#823).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Never accepted as input, exactly as <see cref="EventModelSliceDescriptor.Elements"/> and
+    /// <see cref="EventModelSliceDescriptor.Edges"/> are not: a deserializer reading a document that
+    /// carries <c>links</c> ignores them and recomputes, so the wire can carry the rendering contract
+    /// without the two ever disagreeing. <see cref="Merge"/> therefore has nothing to merge here —
+    /// links are recomputed over the merged slices.
+    /// </para>
+    /// <para>
+    /// The join itself is <see cref="EventModelLinks.Compute"/>, public and pure so Wolverine's
+    /// Automation reclassification can be based on it rather than on a private copy of the same rule.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<EventModelLink> Links => EventModelLinks.Compute(this);
 
     /// <summary>
     /// Stamp every unattributed slice with <paramref name="provenance"/> — the rung of the source
