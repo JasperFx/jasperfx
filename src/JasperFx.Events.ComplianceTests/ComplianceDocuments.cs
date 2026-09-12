@@ -1,4 +1,5 @@
 using System;
+using JasperFx.Metadata;
 
 namespace JasperFx.Events.ComplianceTests;
 
@@ -91,4 +92,37 @@ public class ComplianceLedgerEntry: IRevisioned
     /// the store has stored.
     /// </summary>
     public int Version { get; set; }
+}
+
+/// <summary>
+/// A document opting into <see cref="Guid" /> optimistic concurrency through
+/// <see cref="IVersioned" /> — the marker that lives in <c>JasperFx.Metadata</c> rather than in any
+/// product, lifted by jasperfx#330 and given the same status as <see cref="IRevisioned" />.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Separate from <see cref="ComplianceLedgerEntry" /> for the same reason that one is separate from
+/// <see cref="ComplianceWidget" />: the marker is not a property of an instance. Implementing it
+/// changes the storage the store builds for the type, so the Guid-guarded, revision-guarded and
+/// unguarded cases cannot share a document.
+/// </para>
+/// <para>
+/// The suite that uses it declares it <em>twice</em> — the marker here and
+/// <see cref="DocumentComplianceConfig.UseOptimisticConcurrency{T}" /> in the config — because the
+/// stores disagree about whether the marker alone is an opt-in or merely supplies the member to
+/// guard on. Declaring both leaves the suite testing the behavior rather than the opt-in route,
+/// which is what it is for.
+/// </para>
+/// </remarks>
+public class ComplianceShipment: IVersioned
+{
+    public Guid Id { get; set; }
+    public string Supplier { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The store's version for this document. Carries the expected version on the way in and the
+    /// landed version on the way out.
+    /// </summary>
+    public Guid Version { get; set; }
 }

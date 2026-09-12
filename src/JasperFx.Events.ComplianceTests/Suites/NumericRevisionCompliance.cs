@@ -7,136 +7,92 @@ using Xunit;
 namespace JasperFx.Events.ComplianceTests;
 
 /// <summary>
-/// Numeric revision semantics for a document implementing <see cref="IRevisioned" /> — what an
-/// explicit revision <em>means</em> on the update path, settled by the maintainer ruling on
-/// jasperfx#785 §4.2.
+/// The nine numeric-revision facts, over whichever document type and declaration route the derived
+/// suite supplies.
 /// </summary>
+/// <typeparam name="TFixture">The store's concrete document fixture.</typeparam>
+/// <typeparam name="TDoc">The document under test.</typeparam>
 /// <remarks>
 /// <para>
-/// <b>The ruling: Marten's strictly-greater rule is the contract.</b> An explicit revision is the
-/// version the caller is asking the document to <em>become</em>, and it is accepted only when it is
-/// strictly greater than the revision currently stored. Revision <c>0</c> is the "auto" sentinel and
-/// always wins, whatever is stored. Two of the three stores already work this way and say so in
-/// their own source — Marten's guard is
-/// <c>(? = 0 or {table}.{version} &lt; ?)</c> with the assignment
-/// <c>CASE WHEN ? = 0 THEN {version} + 1 ELSE ? END</c>, and Fisher's <c>NumericRevision</c> is the
-/// same pair, deliberately. Polecat diverged into an <em>equality</em> expectation
-/// (<c>AND (? = 0 OR t.version = ?)</c>, assigning <c>ELSE ? + 1</c>) and is the side that changes.
+/// Split out of <see cref="NumericRevisionCompliance{TFixture}" /> by jasperfx#819 §2, which proposed
+/// running the nine facts a second time against a type that declared itself through the store's own
+/// configuration rather than through <see cref="IRevisioned" /> — the one thing the suite cannot vary,
+/// and the asymmetry fisher#228 lived in.
 /// </para>
 /// <para>
-/// The observable difference is one line of ordinary code: load a document at revision 5, store it
-/// back still carrying 5. Under this ruling that is a <see cref="ConcurrencyException" />, not a
-/// read-modify-write — 5 is not greater than 5, and the caller has to name 6. That is a sharp edge
-/// and it is pinned deliberately rather than smoothed over, because the alternative silently
-/// disagrees with the advice <see cref="ConcurrencyException.ToMessage" /> already ships ("You may
-/// need to explicitly call <c>IDocumentSession.UpdateRevision()</c>"), which is written against the
-/// strictly-greater model.
+/// <b>That second suite does not exist, and the split is kept anyway.</b> Written and run against
+/// Fisher, seven of the nine failed for a reason that is not a store bug: the declared route has no
+/// document member. Fisher's own DSL test says it outright — "no <c>IRevisioned</c> member to project
+/// onto, so the value lives only in the column" — and Marten is the same shape. Every fact below
+/// works by setting the document's revision before <c>Store</c> and reading it back off a load, so
+/// with no member there is nothing to set and nothing to observe. See
+/// <see cref="DocumentComplianceConfig.NumericRevisionTypes" /> for the whole of that finding.
 /// </para>
 /// <para>
-/// The capability the equality rule cannot express, and much of why the ruling went this way, is the
-/// <b>non-contiguous jump</b>: an explicit revision may skip ahead (3 → 10), which is what lets a
-/// caller adopt a revision decided somewhere else — an upstream version, a stream version, an
-/// imported record. An equality rule can only ever step by one.
-/// </para>
-/// <para>
-/// <b>The insert path follows the same rule</b> (ruled separately on jasperfx#785 after the update
-/// path). An explicit revision on a brand-new document is honoured rather than discarded: the row
-/// lands at exactly that revision, not at 1. Marten spells the insert value
-/// <c>CASE WHEN ? = 0 THEN 1 ELSE ? END</c> and Fisher's <c>NumericRevision.InsertValueSql</c> is
-/// <c>case when ? = 0 then 1 else ? end</c> — identical, and identical to the update assignment in
-/// treating <c>?</c> as the target rather than something to increment past. Polecat hard-codes the
-/// insert to <c>1</c> and is the side that changes (polecat#559).
-/// </para>
-/// <para>
-/// Two neighbouring insert cases are deliberately <em>not</em> pinned, for opposite reasons:
-/// </para>
-/// <para>
-/// An explicit revision of <b>zero</b> on a new document means auto and lands at 1 — but that is
-/// already <see cref="a_new_document_lands_at_revision_one" />, which stores a document whose
-/// <c>Version</c> is the default <c>0</c>. It is the same assertion, so it is not restated here;
-/// verified against both stores' <c>WHEN ? = 0 THEN 1</c> branch rather than assumed from the update
-/// path's use of the same sentinel.
-/// </para>
-/// <para>
-/// A <b>negative</b> revision is left unpinned because it is genuinely undefined rather than
-/// divergent, and pinning it either way would invent a contract. No store guards against one — there
-/// is no range check anywhere in Marten's, Fisher's or Polecat's revision handling — and none has a
-/// test for it. Marten and Fisher would take the <c>ELSE ?</c> branch and store the negative
-/// verbatim, after which the strictly-greater update guard refuses everything below it, so the row
-/// sits at a revision no caller can have meant; Polecat's hard-coded <c>1</c> would swallow it. That
-/// is three accidents, not two contracts and a bug. If a consumer ever needs an answer, the question
-/// is which behavior to <em>choose</em>, and it should be ruled on before it is pinned.
-/// </para>
-/// <para>
-/// <b>No seam members.</b> Every fact here runs through
-/// <see cref="IDocumentWriteOperations.Store{T}" /> and <see cref="IRevisioned.Version" />, which is
-/// the whole of the reachable surface: <c>Store(doc, revision)</c>, <c>UpdateRevision</c> and
-/// <c>TryUpdateRevision</c> are product API and stay off the document contract (jasperfx#785 §5.3).
-/// <c>Store</c> is enough because it passes the document's own <c>Version</c> as the expected
-/// revision — the products' own docs put it as "<c>Store()</c> is essentially
-/// <c>UpdateRevision(entity, entity.Version)</c>" — so setting <c>Version</c> before storing names
-/// the revision. Gated on <see cref="DocumentStorageComplianceFixture.SupportsNumericRevisions" />
-/// (default false) because numeric revisions are opt-in storage behavior, not one of the eight
-/// contract operations.
-/// </para>
-/// <para>
-/// The landed revision is read back off a freshly loaded document rather than off the instance that
-/// was stored. Both routes work on the stores surveyed, but only the first is a statement about what
-/// is <em>stored</em>; write-back onto the caller's instance is a separate convenience and pinning it
-/// here would conflate the two.
+/// The three hooks are all about <em>reaching</em> the document rather than about behavior —
+/// construction and two member reads — so a suite that gets a member to read (a mapped-revision seam,
+/// or a store that projects one onto a DSL-declared type) inherits all nine facts by supplying them.
+/// That is cheaper to keep than to re-derive, which is why the generic base stays.
 /// </para>
 /// </remarks>
-public abstract class NumericRevisionCompliance<TFixture> : DocumentStorageComplianceSuite<TFixture>
+public abstract class NumericRevisionComplianceBase<TFixture, TDoc> : DocumentStorageComplianceSuite<TFixture>
     where TFixture : DocumentStorageComplianceFixture, new()
+    where TDoc : class
 {
-    private static readonly Action<DocumentComplianceConfig> _configuration = config =>
-    {
-        config.SchemaName = "compliance_revisions";
-        config.AddDocumentType<ComplianceLedgerEntry>();
-    };
+    /// <summary>
+    /// Build one document. A fresh instance every time so a store that writes the landed revision
+    /// back onto the caller's document cannot leak state from one step of a test into the next.
+    /// </summary>
+    protected abstract TDoc NewDocument(Guid id, string customer, int version);
 
-    protected override Action<DocumentComplianceConfig> Configuration => _configuration;
+    /// <summary>
+    /// The document's revision member, however it was declared.
+    /// </summary>
+    protected abstract int RevisionOf(TDoc document);
 
-    private void SkipUnlessSupported()
+    /// <summary>
+    /// The document's one ordinary data member, so a refused write can be shown to have been refused
+    /// rather than partially applied.
+    /// </summary>
+    protected abstract string CustomerOf(TDoc document);
+
+    /// <summary>
+    /// The capability gate. Overridden by a derived suite that needs a narrower one.
+    /// </summary>
+    protected virtual void SkipUnlessSupported()
     {
         Assert.SkipUnless(theFixture.SupportsNumericRevisions,
             "This document store does not implement numeric revisions");
     }
 
     /// <summary>
-    /// Store one ledger entry at the named revision, committing in its own session. A fresh instance every
-    /// time so a store that writes the landed revision back onto the caller's document cannot leak
-    /// state from one step of a test into the next.
+    /// Store one document at the named revision, committing in its own session.
     /// </summary>
     private async Task StoreAsync(Guid id, string customer, int version)
     {
         await using var session = LightweightSession();
-        session.Store(new ComplianceLedgerEntry { Id = id, Customer = customer, Amount = 100, Version = version });
+        session.Store(NewDocument(id, customer, version));
         await session.SaveChangesAsync(Cancellation);
     }
 
     private async Task<ConcurrencyException> StoreShouldBeRefusedAsync(Guid id, string customer, int version)
         => await Should.ThrowAsync<ConcurrencyException>(() => StoreAsync(id, customer, version));
 
-    /// <summary>
-    /// The stored revision, read through the marker interface on a freshly loaded document — the only
-    /// route the shared contract offers, and the one that is a statement about storage.
-    /// </summary>
-    private async Task<int> StoredRevisionAsync(Guid id)
+    private async Task<TDoc> LoadAsync(Guid id)
     {
         await using var query = QuerySession();
-        var loaded = await query.LoadAsync<ComplianceLedgerEntry>(id, Cancellation);
+        var loaded = await query.LoadAsync<TDoc>(id, Cancellation);
         loaded.ShouldNotBeNull();
-        return loaded.Version;
+        return loaded;
     }
 
-    private async Task<string> StoredCustomerAsync(Guid id)
-    {
-        await using var query = QuerySession();
-        var loaded = await query.LoadAsync<ComplianceLedgerEntry>(id, Cancellation);
-        loaded.ShouldNotBeNull();
-        return loaded.Customer;
-    }
+    /// <summary>
+    /// The stored revision, read off a freshly loaded document — the only route the shared contract
+    /// offers, and the one that is a statement about storage.
+    /// </summary>
+    private async Task<int> StoredRevisionAsync(Guid id) => RevisionOf(await LoadAsync(id));
+
+    private async Task<string> StoredCustomerAsync(Guid id) => CustomerOf(await LoadAsync(id));
 
     /// <summary>
     /// The baseline every other fact is measured against: a document arriving with no revision on it
@@ -182,9 +138,9 @@ public abstract class NumericRevisionCompliance<TFixture> : DocumentStorageCompl
     /// </summary>
     /// <remarks>
     /// This fact exists because the one above can pass <em>vacuously</em>. A store that ignores
-    /// revisions entirely still serializes <see cref="IRevisioned.Version" /> as an ordinary property
-    /// and hands the same 7 back on load, so reading the revision off a loaded document cannot by
-    /// itself distinguish "stored a revision of 7" from "stored a document with a field set to 7".
+    /// revisions entirely still serializes the revision member as an ordinary property and hands the
+    /// same 7 back on load, so reading the revision off a loaded document cannot by itself
+    /// distinguish "stored a revision of 7" from "stored a document with a field set to 7".
     /// Following the insert with an auto store settles it: only a real stored revision increments to
     /// 8, and only a real guard refuses the re-store at 7.
     /// </remarks>
@@ -333,4 +289,111 @@ public abstract class NumericRevisionCompliance<TFixture> : DocumentStorageCompl
         (await StoredRevisionAsync(id)).ShouldBe(11);
         (await StoredCustomerAsync(id)).ShouldBe("Acme, after the jump");
     }
+}
+
+/// <summary>
+/// Numeric revision semantics for a document implementing <see cref="IRevisioned" /> — what an
+/// explicit revision <em>means</em> on the update path, settled by the maintainer ruling on
+/// jasperfx#785 §4.2.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The ruling: Marten's strictly-greater rule is the contract.</b> An explicit revision is the
+/// version the caller is asking the document to <em>become</em>, and it is accepted only when it is
+/// strictly greater than the revision currently stored. Revision <c>0</c> is the "auto" sentinel and
+/// always wins, whatever is stored. Two of the three stores already work this way and say so in
+/// their own source — Marten's guard is
+/// <c>(? = 0 or {table}.{version} &lt; ?)</c> with the assignment
+/// <c>CASE WHEN ? = 0 THEN {version} + 1 ELSE ? END</c>, and Fisher's <c>NumericRevision</c> is the
+/// same pair, deliberately. Polecat diverged into an <em>equality</em> expectation
+/// (<c>AND (? = 0 OR t.version = ?)</c>, assigning <c>ELSE ? + 1</c>) and is the side that changes.
+/// </para>
+/// <para>
+/// The observable difference is one line of ordinary code: load a document at revision 5, store it
+/// back still carrying 5. Under this ruling that is a <see cref="ConcurrencyException" />, not a
+/// read-modify-write — 5 is not greater than 5, and the caller has to name 6. That is a sharp edge
+/// and it is pinned deliberately rather than smoothed over, because the alternative silently
+/// disagrees with the advice <see cref="ConcurrencyException.ToMessage" /> already ships ("You may
+/// need to explicitly call <c>IDocumentSession.UpdateRevision()</c>"), which is written against the
+/// strictly-greater model.
+/// </para>
+/// <para>
+/// The capability the equality rule cannot express, and much of why the ruling went this way, is the
+/// <b>non-contiguous jump</b>: an explicit revision may skip ahead (3 → 10), which is what lets a
+/// caller adopt a revision decided somewhere else — an upstream version, a stream version, an
+/// imported record. An equality rule can only ever step by one.
+/// </para>
+/// <para>
+/// <b>The insert path follows the same rule</b> (ruled separately on jasperfx#785 after the update
+/// path). An explicit revision on a brand-new document is honoured rather than discarded: the row
+/// lands at exactly that revision, not at 1. Marten spells the insert value
+/// <c>CASE WHEN ? = 0 THEN 1 ELSE ? END</c> and Fisher's <c>NumericRevision.InsertValueSql</c> is
+/// <c>case when ? = 0 then 1 else ? end</c> — identical, and identical to the update assignment in
+/// treating <c>?</c> as the target rather than something to increment past. Polecat hard-codes the
+/// insert to <c>1</c> and is the side that changes (polecat#559).
+/// </para>
+/// <para>
+/// Two neighbouring insert cases are deliberately <em>not</em> pinned, for opposite reasons:
+/// </para>
+/// <para>
+/// An explicit revision of <b>zero</b> on a new document means auto and lands at 1 — but that is
+/// already <see cref="NumericRevisionComplianceBase{TFixture,TDoc}.a_new_document_lands_at_revision_one" />,
+/// which stores a document whose <c>Version</c> is the default <c>0</c>. It is the same assertion, so
+/// it is not restated here; verified against both stores' <c>WHEN ? = 0 THEN 1</c> branch rather than
+/// assumed from the update path's use of the same sentinel.
+/// </para>
+/// <para>
+/// A <b>negative</b> revision is left unpinned because it is genuinely undefined rather than
+/// divergent, and pinning it either way would invent a contract. No store guards against one — there
+/// is no range check anywhere in Marten's, Fisher's or Polecat's revision handling — and none has a
+/// test for it. Marten and Fisher would take the <c>ELSE ?</c> branch and store the negative
+/// verbatim, after which the strictly-greater update guard refuses everything below it, so the row
+/// sits at a revision no caller can have meant; Polecat's hard-coded <c>1</c> would swallow it. That
+/// is three accidents, not two contracts and a bug. If a consumer ever needs an answer, the question
+/// is which behavior to <em>choose</em>, and it should be ruled on before it is pinned.
+/// </para>
+/// <para>
+/// <b>No seam members.</b> Every fact here runs through
+/// <see cref="IDocumentWriteOperations.Store{T}" /> and <see cref="IRevisioned.Version" />, which is
+/// the whole of the reachable surface: <c>Store(doc, revision)</c>, <c>UpdateRevision</c> and
+/// <c>TryUpdateRevision</c> are product API and stay off the document contract (jasperfx#785 §5.3).
+/// <c>Store</c> is enough because it passes the document's own <c>Version</c> as the expected
+/// revision — the products' own docs put it as "<c>Store()</c> is essentially
+/// <c>UpdateRevision(entity, entity.Version)</c>" — so setting <c>Version</c> before storing names
+/// the revision. Gated on <see cref="DocumentStorageComplianceFixture.SupportsNumericRevisions" />
+/// (default false) because numeric revisions are opt-in storage behavior, not one of the eight
+/// contract operations.
+/// </para>
+/// <para>
+/// The landed revision is read back off a freshly loaded document rather than off the instance that
+/// was stored. Both routes work on the stores surveyed, but only the first is a statement about what
+/// is <em>stored</em>; write-back onto the caller's instance is a separate convenience and pinning it
+/// here would conflate the two. (It <em>is</em> pinned on the Guid side, where write-back is the fact
+/// under test — see <see cref="GuidOptimisticConcurrencyCompliance{TFixture}" />.)
+/// </para>
+/// <para>
+/// <b>The declaration route this suite cannot vary</b> stays unvaried, and jasperfx#819 §2 is why
+/// rather than an oversight: the other route projects no revision onto the document at all, so there
+/// is no member for a second run of these facts to set or read. The finding is written up on
+/// <see cref="DocumentComplianceConfig.NumericRevisionTypes" />.
+/// </para>
+/// </remarks>
+public abstract class NumericRevisionCompliance<TFixture>
+    : NumericRevisionComplianceBase<TFixture, ComplianceLedgerEntry>
+    where TFixture : DocumentStorageComplianceFixture, new()
+{
+    private static readonly Action<DocumentComplianceConfig> _configuration = config =>
+    {
+        config.SchemaName = "compliance_revisions";
+        config.AddDocumentType<ComplianceLedgerEntry>();
+    };
+
+    protected override Action<DocumentComplianceConfig> Configuration => _configuration;
+
+    protected override ComplianceLedgerEntry NewDocument(Guid id, string customer, int version)
+        => new() { Id = id, Customer = customer, Amount = 100, Version = version };
+
+    protected override int RevisionOf(ComplianceLedgerEntry document) => document.Version;
+
+    protected override string CustomerOf(ComplianceLedgerEntry document) => document.Customer;
 }

@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.Events;
 using JasperFx.Events.ComplianceTests;
 using Shouldly;
@@ -59,6 +60,39 @@ public class DocumentComplianceConfigTests
     }
 
     /// <remarks>
+    /// jasperfx#819 §1. The marker alone is not a complete declaration — the stores disagree about
+    /// whether <c>IVersioned</c> is itself the opt-in — so a suite that declared only the marker
+    /// would be testing that disagreement rather than the concurrency behavior.
+    /// </remarks>
+    [Fact]
+    public void the_guid_concurrency_suite_declares_optimistic_concurrency()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedGuidOptimisticConcurrencyCompliance.TheConfiguration(config);
+
+        config.OptimisticConcurrencyTypes.ShouldContain(typeof(ComplianceShipment));
+    }
+
+    /// <remarks>
+    /// The numeric revision suite reaches its document through the marker interface alone, and after
+    /// jasperfx#819 §2 that is settled rather than provisional: the other declaration route projects
+    /// no revision onto the document, so a second suite over it would have nothing to set or read.
+    /// Asserted rather than assumed because the config member for that route still exists, and an
+    /// unused member is exactly the kind of thing that gets wired in later without the finding being
+    /// re-read.
+    /// </remarks>
+    [Fact]
+    public void the_revision_suite_declares_its_document_through_the_marker_only()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedNumericRevisionCompliance.TheConfiguration(config);
+
+        config.NumericRevisionTypes.ShouldBeEmpty();
+
+        typeof(IRevisioned).IsAssignableFrom(typeof(ComplianceLedgerEntry)).ShouldBeTrue();
+    }
+
+    /// <remarks>
     /// Not public, so xunit never collects the inherited facts — the in-memory reference store is
     /// document-only and could not run this suite. All that is wanted is the configuration delegate.
     /// </remarks>
@@ -82,4 +116,19 @@ public class DocumentComplianceConfigTests
         public static readonly Action<DocumentComplianceConfig> TheConfiguration =
             new ExposedDocumentSessionCompliance().Configuration;
     }
+
+    private class ExposedGuidOptimisticConcurrencyCompliance
+        : GuidOptimisticConcurrencyCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedGuidOptimisticConcurrencyCompliance().Configuration;
+    }
+
+    private class ExposedNumericRevisionCompliance
+        : NumericRevisionCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedNumericRevisionCompliance().Configuration;
+    }
+
 }
