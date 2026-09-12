@@ -408,6 +408,19 @@ public interface IEventStore
     /// subscribe for changes. The default implementation throws
     /// <see cref="NotImplementedException"/>.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What the five fields of a <see cref="ShardStatus" /> mean is contract, not implementer's
+    /// choice — see the remarks on <see cref="ShardStatus" /> and <see cref="ProjectionStatus" />,
+    /// which jasperfx#818 pinned after three stores inferred three different answers.
+    /// </para>
+    /// <para>
+    /// <b>This is a diagnostics read and must not change what is running.</b> A store that resolves
+    /// a daemon to fill in <see cref="ShardStatus.State" /> does so through
+    /// <see cref="IProjectionCoordinator.AllDaemonsAsync" />, which only observes, and never through
+    /// <c>DaemonForDatabase</c>, which is contractually allowed to go looking and start one.
+    /// </para>
+    /// </remarks>
     /// <param name="ct">Cancellation token.</param>
     Task<IReadOnlyList<ProjectionStatus>> GetProjectionStatusesAsync(CancellationToken ct)
         => throw new NotImplementedException(
@@ -419,6 +432,14 @@ public interface IEventStore
     /// overload (today's behavior). Event stores that implement per-tenant partitioning
     /// override this; the default throws for a non-null tenant. See jasperfx#407.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="tenantId" /> is two-valued, and the same two values
+    /// <see cref="BuildProjectionDaemonAsync(string?, ILogger?)" /> already takes: a tenant
+    /// <em>within</em> a database on a conjoined single-database store, and a <em>database</em> on a
+    /// database-per-tenant store. Worth stating because it is genuinely surprising — progression rows
+    /// are per database, so on the second shape the argument selects which set of rows is being
+    /// described rather than filtering within one set.
+    /// </remarks>
     /// <param name="tenantId">Tenant partition to scope statuses to. Null means store-global.</param>
     /// <param name="ct">Cancellation token.</param>
     Task<IReadOnlyList<ProjectionStatus>> GetProjectionStatusesAsync(string? tenantId, CancellationToken ct)

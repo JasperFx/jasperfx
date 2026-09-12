@@ -38,4 +38,30 @@ public interface IComplianceCoordinatorHost<out TOperations> : IAsyncDisposable
     /// instance. Callers dispose it.
     /// </summary>
     TOperations OpenSession();
+
+    /// <summary>
+    /// The hosted store as <see cref="IEventStore" /> — the same store
+    /// <see cref="Services" /> resolved the coordinator for, not the fixture's own instance.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Added for <c>ProjectionStatusCompliance</c> (jasperfx#818), which needs the one store in the
+    /// suite set that has a genuinely reachable running daemon. Every other daemon suite drives a
+    /// daemon the fixture built by hand, and a hand-built daemon is exactly the case
+    /// <see cref="JasperFx.Descriptors.ShardStatusState.Unknown" /> describes — so asking the
+    /// fixture's own store what state its shards are in can only ever answer "no daemon here to
+    /// ask", and the daemon-visible half of the contract would be untestable.
+    /// </para>
+    /// <para>
+    /// A default-throwing member rather than an added abstract one, matching
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.StartCoordinatorHostAsync(bool)" />:
+    /// consumers keep compiling across the version bump, and a store that has not implemented it
+    /// fails the one fact that reads it rather than skipping silently. It cannot be resolved from
+    /// <see cref="Services" /> by a generic suite — no store registers itself as
+    /// <see cref="IEventStore" />; each registers its own <c>IDocumentStore</c>.
+    /// </para>
+    /// </remarks>
+    IEventStore EventStore
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not expose the hosted store as IEventStore, so it cannot run the daemon-visible facts of ProjectionStatusCompliance (jasperfx#818).");
 }
