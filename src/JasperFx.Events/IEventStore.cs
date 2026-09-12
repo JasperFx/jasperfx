@@ -189,6 +189,28 @@ public interface IEventStore
                 "Per-tenant GetRecentStreamsAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
 
     /// <summary>
+    /// Return the most recently updated streams from a single <paramref name="database" />, optionally
+    /// scoped to one tenant within it. This is the database dimension the tenant-only overloads do not
+    /// have: on a store whose <see cref="DatabaseCardinality" /> is not <see cref="DatabaseCardinality.Single" />,
+    /// a store-global read answers from whichever database the store's default session resolves, and the
+    /// result is indistinguishable from a complete answer. A tool enumerates <see cref="AllDatabases" />
+    /// and calls this per database, attributing each answer to the database it came from. See jasperfx#810,
+    /// CritterWatch#1231.
+    /// </summary>
+    /// <param name="database">The database to read from. Never null.</param>
+    /// <param name="count">Maximum number of streams to return from this database.</param>
+    /// <param name="tenantId">Tenant partition to scope the listing to within that database. Null means database-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<IReadOnlyList<StreamSummary>> GetRecentStreamsAsync(IEventDatabase database, int count, string? tenantId,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return DatabaseCardinality == DatabaseCardinality.Single
+            ? GetRecentStreamsAsync(count, tenantId, ct)
+            : throw databaseScopedExplorerReadNotSupported(nameof(GetRecentStreamsAsync), database);
+    }
+
+    /// <summary>
     /// Stream the events of a single stream from oldest to newest. Powers
     /// the explorer's stream-detail timeline. The default implementation
     /// throws <see cref="NotImplementedException"/>.
@@ -218,6 +240,25 @@ public interface IEventStore
                 "Per-tenant ReadStreamAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
 
     /// <summary>
+    /// Stream the events of a single stream from one <paramref name="database" />, optionally scoped to one
+    /// tenant within it. The database dimension matters more here than for a listing: on a multi-database
+    /// store the same stream id can exist in several databases, so a store-global read answers from whichever
+    /// one the default session resolves and says nothing about the rest. See jasperfx#810.
+    /// </summary>
+    /// <param name="database">The database to read the stream from. Never null.</param>
+    /// <param name="streamId">String form of the stream identifier.</param>
+    /// <param name="tenantId">Tenant partition to read the stream from within that database. Null means database-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    IAsyncEnumerable<EventRecord> ReadStreamAsync(IEventDatabase database, string streamId, string? tenantId,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return DatabaseCardinality == DatabaseCardinality.Single
+            ? ReadStreamAsync(streamId, tenantId, ct)
+            : throw databaseScopedExplorerReadNotSupported(nameof(ReadStreamAsync), database);
+    }
+
+    /// <summary>
     /// Return full diagnostic metadata for a single stream — version,
     /// timestamps, snapshot info, archive flag, tags. The default
     /// implementation throws <see cref="NotImplementedException"/>.
@@ -244,6 +285,26 @@ public interface IEventStore
             ? GetStreamMetadataAsync(streamId, ct)
             : throw new NotSupportedException(
                 "Per-tenant GetStreamMetadataAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
+
+    /// <summary>
+    /// Return full diagnostic metadata for a single stream from one <paramref name="database" />, optionally
+    /// scoped to one tenant within it. A null answer means "no such stream in THIS database" rather than
+    /// "no such stream", which is the distinction a store-global read cannot make on a multi-database store.
+    /// See jasperfx#810.
+    /// </summary>
+    /// <param name="database">The database to resolve the stream in. Never null.</param>
+    /// <param name="streamId">String form of the stream identifier.</param>
+    /// <param name="tenantId">Tenant partition to resolve the stream in within that database. Null means database-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Stream metadata, or <see langword="null"/> when no stream exists with that id in that database.</returns>
+    Task<StreamMetadata?> GetStreamMetadataAsync(IEventDatabase database, string streamId, string? tenantId,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return DatabaseCardinality == DatabaseCardinality.Single
+            ? GetStreamMetadataAsync(streamId, tenantId, ct)
+            : throw databaseScopedExplorerReadNotSupported(nameof(GetStreamMetadataAsync), database);
+    }
 
     /// <summary>
     /// Stream events that match all of the supplied DCB tag values.
@@ -275,6 +336,25 @@ public interface IEventStore
             ? QueryByTagsAsync(tags, ct)
             : throw new NotSupportedException(
                 "Per-tenant QueryByTagsAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
+
+    /// <summary>
+    /// Stream events matching all of the supplied DCB tag values from one <paramref name="database" />,
+    /// optionally scoped to one tenant within it. Tag values are not unique across databases, so on a
+    /// multi-database store a store-global query answers from one database and shows no sign of it.
+    /// See jasperfx#810.
+    /// </summary>
+    /// <param name="database">The database to query. Never null.</param>
+    /// <param name="tags">Tag-name -> tag-value pairs to match.</param>
+    /// <param name="tenantId">Tenant partition to scope the query to within that database. Null means database-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    IAsyncEnumerable<EventRecord> QueryByTagsAsync(IEventDatabase database,
+        IReadOnlyDictionary<string, string> tags, string? tenantId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return DatabaseCardinality == DatabaseCardinality.Single
+            ? QueryByTagsAsync(tags, tenantId, ct)
+            : throw databaseScopedExplorerReadNotSupported(nameof(QueryByTagsAsync), database);
+    }
 
     /// <summary>
     /// Rehydrate a DCB-projected entity by tag set, returning the
@@ -346,6 +426,38 @@ public interface IEventStore
             ? GetProjectionStatusesAsync(ct)
             : throw new NotSupportedException(
                 "Per-tenant GetProjectionStatusesAsync is not implemented on this IEventStore. Use an event store that implements per-tenant partitioning.");
+
+    /// <summary>
+    /// Return a snapshot of every projection's status on one <paramref name="database" />, optionally scoped
+    /// to one tenant within it. Progression rows are per database, so on a multi-database store the
+    /// store-global snapshot describes one database's rows and reads as the whole store's. This is the same
+    /// database dimension as the explorer reads (jasperfx#810), and the counterpart to the per-cell lag that
+    /// <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},CancellationToken)" />
+    /// already reports one database at a time.
+    /// </summary>
+    /// <param name="database">The database whose projection statuses to report. Never null.</param>
+    /// <param name="tenantId">Tenant partition to scope statuses to within that database. Null means database-global.</param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<IReadOnlyList<ProjectionStatus>> GetProjectionStatusesAsync(IEventDatabase database, string? tenantId,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return DatabaseCardinality == DatabaseCardinality.Single
+            ? GetProjectionStatusesAsync(tenantId, ct)
+            : throw databaseScopedExplorerReadNotSupported(nameof(GetProjectionStatusesAsync), database);
+    }
+
+    /// <summary>
+    /// The refusal every database-scoped explorer read shares. Named rather than inlined so the message
+    /// stays identical across the family, and so a store that implements some of them and not others
+    /// produces a diagnosable answer rather than a silently partial one.
+    /// </summary>
+    private NotSupportedException databaseScopedExplorerReadNotSupported(string member, IEventDatabase database)
+        => new(
+            $"Database-scoped {member} is not implemented on this IEventStore, whose DatabaseCardinality is " +
+            $"{DatabaseCardinality}. Only a store with exactly one database can answer it from the store-global " +
+            $"overload, so '{database.Identifier}' cannot be read without a real implementation. Use an event store " +
+            "version that implements the database-scoped explorer reads (jasperfx#810).");
 
     /// <summary>
     /// Replay a projection over a fixed in-memory event list, returning
