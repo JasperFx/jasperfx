@@ -101,6 +101,30 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     /// </remarks>
     public virtual bool SupportsNumericRevisions => false;
 
+    /// <summary>
+    /// Does this store implement <see cref="Guid" /> optimistic concurrency — the
+    /// <see cref="JasperFx.Metadata.IVersioned" /> marker, the
+    /// <see cref="DocumentComplianceConfig.UseOptimisticConcurrency{T}" /> declaration, and the guard
+    /// behind them? Gates <see cref="GuidOptimisticConcurrencyCompliance{TFixture}" /> (jasperfx#819).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A capability flag, not a seam, mirroring <see cref="SupportsNumericRevisions" /> exactly: the
+    /// suite it gates reaches the whole behavior through
+    /// <see cref="IDocumentWriteOperations.Store{T}" />,
+    /// <see cref="IDocumentWriteOperations.Update{T}" />, <c>LoadAsync</c> and
+    /// <see cref="JasperFx.Metadata.IVersioned.Version" />, so nothing reaches past the contract.
+    /// </para>
+    /// <para>
+    /// Default <b>false</b> for the same reason: optimistic concurrency is opt-in storage behavior, not
+    /// one of the eight contract operations. Flip it after implementing it — and note that the
+    /// fixture must also replay
+    /// <see cref="DocumentComplianceConfig.OptimisticConcurrencyTypes" />, which is not optional on a
+    /// store where the marker alone is not the opt-in.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsOptimisticConcurrency => false;
+
     public virtual ValueTask InitializeAsync() => default;
 
     public virtual ValueTask DisposeAsync() => default;

@@ -140,4 +140,80 @@ public sealed class DocumentComplianceConfig
         CommitListeners.Add(listener);
         return this;
     }
+
+    /// <summary>
+    /// Document types the suite asked the store to guard with <see cref="Guid" /> optimistic
+    /// concurrency, declared through the store's own configuration rather than through a marker
+    /// interface (jasperfx#819).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <see cref="Type" /> list a fixture replays, exactly as <see cref="DocumentTypes" /> and
+    /// <see cref="ValueTypes" /> are. All three stores spell the replay identically —
+    /// <c>StoreOptions.Schema.For&lt;T&gt;().UseOptimisticConcurrency(true)</c> — but on their own
+    /// options object rather than on anything shared, which is why it has to come through here.
+    /// </para>
+    /// <para>
+    /// It exists because the marker interface is not a complete answer on its own: the stores
+    /// disagree about whether <c>IVersioned</c> is itself the opt-in or merely supplies the member to
+    /// guard on. A suite that declared only the marker would be testing that disagreement rather than
+    /// the concurrency behavior, which is a suite bug by the jasperfx#672 rule — implementing the
+    /// contract has to be sufficient to pass.
+    /// </para>
+    /// <para>
+    /// Ignoring this does not make <c>GuidOptimisticConcurrencyCompliance</c> skip. On a store where
+    /// the marker alone is not the opt-in, every guard fact fails; on a store where it is, they pass
+    /// and nothing announces that the config was dropped — which is the worse of the two outcomes and
+    /// the reason it is stated here rather than left to each fixture.
+    /// </para>
+    /// </remarks>
+    public List<Type> OptimisticConcurrencyTypes { get; } = new();
+
+    /// <inheritdoc cref="OptimisticConcurrencyTypes" />
+    public DocumentComplianceConfig UseOptimisticConcurrency<T>() where T : notnull
+    {
+        OptimisticConcurrencyTypes.Add(typeof(T));
+        return this;
+    }
+
+    /// <summary>
+    /// Document types the suite asked the store to give numeric revisions <em>through the store's own
+    /// configuration</em> — <c>Schema.For&lt;T&gt;().UseNumericRevisions()</c> — rather than through
+    /// the <see cref="IRevisioned" /> marker (jasperfx#819 §2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No suite populates this yet, and the reason is worth recording</b> rather than leaving for
+    /// the next person to rediscover. jasperfx#819 §2 proposed running
+    /// <see cref="NumericRevisionCompliance{TFixture}" />'s nine facts a second time against a type
+    /// that declared itself this way, on the argument that both routes are documented as equivalent
+    /// and fisher#228 is what happens when only one works. Written and run against Fisher, seven of
+    /// the nine failed — and not because of a store bug.
+    /// </para>
+    /// <para>
+    /// <b>The declared route has no document member.</b> Fisher's own DSL test says it outright: "no
+    /// <c>IRevisioned</c> member to project onto, so the value lives only in the column". Marten is the
+    /// same shape — projecting a revision onto a member takes the marker interface or an explicit
+    /// <c>Metadata.Revision.MapTo(...)</c>. Every one of the nine facts works by setting the
+    /// document's revision before <see cref="Documents.IDocumentWriteOperations.Store{T}" /> and
+    /// reading it back off a load, so with no member the suite can neither name a revision nor observe
+    /// one. §2 is therefore <em>not</em> Tier 1: it needs the mapped-member seam that §3 deliberately
+    /// deferred, and on Fisher there would be nothing to bind that seam to — so the suite could never
+    /// run on the store whose bug motivated it.
+    /// </para>
+    /// <para>
+    /// This member is kept because it is the half of the declaration a <see cref="Type" /> alone
+    /// <em>can</em> carry, and a fixture replaying it costs nothing. What a suite would additionally
+    /// need is a way to say which member is the revision, which is a decision rather than an
+    /// omission.
+    /// </para>
+    /// </remarks>
+    public List<Type> NumericRevisionTypes { get; } = new();
+
+    /// <inheritdoc cref="NumericRevisionTypes" />
+    public DocumentComplianceConfig UseNumericRevisions<T>() where T : notnull
+    {
+        NumericRevisionTypes.Add(typeof(T));
+        return this;
+    }
 }
