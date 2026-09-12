@@ -89,6 +89,29 @@ public interface IEventStore
         => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>([]);
 
     /// <summary>
+    ///     jasperfx#815 — the names of every projection/subscription shard registered with this store,
+    ///     store-agnostically. This is the non-generic counterpart to
+    ///     <see cref="IEventStore{TOperations,TQuerySession}.AllShards" />, which can only be reached by
+    ///     naming a closed generic (<c>IEventStore&lt;IDocumentOperations, IQuerySession&gt;</c> for Marten,
+    ///     the Polecat/Fisher equivalents otherwise) and is therefore unreachable from a consumer that ships
+    ///     one assembly against all three stores — CritterWatch's <c>Wolverine.CritterWatch</c>, for one.
+    ///     It supplies the "expected" side of the expected-versus-observed correlation that
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},CancellationToken)" />
+    ///     performs against one database's progression rows, which is what distinguishes "registered here,
+    ///     never started here" (<see cref="ProjectionLag.HasProgressionRow" /> false) from "at zero".
+    ///     <para>
+    ///     This is a registry read, not a tenancy-resolving one, so unlike
+    ///     <see cref="GetProjectionStatusesAsync(CancellationToken)" /> it answers on a database-per-tenant
+    ///     store. The generic interface implements it from <c>AllShards()</c>, so every existing store
+    ///     satisfies it with no change; the default here throws rather than returning an empty list, because
+    ///     an empty registry is a meaningful answer that would latch a readiness probe green.
+    ///     </para>
+    /// </summary>
+    IReadOnlyList<ShardName> RegisteredShardNames()
+        => throw new NotSupportedException(
+            "RegisteredShardNames is not implemented on this IEventStore. Use an event store (Marten, Polecat, or Fisher) that registers projection shards.");
+
+    /// <summary>
     ///     Build a standalone, display-only high-water monitor for a single database — just the high-water agent,
     ///     with no projection shards attached, so a monitoring tool can show a live event-store "ceiling" for a
     ///     store whose projections are all Inline/Live and therefore run no async daemon. This is the abstraction
@@ -421,6 +444,14 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(IEventDatabase database, ShardName name,
         CancellationToken token = default)
         => database.FetchProjectionLagAsync(registeredShardNames(), name, token);
+
+    /// <summary>
+    ///     jasperfx#815 — satisfies the non-generic <see cref="IEventStore.RegisteredShardNames" /> from the
+    ///     registry every store already exposes here, so a store-agnostic consumer can ask what is registered
+    ///     without naming a closed generic. Implemented on the interface rather than on each store so no
+    ///     store has to change.
+    /// </summary>
+    IReadOnlyList<ShardName> IEventStore.RegisteredShardNames() => registeredShardNames();
 
     private IReadOnlyList<ShardName> registeredShardNames()
         => AllShards().Select(x => x.Name).ToList();

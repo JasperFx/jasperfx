@@ -111,4 +111,19 @@ public abstract class AsyncDaemonCompliance<TFixture, TOperations, TQuerySession
         tally.AddedCount.ShouldBe(2);
         tally.RemovedCount.ShouldBe(0);
     }
+
+    [Fact]
+    public void registered_shard_names_are_reachable_from_the_non_generic_store()
+    {
+        // jasperfx#815. Asserted off IEventStore rather than the closed generic on purpose: a consumer
+        // that ships ONE assembly against all three stores (CritterWatch's Wolverine.CritterWatch) can
+        // only hold the non-generic interface, and AllShards() is not on it. This is the "expected" side
+        // of the expected-versus-observed correlation that FetchProjectionLagAsync runs against a single
+        // database's progression rows — without it, a shard registered but never started on some
+        // databases of a multi-database store has nothing to be missing FROM.
+        SkipUnlessDaemonIsSupported();
+
+        EventStore.RegisteredShardNames()
+            .ShouldContain(x => x.Name == nameof(DaemonItemTally));
+    }
 }
