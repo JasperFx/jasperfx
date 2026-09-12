@@ -77,6 +77,30 @@ public static class EventModelServiceCollectionExtensions
         services.AddSingleton<IEventModelDefinitionSource, TSource>();
         return services;
     }
+
+    /// <summary>
+    /// Register the store-derived rung (jasperfx#825): one <see cref="SlicePattern.View"/> slice per
+    /// registered projection, read out of the event store's own registry.
+    /// </summary>
+    /// <remarks>
+    /// Called by a store's own <c>AddMarten</c> / <c>AddPolecat</c> / <c>AddFisher</c>, which is the
+    /// only place that knows how its <see cref="IEventStore"/> is registered — hence the resolver.
+    /// Omit it for a host that registered the shared interface directly.
+    /// </remarks>
+    /// <param name="services">The service collection.</param>
+    /// <param name="stores">Resolves the stores to describe. Defaults to every registered <see cref="IEventStore"/>.</param>
+    /// <param name="modelName">Name of the model these slices contribute to. Must match the other sources' model name, since discovery groups by it before merging slices.</param>
+    public static IServiceCollection AddProjectionEventModelSource(
+        this IServiceCollection services,
+        Func<IServiceProvider, IEnumerable<IEventStore>>? stores = null,
+        string? modelName = null)
+    {
+        var name = modelName ?? ProjectionEventModelSource.DefaultModelName;
+
+        return services.AddEventModelSource(stores is null
+            ? new ProjectionEventModelSource { ModelName = name }
+            : new ProjectionEventModelSource(stores) { ModelName = name });
+    }
 }
 
 /// <summary>

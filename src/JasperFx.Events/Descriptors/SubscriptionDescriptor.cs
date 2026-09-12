@@ -45,6 +45,8 @@ public class SubscriptionDescriptor : OptionsDescription
             AggregateType = TypeDescriptor.For(aggregateType);
         }
 
+        AppliedEvents = appliedEventsFor(subject);
+
         if (Lifecycle == ProjectionLifecycle.Async)
         {
             foreach (var shardName in ShardNames)
@@ -108,6 +110,44 @@ public class SubscriptionDescriptor : OptionsDescription
     /// aggregate/document type T. Null for non-aggregating subscriptions/projections.
     /// </summary>
     public TypeDescriptor? AggregateType { get; set; }
+
+    /// <summary>
+    /// The event types this projection applies — what its <c>Apply</c> / <c>Create</c> /
+    /// <c>Evolve</c> methods take, or the allow list it was configured with (jasperfx#825).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The store knows this exactly and nothing store-neutral could read it: the projection's applied
+    /// event set is the whole role content of a State View slice, and without it a View slice exists
+    /// on an Event Model canvas only when a human declared one.
+    /// <c>ProjectionEventModelSource</c> is what reads this.
+    /// </para>
+    /// <para>
+    /// Derived here rather than on each store, so all three inherit it: an
+    /// <see cref="IAggregateProjection"/> is asked for its <c>AllEventTypes</c> (the real apply set,
+    /// resolved from method signatures), and anything else falls back to the
+    /// <see cref="IEventFilterable"/> allow list, which is what an <c>EventProjection</c> or a
+    /// subscription carries. <b>Empty is a legitimate answer</b> and means "this subscription did not
+    /// narrow its event types", not "it applies nothing" — an unfiltered subscription sees every
+    /// event in the store.
+    /// </para>
+    /// </remarks>
+    public TypeDescriptor[] AppliedEvents { get; set; } = [];
+
+    /// <inheritdoc cref="AppliedEvents" />
+    private static TypeDescriptor[] appliedEventsFor(ISubscriptionSource subject)
+    {
+        var types = subject switch
+        {
+            IAggregateProjection aggregation => aggregation.AllEventTypes.AsEnumerable(),
+            EventFilterable filterable => filterable.IncludedEventTypes,
+            _ => [],
+        };
+
+        // Distinct because a projection may name one event type through several routes -- an Apply
+        // overload and an explicit IncludeType<T>() -- and a canvas draws one sticky per event.
+        return types.Distinct().Select(TypeDescriptor.For).ToArray();
+    }
 
     /// <summary>
     /// Agent URIs that would be assigned for each shard of this subscription
