@@ -1,3 +1,4 @@
+using JasperFx;
 using JasperFx.Events;
 using JasperFx.Events.ComplianceTests;
 using Shouldly;
@@ -59,6 +60,52 @@ public class DocumentComplianceConfigTests
     }
 
     /// <remarks>
+    /// jasperfx#819 §1. The marker alone is not a complete declaration — the stores disagree about
+    /// whether <c>IVersioned</c> is itself the opt-in — so a suite that declared only the marker
+    /// would be testing that disagreement rather than the concurrency behavior.
+    /// </remarks>
+    [Fact]
+    public void the_guid_concurrency_suite_declares_optimistic_concurrency()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedGuidOptimisticConcurrencyCompliance.TheConfiguration(config);
+
+        config.OptimisticConcurrencyTypes.ShouldContain(typeof(ComplianceShipment));
+    }
+
+    /// <remarks>
+    /// jasperfx#819 §2, and the guard that keeps the two revision suites from testing the same route
+    /// twice. The declared suite's document deliberately does not implement <see cref="IRevisioned" />,
+    /// so if the config declaration went missing it would not merely test the wrong route — it would
+    /// test no route at all, and fail for a reason unrelated to the store's revision handling.
+    /// </remarks>
+    [Fact]
+    public void the_declared_revision_suite_declares_numeric_revisions_through_the_config()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedDeclaredNumericRevisionCompliance.TheConfiguration(config);
+
+        config.NumericRevisionTypes.ShouldContain(typeof(ComplianceMeterReading));
+
+        typeof(IRevisioned).IsAssignableFrom(typeof(ComplianceMeterReading)).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// The other half of the pair: the original suite declares its document through the marker only,
+    /// which is what makes the two suites cover two routes rather than one.
+    /// </remarks>
+    [Fact]
+    public void the_marker_revision_suite_declares_nothing_through_the_config()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedNumericRevisionCompliance.TheConfiguration(config);
+
+        config.NumericRevisionTypes.ShouldBeEmpty();
+
+        typeof(IRevisioned).IsAssignableFrom(typeof(ComplianceLedgerEntry)).ShouldBeTrue();
+    }
+
+    /// <remarks>
     /// Not public, so xunit never collects the inherited facts — the in-memory reference store is
     /// document-only and could not run this suite. All that is wanted is the configuration delegate.
     /// </remarks>
@@ -81,5 +128,26 @@ public class DocumentComplianceConfigTests
     {
         public static readonly Action<DocumentComplianceConfig> TheConfiguration =
             new ExposedDocumentSessionCompliance().Configuration;
+    }
+
+    private class ExposedGuidOptimisticConcurrencyCompliance
+        : GuidOptimisticConcurrencyCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedGuidOptimisticConcurrencyCompliance().Configuration;
+    }
+
+    private class ExposedNumericRevisionCompliance
+        : NumericRevisionCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedNumericRevisionCompliance().Configuration;
+    }
+
+    private class ExposedDeclaredNumericRevisionCompliance
+        : DeclaredNumericRevisionCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedDeclaredNumericRevisionCompliance().Configuration;
     }
 }
