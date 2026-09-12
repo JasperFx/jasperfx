@@ -216,6 +216,106 @@ public abstract class EventStoreExplorerCompliance<TFixture, TOperations, TQuery
         metadata.ShouldBeNull();
     }
 
+    // ---- the database dimension (jasperfx#810) ----
+    //
+    // The explorer reads were scoped by tenant only. On a store with more than one database that makes a
+    // store-global read a silent partial answer: it comes back from whichever database the default session
+    // resolved, with nothing in the result saying so. The database-scoped overloads are how a tool
+    // enumerates AllDatabases() and attributes each answer to the database it came from.
+    //
+    // This fixture is single-database, so what is pinned here is the half that a single-database store can
+    // pin: the database overload agrees with the store-global read rather than being a differently-behaved
+    // second path. The multi-database arms (database-per-tenant, and sharded tenancy where several tenants
+    // share a database) belong with a multi-database fixture and are tracked per store.
+
+    private async Task<IEventDatabase?> theOnlyDatabaseAsync()
+    {
+        var databases = await EventStore.AllDatabases();
+        return databases.Count == 1 ? databases[0] : null;
+    }
+
+    [Fact]
+    public async Task recent_streams_scoped_to_the_database_agree_with_the_store_global_read()
+    {
+        if (!SupportsExplorer)
+        {
+            Assert.Skip("This store does not implement the event store explorer surface.");
+        }
+
+        var database = await theOnlyDatabaseAsync();
+        if (database == null)
+        {
+            Assert.Skip("This store does not report exactly one database through AllDatabases().");
+        }
+
+        var streamId = await aVoyageAsync(new PortVisited("Plymouth"));
+
+        var streams = await EventStore.GetRecentStreamsAsync(database, 10, null, Cancellation);
+
+        streams.Select(x => x.StreamId).ShouldContain(streamId.ToString());
+    }
+
+    [Fact]
+    public async Task stream_metadata_scoped_to_the_database_agrees_with_the_store_global_read()
+    {
+        if (!SupportsExplorer)
+        {
+            Assert.Skip("This store does not implement the event store explorer surface.");
+        }
+
+        var database = await theOnlyDatabaseAsync();
+        if (database == null)
+        {
+            Assert.Skip("This store does not report exactly one database through AllDatabases().");
+        }
+
+        var streamId = await aVoyageAsync(new PortVisited("Plymouth"), new PortVisited("Bahia"));
+
+        var metadata = await EventStore.GetStreamMetadataAsync(database, streamId.ToString(), null, Cancellation);
+
+        metadata.ShouldNotBeNull();
+        metadata.StreamId.ShouldBe(streamId.ToString());
+        metadata.Version.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task stream_events_scoped_to_the_database_agree_with_the_store_global_read()
+    {
+        if (!SupportsExplorer)
+        {
+            Assert.Skip("This store does not implement the event store explorer surface.");
+        }
+
+        var database = await theOnlyDatabaseAsync();
+        if (database == null)
+        {
+            Assert.Skip("This store does not report exactly one database through AllDatabases().");
+        }
+
+        var streamId = await aVoyageAsync(new PortVisited("Plymouth"));
+
+        var versions = new List<long>();
+        await foreach (var e in EventStore.ReadStreamAsync(database, streamId.ToString(), null, Cancellation))
+        {
+            versions.Add(e.StreamVersion);
+        }
+
+        versions.ShouldBe([1L, 2L]);
+    }
+
+    [Fact]
+    public async Task a_null_database_is_rejected_by_the_database_scoped_reads()
+    {
+        if (!SupportsExplorer)
+        {
+            Assert.Skip("This store does not implement the event store explorer surface.");
+        }
+
+        // Null would otherwise read as "store-global", which is the ambiguity these overloads remove.
+        await Should.ThrowAsync<ArgumentNullException>(
+            () => EventStore.GetRecentStreamsAsync(null!, 10, null, Cancellation));
+    }
+
     [Fact]
     public async Task usage_describes_the_registered_event_types()
     {
