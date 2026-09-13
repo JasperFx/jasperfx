@@ -87,7 +87,13 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
         ShardName shardName)
     {
         var logger = loggerFactory.CreateLogger(GetType());
-        return new SubscriptionExecution<TSubscription>(database, _subscription, database, shardName, logger);
+
+        // jasperfx#827: `storage` is where SubscriptionExecution<T> resolves its ISubscriptionRunner<T>,
+        // and that is implemented by the STORE -- an IEventDatabase never implements it. This overload
+        // used to pass `database` here while the ILogger overload below passed `store`, so every
+        // subscription started through JasperFxAsyncDaemon's ILoggerFactory constructor (the hosted /
+        // projection-coordinator path) threw ArgumentOutOfRangeException on construction and never ran.
+        return new SubscriptionExecution<TSubscription>(store, _subscription, database, shardName, logger);
     }
 
     public ISubscriptionExecution BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger,
