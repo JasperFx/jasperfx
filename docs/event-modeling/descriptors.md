@@ -244,3 +244,5 @@ services.AddProjectionEventModelSource();
 ```
 
 Slices are named after the **document type**, which is how a declared View slice is already named — so the spec-declared `AccountBalance` and the store-derived one merge into one slice carrying both a `Declared` and a `Derived` claim, rather than two stickies that say the same thing.
+
+`ConsumedEvents` on a derived slice is the projection's apply set **minus the stream lifecycle events** — `Archived` and `Compacted<T>`, which every aggregation projection handles whether or not the aggregate declares an `Apply` for them. They are honest about what the projection handles and are not what a canvas means by the events a read model consumes: no command slice emits them, so they would render as stickies that link to nothing. `SubscriptionDescriptor.AppliedEvents` still carries them for consumers asking the wider question.
