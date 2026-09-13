@@ -135,6 +135,11 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
     /// instead would break the merge-by-name with a declared slice, which is the one thing this source
     /// exists to get right.
     /// </para>
+    /// <para>
+    /// <b>Stream lifecycle events are dropped</b> — see <see cref="IsStreamLifecycleEvent" />. Same
+    /// argument one row down: a slice role is what a reader can click through to, which is a narrower
+    /// question than what the registry holds.
+    /// </para>
     /// </remarks>
     public static EventModelSliceDescriptor? ToSlice(SubscriptionDescriptor subscription)
     {
@@ -148,7 +153,49 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
             Pattern = SlicePattern.View,
             ProjectionTypes = subscription.ImplementationType is { } projection ? [projection] : [],
             ReadModelTypes = [document],
-            ConsumedEvents = subscription.AppliedEvents,
+            ConsumedEvents = subscription.AppliedEvents.Where(x => !IsStreamLifecycleEvent(x)).ToArray(),
         };
+    }
+
+    private static readonly string _lifecycleAssembly = typeof(Archived).Assembly.GetName().Name ?? string.Empty;
+
+    /// <summary>
+    /// Is this one of the stream lifecycle events every aggregation projection handles whether or not
+    /// the aggregate declares an <c>Apply</c> for it — <see cref="Archived" /> and
+    /// <see cref="Compacted{T}" /> (jasperfx#829)?
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>JasperFxSingleStreamProjectionBase.determineEventTypes()</c> concatenates both onto every
+    /// non-empty apply set, so an aggregate declaring exactly <c>Apply(Credited)</c> and
+    /// <c>Apply(Debited)</c> reports four event types. That is <em>correct</em> about what the
+    /// projection handles, and it is not what an Event Model canvas means by the events a read model
+    /// consumes: they render as orange stickies for events the application never wrote, which no
+    /// command slice emits, and which therefore link to nothing.
+    /// </para>
+    /// <para>
+    /// <b>This is a ruling, and the filter sits here deliberately</b> rather than in the reader that
+    /// fills <see cref="SubscriptionDescriptor.AppliedEvents" />. "These are synthetic, drop them" is
+    /// not quite true — <see cref="Compacted{T}" /> is a real stored event on every store — and a
+    /// monitoring console asking "what does this projection handle" genuinely wants both. The same
+    /// reader also feeds <see cref="AggregateDescriptor.AppliedEvents" />, so filtering there would
+    /// change an answer two other consumers rely on. What is narrow is the <em>canvas</em> question,
+    /// so the judgement belongs with the thing that knows it is drawing one.
+    /// </para>
+    /// <para>
+    /// Matched on identity rather than on a name list: the assembly is
+    /// <see cref="Archived" />'s own, and the generic name comes from <c>typeof(Compacted&lt;&gt;)</c>,
+    /// so a rename upstream cannot leave a stale string behind here. An application type that happens
+    /// to be called <c>Archived</c> is unaffected, because it is in the application's assembly.
+    /// </para>
+    /// </remarks>
+    public static bool IsStreamLifecycleEvent(TypeDescriptor type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (!string.Equals(type.AssemblyName, _lifecycleAssembly, StringComparison.Ordinal)) return false;
+
+        return string.Equals(type.Name, typeof(Archived).Name, StringComparison.Ordinal)
+               || string.Equals(type.Name, typeof(Compacted<>).Name, StringComparison.Ordinal);
     }
 }

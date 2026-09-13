@@ -249,6 +249,91 @@ public class ProjectionEventModelSourceTests
     }
 
     /// <summary>
+    /// jasperfx#829 — the stream lifecycle events every aggregation projection handles are not events
+    /// the read model <em>consumes</em>, and do not become stickies.
+    /// </summary>
+    /// <remarks>
+    /// An aggregate declaring exactly two <c>Apply</c> methods reported four event types, because
+    /// <c>determineEventTypes()</c> concatenates <see cref="Archived" /> and <see cref="Compacted{T}" />
+    /// onto every non-empty apply set. Correct about what the projection handles; wrong as orange
+    /// stickies for events the application never wrote and no command slice emits, so they link to
+    /// nothing.
+    /// </remarks>
+    [Fact]
+    public void stream_lifecycle_events_are_not_consumed_events()
+    {
+        var withLifecycle = projection(applied:
+            [typeof(AccountOpened), typeof(Archived), typeof(Compacted<AccountBalance>), typeof(MoneyDeposited)]);
+
+        ProjectionEventModelSource.ToSlice(withLifecycle)
+            .ShouldNotBeNull()
+            .ConsumedEvents.ShouldBe([T<AccountOpened>(), T<MoneyDeposited>()]);
+    }
+
+    /// <summary>
+    /// The filter is on type identity, not on a name — an application type that happens to be called
+    /// <c>Archived</c> keeps its sticky.
+    /// </summary>
+    /// <remarks>
+    /// The pair this test forms with the one above is the whole of the ruling: dropping the two the
+    /// framework adds, and dropping nothing the application declared. A name-only filter would pass
+    /// the first and fail this one.
+    /// </remarks>
+    [Fact]
+    public void an_application_type_with_a_lifecycle_events_name_is_kept()
+    {
+        ProjectionEventModelSource.IsStreamLifecycleEvent(T<Archived>()).ShouldBeTrue();
+        ProjectionEventModelSource.IsStreamLifecycleEvent(T<Compacted<AccountBalance>>()).ShouldBeTrue();
+
+        // The SAME short name, in the application's own assembly. A name-only filter drops this.
+        ProjectionEventModelSource
+            .IsStreamLifecycleEvent(new TypeDescriptor("Archived", "MyApp.Archived", "MyApp"))
+            .ShouldBeFalse();
+
+        ProjectionEventModelSource
+            .IsStreamLifecycleEvent(new TypeDescriptor(typeof(Compacted<>).Name, "MyApp.Compacted`1", "MyApp"))
+            .ShouldBeFalse();
+
+        ProjectionEventModelSource.IsStreamLifecycleEvent(T<AccountOpened>()).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The assumption the filter rests on, pinned rather than trusted: a closed
+    /// <see cref="Compacted{T}" /> carries the open generic's <see cref="Type.Name" />, so matching on
+    /// <c>typeof(Compacted&lt;&gt;).Name</c> catches every closure without enumerating them.
+    /// </summary>
+    /// <remarks>
+    /// If this ever stopped holding, the filter above would silently stop dropping <c>Compacted</c>
+    /// for every aggregate at once, and the only symptom would be an extra sticky on a canvas.
+    /// </remarks>
+    [Fact]
+    public void a_closed_compacted_shares_the_open_generics_name()
+    {
+        T<Compacted<AccountBalance>>().Name.ShouldBe(typeof(Compacted<>).Name);
+        T<Compacted<AccountBalance>>().Name.ShouldNotBe(T<Archived>().Name);
+    }
+
+    /// <summary>
+    /// A projection whose apply set is <em>only</em> lifecycle events contributes an empty
+    /// <c>ConsumedEvents</c> — and is still a slice.
+    /// </summary>
+    /// <remarks>
+    /// The slice is what a reader clicks through to, and it still has a projection and a document to
+    /// show. Dropping the slice because the filter emptied one role would hide a registered
+    /// projection from the canvas entirely, which is the failure jasperfx#825 exists to remove.
+    /// </remarks>
+    [Fact]
+    public void a_projection_with_only_lifecycle_events_is_still_a_slice()
+    {
+        var slice = ProjectionEventModelSource
+            .ToSlice(projection(applied: [typeof(Archived), typeof(Compacted<AccountBalance>)]))
+            .ShouldNotBeNull();
+
+        slice.ConsumedEvents.ShouldBeEmpty();
+        slice.ReadModelTypes.ShouldHaveSingleItem().ShouldBe(T<AccountBalance>());
+    }
+
+    /// <summary>
     /// <see cref="SubscriptionDescriptor.AppliedEvents" /> is filled from the projection's real apply
     /// set — the store-side half that makes all of the above derivable.
     /// </summary>
@@ -331,4 +416,5 @@ public class ProjectionEventModelSourceTests
     public class MoneyDeposited { }
     public class AccountBalance { }
     public class BalanceProjection { }
+
 }
