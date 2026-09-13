@@ -160,10 +160,18 @@ internal class MethodFrameArranger : IMethodVariables
         findSetters(dependencies);
 
         // Step 3, gather any missing frames and
-        // add to the beginning of the list
-        dependencies.Dependencies.SelectMany(x => x).Distinct()
+        // add to the beginning of the list.
+        //
+        // Walk frames rather than the dependency cache: it is an ImHashMap keyed by Frame, which does
+        // not override GetHashCode, so it iterates in arbitrary identity hash order. Step 4 preserves
+        // the relative order of independent frames, so that reaches the generated method body. Its
+        // keys are exactly the frames passed in, so this gathers the same set, deterministically.
+        // ToArray() because the loop below mutates the list it is enumerating.
+        var missing = frames.SelectMany(x => dependencies.Dependencies[x]).Distinct()
             .Where(x => !frames.Contains(x))
-            .Each(x => frames.Insert(0, x));
+            .ToArray();
+
+        foreach (var frame in missing) frames.Insert(0, frame);
 
         // Step 4, topological sort in dependency order
         return frames.TopologicalSort(x => dependencies.Dependencies[x].GetEnumerator()).ToArray();
