@@ -38,6 +38,20 @@ public enum HotspotOrigin
     /// </para>
     /// </remarks>
     SourceDisagreement,
+
+    /// <summary>
+    /// Several of a service's Event Models were folded into one because the consumer's wire carries
+    /// only a single <see cref="EventModelDescriptor"/> (jasperfx#837). Emitted by
+    /// <see cref="EventModelSetDescriptor.Collapse"/>.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="SourceDisagreement"/>, which is two sources describing one slice
+    /// differently. Nothing here disagreed: the models were about different things, and one of them
+    /// lost its <em>name</em> along with the boundary that name stood for. Appended rather than
+    /// slotted in, because <see cref="HotspotOrigin"/> goes over the wire as an integer under the
+    /// System.Text.Json defaults.
+    /// </remarks>
+    ModelCollapse,
 }
 
 /// <summary>
@@ -121,4 +135,14 @@ public sealed record HotspotDescriptor(
             WinningClaim = winner,
             LosingClaim = loser,
         };
+
+    /// <summary>
+    /// A hotspot for several of <paramref name="serviceName"/>'s Event Models being folded into one
+    /// (jasperfx#837).
+    /// </summary>
+    /// <param name="serviceName">The service whose models were folded.</param>
+    /// <param name="modelNames">Every model that went in, in order.</param>
+    public static HotspotDescriptor ModelCollapse(string serviceName, IEnumerable<string> modelNames)
+        => new(HotspotOrigin.ModelCollapse,
+            $"{serviceName} hosts several Event Models and they were collapsed into one: {string.Join(", ", modelNames)}");
 }

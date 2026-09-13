@@ -37,6 +37,14 @@ namespace JasperFx.Events.EventModeling;
 /// <see cref="EventModelProvenance.Derived"/> claim, rather than showing up as two stickies that say
 /// the same thing.
 /// </para>
+/// <para>
+/// <b>Every slice carries the store it came from</b> in
+/// <see cref="EventModelSliceDescriptor.Origin"/> (jasperfx#836), so naming slices after a document's
+/// simple name stays safe in a modular monolith: when two stores project an <c>AuditEntry</c> apiece,
+/// the merge still folds them into one slice, but the drop is now a
+/// <see cref="HotspotOrigin.SourceDisagreement"/> hotspot naming both stores rather than one of them
+/// vanishing without trace.
+/// </para>
 /// </remarks>
 public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
 {
@@ -79,7 +87,16 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
     /// </summary>
     public string ModelName { get; init; } = DefaultModelName;
 
-    public Uri Subject { get; init; } = new("event-model://projections");
+    /// <summary>The subject used when a caller does not supply one.</summary>
+    public static readonly Uri DefaultSubject = new("event-model://projections");
+
+    /// <summary>
+    /// Identifies this source. A store registering its own instance should mint a distinct subject
+    /// per store (<c>event-model://projections/{store}</c>), because it is the fallback attribution
+    /// stamped onto <see cref="EventModelSliceDescriptor.Origin"/> when a store's usage carries no
+    /// <c>SubjectUri</c> of its own (jasperfx#836).
+    /// </summary>
+    public Uri Subject { get; init; } = DefaultSubject;
 
     /// <summary>
     /// <see cref="EventModelProvenance.Derived" />: these roles are read out of the store's
@@ -91,7 +108,7 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
     public async Task<EventModelDescriptor?> TryCreateAsync(IServiceProvider services, CancellationToken token)
     {
         var slices = new List<EventModelSliceDescriptor>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var store in _stores(services))
         {
@@ -104,14 +121,42 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
             // projections", which is a different and wrong claim.
             if (usage is null) continue;
 
+            // jasperfx#836. The store's own subject is the precise attribution and the one the
+            // telemetry half of the stack already keys on; the source subject covers a store whose
+            // usage carries none, and is per-store whenever the store registered its own source.
+            var origin = usage.SubjectUri ?? Subject;
+
             foreach (var subscription in usage.Subscriptions)
             {
                 if (ToSlice(subscription) is not { } slice) continue;
 
-                // Two stores in one host may project the same document type. The slices would merge by
-                // name anyway; taking the first keeps this source from emitting a pair that merges
-                // with itself and records a disagreement between two views of one registration.
-                if (seen.Add(slice.Name)) slices.Add(slice);
+                slice = slice with { Origin = origin };
+
+                if (!indexByName.TryGetValue(slice.Name, out var index))
+                {
+                    indexByName[slice.Name] = slices.Count;
+                    slices.Add(slice);
+                    continue;
+                }
+
+                var kept = slices[index];
+
+                // Two views of ONE store's registration agree by construction, so folding them would
+                // record a disagreement between a thing and itself. Taking the first is still right
+                // there, and still silent.
+                if (Equals(kept.Origin, origin)) continue;
+
+                // Two DIFFERENT stores projecting a document of the same simple name is ordinary in a
+                // modular monolith and is a real loss: the slices merge by name, so one of them
+                // disappears from the canvas. Every other merge in the system records a dropped claim
+                // (jasperfx#704) -- this one used to be the exception (jasperfx#836).
+                slices[index] = kept with
+                {
+                    Hotspots = [..kept.Hotspots, HotspotDescriptor.SourceDisagreement(
+                        EventModelRole.Origin,
+                        new EventModelClaim(Provenance, kept.Origin!.OriginalString),
+                        new EventModelClaim(Provenance, origin.OriginalString))],
+                };
             }
         }
 

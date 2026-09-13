@@ -225,6 +225,70 @@ public class SourceDisagreementHotspotTests
 
     #endregion
 
+    #region which store, not just which rung (jasperfx#836)
+
+    /// <summary>
+    /// Two stores contributing the same slice leave a disagreement naming both — the merge's own half
+    /// of jasperfx#836, which catches the case the store source's dedupe never sees because each
+    /// store registered its own source.
+    /// </summary>
+    /// <remarks>
+    /// Without an origin both claims render as "Derived claims …" against the same rung, which is
+    /// exactly the unactionable shape the issue records: the survivor carried nothing to say which
+    /// store it came from, and the loser left no trace at all.
+    /// </remarks>
+    [Fact]
+    public void two_stores_contributing_one_slice_leave_a_disagreement_naming_both()
+    {
+        var ledger = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://ledger") };
+        var audit = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://audit") };
+
+        var merged = ledger.Merge(audit);
+
+        // A tie, so first-wins -- and the loser is recorded rather than dropped.
+        merged.Origin.ShouldBe(new Uri("store://ledger"));
+
+        var hotspot = DisagreementsIn(merged).ShouldHaveSingleItem();
+        hotspot.Role.ShouldBe(EventModelRole.Origin);
+        hotspot.LosingClaim!.Value.ShouldBe("store://audit");
+    }
+
+    /// <summary>
+    /// A declaration claims no origin, so it can never take one away — the same rule every other role
+    /// follows, and what keeps a spec-declared slice from erasing the store behind the derived one.
+    /// </summary>
+    [Fact]
+    public void a_declaration_neither_claims_nor_takes_away_an_origin()
+    {
+        var declared = Slice(EventModelProvenance.Declared) with { Domain = "Orders" };
+        var derived = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://ledger") };
+
+        foreach (var merged in new[] { declared.Merge(derived), derived.Merge(declared) })
+        {
+            merged.Origin.ShouldBe(new Uri("store://ledger"));
+            merged.ProvenanceFor(EventModelRole.Origin).ShouldBe(EventModelProvenance.Derived);
+            DisagreementsIn(merged).ShouldBeEmpty();
+        }
+    }
+
+    /// <summary>
+    /// Production outranks the code about the origin too, and the code's claim is still recorded.
+    /// </summary>
+    [Fact]
+    public void a_higher_rung_takes_the_origin_and_the_lower_claim_is_recorded()
+    {
+        var derived = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://ledger") };
+        var observed = Slice(EventModelProvenance.Observed) with { Origin = new Uri("store://audit") };
+
+        var merged = derived.Merge(observed);
+
+        merged.Origin.ShouldBe(new Uri("store://audit"));
+        DisagreementsIn(merged).ShouldHaveSingleItem().WinningClaim
+            .ShouldBe(new EventModelClaim(EventModelProvenance.Observed, "store://audit"));
+    }
+
+    #endregion
+
     public class PlaceOrder { }
     public class OrderHandler { }
     public class LegacyOrderHandler { }

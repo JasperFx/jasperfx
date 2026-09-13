@@ -39,13 +39,25 @@ public class ProjectionEventModelSourceTests
         };
 
     private static IEventStore storeWith(params SubscriptionDescriptor[] subscriptions)
+        => storeAt("store://test", subscriptions);
+
+    private static IEventStore storeAt(string? subjectUri, params SubscriptionDescriptor[] subscriptions)
     {
-        var usage = new EventStoreUsage { SubjectUri = new Uri("store://test") };
+        var usage = new EventStoreUsage { SubjectUri = subjectUri is null ? null : new Uri(subjectUri) };
         usage.Subscriptions.AddRange(subscriptions);
 
         var store = Substitute.For<IEventStore>();
         store.TryCreateUsage(Arg.Any<CancellationToken>()).Returns(Task.FromResult<EventStoreUsage?>(usage));
         return store;
+    }
+
+    private static async Task<EventModelDescriptor> discover(params IEventStore[] stores)
+    {
+        var services = new ServiceCollection()
+            .AddProjectionEventModelSource(_ => stores)
+            .BuildServiceProvider();
+
+        return (await EventModelDiscovery.DiscoverAsync(services, TestContext.Current.CancellationToken)).Single();
     }
 
     /// <summary>
@@ -213,17 +225,85 @@ public class ProjectionEventModelSourceTests
     [Fact]
     public async Task two_stores_projecting_the_same_document_contribute_one_slice()
     {
+        var model = await discover(
+            storeAt("store://ledger", projection(applied: [typeof(AccountOpened)])),
+            storeAt("store://audit", projection(applied: [typeof(MoneyDeposited)])));
+
+        model.Slices.ShouldHaveSingleItem().ConsumedEvents.ShouldHaveSingleItem().ShouldBe(T<AccountOpened>());
+    }
+
+    /// <summary>
+    /// jasperfx#836 — every slice carries <em>which store</em> produced it, not just which rung.
+    /// </summary>
+    /// <remarks>
+    /// The telemetry half of the stack has keyed on the store all along; the modelling half knew only
+    /// the rung, so in a modular monolith two modules' identically-named documents were
+    /// indistinguishable once they reached a descriptor.
+    /// </remarks>
+    [Fact]
+    public async Task every_slice_carries_the_store_it_came_from()
+    {
+        var model = await discover(storeAt("store://ledger", projection(applied: [typeof(AccountOpened)])));
+
+        model.Slices.ShouldHaveSingleItem().Origin.ShouldBe(new Uri("store://ledger"));
+    }
+
+    /// <summary>
+    /// A store whose usage carries no subject of its own falls back to the source's subject — which a
+    /// store registering one instance per store mints distinctly.
+    /// </summary>
+    [Fact]
+    public async Task a_store_with_no_subject_of_its_own_falls_back_to_the_sources_subject()
+    {
         var services = new ServiceCollection()
-            .AddProjectionEventModelSource(_ =>
-            [
-                storeWith(projection(applied: [typeof(AccountOpened)])),
-                storeWith(projection(applied: [typeof(MoneyDeposited)])),
-            ])
+            .AddProjectionEventModelSource(
+                _ => [storeAt(null, projection(applied: [typeof(AccountOpened)]))],
+                subject: new Uri("event-model://projections/ledger"))
             .BuildServiceProvider();
 
         var model = (await EventModelDiscovery.DiscoverAsync(services, TestContext.Current.CancellationToken)).Single();
 
-        model.Slices.ShouldHaveSingleItem().ConsumedEvents.ShouldHaveSingleItem().ShouldBe(T<AccountOpened>());
+        model.Slices.ShouldHaveSingleItem().Origin.ShouldBe(new Uri("event-model://projections/ledger"));
+    }
+
+    /// <summary>
+    /// <b>jasperfx#836's acceptance criterion.</b> When the dedupe drops a slice from a
+    /// <em>different</em> store, the loss is a <see cref="HotspotOrigin.SourceDisagreement" /> hotspot
+    /// naming both stores rather than a silent discard.
+    /// </summary>
+    /// <remarks>
+    /// In a modular monolith each module registers its own ancillary store, and two modules owning a
+    /// document type of the same simple name — an <c>AuditEntry</c>, a <c>Summary</c>, a
+    /// <c>Settings</c> — is ordinary rather than exotic. Every other merge in the system already
+    /// records a dropped claim (jasperfx#704); this one was the exception.
+    /// </remarks>
+    [Fact]
+    public async Task the_slice_a_dedupe_drops_leaves_a_disagreement_hotspot()
+    {
+        var model = await discover(
+            storeAt("store://ledger", projection(applied: [typeof(AccountOpened)])),
+            storeAt("store://audit", projection(applied: [typeof(MoneyDeposited)])));
+
+        var hotspot = model.Slices.ShouldHaveSingleItem().Hotspots.ShouldHaveSingleItem();
+
+        hotspot.Origin.ShouldBe(HotspotOrigin.SourceDisagreement);
+        hotspot.Role.ShouldBe(EventModelRole.Origin);
+        hotspot.WinningClaim.ShouldBe(new EventModelClaim(EventModelProvenance.Derived, "store://ledger"));
+        hotspot.LosingClaim.ShouldBe(new EventModelClaim(EventModelProvenance.Derived, "store://audit"));
+    }
+
+    /// <summary>
+    /// Two views of <em>one</em> store's registration still merge in silence — which is what the
+    /// dedupe was protecting against, and is untouched.
+    /// </summary>
+    [Fact]
+    public async Task two_views_of_one_store_do_not_disagree_with_themselves()
+    {
+        var model = await discover(
+            storeAt("store://ledger", projection(applied: [typeof(AccountOpened)])),
+            storeAt("store://ledger", projection(applied: [typeof(MoneyDeposited)])));
+
+        model.Slices.ShouldHaveSingleItem().Hotspots.ShouldBeEmpty();
     }
 
     /// <summary>

@@ -176,6 +176,35 @@ public sealed record EventModelSliceDescriptor(
     public string? Chapter { get; init; }
 
     /// <summary>
+    /// <em>Which</em> source produced this slice, as against <see cref="Provenance"/>'s <em>what rung
+    /// it sits on</em> (jasperfx#836). The contributing source's <c>IEventModelDefinitionSource.Subject</c>,
+    /// or for the store-derived rung the store's own <c>EventStoreUsage.SubjectUri</c>. Null when the
+    /// source did not attribute itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Not a merge key.</b> <see cref="Name"/> stays the only one, and that is the point: two
+    /// sources describing one slice must still fold into one. This records who contributed, so that
+    /// when a merge <em>does</em> drop a claim the hotspot can name the store it came from rather
+    /// than only the rung — "Derived claims X; Derived claims Y" is unactionable when both rungs read
+    /// the same.
+    /// </para>
+    /// <para>
+    /// <b>Why the store dimension was missing.</b> The telemetry half of the stack has carried full
+    /// store attribution all along — CritterWatch keys a shard fact on
+    /// <c>(service, storeUri, database, tenant, shard)</c>. The modelling half carried none, so in a
+    /// modular monolith where two modules each register an ancillary store, two documents of the same
+    /// simple name — an <c>AuditEntry</c>, a <c>Summary</c> — were indistinguishable once they reached
+    /// a descriptor.
+    /// </para>
+    /// <para>
+    /// Useful attribution needs the store subjects to be genuinely per-store, which is a store-side
+    /// prerequisite rather than something this member can enforce (fisher#279, marten#5409).
+    /// </para>
+    /// </remarks>
+    public Uri? Origin { get; init; }
+
+    /// <summary>
     /// Which rung of the provenance ladder the source that produced this slice sits on
     /// (jasperfx#703). Null means unattributed, which <see cref="ProvenanceFor"/> reads as
     /// <see cref="EventModelProvenance.Declared"/> — so a model whose sources have not been stamped
@@ -239,6 +268,7 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.ConsumedEvents => ConsumedEvents.Count > 0,
         EventModelRole.ReadsFrom => ReadsFrom.Count > 0,
         EventModelRole.Chapter => Chapter is not null,
+        EventModelRole.Origin => Origin is not null,
         _ => false,
     };
 
@@ -444,6 +474,12 @@ public sealed record EventModelSliceDescriptor(
         var readsFrom = mergeTypes(EventModelRole.ReadsFrom, ReadsFrom, other.ReadsFrom);
         var chapter = mergeScalar(EventModelRole.Chapter, Chapter, other.Chapter, x => x);
 
+        // jasperfx#836. Origin merges as any other scalar does, which gives the store dimension the
+        // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
+        // now leave a SourceDisagreement naming both stores, instead of the survivor carrying nothing
+        // to say where it came from. A declared slice claims no origin, so it never takes one away.
+        var origin = mergeScalar(EventModelRole.Origin, Origin, other.Origin, x => x.OriginalString);
+
         // Hotspots are annotations rather than claims about the system, so they always union: a
         // higher rung replacing the list would throw away the findings recorded here.
         takeOther(EventModelRole.Hotspots);
@@ -464,6 +500,7 @@ public sealed record EventModelSliceDescriptor(
             ConsumedEvents = consumedEvents,
             ReadsFrom = readsFrom,
             Chapter = chapter,
+            Origin = origin,
             Provenance = higher(Provenance, other.Provenance),
             ClaimedBy = claimedBy,
         };
@@ -783,5 +820,42 @@ public sealed record EventModelDescriptor(
         }
 
         return new EventModelDescriptor(name, slices) { Aggregates = aggregates, Hotspots = hotspots };
+    }
+
+    /// <summary>
+    /// Fold descriptors into <em>one model per name</em>, in first-appearance order — several models
+    /// in one host are legal, supported, and never an error (jasperfx#837).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The counterpart to <see cref="Merge"/>, and the one to reach for by default. <c>Merge</c>
+    /// answers "fold these sources' views of <em>one</em> model"; this answers "fold these sources,
+    /// whatever models they describe". Calling <c>Merge</c> across descriptors that do not name the
+    /// same model is the mistake jasperfx#837 records: a modular monolith whose modules each name
+    /// their own Event Model loses every name but one, and has the slices folded into whichever
+    /// survived.
+    /// </para>
+    /// <para>
+    /// <see cref="EventModelSetDescriptor"/> is the shape to carry the result on a wire that used to
+    /// take a single descriptor.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<EventModelDescriptor> GroupByName(IEnumerable<EventModelDescriptor> descriptors)
+    {
+        var order = new List<string>();
+        var byName = new Dictionary<string, List<EventModelDescriptor>>(StringComparer.Ordinal);
+
+        foreach (var descriptor in descriptors)
+        {
+            if (!byName.TryGetValue(descriptor.Name, out var list))
+            {
+                byName[descriptor.Name] = list = new List<EventModelDescriptor>();
+                order.Add(descriptor.Name);
+            }
+
+            list.Add(descriptor);
+        }
+
+        return order.Select(name => Merge(name, byName[name])).ToList();
     }
 }

@@ -65,6 +65,8 @@ public class EventModelWireRoundTripTests
             ConsumedEvents = new[] { T<OrderPlaced>() },
             ReadsFrom = new[] { T<OrderSummary>() },
             Chapter = "Ordering",
+            // jasperfx#836: which store produced the slice, beside which rung it sits on
+            Origin = new Uri("marten://orders"),
         },
         EventModelSliceDescriptor.Named("NotifyOnPlaced") with
         {
@@ -99,7 +101,13 @@ public class EventModelWireRoundTripTests
     })
     {
         Aggregates = new[] { new AggregateDescriptor(T<Order>(), AggregateKind.WriteAggregate, new[] { T<OrderPlaced>() }) },
-        Hotspots = new[] { HotspotDescriptor.Prose("Do we own the SLA clock, or does the CRM?") },
+        Hotspots = new[]
+        {
+            HotspotDescriptor.Prose("Do we own the SLA clock, or does the CRM?"),
+            // jasperfx#837: the fourth origin, emitted when a service's models are folded to fit a
+            // wire that carries only one
+            HotspotDescriptor.ModelCollapse("Billing", new[] { "HelpDesk", "Incidents" }),
+        },
     };
 
     [Theory]
@@ -155,6 +163,7 @@ public class EventModelWireRoundTripTests
             actual.ConsumedEvents.ShouldBe(expected.ConsumedEvents);
             actual.ReadsFrom.ShouldBe(expected.ReadsFrom);
             actual.Chapter.ShouldBe(expected.Chapter);
+            actual.Origin.ShouldBe(expected.Origin);
             actual.Provenance.ShouldBe(expected.Provenance);
             actual.ClaimedBy.Count.ShouldBe(expected.ClaimedBy.Count);
             foreach (var claim in expected.ClaimedBy)
@@ -231,6 +240,10 @@ public class EventModelWireRoundTripTests
         view.GetProperty("consumedEvents").GetArrayLength().ShouldBe(1);
         view.GetProperty("readsFrom").GetArrayLength().ShouldBe(1);
 
+        // jasperfx#836: the store attribution, as a plain uri string
+        view.GetProperty("origin").GetString().ShouldBe("marten://orders");
+        doc.RootElement.GetProperty("slices")[0].GetProperty("origin").ValueKind.ShouldBe(JsonValueKind.Null);
+
         // jasperfx#823: the cross-slice links, beside elements and edges
         var links = doc.RootElement.GetProperty("links");
         links.GetArrayLength().ShouldBeGreaterThan(0);
@@ -248,6 +261,42 @@ public class EventModelWireRoundTripTests
         modelHotspot.GetProperty("origin").GetString().ShouldBe("prose");
         modelHotspot.GetProperty("text").GetString().ShouldBe("Do we own the SLA clock, or does the CRM?");
         modelHotspot.GetProperty("specificationIdentity").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // ...and jasperfx#837's collapse note beside it
+        doc.RootElement.GetProperty("hotspots")[1].GetProperty("origin").GetString().ShouldBe("modelCollapse");
+    }
+
+    /// <summary>
+    /// jasperfx#837 — the service-scoped envelope is a wire type too, so an exporter can put the whole
+    /// pair on the wire rather than folding it to fit.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Options))]
+    public void a_service_and_its_models_round_trip_as_a_pair(JsonSerializerOptions options)
+    {
+        var set = EventModelSetDescriptor.For("Billing",
+        [
+            fullModel(),
+            new EventModelDescriptor("Incidents", [EventModelSliceDescriptor.Named("CloseIncident")]),
+        ]);
+
+        var back = JsonSerializer.Deserialize<EventModelSetDescriptor>(JsonSerializer.Serialize(set, options), options)!;
+
+        back.ServiceName.ShouldBe("Billing");
+        back.Models.Select(x => x.Name).ShouldBe(["Orders", "Incidents"]);
+        back.IsAmbiguous.ShouldBeTrue();
+        back.Find("Incidents").ShouldNotBeNull().Slices.ShouldHaveSingleItem().Name.ShouldBe("CloseIncident");
+        back.Models[0].Slices.Count.ShouldBe(set.Models[0].Slices.Count);
+    }
+
+    [Fact]
+    public void a_set_that_omits_its_models_round_trips()
+    {
+        var set = JsonSerializer.Deserialize<EventModelSetDescriptor>("""{"serviceName":"Billing"}""", Web)!;
+
+        set.Models.ShouldBeEmpty();
+        set.Sole.ShouldBeNull();
+        Should.NotThrow(() => JsonSerializer.Serialize(set, Web));
     }
 
     [Theory]
@@ -281,6 +330,7 @@ public class EventModelWireRoundTripTests
         slice.CommandType!.FullName.ShouldBe("x.PlaceOrder");
         slice.Pattern.ShouldBeNull();
         slice.TriggerKind.ShouldBeNull();
+        slice.Origin.ShouldBeNull();
         slice.AggregateTypes.ShouldBeEmpty();
         slice.Specifications.ShouldBeEmpty();
         slice.Hotspots.ShouldBeEmpty();
