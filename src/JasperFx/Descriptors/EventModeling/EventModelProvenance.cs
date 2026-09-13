@@ -125,4 +125,15 @@ public enum EventModelRole
 
     /// <summary><see cref="EventModelSliceDescriptor.Chapter"/> (jasperfx#824).</summary>
     Chapter,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.Origin"/> — which source, as against which rung
+    /// (jasperfx#836).
+    /// </summary>
+    /// <remarks>
+    /// Appended rather than slotted in beside the rest: this enum goes over the wire as an integer
+    /// under the STJ defaults, so renumbering an existing member would silently re-label every
+    /// disagreement hotspot a running console already holds.
+    /// </remarks>
+    Origin,
 }
