@@ -398,7 +398,15 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// Default <b>false</b>, unlike most gates here, because this one is about the <em>fixture</em>
     /// rather than the store: replaying a tenant-to-database map means creating and dropping real
     /// databases, and a fixture that has never had to do it keeps compiling and skipping rather than
-    /// failing on a bump. Fisher is legitimately false — one file, one database.
+    /// failing on a bump. A store with no database-per-tenant tenancy is legitimately false.
+    /// </para>
+    /// <para>
+    /// <b>"Creating a database" is not equally expensive everywhere</b>, and it is worth not assuming
+    /// which store this is cheapest on. A Fisher tenant is a <em>file</em>, so provisioning one is a
+    /// file plus a migration where the siblings need a <c>CREATE DATABASE</c> — which makes this the
+    /// one suite in the set whose precondition is expensive on the other two stores and nearly free
+    /// there. Both arms run against throwaway SQLite files with no infrastructure at all
+    /// (jasperfx#831, fisher#252).
     /// </para>
     /// <para>
     /// Saying true is a commitment to both halves: replay
