@@ -163,6 +163,54 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
 
     public abstract Task<IProjectionDaemon> StartDaemonAsync();
 
+    /// <summary>
+    /// Block until every registered async projection and subscription has caught up to the event
+    /// store's head, so a read taken immediately afterwards sees fully projected data.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The contract is "every configured shard", not "every shard that has reported".</b> A shard
+    /// has no progression row at all until it commits its first batch, so an implementation that
+    /// gates on the rows it finds — "at least one row exists and every row present is caught up" —
+    /// is satisfied by a store where one projection has reached the head and another has never run.
+    /// The wait returns, and the suite's very next read sees a document that was never written.
+    /// </para>
+    /// <para>
+    /// Derive the expected set from the store's own configuration and require a row for each. On a
+    /// store with a single async projection the two readings are indistinguishable, which is why
+    /// this is worth stating: the gap only opens with two, and only while their commits are far
+    /// enough apart to notice — milliseconds on an idle box, long enough to fail a suite under
+    /// parallel CI load. polecat#602 shipped that defect and it surfaced as an intermittent failure
+    /// in <see cref="RebuildAndCatchUpCompliance{TFixture,TOperations,TQuerySession}" />, whose store
+    /// registers two async snapshots over the same events.
+    /// </para>
+    /// <para>
+    /// Two things an implementation is likely to get wrong on the way to satisfying that, both found
+    /// while fixing the above:
+    /// </para>
+    /// <list type="number">
+    /// <item>
+    /// <b>Match rows by identity string, not by a parsed triple.</b> A composite projection can
+    /// carry <c>Version = 0</c> on its shard while persisting the unversioned identity
+    /// <c>Name:All</c>, which parses back as version 1 — so matching on
+    /// <c>(name, shard key, version)</c> never matches its own row and the wait hangs its full
+    /// timeout over a projection that is caught up. A bare <c>count &gt;= expected</c> comparison
+    /// fails differently and worse: under per-tenant partitioning one configured shard writes a row
+    /// per tenant, so two rows for one shard stand in for a second shard that never ran, which is
+    /// the original defect again.
+    /// </item>
+    /// <item>
+    /// <b>Include subscriptions.</b> They write progression rows and the suites wait on them. If a
+    /// registered subscription appears never to report, suspect a broken agent before concluding it
+    /// is silent by design — jasperfx#827 meant a subscription could not start under a projection
+    /// coordinator at all, which read exactly like "subscriptions do not record progress".
+    /// </item>
+    /// </list>
+    /// <para>
+    /// A timeout should name which shards are behind and which never reported. Both traps above were
+    /// each diagnosed in a single run once the message did.
+    /// </para>
+    /// </remarks>
     public abstract Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout);
 
     /// <summary>
