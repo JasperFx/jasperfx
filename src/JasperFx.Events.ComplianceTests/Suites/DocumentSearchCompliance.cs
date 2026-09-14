@@ -233,8 +233,27 @@ public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageCompli
 
         hits.ShouldNotBeEmpty();
 
-        // Alpha tops both legs — nearest to the query vector, and its body carries the term.
-        hits[0].Document.Id.ShouldBe(AlphaId);
+        // ⚠️ THE union fact, and it is deliberately about WHICH SET comes first rather than which
+        // document. Alpha and Bravo each carry the term and each sit near the query vector, so both
+        // rank in both legs; Charlie ranks in the vector leg only. Reciprocal rank fusion puts a
+        // document scored by two legs above one scored by a single leg, and THAT is what a caller
+        // can rely on without knowing the store.
+        //
+        // ⚠️ <b>It used to assert hits[0] is Alpha, on the reasoning that Alpha tops both legs. It
+        // does not, and asserting it was a coin flip.</b> BM25 divides by document length, so the
+        // SHORTER of two documents carrying the term once outranks the longer — Bravo tops the text
+        // leg on every BM25 store while Alpha tops the vector leg, which leaves the two EXACTLY tied
+        // under RRF (measured on Fisher: 0.032522 each). Fuse then falls through to its last
+        // tie-break, Key.ToString() ordinal — and the keys here are fresh Guids, so the fact passed
+        // or failed at random. It was caught by the same run passing under one target framework and
+        // failing under the other.
+        //
+        // Restating it in terms of the union rather than making the corpus break the tie is the
+        // deliberate choice: which document a fused ranking puts first when the two legs disagree is
+        // a RELEVANCE question, decided by the tokenizer and the ranking parameters, and this suite
+        // says at the top that it is not a relevance suite and must not become one.
+        hits.Count.ShouldBeGreaterThanOrEqualTo(2);
+        hits.Take(2).Select(x => x.Document.Id).ShouldBe([AlphaId, BravoId], ignoreOrder: true);
 
         // ⚠️ Larger is better here, the OPPOSITE of VectorMatch<T>.Distance. Getting this backwards
         // is silent: the results are still documents, just the worst ones.

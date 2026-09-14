@@ -291,9 +291,17 @@ public partial class ComplianceSubscription
             // still-running earlier daemon's commit end the wait, after which the fact asserted on a
             // probe that had never been invoked (jasperfx#790). Unarmed, this is the old behavior,
             // which is what the delivery facts that never set a probe want.
+            //
+            // ⚠️ When ARMED, the counter alone is not enough and waiting on it alone reintroduced
+            // the very failure jasperfx#790 set out to remove, with the same message. RecordCommitAsync
+            // increments the counter inside the lock and only THEN awaits the probe, so a waiter
+            // watching the counter wakes up while VisibleAtCommit is still null and the fact asserts
+            // on an answer that has not been computed yet. Before jasperfx#790 the probe ran before
+            // the increment, which is why this window did not exist. Measured on Fisher: 5 failures
+            // in 9 runs on 2.71.0 against 0 in 3 on 2.70.0.
             lock (_lock)
             {
-                if (_commitCount > _armedAtCommitCount) return;
+                if (_commitCount > _armedAtCommitCount && (!_armed || VisibleAtCommit != null)) return;
             }
 
             await Task.Delay(50).ConfigureAwait(false);
