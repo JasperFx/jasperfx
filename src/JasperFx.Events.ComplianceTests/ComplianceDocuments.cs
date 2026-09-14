@@ -126,3 +126,40 @@ public class ComplianceShipment: IVersioned
     /// </summary>
     public Guid Version { get; set; }
 }
+
+/// <summary>
+/// A document carrying both a full-text-searchable body and an embedding, so the search suites can
+/// hold vector search, hybrid search and their filters to one definition (jasperfx#842).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>One document rather than two, deliberately.</b> A hybrid search fuses a text ranking and a
+/// vector ranking, and the shared contract's <c>HybridSearchWithScoresAsync</c> takes a single
+/// document type — so a suite that split them could not call it at all. Fusing ACROSS types is
+/// <see cref="Vectors.ReciprocalRankFusion" />'s job and is already covered by its own unit tests,
+/// which need no store.
+/// </para>
+/// <para>
+/// <b><see cref="Embedding" /> is <c>float[]</c>, which is the one vector member shape all three
+/// stores accept.</b> The stores differ underneath — pgvector's <c>vector(n)</c>, SQL Server's
+/// <c>VECTOR(n)</c>, Fisher's float32 blob — and each accepts more types than this. The contract
+/// holds them only to the intersection.
+/// </para>
+/// <para>
+/// <see cref="Scope" /> exists for jasperfx#843: the filter facts need a member whose value divides
+/// the corpus so that the globally nearest rows can be made to belong entirely to the wrong scope.
+/// </para>
+/// </remarks>
+public class ComplianceMemory
+{
+    public Guid Id { get; set; }
+
+    /// <summary>The text the full-text half of a hybrid search reads.</summary>
+    public string Body { get; set; } = string.Empty;
+
+    /// <summary>The partition a filter narrows to. See the remarks on the class.</summary>
+    public string Scope { get; set; } = string.Empty;
+
+    /// <summary>The embedding the vector half of a search reads.</summary>
+    public float[] Embedding { get; set; } = [];
+}

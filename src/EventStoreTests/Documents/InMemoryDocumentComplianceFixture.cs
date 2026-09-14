@@ -56,3 +56,16 @@ public class in_memory_document_query_compliance
 
 public class in_memory_document_commit_listener_compliance
     : DocumentCommitListenerCompliance<InMemoryDocumentComplianceFixture>;
+
+/// <summary>
+/// Enrolled so the search suite is COMPILED against a real fixture, not so it runs here.
+/// </summary>
+/// <remarks>
+/// <see cref="InMemoryDocumentComplianceFixture.SupportsVectorSearch" /> is the inherited
+/// <c>false</c>, so every fact skips: an in-memory store has no vector index and no full-text index,
+/// and faking one would assert the fake. What the enrollment buys is that the suite cannot rot —
+/// a signature change in <see cref="JasperFx.Events.Vectors.IDocumentSearchOperations" /> breaks this
+/// build rather than three stores' builds a release later.
+/// </remarks>
+public class in_memory_document_search_compliance
+    : DocumentSearchCompliance<InMemoryDocumentComplianceFixture>;

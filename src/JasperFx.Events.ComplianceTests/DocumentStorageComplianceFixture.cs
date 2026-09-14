@@ -125,6 +125,43 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     /// </remarks>
     public virtual bool SupportsOptimisticConcurrency => false;
 
+    /// <summary>
+    /// Does this store implement <see cref="Vectors.IDocumentSearchOperations.VectorSearchWithScoresAsync{T}" />,
+    /// reached through <see cref="IDocumentReadOperations.Search" />? Gates
+    /// <see cref="DocumentSearchCompliance{TFixture}" /> (jasperfx#842).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Default <b>false</b>, and it has to be: <see cref="IDocumentReadOperations.Search" /> carries a
+    /// throwing default, so a store that has not implemented search is a store that compiles and
+    /// throws — exactly the shape a capability flag is for. Flip it after implementing the member,
+    /// and note the fixture must also replay
+    /// <see cref="DocumentComplianceConfig.VectorIndexes" />: a vector search reads a DECLARED index,
+    /// so a fixture that ignores the declaration fails every fact rather than skipping.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>A store backed by an APPROXIMATE index should read the filter facts before flipping
+    /// this.</b> They assert that a predicate excluding every globally-nearest row still returns the
+    /// full limit, which an exact scan gives for free and an HNSW index does not: pgvector applies
+    /// the predicate after an index scan bounded by <c>hnsw.ef_search</c>. That is a real difference
+    /// between the stores rather than a bug in any of them, and it is why the corpus these facts use
+    /// is kept small enough to sit inside any sane bound.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsVectorSearch => false;
+
+    /// <summary>
+    /// Does this store implement <see cref="Vectors.IDocumentSearchOperations.HybridSearchWithScoresAsync{T}" />?
+    /// Gates the hybrid facts of <see cref="DocumentSearchCompliance{TFixture}" />.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="SupportsVectorSearch" /> because the two capabilities genuinely come
+    /// apart: hybrid search additionally needs a full-text index, which a store may not have at all
+    /// (or may have only for some member types), while vector search needs none. A fixture flipping
+    /// this must also replay <see cref="DocumentComplianceConfig.FullTextIndexes" />.
+    /// </remarks>
+    public virtual bool SupportsHybridSearch => false;
+
     public virtual ValueTask InitializeAsync() => default;
 
     public virtual ValueTask DisposeAsync() => default;
