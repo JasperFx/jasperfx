@@ -39,7 +39,18 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
         await theFixture.CleanEventDataAsync().ConfigureAwait(false);
     }
 
-    public virtual ValueTask DisposeAsync() => theFixture.DisposeAsync();
+    public virtual async ValueTask DisposeAsync()
+    {
+        // ⚠️ Before the fixture, and this ordering is the fix for jasperfx#790. xUnit builds a new
+        // test-class instance per fact, so this runs at the END OF EVERY FACT -- but the STORE the
+        // daemon runs against is cached across facts (keyed on the configuration delegate's
+        // identity, which is why implementations must return the same instance). A daemon left
+        // running therefore outlives the fact that started it and goes on delivering into the next
+        // one, against the single subscription instance the suite shares.
+        await StopDaemonAsync().ConfigureAwait(false);
+
+        await theFixture.DisposeAsync().ConfigureAwait(false);
+    }
 
     protected CancellationToken Cancellation => theFixture.Cancellation;
 
@@ -75,7 +86,59 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
     /// </summary>
     protected string EventTypeNameFor<T>() => theFixture.Registry.EventMappingFor(typeof(T)).EventTypeName;
 
-    protected Task<IProjectionDaemon> StartDaemonAsync() => theFixture.StartDaemonAsync();
+    private IProjectionDaemon? _daemon;
+
+    /// <summary>
+    /// Start the async daemon for this fact, stopping whatever the previous fact started.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <b>Stopping the previous one is the point, not tidiness</b> (jasperfx#790). Facts used to
+    /// start daemons and walk away, leaving the fixture to dispose them at CLASS teardown — so a
+    /// daemon from an earlier fact went on delivering and committing while a later fact ran, against
+    /// the one subscription instance the whole suite shares.
+    /// </para>
+    /// <para>
+    /// That produced a failure that looked like a store bug and was not:
+    /// <c>SubscriptionCompliance.the_listener_returned_by_the_subscription_runs_after_the_commit</c>
+    /// failing with <c>VisibleAtCommit should be True but was null</c>, roughly one run in a
+    /// thousand tests and never in isolation. A stale daemon's commit both consumed the
+    /// first-call-only probe slot and satisfied the fact's wait, so the fact asserted without its own
+    /// probe ever running. <c>NaturalKeyCompliance</c> has the same hazard by construction — three
+    /// facts start a daemon and immediately rebuild the very projection whose shard is running.
+    /// </para>
+    /// <para>
+    /// A store whose <c>StopAllAsync</c> throws during teardown is swallowed deliberately: this is
+    /// test hygiene between facts, and a failure here would mask the assertion the fact was making.
+    /// </para>
+    /// </remarks>
+    protected async Task<IProjectionDaemon> StartDaemonAsync()
+    {
+        await StopDaemonAsync().ConfigureAwait(false);
+
+        _daemon = await theFixture.StartDaemonAsync().ConfigureAwait(false);
+        return _daemon;
+    }
+
+    /// <summary>
+    /// Stop the daemon this suite started, if any. Safe to call when none was started.
+    /// </summary>
+    protected async Task StopDaemonAsync()
+    {
+        var running = _daemon;
+        _daemon = null;
+
+        if (running is null) return;
+
+        try
+        {
+            await running.StopAllAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // See the remarks on StartDaemonAsync: teardown noise must not mask a fact's assertion.
+        }
+    }
 
     /// <summary>
     /// Build and start an application host with the store registered the documented way plus its

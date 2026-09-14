@@ -66,6 +66,8 @@ public partial class ComplianceSubscription
     private readonly List<IEvent> _received = new();
     private int _pageCount;
     private int _commitCount;
+    private bool _armed;
+    private int _armedAtCommitCount;
 
     /// <summary>
     /// The event types this subscription declared an allow list for. A registrar's
@@ -99,7 +101,11 @@ public partial class ComplianceSubscription
     /// <see cref="ProjectionSideEffectCompliance{TFixture,TOperations,TQuerySession}"/>, this one
     /// carries no deadlock hazard: by the time it runs, the batch's transaction is already closed.
     /// </remarks>
-    public Func<Task<bool>>? CommitProbe { get; set; }
+    /// <remarks>
+    /// ⚠️ Set through <see cref="ArmCommitProbe" /> rather than directly — the setter is private so
+    /// that the jasperfx#790 race cannot be reintroduced by a future fact assigning it.
+    /// </remarks>
+    public Func<Task<bool>>? CommitProbe { get; private set; }
 
     /// <summary>
     /// How many times the change listener returned by <c>ProcessEventsAsync</c> was called after a
@@ -181,14 +187,27 @@ public partial class ComplianceSubscription
     /// </remarks>
     public async Task RecordCommitAsync()
     {
-        if (CommitProbe != null && VisibleAtCommit == null)
-        {
-            VisibleAtCommit = await CommitProbe().ConfigureAwait(false);
-        }
+        Func<Task<bool>>? probe;
 
         lock (_lock)
         {
             _commitCount++;
+
+            // Read the probe UNDER THE LOCK, together with the counter it belongs to. Reading it
+            // outside meant a probe armed by the next fact could be run by this commit.
+            probe = _armed ? CommitProbe : null;
+            if (probe != null && VisibleAtCommit != null) probe = null;
+        }
+
+        if (probe != null)
+        {
+            var seen = await probe().ConfigureAwait(false);
+
+            lock (_lock)
+            {
+                // Still first-wins, but now only among commits that happened after arming.
+                VisibleAtCommit ??= seen;
+            }
         }
     }
 
@@ -205,14 +224,50 @@ public partial class ComplianceSubscription
     /// </remarks>
     public void Clear()
     {
-        CommitProbe = null;
-        VisibleAtCommit = null;
-
         lock (_lock)
         {
+            CommitProbe = null;
+            VisibleAtCommit = null;
+            _armed = false;
+            _armedAtCommitCount = 0;
             _received.Clear();
             _pageCount = 0;
             _commitCount = 0;
+        }
+    }
+
+    /// <summary>
+    /// Arm <see cref="CommitProbe" /> for the commit this fact is about to cause, and remember how
+    /// many commits had already been seen.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <b>Use this rather than assigning <see cref="CommitProbe" /> directly</b> (jasperfx#790).
+    /// Assigning the property leaves two gaps that a daemon still running from an earlier fact falls
+    /// straight through: its commit lands while the probe is null, consuming the first-call-only
+    /// slot so <see cref="VisibleAtCommit" /> stays null, AND it increments the counter that
+    /// <see cref="WaitForCommitAsync" /> waits on — so the fact stops waiting and asserts on a
+    /// commit that was never its own. The observed failure was
+    /// <c>VisibleAtCommit should be True but was null</c>, which reads as a store bug and is not
+    /// one: null means the probe was never invoked, where a store that ran the listener before the
+    /// commit would give <see langword="false" />.
+    /// </para>
+    /// <para>
+    /// Stopping each fact's daemon at teardown is the structural half of the fix and lives in
+    /// <c>EventStoreComplianceSuite.DisposeAsync</c>. This is the half that makes the suite correct
+    /// even if a store's daemon is slow to stop.
+    /// </para>
+    /// </remarks>
+    public void ArmCommitProbe(Func<Task<bool>> probe)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+
+        lock (_lock)
+        {
+            CommitProbe = probe;
+            VisibleAtCommit = null;
+            _armed = true;
+            _armedAtCommitCount = _commitCount;
         }
     }
 
@@ -232,7 +287,15 @@ public partial class ComplianceSubscription
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            if (CommitCount > 0) return;
+            // Commits that predate ArmCommitProbe do not count. Waiting on a bare "> 0" let a
+            // still-running earlier daemon's commit end the wait, after which the fact asserted on a
+            // probe that had never been invoked (jasperfx#790). Unarmed, this is the old behavior,
+            // which is what the delivery facts that never set a probe want.
+            lock (_lock)
+            {
+                if (_commitCount > _armedAtCommitCount) return;
+            }
+
             await Task.Delay(50).ConfigureAwait(false);
         }
 
@@ -648,11 +711,11 @@ public abstract class SubscriptionCompliance<TFixture, TOperations, TQuerySessio
         var eventIds = (await eventsForAsync(streamId)).Select(x => x.Id).ToArray();
         var lastId = eventIds[^1];
 
-        _subscription.CommitProbe = async () =>
+        _subscription.ArmCommitProbe(async () =>
         {
             await using var probe = OpenSession();
             return await LoadDocumentAsync<ComplianceSubscriptionNote>(probe, lastId) != null;
-        };
+        });
 
         await StartDaemonAsync();
         await _subscription.WaitForCommitAsync(_timeout);
