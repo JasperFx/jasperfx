@@ -234,6 +234,27 @@ is lowercase hex SHA-256 of the UTF-8 text, spelled out in one place because two
 differently is invisible until a corpus moves between them, and a store that changed its spelling
 would silently re-embed everything it holds.
 
+## Holding a store to it
+
+`JasperFx.Events.ComplianceTests` ships `DocumentSearchCompliance`, the shared suite every store
+enrolls. It is **not** a relevance suite — how good a ranking is depends on the tokenizer, the index
+parameters and the embedding model, none of which are shared. It pins the things a store-agnostic
+caller cannot discover for itself:
+
+- nearest comes first, and `Distance` is a **distance** on every metric — smaller is closer
+- a hybrid `Score` runs the other way, larger is better
+- the store's own implicit predicates — tenancy, soft deletes, a document hierarchy — apply as they
+  do to `Query<T>()`
+- a `filter` narrows **before** the limit, so a predicate excluding every globally-nearest row still
+  returns the full limit
+- a query vector of the wrong length is refused rather than answered
+
+Each of those was divergent in at least one store when the suite was written, which is why it exists.
+Enroll it with an empty subclass, flip `SupportsVectorSearch` / `SupportsHybridSearch` on the
+fixture, and replay `DocumentComplianceConfig.VectorIndexes` and `FullTextIndexes` — a vector search
+reads a *declared* index, so a fixture that skips the declaration fails every fact rather than
+skipping them.
+
 ## Embedding providers
 
 `IEmbeddingProvider` is the one thing you write. It takes an array because embedding models charge

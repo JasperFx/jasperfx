@@ -402,6 +402,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Area | Suite |
 |---|---|
 | Self-aggregating `EvolveAsync` conventions | `SelfAggregatingEvolveCompliance` |
+| Vector and hybrid search, and their filters | `DocumentSearchCompliance` |
 | DCB tag queries and consistency | `DcbTagQueryAndConsistencyCompliance` |
 | `AssignTagWhere` | `AssignTagWhereCompliance` |
 | DCB `HasTag` predicates in event LINQ queries | `DcbHasTagLinqCompliance` |
@@ -761,6 +762,28 @@ holding only an `IQueryable<T>` has no way to discover whether a store translate
 does not. That set is closed by measurement (the operators `CritterWatch.Services` actually applies
 to a `Query<T>()` chain), not open by principle. Operators outside it stay product-owned however many
 stores happen to support them.
+
+`DocumentSearchCompliance` (jasperfx#842/#843) is the other apparent counter-example, and the line
+it holds is different again. **It is not a relevance suite and must not become one.** How good a
+store's ranking is depends on its tokenizer, its index parameters and whatever embedding model the
+caller brought, none of which are shared — so nothing here asserts that a *better* match outranks a
+worse one on text. What it pins is the handful of things a store-agnostic caller cannot discover for
+itself: that nearest comes first, that the score is a **distance** (smaller is closer) on every
+metric while a hybrid score is the opposite, that the store's own implicit predicates apply as they
+do to `Query<T>()`, that a filter narrows *before* the limit, and that a wrong-length query vector is
+refused rather than answered.
+
+Every one of those was divergent somewhere when the suite was written, which is the argument for it:
+fisher#285 ignored conjoined tenancy and the hierarchy filter outright, and neither Marten.PgVector
+search had a soft-delete predicate where Polecat and Fisher both did. The suite is gated on
+`SupportsVectorSearch` / `SupportsHybridSearch`, both default **false**, because
+`IDocumentReadOperations.Search` carries a throwing default — a store that has not implemented search
+compiles and throws, which is exactly what a capability gate is for.
+
+Note the one thing a fixture must do beyond flipping the flag: replay
+`DocumentComplianceConfig.VectorIndexes` and `FullTextIndexes`. A vector search reads a **declared**
+index, and every store spells that declaration on its own options object, so a fixture that ignores
+the declaration fails every fact rather than skipping — the jasperfx#672 rule again.
 
 Session semantics *are* now in scope, via the document contract above. The rest of the document-db
 side — patching, bulk insert, LINQ joins / grouping / `Include`, soft-delete semantics, document

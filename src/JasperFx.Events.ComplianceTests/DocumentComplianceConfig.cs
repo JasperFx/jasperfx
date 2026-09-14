@@ -71,6 +71,61 @@ public sealed class DocumentComplianceConfig
     }
 
     /// <summary>
+    /// Vector indexes the suite needs declared, for the search suites (jasperfx#842).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A vector search cannot be made to work by implementing the contract alone: it reads a
+    /// DECLARED index, and every store spells that declaration on its own options object
+    /// (<c>Schema.For&lt;T&gt;().VectorIndex(...)</c>, <c>StoreOptions.VectorIndex&lt;T&gt;(...)</c>).
+    /// So by the jasperfx#672 rule this has to come through the config: a precondition the config
+    /// cannot carry is one each fixture has to guess at, and a store that implements
+    /// <see cref="Vectors.IDocumentSearchOperations" /> correctly would still fail.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>The distance is part of the declaration and the suite depends on it.</b> An index
+    /// declared for one metric does not answer another one well — on pgvector a mismatched operator
+    /// class makes the index silently unused — so a fixture replaying this must carry the metric
+    /// across, not just the member and the dimensions.
+    /// </para>
+    /// <para>
+    /// Ignoring this does not make the search suites skip; gate them with
+    /// <see cref="DocumentStorageComplianceFixture.SupportsVectorSearch" /> instead.
+    /// </para>
+    /// </remarks>
+    public List<VectorIndexDeclaration> VectorIndexes { get; } = new();
+
+    /// <inheritdoc cref="VectorIndexes" />
+    public DocumentComplianceConfig AddVectorIndex<T>(
+        string memberName,
+        int dimensions,
+        Vectors.DistanceFunction distance = Vectors.DistanceFunction.Cosine) where T : notnull
+    {
+        VectorIndexes.Add(new VectorIndexDeclaration(typeof(T), memberName, dimensions, distance));
+        return this;
+    }
+
+    /// <summary>
+    /// Full-text indexes the suite needs declared, for the text leg of a hybrid search.
+    /// </summary>
+    /// <remarks>
+    /// Here for the same reason as <see cref="VectorIndexes" />, and with one extra caveat: what a
+    /// store does with the declared members genuinely differs — Postgres builds a <c>tsvector</c>,
+    /// SQLite an FTS5 table, SQL Server a full-text catalogue — so the suites hold the RANKING
+    /// CONTRACT (a document containing the terms outranks one that does not) rather than any
+    /// particular tokenizer's idea of a match. Stemming, stop words and weighting stay product
+    /// concerns.
+    /// </remarks>
+    public List<FullTextIndexDeclaration> FullTextIndexes { get; } = new();
+
+    /// <inheritdoc cref="FullTextIndexes" />
+    public DocumentComplianceConfig AddFullTextIndex<T>(params string[] memberNames) where T : notnull
+    {
+        FullTextIndexes.Add(new FullTextIndexDeclaration(typeof(T), memberNames));
+        return this;
+    }
+
+    /// <summary>
     /// Strong-typed identifier wrappers used as document identities in this configuration.
     /// </summary>
     /// <remarks>
@@ -217,3 +272,22 @@ public sealed class DocumentComplianceConfig
         return this;
     }
 }
+
+/// <summary>
+/// One vector index a suite needs declared. See <see cref="DocumentComplianceConfig.VectorIndexes" />.
+/// </summary>
+/// <param name="DocumentType">The document the index is declared on.</param>
+/// <param name="MemberName">The vector member's name, which a fixture turns into its own expression.</param>
+/// <param name="Dimensions">The vector length. Part of the column type on every store.</param>
+/// <param name="Distance">The metric the index is built for. See the remarks on VectorIndexes.</param>
+public sealed record VectorIndexDeclaration(
+    Type DocumentType,
+    string MemberName,
+    int Dimensions,
+    Vectors.DistanceFunction Distance);
+
+/// <summary>
+/// One full-text index a suite needs declared. See
+/// <see cref="DocumentComplianceConfig.FullTextIndexes" />.
+/// </summary>
+public sealed record FullTextIndexDeclaration(Type DocumentType, string[] MemberNames);

@@ -184,7 +184,17 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         }
         catch
         {
-            await batch.DisposeAsync();
+            // ⚠️ Null-checked, because the ONLY path that reaches this catch before `batch` is
+            // assigned is the build throwing -- which is the very case this catch exists for. An
+            // unguarded dispose raised a NullReferenceException that REPLACED the projection's own
+            // exception (the `throw` below never ran), so every projection failure during batch
+            // construction reported "Object reference not set to an instance of an object" and the
+            // real cause was gone. See https://github.com/JasperFx/jasperfx/issues/847.
+            if (batch is not null)
+            {
+                await batch.DisposeAsync().ConfigureAwait(false);
+            }
+
             throw;
         }
     }
