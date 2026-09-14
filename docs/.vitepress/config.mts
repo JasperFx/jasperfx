@@ -22,6 +22,7 @@ export default withMermaid(
         { text: 'Code Generation', link: '/codegen/' },
         { text: 'Command Line', link: '/cli/' },
         { text: 'Configuration', link: '/configuration/critter-stack-defaults' },
+        { text: 'Search', link: '/search/' },
         {
           text: 'Ecosystem',
           items: [
@@ -78,6 +79,13 @@ export default withMermaid(
             { text: 'Environment Checks', link: '/cli/environment-checks' },
             { text: 'Describe Command', link: '/cli/describe' },
             { text: 'Aspire Dashboard Integration', link: '/cli/aspire' }
+          ]
+        },
+        {
+          text: 'Similarity Search',
+          collapsed: false,
+          items: [
+            { text: 'Vector & Hybrid Search', link: '/search/' }
           ]
         },
         {
