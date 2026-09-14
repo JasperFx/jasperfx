@@ -8,10 +8,31 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Projections;
 
+/// <summary>
+///     A projection source that is a wrapper around a projection the user actually wrote.
+/// </summary>
+/// <remarks>
+///     ⚠️ <b>This exists so that a validity check asks the user's own projection rather than the
+///     wrapper.</b> <see cref="ProjectionGraph{TOperations,TQuerySession}.AssertValidity{T}" /> tests
+///     each registered source with <c>OfType&lt;IValidatedProjection&lt;T&gt;&gt;</c>, and a wrapper is
+///     not its inner projection's type — so a hand-written <see cref="IJasperFxProjection{T}" /> that
+///     implemented <see cref="IValidatedProjection{T}" /> was never asked, and its configuration
+///     checks silently never ran. It failed OPEN, which is the worst way for a validation to fail: a
+///     projection whose checks are the thing standing between a misconfiguration and a corrupted
+///     read model registered without complaint. See
+///     <see href="https://github.com/JasperFx/jasperfx/issues/845" />.
+/// </remarks>
+public interface IProjectionWrapper
+{
+    /// <summary>The projection the user registered, which this source wraps.</summary>
+    object InnerProjection { get; }
+}
+
 public class ProjectionWrapper<TOperations, TQuerySession> :
     ProjectionBase,
     IProjectionSource<TOperations, TQuerySession>,
     ISubscriptionFactory<TOperations, TQuerySession>,
+    IProjectionWrapper,
     IInlineProjection<TOperations>
     where TOperations : TQuerySession, IStorageOperations
 {
@@ -62,6 +83,8 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
     }
 
     [ChildDescription] public IJasperFxProjection<TOperations> Inner { get; }
+
+    object IProjectionWrapper.InnerProjection => Inner;
 
     public Type ProjectionType => _projection.GetType();
 

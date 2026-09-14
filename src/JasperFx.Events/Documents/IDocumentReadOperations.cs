@@ -93,6 +93,33 @@ public interface IDocumentReadOperations : IAsyncDisposable
             $"{GetType().FullName} does not implement {nameof(IDocumentReadOperations)}.{nameof(Events)}, so the event store cannot be reached from a session this store opened. Note that C# interface implementation is not return-type covariant: a session declaring an Events property of the product's own event-store type does not satisfy this member, and needs a one-line explicit implementation forwarding to it.");
 
     /// <summary>
+    /// The similarity-search API for this session — vector search and hybrid search.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The route from a store-agnostic session to search, and the reason it is a property rather than
+    /// a set of members here: every store already ships extension methods named
+    /// <c>VectorSearchWithScoresAsync</c> and <c>HybridSearchWithScoresAsync</c> on its own session.
+    /// Members of those names on this interface would win overload resolution over those extensions at
+    /// every existing call site, silently and with different behavior, because it is the store's own
+    /// extension that knows its tenancy and soft-delete predicates. An accessor cannot collide. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/842" />.
+    /// </para>
+    /// <para>
+    /// Read tier, because a search reads. Carries a throwing default for the same reason
+    /// <see cref="Events" /> does: a store picks up a new JasperFx without a compile break and adopts
+    /// the member when it is ready, and what holds it to the real behavior is the shared compliance
+    /// suite rather than the compiler.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when the store has not implemented this member.
+    /// </exception>
+    Vectors.IDocumentSearchOperations Search
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentReadOperations)}.{nameof(Search)}, so vector and hybrid search cannot be reached from a session this store opened. A store that has search implements this member by returning an object implementing IDocumentSearchOperations; one that has none leaves this default in place.");
+
+    /// <summary>
     /// Load a single document by its <see cref="Guid" /> identity, or <see langword="null" /> when
     /// no document exists with that identity.
     /// </summary>

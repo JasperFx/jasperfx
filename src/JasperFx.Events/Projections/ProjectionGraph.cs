@@ -487,7 +487,13 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
             throw new DuplicateSubscriptionNamesException(duplicateNames.Join("; "));
         }
 
+        // Unwrapped first, because a source is not necessarily the projection the user wrote. A bare
+        // IJasperFxProjection is registered through a ProjectionWrapper, and the wrapper is not its
+        // inner projection's type — so a projection carrying its own configuration checks used to be
+        // skipped here without a word (jasperfx#845). Distinct() after flattening, so a projection
+        // reachable both directly and through a wrapper is still asked exactly once.
         var messages = All.Concat(_liveAggregateSources.Values)
+            .Select(x => x is IProjectionWrapper wrapper ? wrapper.InnerProjection : x)
             .OfType<IValidatedProjection<T>>()
             .Distinct()
             .SelectMany(x => x.ValidateConfiguration(options))
