@@ -72,11 +72,14 @@ var top = hits.Where(h => h.Document.Scope == "project-a").Take(10);
 The store's own implicit predicates — conjoined tenancy, soft deletes, a document hierarchy — apply
 as they would to `Query<T>()`. The filter is in addition to those, not instead of them.
 
-::: warning Approximate indexes cap recall
-A store backed by an approximate index may return fewer than `limit` rows for a selective filter,
-because the filter is applied to what the index scan produced and that scan has a bound of its own
-(pgvector's `hnsw.ef_search`, default 40). Stores doing an exact scan have no such bound. Each store
-documents its own recall limits.
+::: warning Approximate indexes and recall
+An approximate index bounds how many candidates one index scan considers, and a filter is applied to
+what that scan produced, so a selective filter can thin the result below `limit`. Marten sizes
+pgvector's `hnsw.ef_search` to each search (never below pgvector's default of 40, never above its
+ceiling of 1000) and, on pgvector 0.8 and later, turns on iterative scan so a filtered search still
+returns its limit. An indexed search asking for more than 1000 rows, or a selective filter on an older
+pgvector, can still come back short. Stores doing an exact scan, Polecat and Fisher today, have no
+such bound. Each store documents its own recall limits.
 :::
 
 ## Hybrid search
@@ -104,7 +107,8 @@ public sealed record HybridSearchOptions(
     int? CandidateDepth = null,
     DistanceFunction? Distance = null,
     HybridTextStyle TextStyle = HybridTextStyle.PlainText,
-    string? RegConfig = null);
+    string? RegConfig = null,
+    IReadOnlyList<double>? ColumnWeights = null);
 ```
 
 - **`Distance = null` means "the metric the index declared"** and should almost always be left alone.
@@ -116,6 +120,25 @@ public sealed record HybridSearchOptions(
   box's raw contents. A store's raw query syntax is absent because it can be malformed, and a
   malformed query in one leg of a fused search fails the *whole* call.
 - **`RegConfig`** is meaningful only on a Postgres-backed store; others ignore it.
+- **`ColumnWeights`** weighs the text leg's indexed columns against each other, one weight per column
+  in the order the full-text index declared them. Reciprocal rank fusion reads the text leg's *order*,
+  so weighting a title above a body changes which documents make the candidate depth and how they
+  fuse. It is honoured only by a store that ranks per column at query time, which today is **Fisher**,
+  whose FTS5 `bm25()` takes one weight per column. **Marten** weights at index time through
+  `WeightedFullTextIndex` and **Polecat** ranks a single member, so both refuse a non-null value by
+  name rather than ignore it. A weight count that doesn't match the index, an empty list, and a
+  non-finite weight are all refused, because a ranking that is quietly not the one you asked for is
+  the defect this option exists to remove.
+
+```csharp
+// Fisher: a hit in the first indexed column counts three times a hit in the second
+var results = await session.Search.HybridSearchWithScoresAsync<Memory>(
+    x => x.Embedding,
+    text: "connection pool timeouts",
+    query: queryVector,
+    limit: 10,
+    options: new HybridSearchOptions(ColumnWeights: [3.0, 1.0]));
+```
 
 ## Reciprocal rank fusion
 
@@ -281,5 +304,28 @@ nothing.
 
 A model call is a network round trip, so where it is called from matters more than what it returns.
 Run from a session's pre-commit hook it holds the store's write transaction open for that round trip,
-which on a single-writer store blocks every other writer for the duration. Vector projections run it
-from the async daemon for that reason; an inline path is for tests and tiny workloads only.
+which on a single-writer store blocks every other writer for the duration. That is why **Polecat and
+Fisher refuse to register a vector projection as anything but async**. Marten allows inline, where the
+writes still commit with the caller's events, but async is the one to prefer in production. On every
+store, a map built with `MapFromAggregate` needs async, because it aggregates committed events and an
+inline pass runs before the triggering event has committed.
+
+## Store documentation
+
+Each store documents its own engine, recall limits, and refusals:
+
+- **Marten** (PostgreSQL, through `Marten.PgVector`):
+  [vector, hybrid search and vector projections](https://martendb.io/documents/pgvector),
+  [full-text search](https://martendb.io/documents/full-text)
+- **Polecat** (SQL Server 2025):
+  [full-text search](https://polecat.jasperfx.net/documents/querying/full-text-search),
+  [vector search](https://polecat.jasperfx.net/documents/querying/vector-search),
+  [hybrid search](https://polecat.jasperfx.net/documents/querying/hybrid-search),
+  [store-neutral search](https://polecat.jasperfx.net/documents/querying/store-neutral-search),
+  [vector projections](https://polecat.jasperfx.net/events/projections/vector-projections)
+- **Fisher** (SQLite):
+  [full-text search](https://fisher.jasperfx.net/documents/querying/linq/full-text),
+  [vector search](https://fisher.jasperfx.net/documents/querying/vector-search),
+  [hybrid search](https://fisher.jasperfx.net/documents/querying/hybrid-search),
+  [store-agnostic search](https://fisher.jasperfx.net/documents/querying/store-agnostic-search),
+  [vector projections](https://fisher.jasperfx.net/events/projections/vector)
