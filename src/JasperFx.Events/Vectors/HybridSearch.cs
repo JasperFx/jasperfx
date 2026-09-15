@@ -42,12 +42,38 @@ public enum HybridTextStyle
 ///     The Postgres text-search configuration. Meaningful only on a Postgres-backed store; null means
 ///     the store's own default, and stores that have no such concept ignore it.
 /// </param>
+/// <param name="ColumnWeights">
+///     Per-column weights for the text leg's relevance ranking, in the order the full-text index
+///     declared its members (jasperfx#854, for fisher#289). Null — the default — weighs every column
+///     the same.
+///     <para>
+///         <b>The text leg decides which candidates exist at all</b>, which is why this belongs on the
+///         options rather than being left to a caller's own ordering. RRF fuses <em>ranks</em>, so the
+///         text leg's order picks who survives <c>CandidateDepth</c> and how much each survivor
+///         contributes. A store with a title column and a body column cannot express "a title hit
+///         outweighs a body hit" through a hybrid search without this.
+///     </para>
+///     <para>
+///         ⚠️ <b>Honoured only by a store that ranks per column at query time.</b> That is Fisher, whose
+///         <c>bm25()</c> takes one weight per indexed column. Marten weights at INDEX time through
+///         <c>WeightedFullTextIndex</c>, and Polecat's full-text ranking addresses a single member, so
+///         neither has anywhere to put these. Both refuse a non-null value by name rather than
+///         ignoring it — see <see cref="AssertColumnWeightsAreNotSupported" />.
+///     </para>
+///     <para>
+///         Like every collection on a record, this compares by REFERENCE under the generated
+///         <c>Equals</c>, so two options that differ only by an equal-valued weights array are not
+///         <c>==</c>. That matches the other report records in this assembly, which is why no custom
+///         equality is declared here.
+///     </para>
+/// </param>
 public sealed record HybridSearchOptions(
     int K = 60,
     int? CandidateDepth = null,
     DistanceFunction? Distance = null,
     HybridTextStyle TextStyle = HybridTextStyle.PlainText,
-    string? RegConfig = null)
+    string? RegConfig = null,
+    IReadOnlyList<double>? ColumnWeights = null)
 {
     /// <summary>The default candidate depth for a given limit.</summary>
     public static int DefaultCandidateDepth(int limit) => Math.Max(limit * 4, 50);
@@ -85,6 +111,78 @@ public sealed record HybridSearchOptions(
         }
 
         return depth;
+    }
+
+    /// <summary>
+    ///     The column weights this search should hand its text leg, checked against the number of
+    ///     members the full-text index actually declared. Null means "weigh every column the same".
+    /// </summary>
+    /// <param name="indexedColumnCount">
+    ///     How many members the type's full-text index declared. The store supplies this because only
+    ///     the store knows it; every refusal ABOUT it lives here, so a second store honouring weights
+    ///     does not invent its own wording (jasperfx#844).
+    /// </param>
+    /// <remarks>
+    ///     <b>A wrong-length array is refused rather than padded or truncated</b>, matching Fisher's
+    ///     <c>OrderByRelevance(params double[])</c>. Padding would silently weigh the columns the
+    ///     caller forgot at 1.0, and a ranking that is quietly not the one you asked for is the defect
+    ///     this option exists to remove, not a tolerance worth having.
+    /// </remarks>
+    public IReadOnlyList<double>? ResolveColumnWeights(int indexedColumnCount)
+    {
+        if (ColumnWeights is null)
+        {
+            return null;
+        }
+
+        if (ColumnWeights.Count == 0)
+        {
+            throw new ArgumentException(
+                "ColumnWeights was supplied but empty. Leave it null for the default, which weighs "
+                + "every indexed column at 1.0.", nameof(ColumnWeights));
+        }
+
+        if (ColumnWeights.Count != indexedColumnCount)
+        {
+            throw new ArgumentException(
+                $"ColumnWeights has {ColumnWeights.Count} weights but the full-text index declares "
+                + $"{indexedColumnCount} column(s). Supply one weight per indexed member, in the order "
+                + "the index declared them.", nameof(ColumnWeights));
+        }
+
+        for (var i = 0; i < ColumnWeights.Count; i++)
+        {
+            var weight = ColumnWeights[i];
+            if (double.IsNaN(weight) || double.IsInfinity(weight))
+            {
+                throw new ArgumentException(
+                    $"ColumnWeights[{i}] is {weight}, which cannot rank anything. Supply a finite "
+                    + "weight per indexed column.", nameof(ColumnWeights));
+            }
+        }
+
+        return ColumnWeights;
+    }
+
+    /// <summary>
+    ///     Refuse a non-null <see cref="ColumnWeights" /> by name, for a store that has nowhere to put
+    ///     per-column weights at query time.
+    /// </summary>
+    /// <remarks>
+    ///     <b>Refusing beats ignoring, and the reason is the whole argument for sharing this type.</b>
+    ///     A caller who weights their title column and silently gets an unweighted ranking has no way
+    ///     to discover it — the search still returns plausible documents in a plausible order. It is
+    ///     the same failure shape as the <see cref="Distance" /> default that made three stores answer
+    ///     differently with nothing reported.
+    /// </remarks>
+    public void AssertColumnWeightsAreNotSupported(string storeName, string alternative)
+    {
+        if (ColumnWeights is not null)
+        {
+            throw new NotSupportedException(
+                $"{storeName} cannot weight full-text columns at query time, so HybridSearchOptions."
+                + $"ColumnWeights has no effect here and is refused rather than ignored. {alternative}");
+        }
     }
 }
 

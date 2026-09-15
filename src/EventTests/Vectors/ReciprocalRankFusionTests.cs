@@ -162,6 +162,7 @@ public class HybridSearchOptionsTests
         options.CandidateDepth.ShouldBeNull();
         options.TextStyle.ShouldBe(HybridTextStyle.PlainText);
         options.RegConfig.ShouldBeNull();
+        options.ColumnWeights.ShouldBeNull();
     }
 
     [Fact]
@@ -191,5 +192,78 @@ public class HybridSearchOptionsTests
     {
         Should.Throw<ArgumentOutOfRangeException>(() => new HybridSearchOptions(K: 0).ResolveCandidateDepth(10));
         Should.Throw<ArgumentOutOfRangeException>(() => new HybridSearchOptions().ResolveCandidateDepth(0));
+    }
+
+    // Per-column weights for the text leg (jasperfx#854, for fisher#289). Only a store that ranks per
+    // column at query time can honour them, so the refusals live here rather than in that one store.
+    [Fact]
+    public void no_column_weights_means_every_column_weighs_the_same()
+    {
+        new HybridSearchOptions().ResolveColumnWeights(3).ShouldBeNull();
+    }
+
+    [Fact]
+    public void column_weights_matching_the_index_are_taken_as_given()
+    {
+        new HybridSearchOptions(ColumnWeights: [3.0, 1.0, 2.0])
+            .ResolveColumnWeights(3)
+            .ShouldBe([3.0, 1.0, 2.0]);
+    }
+
+    [Fact]
+    public void refuses_a_weight_per_column_count_that_does_not_match_the_index()
+    {
+        // ⚠️ Refused rather than padded: padding weighs the forgotten columns at 1.0 and returns a
+        // ranking that is quietly not the one the caller asked for.
+        var tooFew = Should.Throw<ArgumentException>(() =>
+            new HybridSearchOptions(ColumnWeights: [3.0, 1.0]).ResolveColumnWeights(3));
+        tooFew.Message.ShouldContain("2 weights");
+        tooFew.Message.ShouldContain("3 column(s)");
+
+        Should.Throw<ArgumentException>(() =>
+            new HybridSearchOptions(ColumnWeights: [3.0, 1.0, 2.0, 1.0]).ResolveColumnWeights(3));
+    }
+
+    [Fact]
+    public void refuses_an_empty_weights_array_rather_than_reading_it_as_the_default()
+    {
+        // An empty array is a caller who built the weights and got none, not a caller who wants the
+        // default — null is how you ask for the default.
+        Should.Throw<ArgumentException>(() =>
+            new HybridSearchOptions(ColumnWeights: []).ResolveColumnWeights(3));
+    }
+
+    [Fact]
+    public void refuses_a_weight_that_cannot_rank_anything()
+    {
+        Should.Throw<ArgumentException>(() =>
+            new HybridSearchOptions(ColumnWeights: [1.0, double.NaN, 2.0]).ResolveColumnWeights(3))
+            .Message.ShouldContain("ColumnWeights[1]");
+
+        Should.Throw<ArgumentException>(() =>
+            new HybridSearchOptions(ColumnWeights: [double.PositiveInfinity, 1.0, 2.0])
+                .ResolveColumnWeights(3));
+    }
+
+    [Fact]
+    public void a_negative_weight_is_allowed_because_it_means_something()
+    {
+        // bm25 takes any finite weight; a negative one makes a column count AGAINST a document. Odd,
+        // but well-defined, so it is not ours to refuse.
+        new HybridSearchOptions(ColumnWeights: [1.0, -1.0]).ResolveColumnWeights(2)
+            .ShouldBe([1.0, -1.0]);
+    }
+
+    [Fact]
+    public void a_store_that_cannot_weight_columns_refuses_them_by_name()
+    {
+        // ⚠️ The whole point of putting this on the SHARED record: a store with nowhere to put the
+        // weights must say so, because a silently unweighted ranking still looks like an answer.
+        new HybridSearchOptions().AssertColumnWeightsAreNotSupported("Marten", "Use WeightedFullTextIndex.");
+
+        Should.Throw<NotSupportedException>(() =>
+                new HybridSearchOptions(ColumnWeights: [3.0, 1.0])
+                    .AssertColumnWeightsAreNotSupported("Marten", "Use WeightedFullTextIndex."))
+            .Message.ShouldContain("Use WeightedFullTextIndex.");
     }
 }
