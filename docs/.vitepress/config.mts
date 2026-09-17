@@ -55,6 +55,13 @@ export default withMermaid(
           ]
         },
         {
+          text: 'Event Sourcing',
+          collapsed: false,
+          items: [
+            { text: 'Unit Testing Handlers', link: '/events/unit-testing-handlers' }
+          ]
+        },
+        {
           text: 'Code Generation',
           collapsed: false,
           items: [
