@@ -113,6 +113,26 @@ hotspot.LosingClaim;   // (Derived,  "OrderPlaced")                — what it d
 
 A pair rather than a list because merges are pairwise: three sources disagreeing about one role leave two findings, each naming the two claims that actually met.
 
+### A rung is not an identity
+
+`Provenance` says which rung a claim came from, and a rung can hold **several sources**. Spec-first work has a declared model file *and* specs, and both are `Declared` by construction; add production observation and several sources can share `Observed` too. So a finding rendered from the rung alone says almost nothing:
+
+> ⚠ `Pattern: Declared claims Automation; Declared claims Command`
+
+That reads as one source contradicting itself, and there is no way to find either party. A source fixes it by naming itself — stamp `Origin` on the slices it contributes, with whatever identity it can supply: a file path, a suite or assembly name, a store URI. The finding then names them:
+
+> ⚠ `Pattern: file://CritterCrush.emodel.yaml claims Automation; suite://CritterCrush.Specs claims Command`
+
+and each claim carries the identity beside the rung, which is still how you decide which one to trust:
+
+```cs
+hotspot.WinningClaim.Provenance;  // EventModelProvenance.Declared — the rung
+hotspot.WinningClaim.Source;      // "file://CritterCrush.emodel.yaml" — who, or null
+hotspot.WinningClaim.Claimant;    // the source when it named itself, else the rung
+```
+
+A source that did not attribute itself still renders as its rung, so nothing that worked before changes. Two *anonymous* sources on one rung say so — `two Declared sources disagree — kept Automation, dropped Command` — rather than naming the rung twice, and one source genuinely contradicting itself is the one case that reads that way.
+
 **Nothing is recorded when nothing is lost.** Two sources on the same rung whose lists union have not disagreed about anything; neither have two sources making the *same* claim from different rungs — the code saying `OrderPlaced` and production agreeing is the happy case, and it is silent. A role only one source claims is not a disagreement either, because the other never spoke. What does get recorded is any claim the merge actually dropped, including the one first-wins has always discarded when two same-rung sources name different handlers.
 
 ## A collapsed model set is a hotspot

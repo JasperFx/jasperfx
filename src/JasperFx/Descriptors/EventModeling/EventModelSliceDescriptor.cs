@@ -360,8 +360,16 @@ public sealed record EventModelSliceDescriptor(
         // Both sides claimed the role and the merge kept only one of them. Record what was lost.
         void disagree(EventModelRole role, bool tookTheirs, string mineValue, string theirsValue)
         {
-            var mineClaim = new EventModelClaim(ProvenanceFor(role)!.Value, mineValue);
-            var theirsClaim = new EventModelClaim(other.ProvenanceFor(role)!.Value, theirsValue);
+            // jasperfx#859. Each claim names the source that made it, not only the rung it sits on:
+            // a rung can hold several sources, and spec-first work having a declared model file AND
+            // specs -- both Declared by construction -- is the normal case rather than an edge one.
+            // The exception is the Origin role itself, whose VALUE already is the source; naming it
+            // twice would render "store://ledger claims store://ledger".
+            var source = role == EventModelRole.Origin ? null : Origin?.OriginalString;
+            var otherSource = role == EventModelRole.Origin ? null : other.Origin?.OriginalString;
+
+            var mineClaim = new EventModelClaim(ProvenanceFor(role)!.Value, mineValue, source);
+            var theirsClaim = new EventModelClaim(other.ProvenanceFor(role)!.Value, theirsValue, otherSource);
 
             disagreements.Add(tookTheirs
                 ? HotspotDescriptor.SourceDisagreement(role, theirsClaim, mineClaim)

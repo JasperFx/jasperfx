@@ -58,12 +58,50 @@ public enum HotspotOrigin
 /// One source's claim about one role, as it stood before a merge resolved the disagreement
 /// (jasperfx#704).
 /// </summary>
-/// <param name="Provenance">The rung the claim came from — enough to see which source to trust.</param>
+/// <param name="Provenance">
+///     The rung the claim came from. A rung, not an identity: several sources legitimately sit on one
+///     (jasperfx#859).
+/// </param>
 /// <param name="Value">
 ///     Display rendering of what was claimed: short type names for the typed roles, the value itself
 ///     for the scalar ones.
 /// </param>
-public sealed record EventModelClaim(EventModelProvenance Provenance, string Value);
+/// <param name="Source">
+///     <em>Which</em> source claimed it — the contributing slice's
+///     <see cref="EventModelSliceDescriptor.Origin"/>, rendered. Null when the source did not
+///     attribute itself (jasperfx#859).
+/// </param>
+public sealed record EventModelClaim(EventModelProvenance Provenance, string Value, string? Source = null)
+{
+    /// <summary>
+    /// Who made this claim, for display: the source when it attributed itself, else the rung
+    /// (jasperfx#859).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Provenance"/> alone is not an identity. Spec-first work has a declared model file
+    /// <em>and</em> specs, and both are <see cref="EventModelProvenance.Declared"/> by construction;
+    /// add production observation and several sources can share
+    /// <see cref="EventModelProvenance.Observed"/> too. So a disagreement rendered from the rung
+    /// alone reads as <c>Declared claims Automation; Declared claims Command</c> — one source
+    /// apparently contradicting itself, with nothing to identify either party.
+    /// </para>
+    /// <para>
+    /// A source names itself by stamping <see cref="EventModelSliceDescriptor.Origin"/> on the slices
+    /// it contributes — a file path, a suite or assembly name, a store URI, whatever it can supply.
+    /// </para>
+    /// <para>
+    /// ⚠ As accurate as that member is. <see cref="EventModelSliceDescriptor.Origin"/> is one scalar
+    /// per slice and merges like any other role, so on a slice already folded from several attributed
+    /// sources it is the origin that <em>survived</em> — the same summary-versus-per-role gap
+    /// <see cref="EventModelSliceDescriptor.Provenance"/> has against
+    /// <see cref="EventModelSliceDescriptor.ClaimedBy"/>. A claimant therefore always names a source
+    /// that really did contribute to the slice, and for the two-source merge this exists for it names
+    /// the one that made the claim.
+    /// </para>
+    /// </remarks>
+    public string Claimant => Source ?? Provenance.ToString();
+}
 
 /// <summary>
 /// A hotspot — an open question, a conflict, or (primarily) a specification that is still
@@ -107,10 +145,20 @@ public sealed record HotspotDescriptor(
     /// <see cref="HotspotOrigin.SourceDisagreement"/>; otherwise null (jasperfx#704).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A pair rather than a list because merges are pairwise: three sources disagreeing about one
-    /// role produce two of these, each naming the two claims that actually met. Keeping it to two
-    /// scalars also keeps <see cref="HotspotDescriptor"/>'s record equality value-based, which the
-    /// merge's own de-duplication relies on.
+    /// role produce two of these, each naming the two claims that actually met.
+    /// </para>
+    /// <para>
+    /// This doc previously added that keeping the pair to two scalars is what keeps
+    /// <see cref="HotspotDescriptor"/>'s record equality value-based, "which the merge's own
+    /// de-duplication relies on". Neither half of that holds: the merge de-duplicates on
+    /// <see cref="Origin"/> + <see cref="Text"/> as a string key, never on equality, and equality is
+    /// hand-written at the bottom of this type anyway — it has to be, because
+    /// <see cref="CollapsedModelNames"/> is a collection and a record compares one by reference
+    /// (jasperfx#853). So the shape of a claim is free to change; adding a <em>member</em> to this
+    /// type is what carries an obligation, and it is recorded there.
+    /// </para>
     /// </remarks>
     public EventModelClaim? LosingClaim { get; init; }
 
@@ -145,15 +193,36 @@ public sealed record HotspotDescriptor(
     /// A hotspot for two sources making different claims about <paramref name="role"/>
     /// (jasperfx#704). <paramref name="winner"/> is the claim the merge kept.
     /// </summary>
+    /// <remarks>
+    /// The text names each claimant — the source where it attributed itself, the rung otherwise. Two
+    /// unattributed sources on the <em>same</em> rung get the anonymous form instead, because
+    /// "Declared claims Automation; Declared claims Command" reads as one source contradicting
+    /// itself when in fact it is two that cannot be told apart from here (jasperfx#859).
+    /// </remarks>
     public static HotspotDescriptor SourceDisagreement(EventModelRole role, EventModelClaim winner,
         EventModelClaim loser)
-        => new(HotspotOrigin.SourceDisagreement,
-            $"{role}: {winner.Provenance} claims {winner.Value}; {loser.Provenance} claims {loser.Value}")
+        => new(HotspotOrigin.SourceDisagreement, TextFor(role, winner, loser))
         {
             Role = role,
             WinningClaim = winner,
             LosingClaim = loser,
         };
+
+    private static string TextFor(EventModelRole role, EventModelClaim winner, EventModelClaim loser)
+    {
+        if (winner.Claimant != loser.Claimant)
+        {
+            return $"{role}: {winner.Claimant} claims {winner.Value}; {loser.Claimant} claims {loser.Value}";
+        }
+
+        // The same claimant on both halves. Named, that really is one source contradicting itself.
+        // Unnamed, it is two sources sharing a rung that cannot be told apart from here -- and
+        // rendering THAT as "Declared claims X; Declared claims Y" is the message jasperfx#859
+        // records as unactionable.
+        return winner.Source is null
+            ? $"{role}: two {winner.Provenance} sources disagree — kept {winner.Value}, dropped {loser.Value}"
+            : $"{role}: {winner.Source} contradicts itself — kept {winner.Value}, dropped {loser.Value}";
+    }
 
     /// <summary>
     /// A hotspot for several of <paramref name="serviceName"/>'s Event Models being folded into one

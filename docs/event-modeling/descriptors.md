@@ -28,6 +28,7 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `Hotspots` | Both | Pending specs (derived) and prose (overlay) |
 | `Domain` | **Overlay** | Bounded context |
 | `Chapter` | **Overlay** | A named span of slices — the navigation unit above `Domain` |
+| `Origin` | Any source | *Which* source contributed the slice — a file path, a suite or assembly name, a store URI. Stamp it and a [source disagreement](/event-modeling/hotspots#a-rung-is-not-an-identity) names a party rather than a rung |
 
 ### What a slice reads
 
@@ -191,7 +192,7 @@ Concretely:
 - **Scalars** go to the highest rung that claims them; a tie keeps the first value.
 - **Lists** go to the highest rung that claims them **outright** — a higher rung *replaces* rather than unions, because unioning derived `{A, C}` with observed `{A, B}` invents a slice emitting three events that nobody claimed. Lists claimed at the **same** rung union in order and deduplicate by identity: types by full name, external systems by direction + name, specifications by identity.
 - **Hotspots** always union, whatever the rungs. They are annotations rather than claims about the system, and arbitrating them would discard findings.
-- **Any dropped claim** becomes a [`SourceDisagreement` hotspot](/event-modeling/hotspots#a-source-disagreement-is-a-hotspot) naming the role, both claims and the rung each came from — so a losing claim is recorded rather than silently discarded.
+- **Any dropped claim** becomes a [`SourceDisagreement` hotspot](/event-modeling/hotspots#a-source-disagreement-is-a-hotspot) naming the role, both claims and the rung each came from — so a losing claim is recorded rather than silently discarded. Where the sources stamped `Origin`, it names [*which* source](/event-modeling/hotspots#a-rung-is-not-an-identity) rather than only the rung, which matters most when they share one.
 - **Slices** fold by name; slice order is first appearance.
 - **Aggregates** union by type full name.
 
