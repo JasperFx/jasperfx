@@ -145,10 +145,20 @@ public sealed record HotspotDescriptor(
     /// <see cref="HotspotOrigin.SourceDisagreement"/>; otherwise null (jasperfx#704).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A pair rather than a list because merges are pairwise: three sources disagreeing about one
-    /// role produce two of these, each naming the two claims that actually met. Keeping it to two
-    /// scalars also keeps <see cref="HotspotDescriptor"/>'s record equality value-based, which the
-    /// merge's own de-duplication relies on.
+    /// role produce two of these, each naming the two claims that actually met.
+    /// </para>
+    /// <para>
+    /// This doc previously added that keeping the pair to two scalars is what keeps
+    /// <see cref="HotspotDescriptor"/>'s record equality value-based, "which the merge's own
+    /// de-duplication relies on". Neither half of that holds: the merge de-duplicates on
+    /// <see cref="Origin"/> + <see cref="Text"/> as a string key, never on equality, and equality is
+    /// hand-written at the bottom of this type anyway — it has to be, because
+    /// <see cref="CollapsedModelNames"/> is a collection and a record compares one by reference
+    /// (jasperfx#853). So the shape of a claim is free to change; adding a <em>member</em> to this
+    /// type is what carries an obligation, and it is recorded there.
+    /// </para>
     /// </remarks>
     public EventModelClaim? LosingClaim { get; init; }
 
