@@ -114,6 +114,25 @@ public sealed record HotspotDescriptor(
     /// </remarks>
     public EventModelClaim? LosingClaim { get; init; }
 
+    /// <summary>
+    /// The service whose Event Models were folded, when <see cref="Origin"/> is
+    /// <see cref="HotspotOrigin.ModelCollapse"/>; otherwise null (jasperfx#853).
+    /// </summary>
+    public string? ServiceName { get; init; }
+
+    /// <summary>
+    /// Every model that went into the fold, in order, when <see cref="Origin"/> is
+    /// <see cref="HotspotOrigin.ModelCollapse"/>; otherwise empty (jasperfx#853).
+    /// </summary>
+    /// <remarks>
+    /// The same rule <see cref="WinningClaim"/> states: <see cref="Text"/> renders this for a viewer
+    /// that only knows how to draw a hotspot, and this is the structured form for a reader that wants
+    /// to <em>act</em> on it — offer a picker, route per model, count them. Without it a consumer has
+    /// to pull identifiers back out of a formatted sentence, which is the shape
+    /// <see cref="SourceDisagreement"/> was given <see cref="WinningClaim"/> to avoid.
+    /// </remarks>
+    public IReadOnlyList<string> CollapsedModelNames { get; init; } = Array.Empty<string>();
+
     /// <summary>A hotspot for a specification that is pending (jasperfx#689).</summary>
     public static HotspotDescriptor PendingSpecification(string specificationIdentity)
         => new(HotspotOrigin.PendingSpecification, specificationIdentity, specificationIdentity);
@@ -143,6 +162,51 @@ public sealed record HotspotDescriptor(
     /// <param name="serviceName">The service whose models were folded.</param>
     /// <param name="modelNames">Every model that went in, in order.</param>
     public static HotspotDescriptor ModelCollapse(string serviceName, IEnumerable<string> modelNames)
-        => new(HotspotOrigin.ModelCollapse,
-            $"{serviceName} hosts several Event Models and they were collapsed into one: {string.Join(", ", modelNames)}");
+    {
+        var names = modelNames as IReadOnlyList<string> ?? modelNames.ToList();
+
+        return new HotspotDescriptor(HotspotOrigin.ModelCollapse,
+            $"{serviceName} hosts several Event Models and they were collapsed into one: {string.Join(", ", names)}")
+        {
+            ServiceName = serviceName,
+            CollapsedModelNames = names,
+        };
+    }
+
+    // jasperfx#853. CollapsedModelNames is the one member that is a collection, and the
+    // compiler-generated equality a record gives you compares a collection by REFERENCE -- so two
+    // descriptors naming the same models in the same order would be unequal, and a round trip
+    // through JSON would never equal what went in. The merge's own de-duplication keys on
+    // Origin + Text rather than on equality, so nothing depended on the generated version; this
+    // keeps equality meaning what the rest of the type promises.
+    //
+    // ⚠ Every member has to be listed here, including any added later.
+
+    /// <summary>Value equality, comparing <see cref="CollapsedModelNames"/> element-wise.</summary>
+    public bool Equals(HotspotDescriptor? other)
+        => other is not null
+           && Origin == other.Origin
+           && Text == other.Text
+           && SpecificationIdentity == other.SpecificationIdentity
+           && Role == other.Role
+           && WinningClaim == other.WinningClaim
+           && LosingClaim == other.LosingClaim
+           && ServiceName == other.ServiceName
+           && CollapsedModelNames.SequenceEqual(other.CollapsedModelNames, StringComparer.Ordinal);
+
+    /// <inheritdoc />
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Origin);
+        hash.Add(Text);
+        hash.Add(SpecificationIdentity);
+        hash.Add(Role);
+        hash.Add(WinningClaim);
+        hash.Add(LosingClaim);
+        hash.Add(ServiceName);
+        foreach (var name in CollapsedModelNames) hash.Add(name, StringComparer.Ordinal);
+
+        return hash.ToHashCode();
+    }
 }
