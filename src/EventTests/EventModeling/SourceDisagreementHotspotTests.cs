@@ -289,6 +289,140 @@ public class SourceDisagreementHotspotTests
 
     #endregion
 
+    #region which source, not just which rung (jasperfx#859)
+
+    /// <summary>
+    /// jasperfx#859's acceptance scenario: spec-first work has a declared model file <em>and</em>
+    /// specs, both <see cref="EventModelProvenance.Declared"/> by construction. Rendered from the
+    /// rung alone the finding read "Declared claims Automation; Declared claims Command" — one source
+    /// apparently contradicting itself, with nothing to identify either party.
+    /// </summary>
+    [Fact]
+    public void two_sources_on_one_rung_are_named_rather_than_rendered_as_their_shared_rung()
+    {
+        var model = Slice(EventModelProvenance.Declared) with
+        {
+            Origin = new Uri("file://CritterCrush.emodel.yaml"), Pattern = SlicePattern.Automation,
+        };
+
+        var specs = Slice(EventModelProvenance.Declared) with
+        {
+            Origin = new Uri("suite://CritterCrush.Specs"), Pattern = SlicePattern.Command,
+        };
+
+        var hotspot = DisagreementsIn(model.Merge(specs))
+            .Single(x => x.Role == EventModelRole.Pattern);
+
+        hotspot.Text.ShouldBe(
+            "Pattern: file://CritterCrush.emodel.yaml claims Automation; suite://CritterCrush.Specs claims Command");
+
+        // The structured form keeps the rung as well -- it is still how you decide which to trust.
+        hotspot.WinningClaim.ShouldBe(new EventModelClaim(EventModelProvenance.Declared, "Automation",
+            "file://CritterCrush.emodel.yaml"));
+        hotspot.LosingClaim.ShouldBe(new EventModelClaim(EventModelProvenance.Declared, "Command",
+            "suite://CritterCrush.Specs"));
+    }
+
+    /// <summary>
+    /// A source that did not attribute itself falls back to its rung, so nothing that worked before
+    /// jasperfx#859 renders differently.
+    /// </summary>
+    [Fact]
+    public void an_unattributed_source_still_renders_as_its_rung()
+    {
+        var derived = Slice(EventModelProvenance.Derived) with { Domain = "Ordering" };
+        var observed = Slice(EventModelProvenance.Observed) with { Domain = "Fulfillment" };
+
+        var hotspot = DisagreementsIn(derived.Merge(observed)).ShouldHaveSingleItem();
+
+        hotspot.Text.ShouldBe("Domain: Observed claims Fulfillment; Derived claims Ordering");
+        hotspot.WinningClaim!.Source.ShouldBeNull();
+        hotspot.WinningClaim.Claimant.ShouldBe("Observed");
+    }
+
+    /// <summary>
+    /// Two unattributed sources sharing a rung still cannot be told apart from here — but the text no
+    /// longer pretends one source said both things.
+    /// </summary>
+    [Fact]
+    public void two_anonymous_sources_on_one_rung_say_so_instead_of_naming_the_rung_twice()
+    {
+        var first = Slice(EventModelProvenance.Declared) with { Domain = "Ordering" };
+        var second = Slice(EventModelProvenance.Declared) with { Domain = "Fulfillment" };
+
+        DisagreementsIn(first.Merge(second)).ShouldHaveSingleItem().Text
+            .ShouldBe("Domain: two Declared sources disagree — kept Ordering, dropped Fulfillment");
+    }
+
+    /// <summary>
+    /// One source contradicting itself is a real case — two slices it contributed under one origin —
+    /// and it is the only one that should read that way.
+    /// </summary>
+    [Fact]
+    public void one_source_contradicting_itself_says_which_source()
+    {
+        var first = Slice(EventModelProvenance.Declared) with
+        {
+            Origin = new Uri("file://CritterCrush.emodel.yaml"), Domain = "Ordering",
+        };
+
+        var second = Slice(EventModelProvenance.Declared) with
+        {
+            Origin = new Uri("file://CritterCrush.emodel.yaml"), Domain = "Fulfillment",
+        };
+
+        DisagreementsIn(first.Merge(second)).ShouldHaveSingleItem().Text
+            .ShouldBe("Domain: file://CritterCrush.emodel.yaml contradicts itself — kept Ordering, dropped Fulfillment");
+    }
+
+    /// <summary>
+    /// The <see cref="EventModelRole.Origin"/> role is the exception: its value already <em>is</em>
+    /// the source, so naming the claimant too would render "store://ledger claims store://ledger".
+    /// </summary>
+    [Fact]
+    public void the_origin_role_does_not_name_itself_twice()
+    {
+        var ledger = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://ledger") };
+        var audit = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://audit") };
+
+        var hotspot = DisagreementsIn(ledger.Merge(audit)).ShouldHaveSingleItem();
+
+        hotspot.Role.ShouldBe(EventModelRole.Origin);
+        hotspot.WinningClaim!.Source.ShouldBeNull();
+        hotspot.Text.ShouldBe("Origin: two Derived sources disagree — kept store://ledger, dropped store://audit");
+    }
+
+    /// <summary>
+    /// A source names itself once, on its slices; every role it then loses a claim on is attributed.
+    /// </summary>
+    [Fact]
+    public void every_role_a_named_source_loses_names_that_source()
+    {
+        var declared = Slice(EventModelProvenance.Declared) with
+        {
+            Origin = new Uri("file://CritterCrush.emodel.yaml"),
+            Domain = "Ordering",
+            HandlerType = T<LegacyOrderHandler>(),
+        };
+
+        var derived = Slice(EventModelProvenance.Derived) with
+        {
+            Origin = new Uri("assembly://CritterCrush"),
+            Domain = "Fulfillment",
+            HandlerType = T<OrderHandler>(),
+        };
+
+        DisagreementsIn(declared.Merge(derived))
+            .Where(x => x.Role != EventModelRole.Origin)
+            .Select(x => x.Text)
+            .ShouldBe([
+                "HandlerType: assembly://CritterCrush claims OrderHandler; file://CritterCrush.emodel.yaml claims LegacyOrderHandler",
+                "Domain: assembly://CritterCrush claims Fulfillment; file://CritterCrush.emodel.yaml claims Ordering",
+            ]);
+    }
+
+    #endregion
+
     public class PlaceOrder { }
     public class OrderHandler { }
     public class LegacyOrderHandler { }
