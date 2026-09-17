@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace JasperFx.Events.EventModeling;
 
 /// <summary>
@@ -71,8 +73,39 @@ public enum HotspotOrigin
 ///     <see cref="EventModelSliceDescriptor.Origin"/>, rendered. Null when the source did not
 ///     attribute itself (jasperfx#859).
 /// </param>
+// jasperfx#859 / 2.73.1. [method: JsonConstructor] is not decoration: the moment this type has a
+// SECOND parameterized constructor, System.Text.Json refuses to deserialize it at all --
+// "Deserialization of types without a parameterless constructor, a singular parameterized
+// constructor, or a parameterized constructor annotated with 'JsonConstructorAttribute' is not
+// supported" -- and every descriptor carrying a SourceDisagreement fails on the way back in off the
+// wire. SpecificationDescriptor in this same folder has the identical pairing for the same reason.
+[method: JsonConstructor]
 public sealed record EventModelClaim(EventModelProvenance Provenance, string Value, string? Source = null)
 {
+    /// <summary>
+    /// A claim from a source that did not attribute itself — the 2.72.0 shape, kept as its own
+    /// constructor rather than left to <see cref="Source"/>'s default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Binary compatibility. A defaulted parameter on a record's primary constructor is a
+    /// <em>source</em>-compatible addition and a <em>binary</em>-breaking one: the compiler emits a
+    /// single three-argument constructor, so the two-argument signature 2.72.0 published stopped
+    /// existing and an assembly compiled against it threw <c>MissingMethodException</c> rather than
+    /// picking up the default. This restores that signature (jasperfx#859, 2.73.1).
+    /// </para>
+    /// <para>
+    /// ⚠ <c>Deconstruct</c> is deliberately <em>not</em> restored alongside it. Its arity changed the
+    /// same way, but a two-output overload would silently drop <see cref="Source"/> for anyone
+    /// destructuring a claim in new code — the one thing jasperfx#859 exists to stop losing. Nothing
+    /// in the Critter Stack deconstructs a claim; recompile if you do.
+    /// </para>
+    /// </remarks>
+    public EventModelClaim(EventModelProvenance provenance, string value)
+        : this(provenance, value, null)
+    {
+    }
+
     /// <summary>
     /// Who made this claim, for display: the source when it attributed itself, else the rung
     /// (jasperfx#859).
