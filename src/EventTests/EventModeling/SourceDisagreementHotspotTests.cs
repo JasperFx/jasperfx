@@ -421,6 +421,31 @@ public class SourceDisagreementHotspotTests
             ]);
     }
 
+    /// <summary>
+    /// <see cref="HotspotDescriptor"/> compares its claims with <see cref="EventModelClaim"/>'s own
+    /// record equality (jasperfx#853 writes the rest of it out by hand), so two findings that differ
+    /// only in <em>which source</em> made the claim have to be two findings.
+    /// </summary>
+    /// <remarks>
+    /// Which is the whole point: before jasperfx#859 they rendered identically and were one.
+    /// </remarks>
+    [Fact]
+    public void two_findings_differing_only_by_source_are_not_the_same_finding()
+    {
+        var value = new EventModelClaim(EventModelProvenance.Declared, "Automation");
+        var fromFile = value with { Source = "file://CritterCrush.emodel.yaml" };
+        var fromSpecs = value with { Source = "suite://CritterCrush.Specs" };
+
+        var loser = new EventModelClaim(EventModelProvenance.Declared, "Command");
+
+        HotspotDescriptor.SourceDisagreement(EventModelRole.Pattern, fromFile, loser)
+            .ShouldNotBe(HotspotDescriptor.SourceDisagreement(EventModelRole.Pattern, fromSpecs, loser));
+
+        // ...and an unattributed claim is not equal to an attributed one either
+        HotspotDescriptor.SourceDisagreement(EventModelRole.Pattern, value, loser)
+            .ShouldNotBe(HotspotDescriptor.SourceDisagreement(EventModelRole.Pattern, fromFile, loser));
+    }
+
     #endregion
 
     public class PlaceOrder { }
