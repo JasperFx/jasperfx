@@ -2,7 +2,7 @@
 
 A **hotspot** is the model admitting it does not know something yet. On a whiteboard it is the pink sticky note with a question mark on it; on a JasperFx Event Model it is a `HotspotDescriptor`, rendered in the wireframe lane in the canonical hotspot magenta (`#E91E63`).
 
-Hotspots come from two places, and the difference between them matters more than it looks.
+Two of them you write, and the difference between those two matters more than it looks. The other two you never write: the merge and the collapse emit them when they lose something.
 
 ## A pending specification is a hotspot
 
@@ -97,7 +97,7 @@ A slice that is *nothing but* a hotspot still renders one element — which is e
 
 ## A source disagreement is a hotspot
 
-The third origin is the only one you never write. When two sources describe the same slice and make **different** claims about the same role, the merge keeps one and records the other as a `SourceDisagreement` hotspot:
+The third origin is one of the two you never write. When two sources describe the same slice and make **different** claims about the same role, the merge keeps one and records the other as a `SourceDisagreement` hotspot:
 
 > ⚠ `EmittedEvents: Observed claims OrderPlaced, AuditRecorded; Derived claims OrderPlaced`
 
@@ -114,6 +114,23 @@ hotspot.LosingClaim;   // (Derived,  "OrderPlaced")                — what it d
 A pair rather than a list because merges are pairwise: three sources disagreeing about one role leave two findings, each naming the two claims that actually met.
 
 **Nothing is recorded when nothing is lost.** Two sources on the same rung whose lists union have not disagreed about anything; neither have two sources making the *same* claim from different rungs — the code saying `OrderPlaced` and production agreeing is the happy case, and it is silent. A role only one source claims is not a disagreement either, because the other never spoke. What does get recorded is any claim the merge actually dropped, including the one first-wins has always discarded when two same-rung sources name different handlers.
+
+## A collapsed model set is a hotspot
+
+The fourth origin is the other one you never write. One service can host several Event Models — a modular monolith where each module names its own through `StoreOptions.EventModelName` is exactly that — and a consumer whose wire carries only a single `EventModelDescriptor` has to fold them. `EventModelSetDescriptor.Collapse()` does the fold at the caller's choice and records it:
+
+> ⚠ `Billing hosts several Event Models and they were collapsed into one: HelpDesk, Incidents`
+
+Like a disagreement, it carries the structured form alongside the prose:
+
+```cs
+hotspot.ServiceName;          // "Billing"
+hotspot.CollapsedModelNames;  // ["HelpDesk", "Incidents"] — in the order they were folded
+```
+
+That is the half a consumer acts on. A console that wants to offer a model picker exactly when the server says it collapsed can show one and populate it from the same answer, rather than asking a second question or pulling identifiers back out of a formatted sentence.
+
+Collapsing *one* model loses nothing, so it records nothing — a service that really does host a single model produces what it always did.
 
 ::: tip Hotspots are never arbitrated
 Every other role goes to the highest rung that claims it. `Hotspots` always unions, because hotspots are annotations rather than claims about the system — letting a higher-rung source's list replace a lower one would throw away the findings this exists to record.
@@ -164,4 +181,4 @@ foreach (var hotspot in helpdesk.Hotspots)
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L43-L67' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_assembling_the_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-`HotspotOrigin` tells them apart; `SpecificationIdentity` is populated only for the pending-spec form, and `Role` / `WinningClaim` / `LosingClaim` only for a source disagreement. Hotspots from different sources are unioned and deduplicated on origin plus text — so prose and a pending spec that happen to share a string stay two distinct hotspots, because they mean two different things.
+`HotspotOrigin` tells them apart; `SpecificationIdentity` is populated only for the pending-spec form, `Role` / `WinningClaim` / `LosingClaim` only for a source disagreement, and `ServiceName` / `CollapsedModelNames` only for a model collapse. Hotspots from different sources are unioned and deduplicated on origin plus text — so prose and a pending spec that happen to share a string stay two distinct hotspots, because they mean two different things.

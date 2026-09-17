@@ -58,4 +58,58 @@ public class HotspotDescriptorTests
         element.Lane.ShouldBe(EventModelLane.Wireframe);
         EventModelPalette.ColorFor(element.Kind).ShouldBe("#E91E63");
     }
+
+    #region equality survives the one collection member (jasperfx#853)
+
+    /// <summary>
+    /// <see cref="HotspotDescriptor.CollapsedModelNames" /> is a collection, and a record's generated
+    /// equality compares a collection by reference — so this is the assertion that says the type's
+    /// equality still means what the rest of it promises.
+    /// </summary>
+    [Fact]
+    public void two_collapses_naming_the_same_models_are_equal()
+    {
+        var first = HotspotDescriptor.ModelCollapse("Billing", new[] { "HelpDesk", "Incidents" });
+        var second = HotspotDescriptor.ModelCollapse("Billing", new List<string> { "HelpDesk", "Incidents" });
+
+        first.ShouldBe(second);
+        first.GetHashCode().ShouldBe(second.GetHashCode());
+
+        // ...and a set de-duplicates them, which is what a merge folding two exports needs.
+        new HashSet<HotspotDescriptor> { first, second }.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void collapses_naming_different_models_are_not_equal()
+    {
+        HotspotDescriptor.ModelCollapse("Billing", new[] { "HelpDesk", "Incidents" })
+            .ShouldNotBe(HotspotDescriptor.ModelCollapse("Billing", new[] { "HelpDesk", "Orders" }));
+
+        // Order is part of the answer -- the names come back in the order they were folded.
+        HotspotDescriptor.ModelCollapse("Billing", new[] { "HelpDesk", "Incidents" })
+            .ShouldNotBe(HotspotDescriptor.ModelCollapse("Billing", new[] { "Incidents", "HelpDesk" }));
+    }
+
+    [Fact]
+    public void the_other_members_are_still_part_of_equality()
+    {
+        var prose = HotspotDescriptor.Prose("Who owns the SLA clock?");
+
+        prose.ShouldBe(HotspotDescriptor.Prose("Who owns the SLA clock?"));
+        prose.ShouldNotBe(HotspotDescriptor.Prose("Who owns the retention window?"));
+        prose.ShouldNotBe(prose with { Origin = HotspotOrigin.ModelCollapse });
+        prose.ShouldNotBe(prose with { SpecificationIdentity = "Close Incident/Rejects" });
+        prose.ShouldNotBe(prose with { Role = EventModelRole.EmittedEvents });
+        prose.ShouldNotBe(prose with { ServiceName = "Billing" });
+        prose.ShouldNotBe(prose with
+        {
+            WinningClaim = new EventModelClaim(EventModelProvenance.Observed, "OrderPlaced"),
+        });
+        prose.ShouldNotBe(prose with
+        {
+            LosingClaim = new EventModelClaim(EventModelProvenance.Derived, "OrderPlaced"),
+        });
+    }
+
+    #endregion
 }

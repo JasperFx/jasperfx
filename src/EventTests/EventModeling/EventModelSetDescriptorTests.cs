@@ -128,6 +128,45 @@ public class EventModelSetDescriptorTests
         hotspot.Origin.ShouldBe(HotspotOrigin.ModelCollapse);
         hotspot.Text.ShouldBe(
             "Billing hosts several Event Models and they were collapsed into one: HelpDesk, Incidents");
+
+        // jasperfx#853: and the same facts in the form a consumer can act on -- offer a picker,
+        // route per model, count them -- rather than only inside the sentence.
+        hotspot.ServiceName.ShouldBe("Billing");
+        hotspot.CollapsedModelNames.ShouldBe(["HelpDesk", "Incidents"]);
+    }
+
+    /// <summary>
+    /// jasperfx#853: the structured half is not a second answer to a different question — it is the
+    /// same models the prose names, in the same order.
+    /// </summary>
+    [Fact]
+    public void the_structured_form_and_the_prose_name_the_same_models()
+    {
+        var hotspot = EventModelSetDescriptor
+            .For("Billing", [model("HelpDesk"), model("Incidents"), model("Orders")])
+            .Collapse()
+            .Hotspots.ShouldHaveSingleItem();
+
+        hotspot.Text.ShouldEndWith(string.Join(", ", hotspot.CollapsedModelNames));
+        hotspot.Text.ShouldStartWith(hotspot.ServiceName!);
+    }
+
+    /// <summary>
+    /// The structured members belong to <see cref="HotspotOrigin.ModelCollapse" /> alone, exactly as
+    /// <see cref="HotspotDescriptor.WinningClaim" /> belongs to a source disagreement alone.
+    /// </summary>
+    [Fact]
+    public void the_other_origins_carry_no_collapse_detail()
+    {
+        foreach (var hotspot in new[]
+                 {
+                     HotspotDescriptor.Prose("Who owns the SLA clock?"),
+                     HotspotDescriptor.PendingSpecification("Close Incident/Rejects an open incident"),
+                 })
+        {
+            hotspot.ServiceName.ShouldBeNull();
+            hotspot.CollapsedModelNames.ShouldBeEmpty();
+        }
     }
 
     /// <summary>
