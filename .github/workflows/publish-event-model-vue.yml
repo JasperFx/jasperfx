@@ -10,19 +10,32 @@ name: publish event-model-vue
 # ⚠️ MOVED REPOSITORIES (2026-09-17). This package was published from `JasperFx/bobcat` until
 # 0.12.0. npm's trusted-publisher binding names the org, the REPO and the workflow FILENAME, so
 # moving the package here invalidated it — the existing binding still points at bobcat and will
-# never match a run from this repository. The first publish from this home therefore CANNOT use
-# OIDC, exactly as a brand-new package cannot.
+# never match a run from this repository.
 #
-# AUTH — Trusted Publishing (OIDC), after a one-time token bootstrap:
-#   1. First release from this repo only: create a granular automation token scoped to the
-#      @jasperfx scope, put it in the NPM_TOKEN repo secret here, dispatch this workflow with
-#      `bootstrap: true`.
-#   2. On npmjs.com/package/@jasperfx/event-model-vue/access, REPLACE the trusted publisher with:
-#      GitHub Actions / org `JasperFx` / repo `jasperfx` / workflow `publish-event-model-vue.yml`
-#      (filename only — and it must keep this name; renaming the file breaks the binding).
-#      Leave environment empty. Delete the old bobcat binding.
-#   3. Delete the NPM_TOKEN secret and revoke the token. Every later dispatch runs token-free:
-#      the OIDC id-token (permissions below) is the whole credential.
+# AUTH — Trusted Publishing (OIDC). No token, and none is needed:
+#   The binding lives on the PACKAGE's settings page
+#   (npmjs.com/package/@jasperfx/event-model-vue/access), and this package ALREADY EXISTS — it has
+#   been published since 0.2.0. So the publisher can simply be REPOINTED at this repository before
+#   the first publish from here:
+#     GitHub Actions / org `JasperFx` / repo `jasperfx` / workflow `publish-event-model-vue.yml`
+#     (filename only — and it must keep this name; renaming the file breaks the binding).
+#     Leave environment empty, and delete the old bobcat binding.
+#   Then dispatch this workflow normally. `bootstrap` stays false.
+#
+# ⚠️ `bootstrap: true` is for a package that has NEVER been published, where no settings page
+# exists yet to name a publisher on. It is NOT the way to move an existing package between repos,
+# and on 2026-09-18 it was tried here and failed:
+#
+#     npm notice npm tokens that bypass 2FA are being restricted for account changes and
+#     direct publishing.  https://gh.io/npm-gat-bypass2fa-deprecation
+#     npm error code EOTP — This operation requires a one-time password.
+#
+# npm is closing the 2FA-bypass behaviour that made automation tokens work unattended, so a
+# granular or automation token now prompts for an OTP that CI cannot answer. The token path is a
+# dead end for an interactive-2FA account; OIDC is the only unattended route. The run got as far
+# as signing and logging a provenance statement before the registry refused the upload — the
+# package itself did not publish.
+#
 # Trusted publishing needs npm CLI >= 11.5.1 (hence the npm upgrade step) and an explicit
 # --provenance (the docs claim it is automatic; in practice the flag is still required).
 on:
