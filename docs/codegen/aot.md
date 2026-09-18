@@ -181,6 +181,7 @@ Notes:
 - Pass sibling *generated* types by name (the `IEnumerable<string>` overload). They do not exist as runtime `Type`s while `codegen write` is running. There are also overloads taking `IEnumerable<Type>` for types that do already exist, and `IEnumerable<AttributeArg>` when you need to mix the two.
 - `[DynamicDependency]` has `AttributeUsage(Constructor | Field | Method)`, so it cannot sit on the class — the method is the only legal home for the block.
 - The companion is **C# only**. The F# compiler does not honor `ModuleInitializerAttribute` (an F# module's `do` bindings initialize lazily and are not an ILC root), so `AddAotRoots` returns `null` and emits nothing when `assembly.TargetLanguage` is `fsharp` rather than emitting rooting that silently does nothing.
+- `codegen test` compiles each `ICodeFile` into its own in-memory assembly, so a sibling generated type named by another file does not exist there. When `assembly.CompiledInIsolation` is set (only `codegen test` sets it), `AddAotRoots` leaves out the by-name roots that don't resolve to a type of the same assembly; roots to existing `Type`s and to the file's own generated types are kept. That compile is never written to disk, so `codegen write` still emits every root. See [wolverine#4486](https://github.com/JasperFx/wolverine/issues/4486).
 - Deciding *which* types to root is the consuming framework's call — see [jasperfx#743](https://github.com/JasperFx/jasperfx/issues/743) and [wolverine#4287](https://github.com/JasperFx/wolverine/issues/4287).
 
 ### Verification
