@@ -1,0 +1,99 @@
+name: publish event-model-vue
+
+# Publishes @jasperfx/event-model-vue (src/event-model-vue) to npmjs.com — the shared Event
+# Modeling renderer every viewer consumes. Manual dispatch only, mirroring the NuGet publish's
+# posture: the version is whatever package.json says, so bump it there to cut a release. The
+# publish step is guarded — an already-published version fails fast rather than republishing — and
+# the full typecheck + test + build gate runs first (the same steps as event-model-vue.yml, which
+# must stay green on its own terms).
+#
+# ⚠️ MOVED REPOSITORIES (2026-09-17). This package was published from `JasperFx/bobcat` until
+# 0.12.0. npm's trusted-publisher binding names the org, the REPO and the workflow FILENAME, so
+# moving the package here invalidated it — the existing binding still points at bobcat and will
+# never match a run from this repository. The first publish from this home therefore CANNOT use
+# OIDC, exactly as a brand-new package cannot.
+#
+# AUTH — Trusted Publishing (OIDC), after a one-time token bootstrap:
+#   1. First release from this repo only: create a granular automation token scoped to the
+#      @jasperfx scope, put it in the NPM_TOKEN repo secret here, dispatch this workflow with
+#      `bootstrap: true`.
+#   2. On npmjs.com/package/@jasperfx/event-model-vue/access, REPLACE the trusted publisher with:
+#      GitHub Actions / org `JasperFx` / repo `jasperfx` / workflow `publish-event-model-vue.yml`
+#      (filename only — and it must keep this name; renaming the file breaks the binding).
+#      Leave environment empty. Delete the old bobcat binding.
+#   3. Delete the NPM_TOKEN secret and revoke the token. Every later dispatch runs token-free:
+#      the OIDC id-token (permissions below) is the whole credential.
+# Trusted publishing needs npm CLI >= 11.5.1 (hence the npm upgrade step) and an explicit
+# --provenance (the docs claim it is automatic; in practice the flag is still required).
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'First publish from this repo: authenticate with the NPM_TOKEN secret instead of OIDC'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write # the OIDC credential for trusted publishing + provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest # trusted publishing does not support self-hosted runners
+    defaults:
+      run:
+        working-directory: src/event-model-vue
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@latest && npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Refuse to republish an existing version
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "::error::$NAME@$VERSION is already on npmjs.com — bump the version in package.json to cut a release."
+            exit 1
+          fi
+          echo "Publishing $NAME@$VERSION"
+
+      - name: Typecheck (vue-tsc)
+        run: npx vue-tsc -b
+
+      - name: Unit tests (Vitest)
+        run: npx vitest run
+
+      - name: Library build
+        run: npx vite build
+
+      # Exactly one of the two publish steps runs. They are separate steps rather than a
+      # conditional env because setup-node's .npmrc reads NODE_AUTH_TOKEN — an empty-but-present
+      # token can shadow the OIDC exchange.
+      - name: Publish (bootstrap — NPM_TOKEN, first release from this repo only)
+        if: ${{ inputs.bootstrap }}
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish (trusted publishing — OIDC, no token)
+        if: ${{ !inputs.bootstrap }}
+        # setup-node's registry-url writes an .npmrc whose _authToken reads NODE_AUTH_TOKEN and
+        # exports a PLACEHOLDER value (XXXXX-…) into every later step. npm then presents that
+        # placeholder as a real token and never attempts the OIDC exchange — the registry answers
+        # E404 (proven on run 2026-08-25). Pointing the userconfig at a file that does not exist
+        # removes the _authToken line entirely, which is what lets npm >= 11.5.1 fall through to
+        # trusted publishing.
+        run: |
+          printf 'registry=https://registry.npmjs.org/\n' > "$RUNNER_TEMP/.npmrc-oidc-no-token"
+          npm publish --access public --provenance
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/.npmrc-oidc-no-token

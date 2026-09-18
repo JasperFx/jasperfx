@@ -1,0 +1,56 @@
+{
+  "name": "@jasperfx/event-model-vue",
+  "version": "0.13.0",
+  "description": "Vue renderer for a JasperFx.Events EventModelDescriptor. Lives beside the descriptor it draws, so every viewer \u2014 Stoat's design-time canvas, CritterWatch's runtime canvas \u2014 renders one descriptor the same way.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/event-model-vue.js",
+  "module": "./dist/event-model-vue.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/event-model-vue.js"
+    },
+    "./style.css": "./dist/event-model-vue.css"
+  },
+  "scripts": {
+    "build": "vue-tsc -b && vite build",
+    "test": "vitest run",
+    "test:unit": "vitest",
+    "typecheck": "vue-tsc -b"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@tsconfig/node24": "^24.0.4",
+    "@types/node": "^25.5.0",
+    "@vitejs/plugin-vue": "^6.0.5",
+    "@vue-flow/core": "^1.48.2",
+    "@vue/test-utils": "^2.4.10",
+    "@vue/tsconfig": "^0.9.0",
+    "happy-dom": "^20.9.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.0",
+    "vite-plugin-dts": "^4.5.4",
+    "vitest": "^4.1.0",
+    "vue": "^3.5.30",
+    "vue-tsc": "^3.2.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JasperFx/jasperfx.git",
+    "directory": "src/event-model-vue"
+  },
+  "homepage": "https://github.com/JasperFx/bobcat/tree/main/src/Bobcat.EventModel.FrontEnd#readme",
+  "bugs": {
+    "url": "https://github.com/JasperFx/bobcat/issues"
+  }
+}

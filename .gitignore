@@ -408,3 +408,6 @@ docs/.vitepress/dist
 # (mode 160000) with no .gitmodules entry, which made every checkout post-cleanup fail with
 # "fatal: No url found for submodule path" and a git exit-128 warning.
 .claude/worktrees/
+
+# @jasperfx/event-model-vue — the built library is a publish artifact, never committed
+src/event-model-vue/dist/
