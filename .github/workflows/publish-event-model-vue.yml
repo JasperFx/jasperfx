@@ -22,6 +22,29 @@ name: publish event-model-vue
 #     Leave environment empty, and delete the old bobcat binding.
 #   Then dispatch this workflow normally. `bootstrap` stays false.
 #
+# ⚠️ THE OWNER'S CASE IS LOAD-BEARING. npm matches the binding against GitHub's OIDC claims,
+# which carry the CANONICAL case:
+#
+#     repository:       JasperFx/jasperfx
+#     repository_owner: JasperFx
+#
+# A binding saved as `jasperfx/jasperfx` does not match `JasperFx/jasperfx`, and npm reports that
+# as:
+#
+#     POST 404 /-/npm/v1/oidc/token/exchange/package/@jasperfx%2fevent-model-vue
+#     OIDC token exchange error - package not found
+#
+# That message is why this cost an afternoon on 2026-09-18: it does not distinguish "no binding
+# configured" from "a binding is configured and did not match", so every diagnosis from the logs
+# looked like the former. Correcting the owner to `JasperFx` turned the same request into a 201
+# with nothing else changed. Note the asymmetry — the OWNER is mixed case, the REPO really is
+# lowercase `jasperfx`.
+#
+# To test a binding WITHOUT burning a version: on a throwaway branch, add a push trigger, add
+# `--dry-run --loglevel verbose` to the publish, and bump the version so the republish guard lets
+# npm reach the exchange. A hand-rolled curl is not a substitute — the registry rejected a
+# request that carried an Authorization header, so only npm reproduces the exchange faithfully.
+#
 # ⚠️ `bootstrap: true` is for a package that has NEVER been published, where no settings page
 # exists yet to name a publisher on. It is NOT the way to move an existing package between repos,
 # and on 2026-09-18 it was tried here and failed:
