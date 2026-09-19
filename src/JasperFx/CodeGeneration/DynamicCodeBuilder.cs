@@ -236,6 +236,10 @@ public class DynamicCodeBuilder
             {
                 var generatedAssembly = collection.StartAssembly(collection.Rules);
                 generatedAssembly.TargetLanguage = Language;
+
+                // wolverine#4486: this file is compiled without its siblings, so a root naming one of
+                // them could not compile. The code compiled here is never written to disk.
+                generatedAssembly.CompiledInIsolation = true;
                 file.AssembleTypes(generatedAssembly);
 
                 // #2991: see WriteGeneratedCode.

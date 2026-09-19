@@ -70,6 +70,15 @@ public static class AotRootsCompanionExtensions
         }
 
         var roots = rootedTypes?.ToArray() ?? [];
+
+        // wolverine#4486: compiled alone (`codegen test`), a root naming another file's type would fail
+        // with CS0234. Nothing is lost: that compile is never written to disk, and `codegen write` still
+        // emits every root into the file the trimmer sees.
+        if (assembly.CompiledInIsolation)
+        {
+            roots = roots.Where(x => x.ResolvesWithin(assembly)).ToArray();
+        }
+
         if (roots.Length == 0)
         {
             return null;

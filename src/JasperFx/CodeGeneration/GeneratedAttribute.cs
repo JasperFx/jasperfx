@@ -201,13 +201,33 @@ public abstract class AttributeArg
         }
     }
 
+    /// <summary>
+    ///     Whether this argument can be compiled as part of <paramref name="assembly" /> alone. Only a
+    ///     <see cref="TypeNamed" /> argument can fail that: it may name a type that another file emits.
+    /// </summary>
+    internal virtual bool ResolvesWithin(GeneratedAssembly assembly)
+    {
+        return true;
+    }
+
     private sealed class TypeNamedArg : AttributeArg
     {
+        private const string GlobalPrefix = "global::";
+
         private readonly string _typeName;
 
         public TypeNamedArg(string typeName)
         {
             _typeName = typeName;
+        }
+
+        internal override bool ResolvesWithin(GeneratedAssembly assembly)
+        {
+            var name = _typeName.StartsWith(GlobalPrefix, StringComparison.Ordinal)
+                ? _typeName.Substring(GlobalPrefix.Length)
+                : _typeName;
+
+            return assembly.GeneratedTypes.Any(x => $"{assembly.Namespace}.{x.TypeName}" == name);
         }
 
         public override string ToCSharp()
