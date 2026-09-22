@@ -100,7 +100,8 @@ export default withMermaid(
           collapsed: true,
           items: [
             { text: 'CritterStackDefaults', link: '/configuration/critter-stack-defaults' },
-            { text: 'JasperFxOptions', link: '/configuration/jasperfx-options' }
+            { text: 'JasperFxOptions', link: '/configuration/jasperfx-options' },
+            { text: 'Tenant Id Casing', link: '/configuration/tenant-id-case' }
           ]
         },
         {
