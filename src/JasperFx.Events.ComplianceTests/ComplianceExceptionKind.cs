@@ -7,7 +7,7 @@ namespace JasperFx.Events.ComplianceTests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Each member corresponds to one of the six event store exceptions lifted into
+/// Each member corresponds to one of the event store exceptions lifted into
 /// <c>JasperFx.Events</c>, which is what the fixture returns by default. The indirection exists
 /// because a store may legitimately own its exception hierarchy and therefore cannot subclass the
 /// lifted type.
@@ -17,7 +17,7 @@ namespace JasperFx.Events.ComplianceTests;
 /// <c>all_exceptions_should_derive_from_MartenException</c> — that every exception Marten throws
 /// derives from <c>MartenException</c>. C# has single inheritance, so a Marten type cannot derive
 /// from both <c>MartenException</c> and the lifted JasperFx type. Marten therefore keeps its own
-/// six declarations in <c>Marten.Exceptions</c> and names them from its fixture. That is a
+/// declarations in <c>Marten.Exceptions</c> and names them from its fixture. That is a
 /// legitimate store design, not a compliance gap, so the suite asserts the behaviour and lets the
 /// store name the type.
 /// </para>
@@ -62,5 +62,11 @@ public enum ComplianceExceptionKind
     /// The default tenant was used in a store configured to forbid it.
     /// Defaults to <see cref="DefaultTenantUsageDisabledException"/>.
     /// </summary>
-    DefaultTenantUsageDisabled
+    DefaultTenantUsageDisabled,
+
+    /// <summary>
+    /// An append was refused because the stream is archived.
+    /// Defaults to <see cref="ArchivedStreamException"/>.
+    /// </summary>
+    ArchivedStream
 }

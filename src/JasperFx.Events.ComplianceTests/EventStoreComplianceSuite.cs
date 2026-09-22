@@ -181,7 +181,7 @@ public abstract class EventStoreComplianceSuite<TFixture, TOperations, TQuerySes
     /// <remarks>
     /// <para>
     /// Used where the failure <em>category</em> is shared across every store but the exception
-    /// <em>type</em> is not. The six event store exceptions lifted into <c>JasperFx.Events</c> are
+    /// <em>type</em> is not. The event store exceptions lifted into <c>JasperFx.Events</c> are
     /// the default answer, so a store that adopted them names nothing; a store that owns its own
     /// hierarchy overrides
     /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.ExceptionTypeFor"/>.
