@@ -1,5 +1,14 @@
 namespace JasperFx;
 
+/// <summary>
+///     How much a Critter Stack tool is allowed to change database schema objects (or other
+///     resources) to match the configured model.
+/// </summary>
+/// <remarks>
+///     The behaviour described on each member is Weasel's, which is what actually executes. It is
+///     worth reading past the member names: <see cref="CreateOrUpdate" /> is not purely additive,
+///     and <see cref="None" /> does not throw. See jasperfx#873.
+/// </remarks>
 public enum AutoCreate
 {
     /// <summary>
@@ -8,7 +17,9 @@ public enum AutoCreate
     All,
 
     /// <summary>
-    ///     Will never destroy existing tables or other resources. Attempts to add missing columns or missing tables or other additive changes
+    ///     Creates missing objects and applies incremental updates to objects in the model, including dropping
+    ///     columns, indexes and foreign keys the model no longer declares. Never drops or recreates whole objects,
+    ///     and never touches objects the model does not know about.
     /// </summary>
     CreateOrUpdate,
 
@@ -18,8 +29,9 @@ public enum AutoCreate
     CreateOnly,
 
     /// <summary>
-    ///     Do not recreate, destroy, or update schema objects or other resources at runtime. Will throw exceptions if
-    ///     the schema does not match the system configuration
+    ///     Makes no schema changes at runtime; a missing object fails with the provider's own error. Explicit apply
+    ///     operations (db-apply, resources setup, ApplyAllConfiguredChangesToDatabaseAsync) still migrate as
+    ///     CreateOrUpdate. Drift is reported only by AssertDatabaseMatchesConfigurationAsync / db-assert.
     /// </summary>
     None
 }
