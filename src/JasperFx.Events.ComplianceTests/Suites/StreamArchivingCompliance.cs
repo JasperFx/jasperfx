@@ -239,15 +239,16 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
     }
 
     /// <summary>
-    /// Archiving is not a soft delete you can keep writing through. Whatever the store's exact
-    /// exception type, the append must not land.
+    /// Archiving is not a soft delete you can keep writing through: the append must not land, and
+    /// it must be refused with the store's nominated archived-stream exception.
     /// </summary>
     /// <remarks>
-    /// The exception type is deliberately unpinned. Marten throws its own
-    /// <c>InvalidStreamOperationException</c> with a message naming the stream, Polecat throws its
-    /// own type whose message merely contains "archived", and neither is on the shared surface —
-    /// so the contract asserted here is the one both agree on: the commit fails, and the stream is
-    /// exactly as it was.
+    /// This used to assert only that the commit failed, because the three stores each threw an
+    /// unrelated type — Marten its generic <c>InvalidStreamOperationException</c>, Polecat its
+    /// <c>InvalidStreamException</c>, Fisher its own <c>ArchivedStreamException</c> — and none was
+    /// on the shared surface. jasperfx#871 lifted <see cref="ArchivedStreamException"/>, so the
+    /// category is now nameable: a store that adopted it names nothing, and a store that owns its
+    /// exception hierarchy points <c>ExceptionTypeFor</c> at its own type.
     /// </remarks>
     [Fact]
     public async Task appending_to_an_archived_stream_is_rejected()
@@ -255,7 +256,7 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         var streamId = await aLedgerAsync();
         await archiveAsync(streamId);
 
-        await Should.ThrowAsync<Exception>(async () =>
+        await ShouldFailWithAsync(ComplianceExceptionKind.ArchivedStream, async () =>
         {
             await using var session = OpenSession();
             EventsFor(session).Append(streamId, new LedgerEntryPosted(10));

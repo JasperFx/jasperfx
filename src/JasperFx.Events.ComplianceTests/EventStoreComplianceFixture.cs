@@ -796,7 +796,7 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// <c>all_exceptions_should_derive_from_MartenException</c> convention test requires every
     /// exception Marten throws to derive from <c>MartenException</c>, and C# has single
     /// inheritance, so a Marten type cannot derive from both that base and the lifted JasperFx
-    /// type. Marten keeps its own six declarations in <c>Marten.Exceptions</c> and names them here.
+    /// type. Marten keeps its own declarations in <c>Marten.Exceptions</c> and names them here.
     /// That is a store design decision the compliance library has no business overruling.
     /// </para>
     /// <para>
@@ -821,6 +821,7 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
             ComplianceExceptionKind.EventDeserializationFailure => typeof(EventDeserializationFailureException),
             ComplianceExceptionKind.StreamLocked => typeof(StreamLockedException),
             ComplianceExceptionKind.DefaultTenantUsageDisabled => typeof(DefaultTenantUsageDisabledException),
+            ComplianceExceptionKind.ArchivedStream => typeof(ArchivedStreamException),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind,
                 $"{GetType().FullName} was asked for an unknown compliance exception category.")
         };

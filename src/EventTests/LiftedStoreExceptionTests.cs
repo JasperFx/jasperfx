@@ -128,6 +128,39 @@ public class LiftedStoreExceptionTests
     }
 
     [Fact]
+    public void archived_stream_names_the_id_and_the_way_back()
+    {
+        // jasperfx#871: all three stores refuse the append, and only Fisher's message said what to
+        // do about it. The canonical message keeps the remedy, because UnArchiveStream exists on
+        // every store.
+        var id = Guid.NewGuid();
+        var ex = new ArchivedStreamException(id);
+
+        ex.Id.ShouldBe(id);
+        ex.Message.ShouldBe(
+            $"Event stream '{id}' is archived and cannot be appended to. Call UnArchiveStream to reopen it, or start a new stream.");
+    }
+
+    [Fact]
+    public void archived_stream_carries_a_string_identity_too()
+    {
+        var ex = new ArchivedStreamException("ledger/1");
+
+        ex.Id.ShouldBe("ledger/1");
+        ex.Message.ShouldContain("'ledger/1'");
+    }
+
+    [Fact]
+    public void an_archived_stream_subclass_can_keep_its_diverged_message()
+    {
+        var ex = new PolecatishArchivedStreamException("ledger/1");
+
+        ex.Message.ShouldBe("Stream 'ledger/1' is invalid: Cannot append to an archived stream.");
+        ex.Id.ShouldBe("ledger/1");
+        ex.ShouldBeAssignableTo<ArchivedStreamException>();
+    }
+
+    [Fact]
     public void stream_locked_carries_the_stream_id_and_optional_inner()
     {
         var inner = new TimeoutException("lock wait timeout");
@@ -178,6 +211,14 @@ public class LiftedStoreExceptionTests
     {
         public MartenishCollisionException(object id, Type aggregateType)
             : base($"Stream #{id} already exists in the database", id, aggregateType)
+        {
+        }
+    }
+
+    private class PolecatishArchivedStreamException : ArchivedStreamException
+    {
+        public PolecatishArchivedStreamException(object id)
+            : base($"Stream '{id}' is invalid: Cannot append to an archived stream.", id)
         {
         }
     }
