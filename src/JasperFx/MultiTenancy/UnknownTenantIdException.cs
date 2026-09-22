@@ -2,7 +2,16 @@ namespace JasperFx.MultiTenancy;
 
 public class UnknownTenantIdException: Exception
 {
-    public UnknownTenantIdException(string tenantId): base($"Unknown tenant id '{tenantId}'")
+    public UnknownTenantIdException(string tenantId): this($"Unknown tenant id '{tenantId}'", tenantId)
+    {
+    }
+
+    /// <summary>
+    ///     For subclasses that report a narrower condition than "unknown" and therefore need their
+    ///     own message — <see cref="DisabledTenantException" /> is the one in JasperFx — and for
+    ///     store subclasses whose wording diverged.
+    /// </summary>
+    protected UnknownTenantIdException(string message, string tenantId): base(message)
     {
         TenantId = tenantId;
     }
