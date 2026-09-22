@@ -105,7 +105,21 @@ public class LiftedStoreExceptionTests
         var ex = new NonExistentStreamException(id);
 
         ex.Id.ShouldBe(id);
-        ex.Message.ShouldBe($"Attempt to append to a nonexistent event stream '{id}'");
+        ex.Message.ShouldBe(
+            $"Attempt to append to a nonexistent event stream '{id}'. AppendOptimistic and AppendExclusive require the stream to already exist in this session's tenant; call StartStream first, or use plain Append, which starts the stream when it is missing.");
+    }
+
+    [Fact]
+    public void non_existent_stream_says_which_appends_demand_an_existing_stream()
+    {
+        // jasperfx#872: the fact alone reads as "Append needs StartStream first", which is wrong on
+        // every store — plain Append is start-or-append. The remedy half has to name the overloads
+        // that actually require the stream to exist.
+        var message = new NonExistentStreamException(Guid.NewGuid()).Message;
+
+        message.ShouldContain("AppendOptimistic");
+        message.ShouldContain("AppendExclusive");
+        message.ShouldContain("plain Append, which starts the stream when it is missing");
     }
 
     [Fact]
@@ -115,7 +129,8 @@ public class LiftedStoreExceptionTests
 
         ex.Id.ShouldBe("stream-1");
         ex.AggregateType.ShouldBeNull();
-        ex.Message.ShouldBe("Stream with id 'stream-1' already exists.");
+        ex.Message.ShouldBe(
+            "Stream with id 'stream-1' already exists. StartStream requires a new id; to add events to an existing stream use Append (which starts the stream if it is missing) or FetchForWriting, and make create commands idempotent on the stream id.");
     }
 
     [Fact]
@@ -125,6 +140,39 @@ public class LiftedStoreExceptionTests
         var ex = new ExistingStreamIdCollisionException("stream-1", typeof(AEvent));
 
         ex.AggregateType.ShouldBe(typeof(AEvent));
+    }
+
+    [Fact]
+    public void archived_stream_names_the_id_and_the_way_back()
+    {
+        // jasperfx#871: all three stores refuse the append, and only Fisher's message said what to
+        // do about it. The canonical message keeps the remedy, because UnArchiveStream exists on
+        // every store.
+        var id = Guid.NewGuid();
+        var ex = new ArchivedStreamException(id);
+
+        ex.Id.ShouldBe(id);
+        ex.Message.ShouldBe(
+            $"Event stream '{id}' is archived and cannot be appended to. Call UnArchiveStream to reopen it, or start a new stream.");
+    }
+
+    [Fact]
+    public void archived_stream_carries_a_string_identity_too()
+    {
+        var ex = new ArchivedStreamException("ledger/1");
+
+        ex.Id.ShouldBe("ledger/1");
+        ex.Message.ShouldContain("'ledger/1'");
+    }
+
+    [Fact]
+    public void an_archived_stream_subclass_can_keep_its_diverged_message()
+    {
+        var ex = new PolecatishArchivedStreamException("ledger/1");
+
+        ex.Message.ShouldBe("Stream 'ledger/1' is invalid: Cannot append to an archived stream.");
+        ex.Id.ShouldBe("ledger/1");
+        ex.ShouldBeAssignableTo<ArchivedStreamException>();
     }
 
     [Fact]
@@ -178,6 +226,14 @@ public class LiftedStoreExceptionTests
     {
         public MartenishCollisionException(object id, Type aggregateType)
             : base($"Stream #{id} already exists in the database", id, aggregateType)
+        {
+        }
+    }
+
+    private class PolecatishArchivedStreamException : ArchivedStreamException
+    {
+        public PolecatishArchivedStreamException(object id)
+            : base($"Stream '{id}' is invalid: Cannot append to an archived stream.", id)
         {
         }
     }

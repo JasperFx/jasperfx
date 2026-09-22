@@ -31,7 +31,12 @@ public class StaticTenantSource<T> : ITenantedSource<T>
     {
         if (_values.TryFind(tenantId, out var connectionString)) return new ValueTask<T>(connectionString);
 
-        throw new ArgumentOutOfRangeException(nameof(tenantId), "Unknown tenant id");
+        // jasperfx#874: every store throws UnknownTenantIdException for this condition, so the one
+        // tenancy source JasperFx ships itself had better do the same -- a caller catching the
+        // shared type was missing the shared implementation. The registrations are right here in
+        // memory, so the message can name them.
+        throw new UnknownTenantIdException(tenantId,
+            _values.Enumerate().Select(pair => pair.Key).ToList());
     }
 
     public bool HasAny() => !_values.IsEmpty;

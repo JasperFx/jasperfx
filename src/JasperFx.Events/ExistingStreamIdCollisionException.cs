@@ -11,6 +11,12 @@ namespace JasperFx.Events;
 ///     (<c>Stream #... already exists in the database</c>) stays expressible through the protected
 ///     message-overriding constructor. Stores subclass or type-forward to this.
 /// </remarks>
+/// <remarks>
+///     jasperfx#872 added the remediation half of the message. The fact alone ("already exists")
+///     leaves the reader to work out that <c>Append</c> is start-or-append on every store and that
+///     <c>StartStream</c> is the only call that insists on a new id, which is exactly the confusion
+///     this exception tends to produce.
+/// </remarks>
 public class ExistingStreamIdCollisionException : Exception
 {
     public ExistingStreamIdCollisionException(object id) : this(id, null)
@@ -18,7 +24,9 @@ public class ExistingStreamIdCollisionException : Exception
     }
 
     public ExistingStreamIdCollisionException(object id, Type? aggregateType)
-        : this($"Stream with id '{id}' already exists.", id, aggregateType)
+        : this(
+            $"Stream with id '{id}' already exists. StartStream requires a new id; to add events to an existing stream use Append (which starts the stream if it is missing) or FetchForWriting, and make create commands idempotent on the stream id.",
+            id, aggregateType)
     {
     }
 
