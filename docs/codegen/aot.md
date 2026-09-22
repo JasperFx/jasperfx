@@ -97,6 +97,8 @@ builder.Services.CritterStackDefaults(opts =>
 
 In `Production` profile the host loads pre-generated types directly from the compiled assembly. No Roslyn invocation. If a generated type is missing, the app throws at startup rather than silently regenerating — which is the right failure mode for AOT publishing.
 
+Inside a Native AOT image the two dynamic modes are treated differently on purpose: `TypeLoadMode.Auto` quietly falls back to the static loader, because adapting to the platform is what `Auto` is for, while an explicit `TypeLoadMode.Dynamic` throws `PlatformNotSupportedException` naming `codegen write` — you asked for something the platform cannot do, and saying so at startup beats the obscure failure it would otherwise reach later.
+
 ### 3. Don't call `AddRuntimeCompilation()`
 
 JasperFx 2.0 split the runtime compiler into an opt-in seam:
