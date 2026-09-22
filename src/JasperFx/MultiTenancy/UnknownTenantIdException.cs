@@ -2,7 +2,9 @@ namespace JasperFx.MultiTenancy;
 
 public class UnknownTenantIdException: Exception
 {
-    public UnknownTenantIdException(string tenantId): this(tenantId, null)
+    // The cast disambiguates against the protected (message, tenantId) overload below, which a
+    // bare null would match just as well from inside this class.
+    public UnknownTenantIdException(string tenantId): this(tenantId, (IReadOnlyCollection<string>?)null)
     {
     }
 
@@ -12,7 +14,16 @@ public class UnknownTenantIdException: Exception
     ///     sharded or dynamic source that would have to go to the database to answer passes null.
     /// </summary>
     public UnknownTenantIdException(string tenantId, IReadOnlyCollection<string>? knownTenantIds)
-        : base(toMessage(tenantId, knownTenantIds))
+        : this(toMessage(tenantId, knownTenantIds), tenantId)
+    {
+    }
+
+    /// <summary>
+    ///     For subclasses that report a narrower condition than "unknown" and therefore need their
+    ///     own message — <see cref="DisabledTenantException" /> is the one in JasperFx — and for
+    ///     store subclasses whose wording diverged.
+    /// </summary>
+    protected UnknownTenantIdException(string message, string tenantId): base(message)
     {
         TenantId = tenantId;
     }
@@ -36,7 +47,9 @@ public class UnknownTenantIdException: Exception
         // jasperfx#874: the fact alone sends people looking for a tenant that was never registered,
         // or that was registered under a different casing, with nothing to say which. The casing
         // clause matters because TenantIdStyle is a per-component setting; the disabled clause
-        // because Marten and Polecat report a disabled tenant through this same type.
+        // because Marten and Polecat report a disabled tenant through this same type -- until they
+        // adopt DisabledTenantException (jasperfx#875), which subclasses this through the protected
+        // constructor above.
         return
             $"Unknown tenant id '{tenantId}'.{known} Register the tenant with the tenancy source this store uses, check the id's casing against the store's TenantIdStyle, and note that a disabled tenant is reported the same way on stores that do not distinguish it.";
     }
