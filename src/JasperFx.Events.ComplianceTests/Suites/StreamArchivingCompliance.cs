@@ -390,6 +390,22 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
     /// a document created and deleted inside one batch that started with no snapshot never existed,
     /// so nothing is deleted and the save is not an error.
     /// </summary>
+    /// <remarks>
+    /// <b>This fact does not discriminate, and is kept as documentation rather than as a guard rail.</b>
+    /// Measured against a build with the jasperfx#886 fix reverted, it passes either way: inline, the
+    /// phantom action queues a delete for a row that is not there, which is a no-op in SQL, so the
+    /// observable end state is identical. Its sibling above does discriminate — it fails with "should be
+    /// null but was" on the reverted build.
+    /// <para>
+    /// Where the phantom delete is actually observable is the async daemon, where
+    /// <c>EventRange.MarkSliceAction</c> records a <c>ProjectionDeleted&lt;TDoc,TId&gt;</c> that
+    /// downstream stages of a composite projection then receive for a document that never existed.
+    /// Pinning that needs a seam this suite does not have yet — see jasperfx#893. Until then the
+    /// discriminating coverage for this direction is the unit test
+    /// <c>sg_determine_action_reports_nothing_when_created_and_deleted_in_an_initially_empty_batch</c>,
+    /// which asserts the <c>ActionType</c> itself against the real source-generated dispatcher.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task creating_and_deleting_within_one_batch_stores_nothing()
     {
