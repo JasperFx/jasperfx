@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Descriptors;
@@ -27,7 +28,7 @@ public class TenantScopedExplorerReadDefaultsTests
     // what lets these tests prove the null-tenant overload actually delegates, rather than merely
     // failing to throw. The tenant-scoped overloads are deliberately left un-overridden — they are
     // the defaults under test.
-    private sealed class ExplorerEventStore : IEventStore
+    private class ExplorerEventStore : IEventStore
     {
         public List<string> Calls { get; } = [];
 
@@ -74,12 +75,41 @@ public class TenantScopedExplorerReadDefaultsTests
         public DatabaseCardinality DatabaseCardinality => throw new NotImplementedException();
         public bool HasMultipleTenants => throw new NotImplementedException();
         public EventStoreIdentity Identity => throw new NotImplementedException();
-        public IReadOnlyEventStore OpenReadOnlyEventStore() => throw new NotImplementedException();
+
+        public IReadOnlyEventStore OpenReadOnlyEventStore()
+        {
+            Calls.Add("OpenReadOnlyEventStore()");
+            return new StubReadOnlyEventStore();
+        }
 
         public Task CompactStreamAsync(Guid streamId, CancellationToken token = default)
             => throw new NotImplementedException();
 
         public Task CompactStreamAsync(string streamKey, CancellationToken token = default)
+            => throw new NotImplementedException();
+    }
+
+    // Only has to be distinguishable from null; nothing here is called.
+    private sealed class StubReadOnlyEventStore : IReadOnlyEventStore
+    {
+        public Task<IReadOnlyList<IEvent>> FetchStreamAsync(Guid streamId, long version = 0,
+            DateTimeOffset? timestamp = null, long fromVersion = 0, CancellationToken token = default)
+            => throw new NotImplementedException();
+
+        public Task<IReadOnlyList<IEvent>> FetchStreamAsync(string streamKey, long version = 0,
+            DateTimeOffset? timestamp = null, long fromVersion = 0, CancellationToken token = default)
+            => throw new NotImplementedException();
+
+        public Task<StreamState?> FetchStreamStateAsync(Guid streamId, CancellationToken token = default)
+            => throw new NotImplementedException();
+
+        public Task<StreamState?> FetchStreamStateAsync(string streamKey, CancellationToken token = default)
+            => throw new NotImplementedException();
+
+        public Task<PagedEvents> QueryEventsAsync(EventQuery query, CancellationToken token = default)
+            => throw new NotImplementedException();
+
+        public IQueryable<StreamState> QueryStreamStates(string? tenantId = null)
             => throw new NotImplementedException();
     }
 
@@ -161,6 +191,56 @@ public class TenantScopedExplorerReadDefaultsTests
         Should.Throw<NotSupportedException>(
             () => theStore.QueryByTagsAsync(tags, "tenant-1", CancellationToken.None));
         theRecorder.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void open_read_only_event_store_for_null_tenant_delegates_to_store_global()
+    {
+        theStore.OpenReadOnlyEventStore(tenantId: null).ShouldNotBeNull();
+        theRecorder.Calls.ShouldBe(["OpenReadOnlyEventStore()"]);
+    }
+
+    [Fact]
+    public void open_read_only_event_store_for_a_tenant_throws_when_not_multi_tenanted()
+    {
+        // jasperfx#885. Quietly handing back the default session would be worse here than for the
+        // explorer reads: the reader's own members take no tenant, so every FetchStreamAsync off it
+        // would answer from whichever tenant the default session resolved.
+        Should.Throw<NotSupportedException>(() => theStore.OpenReadOnlyEventStore("tenant-1"));
+        theRecorder.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void open_read_only_event_store_or_global_falls_back_for_a_store_without_the_overload()
+    {
+        // The CLI's disposition (stream-query, event-query): the tenant filter is on the query, so
+        // falling back to the store-global session narrows nothing.
+        theStore.OpenReadOnlyEventStoreOrGlobal("tenant-1").ShouldNotBeNull();
+        theRecorder.Calls.ShouldBe(["OpenReadOnlyEventStore()"]);
+    }
+
+    [Fact]
+    public void open_read_only_event_store_or_global_uses_the_tenant_overload_when_implemented()
+    {
+        var tenanted = new TenantedReadOnlyEventStore();
+
+        ((IEventStore)tenanted).OpenReadOnlyEventStoreOrGlobal("tenant-1").ShouldNotBeNull();
+
+        // The point of the fallback is that it is a fallback: a store that implements the overload
+        // must never see the store-global session opened instead.
+        tenanted.Calls.ShouldBe(["OpenReadOnlyEventStore(tenant-1)"]);
+    }
+
+    // Implements the tenant-aware producer, which is what Marten/Polecat are expected to do.
+    // IEventStore is re-listed deliberately: interface mapping is computed per declaring class, so a
+    // derived type that merely adds the method would still bind to the default implementation.
+    private sealed class TenantedReadOnlyEventStore : ExplorerEventStore, IEventStore
+    {
+        public IReadOnlyEventStore OpenReadOnlyEventStore(string? tenantId)
+        {
+            Calls.Add($"OpenReadOnlyEventStore({tenantId})");
+            return new StubReadOnlyEventStore();
+        }
     }
 
     [Fact]

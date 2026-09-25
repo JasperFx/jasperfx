@@ -339,4 +339,50 @@ public abstract class ConjoinedEventTenancyCompliance<TFixture, TOperations, TQu
         bStream.Id.ShouldBe(shared);
         bStream.Version.ShouldBe(1);
     }
+
+    /// <summary>
+    /// <c>OpenReadOnlyEventStore(tenantId)</c> opens the read-only tier <em>in</em> one tenant's
+    /// scope (jasperfx#885), which is what makes the tier's tenant-less members — everything except
+    /// <c>QueryStreamStates</c> and <see cref="EventQuery.TenantId"/> — usable under tenancy at all,
+    /// and what makes the whole surface reachable on a store whose default tenant is disabled.
+    /// Asserted through the shared stream id again: the same <c>FetchStreamStateAsync</c> call must
+    /// answer differently depending only on which tenant the reader was opened for.
+    /// </summary>
+    [Fact]
+    public async Task read_only_event_store_opened_for_a_tenant_scopes_the_tenant_less_reads()
+    {
+        var shared = Guid.NewGuid();
+
+        await appendAsync(TenantA, shared, new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+        await appendAsync(TenantB, shared, new ConsignmentBooked("Lisbon"));
+
+        IReadOnlyEventStore forA;
+        try
+        {
+            forA = theFixture.EventStore.OpenReadOnlyEventStore(TenantA);
+        }
+        catch (NotSupportedException)
+        {
+            Assert.Skip("This store does not implement the tenant-aware OpenReadOnlyEventStore(tenantId) overload.");
+            return;
+        }
+
+        var stateForA = await forA.FetchStreamStateAsync(shared, Cancellation);
+        stateForA.ShouldNotBeNull();
+        stateForA.Version.ShouldBe(2);
+
+        var eventsForA = await forA.FetchStreamAsync(shared, token: Cancellation);
+        eventsForA.Count.ShouldBe(2);
+
+        // Both directions, as everywhere in this suite: tenant B's reader must see only its own
+        // single event on the same stream id, not tenant A's two.
+        var forB = theFixture.EventStore.OpenReadOnlyEventStore(TenantB);
+
+        var stateForB = await forB.FetchStreamStateAsync(shared, Cancellation);
+        stateForB.ShouldNotBeNull();
+        stateForB.Version.ShouldBe(1);
+
+        var eventsForB = await forB.FetchStreamAsync(shared, token: Cancellation);
+        eventsForB.ShouldHaveSingleItem().Data.ShouldBeOfType<ConsignmentBooked>().Destination.ShouldBe("Lisbon");
+    }
 }

@@ -58,7 +58,10 @@ public class EventQueryCommand: JasperFxAsyncCommand<EventQueryInput>
         PagedEvents page;
         try
         {
-            page = await store.OpenReadOnlyEventStore()
+            // jasperfx#885: same reasoning as stream-query — the tenant scope is on EventQuery either
+            // way, but opening the reader for the tenant is what reaches a store whose default tenant
+            // is disabled.
+            page = await store.OpenReadOnlyEventStoreOrGlobal(query.TenantId)
                 .QueryEventsAsync(query, CancellationToken.None).ConfigureAwait(false);
         }
         catch (NotSupportedException e)
