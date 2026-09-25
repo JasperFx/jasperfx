@@ -178,6 +178,122 @@ public class SingleStreamProjectionTests
         ex.InnerException!.Message.ShouldBe("You shall not pass!");
     }
 
+    // Regression for #886: the per-event dispatch PR #304 introduced kept whatever action the LAST
+    // event returned, and the generated DetermineAction derives its action from `exists = snapshot
+    // != null` evaluated on its own input. So once a delete arm nulled the snapshot, any later event
+    // that left it null reported Nothing and overwrote the Delete — the idiomatic "domain delete,
+    // then Archived marker in one save" batch archived the stream and left the snapshot in place.
+    // The action belongs to the batch: it is a function of whether the document existed BEFORE the
+    // batch and whether one exists after the last event, exactly as buildActionAsync and the
+    // full-batch generated DetermineAction both have it.
+    [Fact]
+    public async Task sg_determine_action_keeps_delete_when_later_events_follow_the_deleting_event()
+    {
+        var projection = new SingleStreamProjection<SelfAggregatingWithShouldDelete, Guid>();
+        projection.AssembleAndAssertValidity();
+
+        // Two CEvents rather than CEvent + BEvent: the fixture has a public parameterless
+        // constructor, so a BEvent after the delete legitimately re-creates the aggregate and Store
+        // is the right answer there. A second CEvent stands in for the Archived marker — a no-op on
+        // a null snapshot.
+        var events = new IEvent[]
+        {
+            new Event<CEvent>(new CEvent()) { Sequence = 1 },
+            new Event<CEvent>(new CEvent()) { Sequence = 2 }
+        };
+
+        var (snapshot, action) = await projection.DetermineActionAsync(
+            new FakeSession(),
+            new SelfAggregatingWithShouldDelete { Id = Guid.NewGuid() },
+            Guid.NewGuid(),
+            new NulloIdentitySetter<SelfAggregatingWithShouldDelete, Guid>(),
+            events,
+            CancellationToken.None);
+
+        snapshot.ShouldBeNull();
+        action.ShouldBe(ActionType.Delete);
+    }
+
+    [Fact]
+    public async Task sg_determine_action_reports_nothing_when_deleting_a_document_that_never_existed()
+    {
+        var projection = new SingleStreamProjection<SelfAggregatingWithShouldDelete, Guid>();
+        projection.AssembleAndAssertValidity();
+
+        var events = new IEvent[]
+        {
+            new Event<CEvent>(new CEvent()) { Sequence = 1 },
+            new Event<CEvent>(new CEvent()) { Sequence = 2 }
+        };
+
+        var (snapshot, action) = await projection.DetermineActionAsync(
+            new FakeSession(),
+            null,
+            Guid.NewGuid(),
+            new NulloIdentitySetter<SelfAggregatingWithShouldDelete, Guid>(),
+            events,
+            CancellationToken.None);
+
+        snapshot.ShouldBeNull();
+        action.ShouldBe(ActionType.Nothing);
+    }
+
+    // The same defect in the other direction, and the reason the fix cannot just latch Delete: a
+    // document created and deleted inside one batch that started with no snapshot never existed on
+    // disk. Inline that queued a delete for a row that was not there (harmless in SQL), but in the
+    // async daemon EventRange.MarkSliceAction records a ProjectionDeleted<TDoc,TId> that downstream
+    // stages of a composite projection then receive for a document that never was.
+    [Fact]
+    public async Task sg_determine_action_reports_nothing_when_created_and_deleted_in_an_initially_empty_batch()
+    {
+        var projection = new SingleStreamProjection<SelfAggregatingWithShouldDelete, Guid>();
+        projection.AssembleAndAssertValidity();
+
+        var events = new IEvent[]
+        {
+            new Event<AEvent>(new AEvent()) { Sequence = 1 }, // Creates in memory
+            new Event<CEvent>(new CEvent()) { Sequence = 2 }  // Deletes before persistence
+        };
+
+        var (snapshot, action) = await projection.DetermineActionAsync(
+            new FakeSession(),
+            null,
+            Guid.NewGuid(),
+            new NulloIdentitySetter<SelfAggregatingWithShouldDelete, Guid>(),
+            events,
+            CancellationToken.None);
+
+        snapshot.ShouldBeNull();
+        action.ShouldBe(ActionType.Nothing);
+    }
+
+    // The constraint any fix has to respect: a later event that recreates the document after a
+    // delete arm still has to Store it. This one passed before #886 and must keep passing — it is
+    // what rules out simply latching Delete once a delete arm fires.
+    [Fact]
+    public async Task sg_determine_action_stores_when_a_later_event_recreates_the_document()
+    {
+        var projection = new SingleStreamProjection<SelfAggregatingWithShouldDelete, Guid>();
+        projection.AssembleAndAssertValidity();
+
+        var events = new IEvent[]
+        {
+            new Event<CEvent>(new CEvent()) { Sequence = 1 }, // ShouldDelete
+            new Event<BEvent>(new BEvent()) { Sequence = 2 }  // re-creates via the default ctor
+        };
+
+        var (snapshot, action) = await projection.DetermineActionAsync(
+            new FakeSession(),
+            new SelfAggregatingWithShouldDelete { Id = Guid.NewGuid() },
+            Guid.NewGuid(),
+            new NulloIdentitySetter<SelfAggregatingWithShouldDelete, Guid>(),
+            events,
+            CancellationToken.None);
+
+        snapshot.ShouldNotBeNull();
+        action.ShouldBe(ActionType.Store);
+    }
+
     [Theory]
     [InlineData(typeof(ConventionalPlusEvolve), "This projection can only use the override of 'Evolve' or conventional Apply/Create/ShouldDelete methods, but not both")]
     [InlineData(typeof(MultipleOverrides), "Only one of these methods can be overridden: Evolve, EvolveAsync")]

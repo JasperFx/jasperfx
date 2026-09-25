@@ -331,21 +331,33 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 _generatedEvolverEventTypes = evolver.EventTypes;
                 _buildAction = (_, snapshot, id, _, events, _) =>
                 {
+                    // Whether a document existed is a property of the BATCH, evaluated before any
+                    // event is applied — exactly as buildActionAsync and the generated full-batch
+                    // DetermineAction both have it, and as EvolveAsync's contract states: null after
+                    // a document existed deletes it, null when none existed does nothing.
+                    var exists = snapshot != null;
+
                     // Dispatch one event at a time so a poison-pill Apply can be wrapped
                     // in ApplyEventException carrying *that* event. Bulk-dispatching the
                     // whole batch through DetermineAction would lose the per-event seam
-                    // the daemon's SkipApplyErrors handler relies on (see #303). The
-                    // final action is whichever the last event produced — same outcome
-                    // as a single batch call because DetermineAction's per-event branches
-                    // are independent of the rest of the batch state apart from snapshot.
-                    var action = ActionType.Nothing;
+                    // the daemon's SkipApplyErrors handler relies on (see #303).
+                    //
+                    // The per-call ActionType is deliberately discarded (#886). The generated
+                    // DetermineAction derives it from `snapshot != null` on its OWN input, so
+                    // per-event dispatch made it mean "existed before this event" rather than
+                    // "existed before the batch": once a delete arm nulled the snapshot, a later
+                    // no-op event reported Nothing and overwrote the Delete — the idiomatic
+                    // "domain delete, then Archived marker in one save" batch left the snapshot
+                    // on disk. And a document created then deleted inside a batch that started
+                    // empty reported Delete for a row that never existed, which the async daemon
+                    // turns into a ProjectionDeleted<TDoc,TId> for downstream composite stages.
                     var single = new IEvent[1];
                     foreach (var e in events)
                     {
                         single[0] = e;
                         try
                         {
-                            (snapshot, action) = evolver.DetermineAction(snapshot, id, single);
+                            (snapshot, _) = evolver.DetermineAction(snapshot, id, single);
                         }
                         catch (ApplyEventException)
                         {
@@ -360,6 +372,14 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                             throw new ApplyEventException(e, ex);
                         }
                     }
+
+                    // A later event that recreates the document after a delete arm still stores it,
+                    // which is why the fix reads the final snapshot rather than latching Delete.
+                    var action = snapshot != null
+                        ? ActionType.Store
+                        : exists
+                            ? ActionType.Delete
+                            : ActionType.Nothing;
 
                     return new ValueTask<(TDoc?, ActionType)>((snapshot, action));
                 };

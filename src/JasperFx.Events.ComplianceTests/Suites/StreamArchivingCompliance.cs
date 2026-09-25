@@ -47,6 +47,25 @@ public partial class ComplianceLedgerByKey
     public void Apply(LedgerEntryPosted e) => Balance += e.Amount;
 }
 
+/// <summary>
+/// The archiving page's own recommended shape: deletion goes through <c>ShouldDelete</c>, and the
+/// <see cref="Archived"/> marker rides along in the same save. Carries a <c>ShouldDelete</c> arm so
+/// the source generator emits the <c>DetermineAction</c> dispatcher rather than a plain evolver —
+/// the path jasperfx#886 was decided per event on.
+/// </summary>
+public partial class ComplianceClosableLedger
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public decimal Balance { get; set; }
+
+    public static ComplianceClosableLedger Create(LedgerOpened e) => new() { Name = e.Name };
+
+    public void Apply(LedgerEntryPosted e) => Balance += e.Amount;
+
+    public bool ShouldDelete(LedgerClosed e) => true;
+}
+
 #endregion
 
 /// <summary>
@@ -94,6 +113,17 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         config.SchemaName = "compliance_archiving_snapshot_async";
         config.AddEventType<LedgerClosed>();
         config.Snapshot<ComplianceLedger>(SnapshotLifecycle.Async);
+    };
+
+    /// <summary>
+    /// An inline snapshot whose aggregate deletes itself through <c>ShouldDelete</c>, for the
+    /// jasperfx#886 batch: a domain "closed" event and the <see cref="Archived"/> marker in one save.
+    /// </summary>
+    private static readonly Action<ComplianceStoreConfig> _deletingSnapshotConfiguration = config =>
+    {
+        config.SchemaName = "compliance_archiving_snapshot_delete";
+        config.AddEventType<LedgerClosed>();
+        config.Snapshot<ComplianceClosableLedger>(SnapshotLifecycle.Inline);
     };
 
     private static readonly Action<ComplianceStoreConfig> _stringSnapshotConfiguration = config =>
@@ -308,6 +338,80 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         state.ShouldNotBeNull();
         state.IsArchived.ShouldBeTrue();
         state.Version.ShouldBe(4);
+    }
+
+    /// <summary>
+    /// jasperfx#886 — the shape the archiving documentation itself recommends: a domain event whose
+    /// <c>ShouldDelete</c> arm removes the snapshot, followed by the <see cref="Archived"/> marker, in
+    /// one save. Both consequences have to land. Archiving on its own used to be the only one that
+    /// did, because the runtime decided the projection's action from the last event rather than from
+    /// the batch, so the marker's no-op overwrote the delete and the snapshot survived.
+    /// </summary>
+    [Fact]
+    public async Task a_should_delete_event_followed_by_the_archived_marker_deletes_and_archives()
+    {
+        await theFixture.ConfigureAsync(_deletingSnapshotConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceClosableLedger>(streamId,
+                new LedgerOpened("Petty Cash"), new LedgerEntryPosted(25));
+            await SaveChangesAsync(session);
+        }
+
+        // The snapshot has to be there first, or the batch proves nothing: "deleted" and "never
+        // stored" look identical afterwards.
+        await using (var reader = OpenSession())
+        {
+            (await LoadDocumentAsync<ComplianceClosableLedger>(reader, streamId)).ShouldNotBeNull();
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(streamId, new LedgerClosed(), new Archived("Closed out"));
+            await SaveChangesAsync(session);
+        }
+
+        await using var final = OpenSession();
+
+        (await LoadDocumentAsync<ComplianceClosableLedger>(final, streamId)).ShouldBeNull();
+
+        var state = await EventsFor(final).FetchStreamStateAsync(streamId, Cancellation);
+        state.ShouldNotBeNull();
+        state.IsArchived.ShouldBeTrue();
+        state.Version.ShouldBe(4);
+    }
+
+    /// <summary>
+    /// The inverse, and the reason the fix reads the final snapshot rather than latching the delete:
+    /// a document created and deleted inside one batch that started with no snapshot never existed,
+    /// so nothing is deleted and the save is not an error.
+    /// </summary>
+    [Fact]
+    public async Task creating_and_deleting_within_one_batch_stores_nothing()
+    {
+        await theFixture.ConfigureAsync(_deletingSnapshotConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceClosableLedger>(streamId,
+                new LedgerOpened("Petty Cash"), new LedgerClosed());
+            await SaveChangesAsync(session);
+        }
+
+        await using var reader = OpenSession();
+
+        (await LoadDocumentAsync<ComplianceClosableLedger>(reader, streamId)).ShouldBeNull();
+
+        // The events are persisted either way — only the document write is skipped.
+        var events = await EventsFor(reader).FetchStreamAsync(streamId, token: Cancellation);
+        events.Count.ShouldBe(2);
     }
 
     [Fact]
