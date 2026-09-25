@@ -71,4 +71,45 @@
              Text="JasperFx.Events: the aggregate source generator was supplied more than once ($(_JasperFxEventsGeneratorList)). Keeping $(_JasperFxEventsGeneratorKeep) and dropping the rest, because two copies of one generator emit identical file paths and collide with CS0433 (jasperfx#891)." />
   </Target>
 
+  <!--
+    jasperfx#892 — an opt-in, build-time answer to "did the generator actually run in this project?".
+
+    Conventional Apply/Create/ShouldDelete methods have no runtime fallback, and an aggregate type is
+    usually a plain POCO that names no store type, so a project whose analyzer flow was suppressed —
+    ExcludeAssets="analyzers", PrivateAssets="all" anywhere in the chain — compiles perfectly happily
+    and fails much later, at the first FetchForWriting or AggregateStreamAsync. jasperfx#887 made that
+    runtime failure name the assembly and pick a cause; this turns the same question into a build
+    error, which is what a CI pipeline can act on.
+
+    Deliberately opt-in. There is no way here to tell a project that SHOULD have the generator from one
+    that has no aggregates at all, and defaulting it on would fail every unrelated project in a
+    solution. Set it on the projects that declare aggregate or projection types:
+
+        <PropertyGroup>
+          <JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>
+        </PropertyGroup>
+
+    See also jasperfx#894 for why this is not a warning that fires by default: Marten's own build
+    suppresses the analyzer package's flow on purpose (it bundles the analyzer dll instead), so
+    "suppressed flow" is not by itself evidence of a mistake.
+  -->
+  <Target Name="JasperFxEventsAssertSourceGeneratorIsAttached"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="JasperFxEventsDedupeSourceGeneratorAnalyzers"
+          Condition="'$(JasperFxEventsRequireSourceGenerator)' == 'true'">
+
+    <ItemGroup>
+      <_JasperFxEventsAttachedGenerator Include="@(Analyzer)"
+                                        Condition="'%(Filename)%(Extension)' == 'JasperFx.Events.SourceGenerator.dll'" />
+    </ItemGroup>
+
+    <Error Condition="'@(_JasperFxEventsAttachedGenerator)' == ''"
+           Code="JFXEVT900"
+           Text="JasperFxEventsRequireSourceGenerator is true, but no JasperFx.Events.SourceGenerator analyzer is attached to $(MSBuildProjectName). Conventional Apply/Create/ShouldDelete methods are dispatched by that compile-time generator and there is no runtime fallback, so any aggregate type declared here would fail at its first FetchForWriting/AggregateStreamAsync. Reference Marten (or JasperFx.Events.SourceGenerator) directly from this project, and check the reference chain for ExcludeAssets=&quot;analyzers&quot; or PrivateAssets=&quot;all&quot;, which suppress the analyzer for downstream projects while the build still succeeds. See jasperfx#892." />
+
+    <Message Condition="'@(_JasperFxEventsAttachedGenerator)' != ''"
+             Importance="normal"
+             Text="JasperFx.Events: the aggregate source generator is attached to $(MSBuildProjectName) (@(_JasperFxEventsAttachedGenerator))." />
+  </Target>
+
 </Project>
