@@ -39,6 +39,14 @@ internal static class GeneratorHarness
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 
+    /// <summary>
+    /// The file name of the marker the generator emits into every compilation it is attached to,
+    /// candidates or not (jasperfx#887). Filtered out of <see cref="Run" /> so that
+    /// <c>generatedSources.ShouldBeEmpty()</c> keeps meaning "nothing was generated for this shape",
+    /// which is what every such assertion here is actually about.
+    /// </summary>
+    public const string MarkerFileName = "JasperFxSourceGeneratorApplied.g.cs";
+
     /// <summary>Runs the generator and returns its diagnostics plus every generated source.</summary>
     public static (ImmutableArray<Diagnostic> diagnostics, string[] generatedSources) Run(string source)
     {
@@ -46,10 +54,60 @@ internal static class GeneratorHarness
         driver = driver.RunGeneratorsAndUpdateCompilation(Compilation(source), out _, out var diagnostics);
 
         var generatedSources = driver.GetRunResult().GeneratedTrees
+            .Where(t => !t.FilePath.EndsWith(MarkerFileName, StringComparison.Ordinal))
             .Select(t => t.GetText().ToString())
             .ToArray();
 
         return (diagnostics, generatedSources);
+    }
+
+    /// <summary>One generated file's text, by file name — for the tests that are about the marker itself.</summary>
+    public static string GeneratedSource(string source, string fileName)
+    {
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new AggregateEvolverGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(Compilation(source), out _, out _);
+
+        var tree = driver.GetRunResult().GeneratedTrees
+            .Single(t => System.IO.Path.GetFileName(t.FilePath) == fileName);
+
+        return tree.GetText().ToString();
+    }
+
+    /// <summary>Every generated file path, marker included — for the tests that are about the marker.</summary>
+    public static string[] GeneratedFileNames(string source)
+    {
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new AggregateEvolverGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(Compilation(source), out _, out _);
+
+        return driver.GetRunResult().GeneratedTrees
+            .Select(t => System.IO.Path.GetFileName(t.FilePath))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// The same, for a compilation that does NOT reference JasperFx.Events — a project carrying the
+    /// analyzer with no reference to the library it generates against. The marker must not be emitted
+    /// there: the attribute it applies would not resolve, and a marker that breaks a build which
+    /// compiles today would be worse than no marker.
+    /// </summary>
+    public static string[] GeneratedFileNamesWithoutJasperFxReference(string source)
+    {
+        var references = References()
+            .Where(r => (r.Display ?? "").IndexOf("JasperFx.Events", StringComparison.OrdinalIgnoreCase) < 0)
+            .ToList();
+
+        var compilation = CSharpCompilation.Create(
+            assemblyName: "TestAssemblyWithoutJasperFx",
+            syntaxTrees: [CSharpSyntaxTree.ParseText(source)],
+            references: references,
+            options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(new AggregateEvolverGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out _, out _);
+
+        return driver.GetRunResult().GeneratedTrees
+            .Select(t => System.IO.Path.GetFileName(t.FilePath))
+            .ToArray();
     }
 
     /// <summary>

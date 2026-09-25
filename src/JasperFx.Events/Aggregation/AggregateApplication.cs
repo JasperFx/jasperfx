@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Internals;
@@ -115,21 +116,31 @@ internal class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAg
         }
     }
 
+    /// <summary>
+    /// jasperfx#887: this used to have to describe every cause at once, because it could not tell
+    /// "the generator never ran in that assembly" — a csproj problem — from "the generator ran and
+    /// declined your type" — a code-shape problem. The marker the generator now leaves in every
+    /// assembly it processes decides between them, and the assemblies asked are the ones the runtime
+    /// actually scans for a dispatcher.
+    /// </summary>
     internal string MissingDispatcherMessage()
     {
         var owner = _projectionType ?? typeof(TAggregate);
+
+        var assemblies = new List<Assembly> { typeof(TAggregate).Assembly };
+        if (_projectionType != null && _projectionType.Assembly != typeof(TAggregate).Assembly)
+        {
+            // The generator emits a projection-specific evolver into the PROJECTION's assembly, so
+            // confirmation there is just as good as confirmation in the aggregate's — see
+            // collectGeneratedEvolverAttributes, which scans both.
+            assemblies.Add(_projectionType.Assembly);
+        }
+
         return $"No source-generated dispatcher found for {owner.FullNameInCode()}. " +
                "Conventional Apply/Create/ShouldDelete methods are dispatched by the compile-time " +
-               "JasperFx.Events.SourceGenerator; there is no runtime fallback. Ensure that analyzer runs in the " +
-               $"assembly that defines {typeof(TAggregate).FullNameInCode()} (for Marten consumers the generator " +
-               "ships inside the Marten NuGet package, so verify the project reference does not exclude the " +
-               "'analyzers' asset). Most projections do NOT need to be `partial` — neither a self-aggregating type " +
-               "registered via Snapshot<T> / SingleStreamProjection<T> / AggregateStream<T>, nor an aggregation " +
-               "projection subclass, whose dispatcher is generated as a separate type. `partial` is required only " +
-               "where the dispatcher has to be generated into the projection class itself: an EventProjection, or a " +
-               "projection whose conventional methods are instance methods and which has no public parameterless " +
-               "constructor (a DI-activated projection, for instance). The generator reports JFXEVT003 in those " +
-               "cases. Alternatively, override Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly.";
+               "JasperFx.Events.SourceGenerator; there is no runtime fallback. " +
+               SourceGeneratorMarker.DescribeGeneratorReach(
+                   assemblies, $"the aggregate {typeof(TAggregate).FullNameInCode()}");
     }
 
     // IAggregator<>: the runtime aggregator contract. Reachable only when the registration-time

@@ -37,7 +37,13 @@ public class AggregateEvolverGeneratorTests
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);
 
         var runResult = driver.GetRunResult();
-        var generatedSources = runResult.GeneratedTrees.Select(t => t.GetText().ToString()).ToArray();
+
+        // The jasperfx#887 marker lands in every compilation the generator is attached to, candidates
+        // or not. Filtered here so the assertions in this file keep meaning what they say about the
+        // shape under test — GeneratorHarness.GeneratedFileNames is where the marker itself is asserted.
+        var generatedSources = runResult.GeneratedTrees
+            .Where(t => !t.FilePath.EndsWith(GeneratorHarness.MarkerFileName, StringComparison.Ordinal))
+            .Select(t => t.GetText().ToString()).ToArray();
 
         return (diagnostics, generatedSources);
     }
