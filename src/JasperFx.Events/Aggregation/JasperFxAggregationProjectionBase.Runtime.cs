@@ -147,19 +147,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         // partial projection class, or thrown at registration. If we reach this base body,
         // the fail-fast was bypassed (e.g. the projection was constructed and used outside
         // the registration flow).
-        throw new InvalidOperationException(
-            $"No source-generated dispatcher found for {GetType().FullNameInCode()}. " +
-            "Conventional Apply/Create/ShouldDelete methods are dispatched by the compile-time " +
-            "JasperFx.Events.SourceGenerator; there is no runtime fallback. Ensure that analyzer runs in the " +
-            $"assembly that defines {typeof(TDoc).FullNameInCode()} (for Marten consumers the generator ships inside " +
-            "the Marten NuGet package, so verify the project reference does not exclude the 'analyzers' asset). " +
-            "Most projections do NOT need to be `partial` — neither a self-aggregating type registered via " +
-            "Snapshot<T> / SingleStreamProjection<T> / AggregateStream<T>, nor an aggregation projection subclass, " +
-            "whose dispatcher is generated as a separate type. `partial` is required only where the dispatcher has " +
-            "to be generated into the projection class itself: an EventProjection, or a projection whose conventional " +
-            "methods are instance methods and which has no public parameterless constructor (a DI-activated " +
-            "projection, for instance). The generator reports JFXEVT003 in those cases. Alternatively, override " +
-            "Evolve / EvolveAsync / DetermineAction / DetermineActionAsync directly.");
+        // One message, composed in one place (jasperfx#887): this used to carry its own copy of the
+        // paragraph, so the marker-aware half would have had to be written twice and drift once.
+        throw new InvalidOperationException(_application.MissingDispatcherMessage());
     }
 
     /// <summary>

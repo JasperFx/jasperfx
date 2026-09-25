@@ -206,3 +206,45 @@ rename the colliding test class. A proper fix — making
 `EvolverCodeEmitter.ToDisplayString()` call sites consistently use
 `SymbolDisplayFormat.FullyQualifiedFormat` so generated output uses
 `global::` prefixes everywhere — is tracked separately.
+
+## Telling "the generator never ran" from "the generator declined your type" (#887)
+
+The runtime contract above — *if the SG ran, a dispatcher exists; if it did not, none
+does* — used to be unobservable in the failing direction. The generator emitted source
+only when it found a candidate, so an assembly it processed and an assembly it never saw
+were indistinguishable: both simply have no `[GeneratedEvolver]`. That is why
+`MissingDispatcherMessage()` had to describe a csproj problem and a code-shape problem in
+one paragraph, asserting neither.
+
+Since [#887](https://github.com/JasperFx/jasperfx/issues/887) the generator emits
+`[assembly: JasperFxSourceGeneratorApplied]` into **every** compilation it is attached to,
+candidates or not, and `SourceGeneratorMarker` reads it back:
+
+| Evidence | What the assembly carries | What the message says |
+|---|---|---|
+| `Confirmed` | `[JasperFxSourceGeneratorApplied]` | The generator ran and declined this type — a code-shape problem. Names the `partial` rules and `JFXEVT003`. |
+| `OlderGenerator` | `[GeneratedEvolver]` but no marker | Same conclusion: a generator did run, one older than the marker. |
+| `Unconfirmed` | Neither | The generator most likely never ran here — a build-configuration problem. Names `ExcludeAssets="analyzers"` / `PrivateAssets="all"`, and says how to rule out the older-generator case rather than claiming more than it knows. |
+
+Both assemblies the runtime actually scans are asked — the aggregate's, and the
+projection's when it differs — because a projection-specific evolver is emitted into the
+projection's assembly (`collectGeneratedEvolverAttributes`).
+
+Two implementation constraints are worth keeping in mind when touching this:
+
+- The marker is emitted from a `CompilationProvider.Select(...)` output, **not** from
+  `RegisterPostInitializationOutput`. Post-initialization cannot see the compilation, and the
+  analyzer package is analyzer-only with no declared dependency — so a project can carry the
+  analyzer without referencing `JasperFx.Events` at all, and an unconditional assembly
+  attribute would turn that build from "compiles, silently ungenerated" into `CS0246`.
+  Selecting down to a `bool` keeps the output incremental while staying independent of the
+  candidate pipelines, which is the property the marker needs.
+- `JasperFxSourceGeneratorAppliedAttribute` sets `AllowMultiple = true`, because the analyzer
+  can be loaded twice over one compilation (#462) and a second application of a single-use
+  assembly attribute is `CS0579`.
+
+The silent topology that motivated all of this — a library referencing Marten with
+`PrivateAssets="all"`, a test project referencing the library and declaring the aggregates —
+still builds with 0 warnings and 0 generated evolvers ([marten#5495](https://github.com/JasperFx/marten/issues/5495)).
+The marker does not fix that build; it makes the eventual runtime failure say which of the
+two problems the reader has. A build-time warning for that topology is a possible follow-up.

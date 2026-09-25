@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
+using JasperFx.Events.Aggregation;
 using JasperFx.Events.Internals;
 
 namespace JasperFx.Events.Projections;
@@ -125,10 +126,17 @@ public class EventProjectionApplication<TOperations>
 
     internal string MissingDispatcherMessage()
     {
+        // jasperfx#887: an EventProjection's dispatcher is generated into the projection class itself,
+        // so its assembly is the only one worth asking — and the two causes here are just as opposite
+        // as they are for an aggregate: `partial` was missing, or the analyzer never ran at all.
+        var reach = SourceGeneratorMarker.DescribeGeneratorReach(
+            [_projectionType.Assembly], $"the EventProjection {_projectionType.FullNameInCode()}");
+
         return $"No source-generated dispatcher found for EventProjection {_projectionType.FullNameInCode()}. " +
                "When using conventional Project/Create/Transform methods, the projection class must be declared " +
                "`partial` in an assembly that references the JasperFx.Events.SourceGenerator analyzer, " +
                "or alternatively override ApplyAsync directly. " +
-               "See docs/codegen/aot.md for the AOT publishing guide.";
+               "See docs/codegen/aot.md for the AOT publishing guide. " +
+               reach;
     }
 }
