@@ -17,4 +17,15 @@
                           OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- jasperfx#891. buildTransitive rather than build: the duplicate analyzer copies this target
+             removes usually reach a project transitively through a store package, not through a direct
+             reference to JasperFx.Events. The file name has to match the package id for NuGet to import
+             it. -->
+        <None Include="build\JasperFx.Events.targets"
+              Pack="true"
+              PackagePath="buildTransitive\JasperFx.Events.targets"
+              Visible="false" />
+    </ItemGroup>
+
 </Project>

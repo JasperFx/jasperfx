@@ -128,10 +128,46 @@ internal static class GeneratorHarness
     }
 
     /// <summary>
+    /// The generator loaded twice as the SAME type — a store package's bundled copy alongside the
+    /// standalone package's (jasperfx#891). Returns every generated file path, duplicates included, so
+    /// a test can show that both instances emit the same path.
+    /// </summary>
+    public static string[] GeneratedFileNamesFromTwoInstancesOfTheSameGenerator(string source)
+    {
+        return RunTwoInstancesOfTheSameGenerator(source).paths;
+    }
+
+    /// <summary>Compilation errors after the same generator ran twice over one compilation.</summary>
+    public static string[] ErrorsFromTwoInstancesOfTheSameGenerator(string source)
+    {
+        return RunTwoInstancesOfTheSameGenerator(source).errors;
+    }
+
+    private static (string[] paths, string[] errors) RunTwoInstancesOfTheSameGenerator(string source)
+    {
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new AggregateEvolverGenerator().AsSourceGenerator(),
+            new AggregateEvolverGenerator().AsSourceGenerator());
+
+        driver = driver.RunGeneratorsAndUpdateCompilation(Compilation(source), out var outputCompilation, out _);
+
+        var paths = driver.GetRunResult().GeneratedTrees
+            .Select(t => t.FilePath)
+            .ToArray();
+
+        var errors = outputCompilation.GetDiagnostics()
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.ToString())
+            .ToArray();
+
+        return (paths, errors);
+    }
+
+    /// <summary>
     /// Compiles with the generator loaded twice, as it is when bundled as a built-in analyzer in two
-    /// referenced packages (#462). The second copy is a distinct generator TYPE on purpose: the driver
-    /// derives generated file paths from the generator's type name, so two instances of the same type
-    /// would collide on path alone (CS0433), which is a different problem entirely.
+    /// referenced packages (#462). The second copy is a distinct generator TYPE on purpose, which
+    /// separates this from the same-type duplication in jasperfx#891 — there the two instances emit
+    /// identical file paths and collide with CS0433, which no emit-side change can avoid.
     /// </summary>
     public static ImmutableArray<Diagnostic> CompileWithTwoCopies(string source)
     {

@@ -1,0 +1,74 @@
+<Project>
+
+  <!--
+    jasperfx#891 — hand the compiler exactly one copy of the aggregate source generator.
+
+    A project can end up with two `Analyzer` items named JasperFx.Events.SourceGenerator.dll: a store
+    package bundles the analyzer into its own analyzers/dotnet/cs folder (Marten does, marten#4557),
+    and the standalone JasperFx.Events.SourceGenerator package contributes a second one from a
+    different package folder. Two /analyzer: paths mean two instances of the same generator TYPE, and
+    the driver derives a generated file's path from the analyzer assembly name plus the generator type
+    name — so both instances emit byte-identical paths. The emitted evolvers are `file`-scoped, and
+    file-local names are mangled from the containing file's path, so the two copies mangle to the same
+    name and the build fails with
+
+        error CS0433: The type 'XEvolver' exists in both 'YourAssembly' and 'YourAssembly'
+
+    naming the same assembly twice. Nothing inside the generator can fix that: the hint name is its
+    only lever, and making it instance-dependent would be non-deterministic and would defeat the
+    incremental caching.
+
+    This lives in JasperFx.Events rather than in the analyzer package because every store depends on
+    JasperFx.Events, so the target is present even when the duplication comes from two bundling
+    packages (Marten plus Polecat) and the standalone package is not referenced at all.
+
+    Set JasperFxEventsDedupeSourceGeneratorAnalyzers=false to opt out.
+  -->
+  <Target Name="JasperFxEventsDedupeSourceGeneratorAnalyzers"
+          BeforeTargets="CoreCompile"
+          Condition="'$(JasperFxEventsDedupeSourceGeneratorAnalyzers)' != 'false'">
+
+    <ItemGroup>
+      <_JasperFxEventsGenerator Include="@(Analyzer)"
+                                Condition="'%(Filename)%(Extension)' == 'JasperFx.Events.SourceGenerator.dll'" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_JasperFxEventsGeneratorList>@(_JasperFxEventsGenerator)</_JasperFxEventsGeneratorList>
+      <!-- More than one copy is the only case worth touching. A single copy is left exactly as it is,
+           metadata and all, so the common build is unaffected. -->
+      <_JasperFxEventsHasDuplicates>false</_JasperFxEventsHasDuplicates>
+      <_JasperFxEventsHasDuplicates Condition="$(_JasperFxEventsGeneratorList.Contains(';'))">true</_JasperFxEventsHasDuplicates>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true'">
+      <!-- Referencing the standalone package is an explicit statement of intent, so its copy wins over
+           one bundled inside a store package. -->
+      <_JasperFxEventsGeneratorStandalone Include="@(_JasperFxEventsGenerator)"
+                                          Condition="$([System.String]::new('%(Identity)').Replace('\', '/').ToLowerInvariant().Contains('/jasperfx.events.sourcegenerator/'))" />
+      <_JasperFxEventsGeneratorKeepCandidate Include="@(_JasperFxEventsGeneratorStandalone)" />
+      <_JasperFxEventsGeneratorKeepCandidate Include="@(_JasperFxEventsGenerator)"
+                                             Condition="'@(_JasperFxEventsGeneratorStandalone)' == ''" />
+    </ItemGroup>
+
+    <!-- Batched on purpose: MSBuild evaluates this PropertyGroup once per candidate, so the property
+         ends up holding the last one. Analyzer ordering is stable within a build, so the same copy is
+         kept on every build rather than alternating between them. -->
+    <PropertyGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true'">
+      <_JasperFxEventsGeneratorKeep>%(_JasperFxEventsGeneratorKeepCandidate.Identity)</_JasperFxEventsGeneratorKeep>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsGeneratorKeep)' != ''">
+      <Analyzer Remove="@(_JasperFxEventsGenerator)" />
+      <Analyzer Include="$(_JasperFxEventsGeneratorKeep)" />
+    </ItemGroup>
+
+    <!-- Normal importance rather than a warning: the duplication is a packaging accident the consumer
+         did nothing wrong to cause, and it is now harmless. The line is there for anyone who wonders
+         which copy ran. -->
+    <Message Condition="'$(_JasperFxEventsHasDuplicates)' == 'true'"
+             Importance="normal"
+             Text="JasperFx.Events: the aggregate source generator was supplied more than once ($(_JasperFxEventsGeneratorList)). Keeping $(_JasperFxEventsGeneratorKeep) and dropping the rest, because two copies of one generator emit identical file paths and collide with CS0433 (jasperfx#891)." />
+  </Target>
+
+</Project>
