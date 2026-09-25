@@ -247,4 +247,17 @@ The silent topology that motivated all of this — a library referencing Marten 
 `PrivateAssets="all"`, a test project referencing the library and declaring the aggregates —
 still builds with 0 warnings and 0 generated evolvers ([marten#5495](https://github.com/JasperFx/marten/issues/5495)).
 The marker does not fix that build; it makes the eventual runtime failure say which of the
-two problems the reader has. A build-time warning for that topology is a possible follow-up.
+two problems the reader has.
+
+Since #892 there is also a build-time answer, opt-in per project:
+
+```xml
+<JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>
+```
+
+fails the build with `JFXEVT900` when no `JasperFx.Events.SourceGenerator` analyzer is
+attached to that project. It is opt-in because nothing in MSBuild can tell a project that
+*should* have the generator from one with no aggregates at all — and because "analyzer flow
+suppressed" is not by itself evidence of a mistake: Marten's own build suppresses the
+analyzer package's assets deliberately, bundling the dll instead. That is the finding that
+argued #894 out of being a default warning.
