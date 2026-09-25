@@ -145,6 +145,42 @@ public interface IEventStore
     IReadOnlyEventStore OpenReadOnlyEventStore();
 
     /// <summary>
+    /// Open a read-only event store session scoped to a single tenant partition. A null
+    /// <paramref name="tenantId" /> is store-global and delegates to the tenant-less overload
+    /// (today's behavior). Event stores that implement multi-tenancy override this to open a
+    /// tenant-scoped session; the default throws for a non-null tenant. See jasperfx#885.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without this overload the entire <see cref="IReadOnlyEventStore" /> surface is unreachable on
+    /// a store whose default tenant is disabled — the automatic state once database-per-tenant
+    /// tenancy is configured (see <see cref="DefaultTenantUsageDisabledException" />). The refusal
+    /// happens when the session is opened, before any tenant scope is applied, so no caller-side
+    /// filtering can work around it: <see cref="IReadOnlyEventStore.QueryStreamStates" /> takes a
+    /// tenant id but the only thing that can produce the object it hangs off did not, which is why
+    /// the stream-compaction policy selector (jasperfx#740) could not select streams at all there.
+    /// </para>
+    /// <para>
+    /// The tenant id is the same two-valued argument
+    /// <see cref="BuildProjectionDaemonAsync(string?, ILogger?)" /> takes: a tenant <em>within</em> a
+    /// database on a conjoined store, and a <em>database</em> on a database-per-tenant store.
+    /// </para>
+    /// <para>
+    /// A store that implements this MUST scope the returned reader's tenant-less members
+    /// (<see cref="IReadOnlyEventStore.FetchStreamAsync(Guid, long, DateTimeOffset?, long, CancellationToken)" />
+    /// and friends) to that tenant. Callers that pass the tenant a second time on the query itself —
+    /// <see cref="IReadOnlyEventStore.QueryStreamStates" />,
+    /// <see cref="EventQuery.TenantId" /> — are filtering within that same scope, not widening it.
+    /// </para>
+    /// </remarks>
+    /// <param name="tenantId">Tenant partition to open the reader against. Null means store-global.</param>
+    IReadOnlyEventStore OpenReadOnlyEventStore(string? tenantId)
+        => tenantId == null
+            ? OpenReadOnlyEventStore()
+            : throw new NotSupportedException(
+                "Per-tenant OpenReadOnlyEventStore is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
+
+    /// <summary>
     /// Compact a stream by aggregating events into a snapshot.
     /// Resolves aggregate type from stream state.
     /// </summary>

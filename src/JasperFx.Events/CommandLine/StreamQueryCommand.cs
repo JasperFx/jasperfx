@@ -74,8 +74,14 @@ public class StreamQueryCommand: JasperFxAsyncCommand<StreamQueryInput>
         int totalCount;
         try
         {
+            // jasperfx#885: open the reader in the tenant's own scope when the store implements it.
+            // The tenant filter rides on QueryStreamStates either way, so the fallback to the
+            // store-global session narrows nothing — but on a store whose default tenant is disabled
+            // the default session is refused before any filter is applied, and this is the only way
+            // to reach the streams table at all.
             var filtered = input.ApplyFilters(
-                store.OpenReadOnlyEventStore().QueryStreamStates(input.TenantFlag), aggregateType);
+                store.OpenReadOnlyEventStoreOrGlobal(input.TenantFlag).QueryStreamStates(input.TenantFlag),
+                aggregateType);
 
             totalCount = await filtered.CountAsync(CancellationToken.None).ConfigureAwait(false);
 
