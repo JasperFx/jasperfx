@@ -38,6 +38,16 @@ public class Thing
 }
 ";
 
+    /// <summary>
+    /// No aggregate, so the generator emits the #887 marker and nothing else. See
+    /// <see cref="a_project_with_no_aggregates_builds_clean_under_the_double_load" />.
+    /// </summary>
+    private const string NoAggregates = @"
+namespace SomeApp;
+
+public record Started(string Name);
+";
+
     [Fact]
     public void two_instances_of_the_same_generator_emit_the_same_file_path_twice()
     {
@@ -67,6 +77,32 @@ public class Thing
 
         errors.ShouldNotContain(x => x.Contains("CS0579"));
         errors.ShouldNotContain(x => x.Contains("JasperFxSourceGeneratorApplied"));
+    }
+
+    /// <summary>
+    /// A project with no aggregates at all builds clean under the double load.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The fact above is weaker than it looks, and this one is why it needs a companion. Its source
+    /// declares an aggregate, so the compilation it inspects is <em>already</em> broken by the CS0433
+    /// evolver collision — "no CS0579 among the errors" is being asserted inside a build that failed
+    /// for another reason, which would still hold if the marker regressed to single-use.
+    /// </para>
+    /// <para>
+    /// This is the topology where the marker is the ONLY thing emitted twice, because
+    /// <c>RegisterPostInitializationOutput</c> fires whether or not the generator found candidates.
+    /// So it is the case where dropping <c>AllowMultiple</c> would turn a project that builds clean
+    /// today into CS0579 — on a project with no aggregates and no reason to have heard of the
+    /// attribute. That is the widened blast radius jasperfx#887 identified, and
+    /// <see cref="Shouldly.ShouldBeTestExtensions" />'s empty check is what pins it: not "no CS0579
+    /// amongst other errors" but no errors at all.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void a_project_with_no_aggregates_builds_clean_under_the_double_load()
+    {
+        GeneratorHarness.ErrorsFromTwoInstancesOfTheSameGenerator(NoAggregates).ShouldBeEmpty();
     }
 
     [Fact]
