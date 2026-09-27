@@ -31,6 +31,7 @@
         "NugetPush",
         "Restore",
         "SmokeTestAot",
+        "SmokeTestBuildTargets",
         "SmokeTestCommands",
         "Test",
         "TestAspire",

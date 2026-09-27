@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <JasperFxEventsDedupeSourceGeneratorAnalyzers>false</JasperFxEventsDedupeSourceGeneratorAnalyzers>
+  </PropertyGroup>
+  <ItemGroup>
+    
+  </ItemGroup>
+  <Import Project="/Users/jeremymiller/code/jasperfx/src/JasperFx.Events/build/JasperFx.Events.targets" />
+</Project>

@@ -54,7 +54,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot, SmokeTestBuildTargets);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -214,7 +214,145 @@ partial class Build : NukeBuild
         });
 
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";
-    
+
+    AbsolutePath ShippedEventsTargets =>
+        RootDirectory / "src" / "JasperFx.Events" / "build" / "JasperFx.Events.targets";
+
+    /// <summary>
+    /// jasperfx#908 — the shipped MSBuild targets, imported and exercised.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>src/JasperFx.Events/build/JasperFx.Events.targets</c> is packed to
+    /// <c>buildTransitive/</c>, so NuGet imports it into every project that reaches JasperFx.Events
+    /// directly or transitively — which is every Marten, Polecat and Fisher consumer. But it ships as
+    /// <c>&lt;None&gt;</c> rather than an <c>&lt;Import&gt;</c>, so OUR OWN BUILD NEVER LOADS IT: the
+    /// solution build and all ten test projects say nothing about whether that file is even well-formed
+    /// XML, let alone whether its targets behave.
+    /// </para>
+    /// <para>
+    /// That is not hypothetical. While implementing jasperfx#902 a <c>--</c> inside an XML comment made
+    /// MSBuild refuse the whole file (MSB4024); <c>dotnet build</c> on the solution passed clean with 0
+    /// errors and the full suite would have too, while every consumer's build would have failed on an
+    /// error naming our file. It was caught only by hand-importing the targets, which is what this
+    /// automates. It is the least-tested and widest-reach code in the repository.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Each arrangement invokes the target BY NAME</b>, never through <c>-t:Build</c> on an
+    /// SDK project with a stubbed <c>CoreCompile</c>. That was tried first and produced a FALSE
+    /// NEGATIVE: the target's <c>BeforeTargets="CoreCompile"</c> hook does not wire up against a
+    /// redefined <c>CoreCompile</c>, so the warning silently did not fire and the logic looked broken
+    /// when it was correct. The <c>BeforeTargets</c> wiring is not what needs testing; the target body is.
+    /// </para>
+    /// </remarks>
+    Target SmokeTestBuildTargets => _ => _
+        .Executes(() =>
+        {
+            var scratch = TemporaryDirectory / "targets-smoke";
+            scratch.CreateOrCleanDirectory();
+
+            // Two fake analyzer paths. Nothing loads them -- the targets match on file name only.
+            var copyA = scratch / "a" / "JasperFx.Events.SourceGenerator.dll";
+            var copyB = scratch / "b" / "JasperFx.Events.SourceGenerator.dll";
+
+            void Arrange(string name, string properties, string analyzers, string target,
+                string mustContain, string mustNotContain)
+            {
+                var file = scratch / $"{name}.csproj";
+
+                // Deliberately NOT Microsoft.NET.Sdk: no SDK targets to collide with, nothing to
+                // restore, and the target under test is invoked directly. Keeps each arrangement to
+                // about a second.
+                file.WriteAllText($"""
+                    <Project>
+                      <PropertyGroup>
+                        {properties}
+                      </PropertyGroup>
+                      <ItemGroup>
+                        {analyzers}
+                      </ItemGroup>
+                      <Import Project="{ShippedEventsTargets}" />
+                    </Project>
+                    """);
+
+                var outputLines = DotNet($"msbuild \"{file}\" -t:{target} -nologo",
+                        workingDirectory: scratch, logOutput: false, exitHandler: _ => null)
+                    .Select(x => x.Text)
+                    .ToArray();
+                var output = string.Join(Environment.NewLine, outputLines);
+
+                // MSB4024 -- MSBuild cannot load the file at all -- is the failure this target exists
+                // for, so it is named explicitly.
+                if (output.Contains("MSB4024"))
+                {
+                    Assert.Fail(
+                        $"{ShippedEventsTargets.Name} could not be loaded by MSBuild. This breaks EVERY consumer " +
+                        $"of the stack and our own build cannot see it (jasperfx#908). A '--' inside an XML " +
+                        $"comment is the usual cause.\n{output}");
+                }
+
+                // Any OTHER MSBuild error fails too, and that is a lesson rather than belt-and-braces:
+                // while writing this, the harness set the reserved MSBuildProjectName property, and the
+                // resulting MSB4004 was reported as "JFXEVT902 absent" -- a confusing symptom two steps
+                // from its cause. An unexpected error is never evidence about the diagnostic under test.
+                if (output.Contains("error MSB"))
+                {
+                    Assert.Fail($"[{name}] MSBuild reported an unexpected error, so this arrangement " +
+                                $"proves nothing about the target under test.\n{output}");
+                }
+
+                if (mustContain.IsNullOrEmpty() == false && !output.Contains(mustContain))
+                {
+                    Assert.Fail($"[{name}] expected '{mustContain}' in the output but it was absent.\n{output}");
+                }
+
+                if (mustNotContain.IsNullOrEmpty() == false && output.Contains(mustNotContain))
+                {
+                    Assert.Fail($"[{name}] expected NO '{mustNotContain}' in the output but it was present.\n{output}");
+                }
+            }
+
+            var both = $"""
+                <Analyzer Include="{copyA}" />
+                        <Analyzer Include="{copyB}" />
+                """;
+            var one = $"""<Analyzer Include="{copyA}" />""";
+
+            const string dedupe = "JasperFxEventsDedupeSourceGeneratorAnalyzers";
+            const string dedupeTarget = "JasperFxEventsDedupeSourceGeneratorAnalyzers";
+            const string assertTarget = "JasperFxEventsAssertSourceGeneratorIsAttached";
+
+            // jasperfx#902: the duplication is about to break the build and the dedupe is off, so this
+            // is the one case the target can see AND must report.
+            Arrange("dupes_dedupe_off", $"<{dedupe}>false</{dedupe}>", both, dedupeTarget,
+                mustContain: "warning JFXEVT902:", mustNotContain: null);
+
+            // Handled: one copy kept, and deliberately NOT a warning -- a packaging accident the
+            // consumer did nothing to cause, now harmless.
+            Arrange("dupes_dedupe_on", "", both, dedupeTarget,
+                mustContain: null, mustNotContain: "warning JFXEVT902:");
+
+            // The ordinary build, which must stay completely silent.
+            Arrange("single_copy", $"<{dedupe}>false</{dedupe}>", one, dedupeTarget,
+                mustContain: null, mustNotContain: "warning JFXEVT902:");
+
+            Arrange("no_analyzers", $"<{dedupe}>false</{dedupe}>", "", dedupeTarget,
+                mustContain: null, mustNotContain: "warning JFXEVT902:");
+
+            // jasperfx#892: the opt-in assertion. Kept here because it DependsOnTargets the dedupe
+            // target above, so a change to that one can break this without touching its own code.
+            Arrange("required_but_absent",
+                "<JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>", "",
+                assertTarget, mustContain: "error JFXEVT900:", mustNotContain: null);
+
+            Arrange("required_and_present",
+                "<JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>", one,
+                assertTarget, mustContain: null, mustNotContain: "error JFXEVT900:");
+
+            Serilog.Log.Information(
+                "Shipped MSBuild targets verified in 6 arrangements: {File}", ShippedEventsTargets);
+        });
+
     Target NugetPack => _ => _
         .DependsOn(Compile)
         .Executes(() =>
