@@ -41,6 +41,16 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
             _store.ConjoinedTypes.Add(type);
         }
 
+        // Guid optimistic concurrency (jasperfx#819), replayed for the reason jasperfx#903 made
+        // concrete: while this gate was false, the tenancy suite's concurrency fact SKIPPED here and
+        // shipped asserting something no correct store could satisfy. Every product spells this
+        // Schema.For<T>().UseOptimisticConcurrency(true).
+        _store.OptimisticConcurrencyTypes.Clear();
+        foreach (var type in config.OptimisticConcurrencyTypes)
+        {
+            _store.OptimisticConcurrencyTypes.Add(type);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -55,6 +65,12 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
     public override bool SupportsConjoinedDocuments => true;
 
     public override bool SupportsCrossTenantQueries => true;
+
+    /// <summary>
+    /// True since jasperfx#903. See <see cref="in_memory_guid_optimistic_concurrency_compliance" /> for
+    /// why this is worth implementing in a test double.
+    /// </summary>
+    public override bool SupportsOptimisticConcurrency => true;
 
     /// <inheritdoc />
     /// <remarks>
@@ -113,3 +129,25 @@ public class in_memory_document_search_compliance
 /// </remarks>
 public class in_memory_document_conjoined_tenancy_compliance
     : DocumentConjoinedTenancyCompliance<InMemoryDocumentComplianceFixture>;
+
+/// <summary>
+/// Guid optimistic concurrency, enrolled because of jasperfx#903.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Unlike the search suite, this one is enrolled to <em>run</em>, and implementing the guard in a test
+/// double is a deliberate departure from "faking one would assert the fake". The guard is not a storage
+/// engine feature here — it is a version comparison and a write-back, both fully specified by the five
+/// facts of this suite — so there is nothing to fake.
+/// </para>
+/// <para>
+/// What it buys is the thing jasperfx#903 cost. While <c>SupportsOptimisticConcurrency</c> was false,
+/// <c>DocumentConjoinedTenancyCompliance</c>'s concurrency fact skipped here and reached three real
+/// stores asserting a refusal that no store honouring
+/// <see cref="a_successful_write_moves_the_instances_own_version_on" /> can produce. That
+/// contradiction is between a fact in THIS suite and a fact in that one, so only a store enrolled in
+/// both can catch it — which is now this one, before the next wave ships.
+/// </para>
+/// </remarks>
+public class in_memory_guid_optimistic_concurrency_compliance
+    : GuidOptimisticConcurrencyCompliance<InMemoryDocumentComplianceFixture>;

@@ -476,18 +476,35 @@ public abstract class DocumentConjoinedTenancyCompliance<TFixture> : DocumentSto
         await PersistForAsync(TenantA, new ComplianceShipment { Id = shared, Supplier = TenantA, Status = "new" });
         await PersistForAsync(TenantB, new ComplianceShipment { Id = shared, Supplier = TenantB, Status = "new" });
 
-        // Move A's version on, so that A's stored version and B's stored version now disagree. A
-        // guard that ignores the tenant is reading whichever row it finds first from here on.
-        ComplianceShipment reloadedForA;
+        // ⚠️ The stale instance is read FIRST, on its own session, and never written until the end.
+        // That is forced rather than stylistic, and getting it wrong is what made this fact
+        // unsatisfiable when it shipped (jasperfx#903): a committed Store writes the landed version
+        // back onto the instance it stored -- mandated by
+        // GuidOptimisticConcurrencyCompliance.a_successful_write_moves_the_instances_own_version_on,
+        // which exists so that a long-lived instance stays usable. So re-storing the instance that
+        // performed the winning write guards on the CURRENT version and is admitted, and the only way
+        // a store could fail it would be to stop writing the version back -- failing the suite this
+        // fact is a tenanted special case of. "Stale" has to mean a separately loaded instance.
+        ComplianceShipment staleForA;
+        await using (var reader = QuerySession(TenantA))
+        {
+            staleForA = (await reader.LoadAsync<ComplianceShipment>(shared, Cancellation)).ShouldNotBeNull();
+        }
+
+        // Move A's version on through a DIFFERENT instance, so A's stored version and B's stored
+        // version now disagree. A guard that ignores the tenant is reading whichever row it finds
+        // first from here on.
         await using (var a = LightweightSession(TenantA))
         {
-            reloadedForA = (await a.LoadAsync<ComplianceShipment>(shared, Cancellation)).ShouldNotBeNull();
-            reloadedForA.Status = "advanced";
-            a.Store(reloadedForA);
+            var winner = (await a.LoadAsync<ComplianceShipment>(shared, Cancellation)).ShouldNotBeNull();
+            winner.Status = "advanced";
+            a.Store(winner);
             await a.SaveChangesAsync(Cancellation);
         }
 
-        // B's write is not in conflict with anything. It must succeed.
+        // B's write is not in conflict with anything. It must succeed -- a tenant-blind
+        // WHERE (id, version) matches no row here and reports a ConcurrencyException over a write that
+        // conflicts with nothing. This is the direction the fact cares most about.
         await using (var b = LightweightSession(TenantB))
         {
             var theirs = (await b.LoadAsync<ComplianceShipment>(shared, Cancellation)).ShouldNotBeNull();
@@ -502,14 +519,21 @@ public abstract class DocumentConjoinedTenancyCompliance<TFixture> : DocumentSto
                 .ShouldNotBeNull().Status.ShouldBe("shipped");
         }
 
-        // The other direction: the guard still has teeth inside a tenant. `reloadedForA` carries the
-        // version A held BEFORE its own update above, so this really is stale.
-        await using var stale = LightweightSession(TenantA);
-        reloadedForA.Status = "stale";
-        stale.Store(reloadedForA);
+        // The other direction: the guard still has teeth inside a tenant.
+        await using (var stale = LightweightSession(TenantA))
+        {
+            staleForA.Status = "stale";
+            stale.Store(staleForA);
 
-        await Should.ThrowAsync<JasperFx.ConcurrencyException>(
-            () => stale.SaveChangesAsync(Cancellation));
+            await Should.ThrowAsync<JasperFx.ConcurrencyException>(
+                () => stale.SaveChangesAsync(Cancellation));
+        }
+
+        // And the refusal was not partially applied: A still reads its own winning write, and B's row
+        // is untouched by any of it.
+        await using var after = QuerySession(TenantA);
+        (await after.LoadAsync<ComplianceShipment>(shared, Cancellation))
+            .ShouldNotBeNull().Status.ShouldBe("advanced");
     }
 
     /// <summary>

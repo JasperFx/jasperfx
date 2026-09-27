@@ -2,9 +2,11 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text.Json;
 using JasperFx;
 using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
+using JasperFx.Metadata;
 
 namespace EventStoreTests.Documents;
 
@@ -52,6 +54,18 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
     /// </remarks>
     public HashSet<Type> ConjoinedTypes { get; } = new();
 
+    /// <summary>
+    /// Document types declared for <see cref="IVersioned" /> Guid optimistic concurrency — the replay
+    /// of <see cref="DocumentComplianceConfig.OptimisticConcurrencyTypes" />.
+    /// </summary>
+    /// <remarks>
+    /// Declared rather than inferred from the marker alone, deliberately: the stores disagree about
+    /// whether <c>IVersioned</c> is itself the opt-in or merely supplies the member to guard on, and
+    /// the config exists so a suite tests the behaviour instead of that disagreement. Honouring the
+    /// declaration is what makes this reference store a fair witness.
+    /// </remarks>
+    public HashSet<Type> OptimisticConcurrencyTypes { get; } = new();
+
     public InMemoryDocumentSession LightweightSession() => new(this, StorageConstants.DefaultTenantId);
 
     public InMemoryDocumentSession QuerySession() => new(this, StorageConstants.DefaultTenantId);
@@ -88,7 +102,36 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
         => ConjoinedTypes.Contains(documentType) ? tenantId : StorageConstants.DefaultTenantId;
 
     internal IReadOnlyList<T> SnapshotOf<T>(string tenantId)
-        => StorageFor(typeof(T), tenantId).Values.Cast<T>().ToList();
+        => StorageFor(typeof(T), tenantId).Values.Select(Copy<T>).ToList();
+
+    /// <summary>
+    /// A fresh instance of a stored document, standing in for the serialize-in / deserialize-out round
+    /// trip every real document store performs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Found while implementing the Guid concurrency guard for jasperfx#903, and it was a real defect
+    /// in this double rather than a detail. Handing back the <em>stored reference</em> made two
+    /// independent loads the same object, so any fact about two callers reading one row separately was
+    /// meaningless here — mutating one mutated the other, and they could never disagree about a
+    /// version. <c>a_stale_instance_is_refused_and_the_winner_stands</c> is unsatisfiable against a
+    /// store that does this, however correct its guard.
+    /// </para>
+    /// <para>
+    /// Applied on write as well as read, for the mirror-image reason: a real store serializes at
+    /// commit, so a caller mutating its instance afterwards must not silently rewrite stored state.
+    /// The version write-back still lands on the caller's own instance, before the copy is taken —
+    /// which is the contract
+    /// <c>GuidOptimisticConcurrencyCompliance.a_successful_write_moves_the_instances_own_version_on</c>
+    /// pins.
+    /// </para>
+    /// <para>
+    /// JSON is the mechanism because it is what the products actually do, and because it keeps the
+    /// double honest about what survives a round trip.
+    /// </para>
+    /// </remarks>
+    internal static T Copy<T>(object document)
+        => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize((T)document))!;
 
     /// <summary>
     /// Every row of a type across every tenant — what the fixture's <c>AnyTenant</c> seam forwards to.
@@ -108,7 +151,7 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
 
         return _documents.Where(pair => pair.Key.Type == typeof(T) && scopes.Contains(pair.Key.Tenant))
             .SelectMany(pair => pair.Value.Values)
-            .Cast<T>()
+            .Select(Copy<T>)
             .ToList();
     }
 
@@ -167,7 +210,9 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         => Task.FromResult(load<T>(id));
 
     private T? load<T>(object id) where T : notnull
-        => _store.StorageFor(typeof(T), _tenantId).TryGetValue(id, out var found) ? (T)found : default;
+        => _store.StorageFor(typeof(T), _tenantId).TryGetValue(id, out var found)
+            ? InMemoryDocumentStore.Copy<T>(found)
+            : default;
 
     public IQueryable<T> Query<T>() where T : notnull
         => InMemoryDocumentQueryable<T>.Wrap(_store.SnapshotOf<T>(_tenantId).AsQueryable());
@@ -186,7 +231,13 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
                 // deliberately does not hold products to one determination here -- only to the
                 // document landing in exactly one of the two collections.
                 var existed = storage.ContainsKey(id);
-                storage[id] = entity;
+
+                guardVersion(entity, storage, id, existed);
+
+                // A COPY, not the caller's instance: a real store serializes at commit, so a caller
+                // mutating its object afterwards must not rewrite stored state behind the store's back.
+                // Taken after guardVersion so the caller's own instance carries the landed version.
+                storage[id] = InMemoryDocumentStore.Copy<T>(entity)!;
 
                 if (existed)
                 {
@@ -198,6 +249,54 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
                 }
             });
         }
+    }
+
+    /// <summary>
+    /// The <see cref="IVersioned" /> Guid optimistic concurrency guard (jasperfx#819), run at commit
+    /// time against what is actually stored.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Here because of jasperfx#903, and the reason is worth recording rather than leaving as an
+    /// implementation note. The reference store left <c>SupportsOptimisticConcurrency</c> false, so
+    /// <c>DocumentConjoinedTenancyCompliance</c>'s Guid concurrency fact <em>skipped</em> in this
+    /// repository — and it shipped in 2.75.0 asserting something no correct store could satisfy,
+    /// because it re-stored the instance that had just performed the winning write. A fact that skips
+    /// everywhere it could be run is a fact nobody has checked.
+    /// </para>
+    /// <para>
+    /// The contradiction it hit is exactly what implementing this makes visible <em>here</em>: the
+    /// landed version is written back onto the stored instance, which is mandated by
+    /// <c>GuidOptimisticConcurrencyCompliance.a_successful_write_moves_the_instances_own_version_on</c>
+    /// so that a long-lived instance stays usable. Only a store enrolled in BOTH suites can catch a
+    /// fact in one contradicting a fact in the other.
+    /// </para>
+    /// <para>
+    /// <see cref="Guid.Empty" /> is the "no expectation" sentinel, the same role revision <c>0</c>
+    /// plays for numeric revisions: a brand-new instance carries it and is stamped rather than refused.
+    /// The five facts of the Guid suite do not pin what an empty version means over an EXISTING row,
+    /// so this admits it rather than inventing a refusal the contract does not state.
+    /// </para>
+    /// </remarks>
+    private void guardVersion<T>(
+        T entity, ConcurrentDictionary<object, object> storage, object id, bool existed) where T : notnull
+    {
+        if (entity is not IVersioned versioned) return;
+        if (!_store.OptimisticConcurrencyTypes.Contains(typeof(T))) return;
+
+        if (existed && storage[id] is IVersioned stored)
+        {
+            // A non-empty version is a claim about what the caller believes is stored. If it is wrong,
+            // the write is refused and the stored row stands untouched -- asserted by
+            // a_stale_instance_is_refused_and_the_winner_stands.
+            if (versioned.Version != Guid.Empty && versioned.Version != stored.Version)
+            {
+                throw new ConcurrencyException(typeof(T), id);
+            }
+        }
+
+        // The write-back. Mutating the caller's instance is the contract, not a convenience.
+        versioned.Version = Guid.NewGuid();
     }
 
     public void Delete<T>(T entity) where T : notnull

@@ -126,6 +126,25 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         config.Snapshot<ComplianceClosableLedger>(SnapshotLifecycle.Inline);
     };
 
+    /// <summary>
+    /// One recording listener for the suite, because the configuration delegate is what the fixture
+    /// keys a store rebuild on — a fresh instance per fact would need a fresh delegate. The facts that
+    /// read it clear it before acting.
+    /// </summary>
+    private static readonly RecordingCommitListener _listener = new();
+
+    /// <summary>
+    /// The deleting-snapshot store with a commit listener installed, so a fact can assert what the
+    /// commit <em>reported</em> rather than only what it stored (jasperfx#893).
+    /// </summary>
+    private static readonly Action<ComplianceStoreConfig> _deletingSnapshotWithListenerConfiguration = config =>
+    {
+        config.SchemaName = "compliance_archiving_snapshot_delete_listener";
+        config.AddEventType<LedgerClosed>();
+        config.Snapshot<ComplianceClosableLedger>(SnapshotLifecycle.Inline);
+        config.AddCommitListener(_listener);
+    };
+
     private static readonly Action<ComplianceStoreConfig> _stringSnapshotConfiguration = config =>
     {
         config.SchemaName = "compliance_archiving_snapshot_string";
@@ -397,11 +416,19 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
     /// observable end state is identical. Its sibling above does discriminate — it fails with "should be
     /// null but was" on the reverted build.
     /// <para>
-    /// Where the phantom delete is actually observable is the async daemon, where
-    /// <c>EventRange.MarkSliceAction</c> records a <c>ProjectionDeleted&lt;TDoc,TId&gt;</c> that
-    /// downstream stages of a composite projection then receive for a document that never existed.
-    /// Pinning that needs a seam this suite does not have yet — see jasperfx#893. Until then the
-    /// discriminating coverage for this direction is the unit test
+    /// <b>The discriminating version of this direction is now
+    /// <see cref="creating_and_deleting_within_one_batch_reports_no_deletion" /></b> (jasperfx#893),
+    /// which asserts what the commit <em>reported</em> instead of what it stored: the phantom deletion
+    /// is visible in <see cref="Documents.IDocumentChangeSet.Deleted" /> even though it is a no-op in
+    /// SQL. This one stays because the end-state claim is worth stating plainly next to it, not because
+    /// it guards anything.
+    /// </para>
+    /// <para>
+    /// The <em>daemon</em> path is still uncovered here: <c>EventRange.MarkSliceAction</c> records a
+    /// <c>ProjectionDeleted&lt;TDoc,TId&gt;</c> that downstream stages of a composite projection
+    /// receive for a document that never existed, and pinning that needs an
+    /// <c>IComplianceCompositeBuilder</c> addition that jasperfx#893 deliberately deferred as the more
+    /// expensive route. The other coverage for this direction is the unit test
     /// <c>sg_determine_action_reports_nothing_when_created_and_deleted_in_an_initially_empty_batch</c>,
     /// which asserts the <c>ActionType</c> itself against the real source-generated dispatcher.
     /// </para>
@@ -428,6 +455,90 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         // The events are persisted either way — only the document write is skipped.
         var events = await EventsFor(reader).FetchStreamAsync(streamId, token: Cancellation);
         events.Count.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// The discriminating version of the fact above: the commit must not <em>report</em> a deletion for
+    /// a document that never existed (jasperfx#893).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Its sibling passes on the broken runtime and says so in its own remarks — inline, the phantom
+    /// action queues a delete for a row that is not there, which is a no-op in SQL, so the observable
+    /// end state is identical either way. What is <em>not</em> identical is what the commit reported:
+    /// the phantom deletion appears in <see cref="Documents.IDocumentChangeSet.Deleted" />, which is
+    /// exactly how jasperfx#886's reporter observed it ("Inline: StartStream(Added, Removed) … Actual:
+    /// one deletion in the commit's IChangeSet.Deleted").
+    /// </para>
+    /// <para>
+    /// This is the commit-listener route rather than jasperfx#893's original async-composite proposal,
+    /// and it is the cheaper of the two by a wide margin: both halves already existed —
+    /// <see cref="Documents.IDocumentChangeSet.Deleted" /> already carries
+    /// <see cref="Documents.IDocumentDeletion.DocumentType" /> and
+    /// <see cref="Documents.IDocumentDeletion.Id" />, and <see cref="RecordingCommitListener" /> is
+    /// already in the library. Only the seam was missing, because listeners lived on
+    /// <see cref="DocumentComplianceConfig" /> and an event-store fixture could not install one; that
+    /// is now <see cref="ComplianceStoreConfig.AddCommitListener" />. The composite version remains the
+    /// better end state for the <em>daemon</em> path specifically, and is not what this replaces.
+    /// </para>
+    /// <para>
+    /// <b>The control is the half that makes it an assertion.</b> "No deletion was reported" is
+    /// trivially true of a store that reports no deletions at all — including one whose listener is
+    /// never invoked, which is the failure mode
+    /// <see cref="DocumentCommitListenerCompliance{TFixture}" /> exists for. So the second half appends
+    /// the close to a stream whose snapshot already exists and requires exactly one deletion, named by
+    /// type and identity.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task creating_and_deleting_within_one_batch_reports_no_deletion()
+    {
+        await theFixture.ConfigureAsync(_deletingSnapshotWithListenerConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var phantom = Guid.NewGuid();
+
+        _listener.Clear();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceClosableLedger>(phantom,
+                new LedgerOpened("Petty Cash"), new LedgerClosed());
+            await SaveChangesAsync(session);
+        }
+
+        var phantomDeletions = _listener.Commits
+            .SelectMany(x => x.Commit.Deleted)
+            .Where(x => x.DocumentType == typeof(ComplianceClosableLedger))
+            .ToArray();
+
+        phantomDeletions.ShouldBeEmpty(
+            "The commit reported a deletion for a document that was created and deleted inside one batch, so never existed (jasperfx#886).");
+
+        // The control: a delete of a document that DID exist is reported, so the assertion above
+        // cannot pass on a store that reports no deletions at all -- or never calls the listener.
+        var real = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceClosableLedger>(real, new LedgerOpened("Real"));
+            await SaveChangesAsync(session);
+        }
+
+        _listener.Clear();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(real, new LedgerClosed());
+            await SaveChangesAsync(session);
+        }
+
+        var realDeletion = _listener.Commits
+            .SelectMany(x => x.Commit.Deleted)
+            .Where(x => x.DocumentType == typeof(ComplianceClosableLedger))
+            .ShouldHaveSingleItem();
+
+        realDeletion.Id.ShouldBe(real);
     }
 
     [Fact]

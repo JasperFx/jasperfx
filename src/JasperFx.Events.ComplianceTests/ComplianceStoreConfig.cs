@@ -363,6 +363,41 @@ public sealed class ComplianceStoreConfig
         return this;
     }
 
+    /// <summary>
+    /// Post-commit listeners the store must invoke — the <em>event</em>-store twin of
+    /// <see cref="DocumentComplianceConfig.CommitListeners" /> (jasperfx#893).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same slot already existed on the document config, and it had to be duplicated here rather
+    /// than shared because the two configs build different stores: a listener is registered when the
+    /// store is <em>built</em>, and an event-store fixture had no way to install one at all. That gap
+    /// is the whole reason jasperfx#893's discriminating assertion could not be written.
+    /// </para>
+    /// <para>
+    /// What it buys is the ability to assert what a commit <em>reported</em> rather than only what it
+    /// stored — which is the difference between a fact that discriminates and one that documents
+    /// intent. jasperfx#886's phantom delete is the case: inline, a created-and-deleted-in-one-batch
+    /// stream queues a delete for a row that does not exist, and in SQL that does nothing, so
+    /// "the document is not there afterwards" is true whether the bug is present or not. The deletion
+    /// still shows up in <see cref="Documents.IDocumentChangeSet.Deleted" />, and that is observable.
+    /// </para>
+    /// <para>
+    /// A fixture replays this onto its own listener collection — <c>StoreOptions.Listeners</c> on all
+    /// three products, exactly as the document fixtures already do. Ignoring it does not make the
+    /// affected facts skip: a listener that was never registered never fires, which is
+    /// indistinguishable from a store that reports nothing.
+    /// </para>
+    /// </remarks>
+    public List<Documents.IDocumentCommitListener> CommitListeners { get; } = new();
+
+    /// <inheritdoc cref="CommitListeners" />
+    public ComplianceStoreConfig AddCommitListener(Documents.IDocumentCommitListener listener)
+    {
+        CommitListeners.Add(listener);
+        return this;
+    }
+
     public ComplianceStoreConfig LiveAggregation<TDoc>() where TDoc : notnull
     {
         LiveAggregations.Add(typeof(TDoc));
