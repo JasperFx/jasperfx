@@ -833,6 +833,23 @@ store whose escape is really "drop the tenant filter" satisfies the `AnyTenant` 
 then hands `TenantIsOneOf` every tenant's rows as well, so the narrow case only has teeth measured
 against the wide one in the same arrangement.
 
+⚠️ **The Guid concurrency fact is a cautionary tale worth reading before writing a tenanted
+variant of any other suite's fact** (jasperfx#903). As shipped in 2.75.0 it asserted a refusal no
+correct store could produce: it advanced tenant A's row by storing a loaded instance, then re-stored
+**that same instance** and expected a `ConcurrencyException`. But a committed `Store` writes the
+landed version back onto the instance — mandated by
+`GuidOptimisticConcurrencyCompliance.a_successful_write_moves_the_instances_own_version_on`, which
+exists so a long-lived instance stays usable — so the re-store guards on the *current* version and is
+admitted. The only way to pass was to stop writing the version back, which fails the suite this fact
+is a tenanted special case of. **Two facts in two suites, contradicting each other, and no store able
+to be green on both.** "Stale" has to mean a *separately loaded* instance, which is what it now uses.
+
+The reason it reached three stores is the part worth generalising: the fact **skipped** in this
+repository, because the reference store left `SupportsOptimisticConcurrency` false. A fact that skips
+everywhere it could run is a fact nobody has checked. The reference store now implements the Guid
+guard and enrolls `GuidOptimisticConcurrencyCompliance` alongside the tenancy suite — and it had to,
+because a contradiction *between* two suites is only visible to something enrolled in both.
+
 **Four things jasperfx#898 proposed and this suite deliberately does not cover**: bulk-insert
 duplicate handling, patching, soft deletes, and a delete-all-tenant-data administration call. All
 four are on the settled out-of-scope list below — they are the surfaces jasperfx#647 declined to
