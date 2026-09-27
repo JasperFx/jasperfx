@@ -30,6 +30,17 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
         _store.Listeners.Clear();
         _store.Listeners.AddRange(config.CommitListeners);
 
+        // Conjoined document tenancy (jasperfx#898), replayed the same way: a per-type declaration
+        // that decides which bucket a row lands in. The products spell it
+        // Schema.For<T>().MultiTenanted(); here it is a set the storage lookup consults. Dropping
+        // this replay would not make DocumentConjoinedTenancyCompliance skip -- its isolation facts
+        // would FAIL, because a single-tenanted store folds both tenants' writes into one row.
+        _store.ConjoinedTypes.Clear();
+        foreach (var type in config.ConjoinedDocuments)
+        {
+            _store.ConjoinedTypes.Add(type);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -40,6 +51,25 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
         _store.Clear();
         return Task.CompletedTask;
     }
+
+    public override bool SupportsConjoinedDocuments => true;
+
+    public override bool SupportsCrossTenantQueries => true;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The session argument is ignored, and legitimately so: the escape's whole meaning is that it
+    /// steps outside the session's tenant scope. A real store still routes through the session,
+    /// because that is where its connection and its query provider live.
+    /// </remarks>
+    public override Task<IReadOnlyList<T>> QueryAllTenantsAsync<T>(
+        IDocumentReadOperations session, CancellationToken token)
+        => Task.FromResult(_store.SnapshotAcrossTenants<T>());
+
+    /// <inheritdoc cref="QueryAllTenantsAsync{T}" />
+    public override Task<IReadOnlyList<T>> QueryTenantsAsync<T>(
+        IDocumentReadOperations session, string[] tenantIds, CancellationToken token)
+        => Task.FromResult(_store.SnapshotForTenants<T>(tenantIds));
 }
 
 public class in_memory_document_session_compliance
@@ -69,3 +99,17 @@ public class in_memory_document_commit_listener_compliance
 /// </remarks>
 public class in_memory_document_search_compliance
     : DocumentSearchCompliance<InMemoryDocumentComplianceFixture>;
+
+/// <summary>
+/// Conjoined document tenancy (jasperfx#898), enrolled so the suite is <em>run</em> here rather than
+/// shipping unexecuted to three stores.
+/// </summary>
+/// <remarks>
+/// Seven of its nine facts run. The optimistic-concurrency and numeric-revision facts skip, because
+/// this store implements neither mechanism and inventing one to exercise the tenant axis over would
+/// be asserting the fake — the same call <see cref="in_memory_document_search_compliance" /> makes
+/// about vector indexes. What the seven buy is the thing worth buying: the shared source is known to
+/// compile and to be satisfiable before Marten, Polecat and Fisher are held to it.
+/// </remarks>
+public class in_memory_document_conjoined_tenancy_compliance
+    : DocumentConjoinedTenancyCompliance<InMemoryDocumentComplianceFixture>;

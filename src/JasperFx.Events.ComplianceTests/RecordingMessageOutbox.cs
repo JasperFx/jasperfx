@@ -93,6 +93,20 @@ public partial class RecordingMessageOutbox
         => Batches.SelectMany(x => x.Published).ToArray();
 
     /// <summary>
+    /// Every message published through every batch, paired with the tenant id the store handed the
+    /// sink alongside it (jasperfx#898).
+    /// </summary>
+    /// <remarks>
+    /// The tenant argument was received and discarded until the conjoined-tenancy fact needed it, and
+    /// discarding it is exactly the shape of bug worth pinning: a projection's side effects are what
+    /// leave the store's transactional boundary, so a message published under the wrong tenant — or
+    /// under none — is routed, handled and persisted somewhere else entirely, and nothing inside the
+    /// store ever notices.
+    /// </remarks>
+    public IReadOnlyList<(object Message, string TenantId)> PublishedWithTenant
+        => Batches.SelectMany(x => x.PublishedWithTenant).ToArray();
+
+    /// <summary>
     /// Batches that fired at least one commit hook, which is not the same set as
     /// <see cref="Batches" />: a unit of work that failed before the commit boundary produces a
     /// batch that never reaches either hook.
@@ -138,7 +152,7 @@ public partial class RecordingMessageOutbox
 public partial class RecordingMessageBatch
 {
     private readonly object _locker = new();
-    private readonly List<object> _published = new();
+    private readonly List<(object Message, string TenantId)> _published = new();
     private readonly List<string> _hooks = new();
     private readonly Func<Task<bool>>? _probe;
 
@@ -148,6 +162,12 @@ public partial class RecordingMessageBatch
     /// Messages published through this batch, in order.
     /// </summary>
     public IReadOnlyList<object> Published
+    {
+        get { lock (_locker) { return _published.Select(x => x.Message).ToArray(); } }
+    }
+
+    /// <inheritdoc cref="RecordingMessageOutbox.PublishedWithTenant" />
+    public IReadOnlyList<(object Message, string TenantId)> PublishedWithTenant
     {
         get { lock (_locker) { return _published.ToArray(); } }
     }
@@ -181,7 +201,7 @@ public partial class RecordingMessageBatch
     {
         lock (_locker)
         {
-            _published.Add(message!);
+            _published.Add((message!, tenantId));
         }
 
         return new ValueTask();

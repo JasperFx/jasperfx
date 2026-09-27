@@ -477,6 +477,70 @@ with the product. Multi-tenanted scenarios are out for the same shape of reason:
 with the conjoined-tenancy one would make the most valuable facts skip on a store that has one but
 not the other.
 
+### Tenancy past the read path (jasperfx#898)
+
+`ConjoinedEventTenancyCompliance` began as twelve facts about reads — what a tenant can see and what
+it must not — which is the half that is easy to think of. Five more were added because the shared
+stream id, this suite's sharpest trick, had never been pointed at anything but a read.
+
+**No fact anywhere in the library registered a projection and then wrote the same stream id in two
+tenants**, so a store that projected into a single-tenanted document table — one row keyed on the
+stream id alone — passed everything. What that store really does is let the second tenant's
+projection *overwrite* the first tenant's snapshot: no error on append, no error on read, and both
+tenants afterwards reading a document describing the other one's stream.
+`inline_and_async_snapshots_of_a_shared_stream_id_stay_isolated_per_tenant` is the fact for it, and
+it covers both lifecycles because they fail independently — the inline write happens inside a session
+that already knows its tenant, while the async write happens on a daemon shard where the tenant has
+to be read off the event, carried through slicing and applied to the document write. A store can have
+the first and not the second, and the second is what a deployment relies on. The suite's standard
+configuration now registers both snapshots, so every other fact in it exercises the inline path too.
+
+`async_rebuild_across_many_tenants_produces_one_document_per_tenant_stream` is the daemon statement of
+the same rule, and it is a separate fact because a rebuild is not the append path replayed: it tears
+the read side down and repopulates it out of the transaction that wrote the events, so the tenant has
+to be reconstructed per event, and the teardown carries its own hazard — a wipe scoped to the
+projection but not to the tenant deletes every tenant's rows on the first shard to run. Two hundred
+tenants share one stream id, which is what makes the count an assertion: a correct store ends with two
+hundred documents carrying that id, a store keying on the id alone ends with one, whatever the tenant
+count. The number is large on purpose — two tenants fit inside a single daemon batch, where a grouping
+bug has nowhere to show itself — and every tenant is read back rather than a sample, because losing
+*some* tenants to a batch boundary is the interesting failure and sampling is how it gets missed.
+
+The archiving pair covers an intersection neither suite owned: `StreamArchivingCompliance` has no
+tenant facts and this one had no archiving fact. Archiving is a bulk update over a stream's rows plus
+a flag, which is exactly the shape whose `WHERE` clause loses its tenant scope — and the only tenant
+who notices is the one who did not ask. The assertions reach past the flag to the events and to
+**appendability**, because a store that flipped the flag everywhere and left the rows alone passes the
+first two. The second arm runs the same claim under **string** stream identity, on its own store and
+schema: every fact here was Guid-only before, and `(tenant_id, key)` is a different composite key from
+`(tenant_id, id)` on every store.
+
+`with_the_default_tenant_disabled_every_read_route_is_reachable_through_a_tenant_scope` is the first
+and only assertion of `ComplianceExceptionKind.DefaultTenantUsageDisabled`, which had been declared
+and never used — and declaring a failure category nothing asserts is how a store ends up throwing
+something else, or nothing. **The reachability half is what matters, not the refusal.** A store can
+refuse the default tenant loudly and correctly and still be broken, if a surface has no tenant-scoped
+opener at all; that is jasperfx#885 exactly, where `IReadOnlyEventStore` was unreachable on a tenanted
+store because the only thing producing one took no tenant and the refusal landed at open time, before
+any scope could be applied. So the fact walks the routes first — a tenant session, the tenant-scoped
+reader, `EventQuery.TenantId`, `QueryStreamStates(tenantId)` — and asserts the refusal last, so a
+store that fails it has already proved the surface works. Gated on `SupportsDisablingDefaultTenant`
+(default false), and the gate short-circuits configuration: the fact builds its own store, and on a
+store that ignores `ComplianceStoreConfig.DisableDefaultTenantUsage` every assertion in it is vacuous.
+
+`projection_side_effect_messages_carry_the_event_tenant` closes the last one.
+`ProjectionSideEffectCompliance` publishes only under the default tenant, so the tenant argument on
+`IMessageSink.PublishAsync<T>(T, string)` was never asserted — and the shared `RecordingMessageOutbox`
+received it and threw it away, which is a fair picture of how easily it is lost. It is not cosmetic: a
+published side effect is the one thing a projection emits that leaves the store's transactional
+boundary, so the tenant on it decides which database the downstream handler writes to. A message
+published under the wrong tenant, or under the default one, is delivered, handled and persisted
+somewhere else, and nothing inside the event store reports a problem. Two tenants each mann a
+watchtower and each message must carry its own id, because a store stamping every message with one
+hard-coded tenant passes a single-tenant assertion. Gated on `SupportsMessageOutbox`, and behind its
+own configuration delegate for the reason that suite gives — installing the outbox drives store
+*construction* through a registrar member with a throwing default.
+
 ### The empty unit of work (jasperfx#762)
 
 `AlwaysEnforceConsistencyCompliance` is a separate suite rather than more facts on
@@ -614,6 +678,7 @@ alongside the event store — `JasperFx.Events.Documents`:
 | The stream actions a session has queued but not committed | `PendingStreamActionsCompliance` |
 | Post-commit session listeners and the change set they receive | `DocumentCommitListenerCompliance` |
 | What an explicit numeric revision means on the update path | `NumericRevisionCompliance` |
+| Conjoined (per-tenant) document tenancy | `DocumentConjoinedTenancyCompliance` |
 
 Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
 **three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
@@ -712,6 +777,70 @@ expected revision, so setting `Version` before storing names the revision. `Stor
 `UpdateRevision` and `TryUpdateRevision` stay product API and off the contract. `SupportsNumericRevisions`
 is `virtual`, not `abstract` — the fixture's three abstract members are still three.
 
+### Conjoined document tenancy (jasperfx#898)
+
+`DocumentConjoinedTenancyCompliance` is the document mirror of `ConjoinedEventTenancyCompliance`, and
+until jasperfx#898 it did not exist: the event side had twelve tenancy facts enrolled by all three
+stores while `DocumentComplianceConfig`, `DocumentStorageComplianceFixture` and every
+`Document*Compliance` suite had **no tenancy seam at all**. `DocumentSearchCompliance` cites fisher#285
+— a store ignoring conjoined tenancy in its search path — as a reason to exist, and then configures no
+tenancy. That is the shape of the gap.
+
+Two things carry the weight, both borrowed from the event suite because they are what separates an
+isolation assertion from a vacuous one. **Every fact checks both directions**, because a store that
+leaks still answers correctly for the tenant that owns the data. And **every fact reuses one document
+id across two tenants**, because under conjoined tenancy a document's identity is (tenant, id) and a
+store keying on id alone does not fail loudly — it folds the two writes into one row, so the second
+silently overwrites the first and both tenants then read the same document. Distinct ids per tenant,
+which is what every tenanted fact in this library used before, passes cleanly on exactly that store.
+
+It cost one contract change, and the contract was the right place rather than the fixture.
+`IDocumentSessionFactory` deliberately had no tenant-scoped opener — its own remarks said overloads
+"can be added additively later" — and a suite cannot reach one any other way, so
+`LightweightSession(string tenantId)` and `QuerySession(string tenantId)` were added with throwing
+defaults. That follows this fixture's standing rule: a document suite needing to reach past the
+interfaces means the **contract** has the hole.
+
+⚠️ **The one thing that will bite an implementer.** C# interface implementation is not return-type
+covariant, so a store implementing `IDocumentSessionFactory<TOperations, TQuerySession>` has to write
+the explicit non-generic forwarder as well:
+
+```csharp
+IDocumentSessionOperations IDocumentSessionFactory.LightweightSession(string tenantId)
+    => LightweightSession(tenantId);
+```
+
+Without it the product-typed member satisfies the generic interface, the contract member stays bound
+to the throwing default, and the suites fail on a store whose tenancy is entirely correct. Same
+near-miss as `IDocumentReadOperations.Events` and `IDocumentSessionOperations.PendingStreams`;
+`DocumentSessionFactoryDefaultsTests` pins the shape so it is a documented fact rather than a
+surprise.
+
+Beyond the overloads a fixture replays `DocumentComplianceConfig.ConjoinedDocuments` — a per-type
+list, because that is what all three stores spell (`Schema.For<T>().MultiTenanted()`) and because the
+suite needs to hold conjoined and single-tenanted documents in one store. Dropping the replay does
+**not** make the suite skip; gate it with `SupportsConjoinedDocuments` instead, and note that the
+failure mode of dropping it is worse than usual — the isolation facts fail rather than pass, since a
+single-tenanted store folds both tenants into one row.
+
+The two escape facts — `AnyTenant` and `TenantIsOneOf` — are separately gated on
+`SupportsCrossTenantQueries` and need a pair of fixture seam members, because the spelling differs in
+*kind* and not merely in name: Marten writes an element predicate inside the `Where`
+(`Query<T>().Where(x => x.AnyTenant())`, recognized from the method's declaring type), Polecat and
+Fisher write an operator on the queryable. Neither form survives being written in shared source, the
+same reasoning as `HasTagFilter`. The two are asserted in one fact and in that order on purpose: a
+store whose escape is really "drop the tenant filter" satisfies the `AnyTenant` half perfectly and
+then hands `TenantIsOneOf` every tenant's rows as well, so the narrow case only has teeth measured
+against the wide one in the same arrangement.
+
+**Four things jasperfx#898 proposed and this suite deliberately does not cover**: bulk-insert
+duplicate handling, patching, soft deletes, and a delete-all-tenant-data administration call. All
+four are on the settled out-of-scope list below — they are the surfaces jasperfx#647 declined to
+abstract — and **a tenant axis is not a reason to reopen them**. The same line holds inside the query
+fact: its operators are `DocumentQueryCompliance`'s closed minimum translatable set plus the async
+terminators, not the wider set (`GroupBy`, `Sum`, `LoadMany`, compiled queries) the issue named.
+Pinning tenant scoping over an operator is also pinning the operator.
+
 `BuildStoreAsync` must honor `config.ValueTypes` as well as `config.DocumentTypes` — every store
 spells that `options.RegisterValueType(type)`. It is what lets `DocumentLoadAndStoreCompliance` hold
 the `LoadAsync<T>(object)` overload (jasperfx#665) to a definition; a fixture that ignores it fails
@@ -790,6 +919,23 @@ side — patching, bulk insert, LINQ joins / grouping / `Include`, soft-delete s
 metadata, session listeners, the stores' `Advanced` surfaces and schema management — stays out, and
 that exclusion is now a settled boundary rather than an open question: those are the surfaces
 jasperfx#647 deliberately declined to abstract.
+
+**A tenant axis does not reopen any of it**, and that is worth stating plainly because it has already
+been proposed once. jasperfx#898 asked for tenant-scoping facts over bulk insert, patching, soft
+deletes and a delete-all-tenant-data call; all four were declined, and `DocumentConjoinedTenancyCompliance`
+covers the tenant behaviour of the contract's own operations instead. The argument for adding them is
+always locally reasonable — tenancy makes any operation more interesting, and an unscoped
+`DeleteWhere` really is dangerous — but it proves too much: every excluded surface becomes interesting
+under tenancy, so accepting it once is accepting the whole list. Pinning tenant scoping over an
+operation is also pinning the operation, on every store, forever. Tenant offboarding is the one with a
+genuine claim to be tenancy rather than a document-db feature; it stays out because the only way to
+reach it is each store's own `Advanced` surface, and it is not uniformly implemented (Polecat lacks the
+API, filed there).
+
+The same line runs through `DocumentConjoinedTenancyCompliance`'s own query fact: its operators are
+`DocumentQueryCompliance`'s closed minimum translatable set plus the async terminators. `GroupBy`,
+`Sum`, `LoadMany` and compiled queries were named in the issue and left out, because a suite asserting
+that `GroupBy` is tenant-scoped is a suite asserting that `GroupBy` translates.
 
 New cross-store event sourcing behavior should land as a compliance suite first, and only then be
 enrolled by each product.

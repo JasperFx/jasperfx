@@ -14,10 +14,9 @@ namespace JasperFx.Events.Documents;
 /// pair on top for store-generic infrastructure.
 /// </para>
 /// <para>
-/// Tenant-scoped session opening is deliberately absent. The measured consumer surface opens no
-/// tenant-scoped document sessions, and multi-tenancy beyond what <c>JasperFx.MultiTenancy</c>
-/// already exposes is out of scope for this contract. Overloads taking a tenant id can be added
-/// additively later.
+/// The tenant-scoped overloads were added later and additively (jasperfx#898), exactly as the
+/// original remarks here said they could be. They carry throwing defaults, so a store that has no
+/// conjoined document tenancy — or has not routed it through this contract yet — keeps compiling.
 /// </para>
 /// </remarks>
 public interface IDocumentSessionFactory
@@ -32,6 +31,44 @@ public interface IDocumentSessionFactory
     /// Open a read-only session for querying.
     /// </summary>
     IDocumentReadOperations QuerySession();
+
+    /// <summary>
+    /// Open a writable session scoped to one tenant. Every read and write through it is confined to
+    /// <paramref name="tenantId" />, and every document it stores is stamped with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Added additively in jasperfx#898 rather than at the contract's birth, and the reason is worth
+    /// recording. The original judgement — that the measured consumer surface opened no tenant-scoped
+    /// document sessions — was about <em>application</em> code. What forced the overload was the
+    /// compliance library: <c>DocumentConjoinedTenancyCompliance</c> cannot open a tenant-scoped
+    /// session through any other route, and the document fixture's own rule is that a suite needing
+    /// to reach past the interfaces means the contract has the hole, not the fixture.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>A store implementing <see cref="IDocumentSessionFactory{TOperations,TQuerySession}" />
+    /// has to write this one twice</b>, exactly as it already does for the parameterless pair: C#
+    /// interface implementation is not return-type covariant, so a
+    /// <c>public TOperations LightweightSession(string tenantId)</c> satisfies the generic member and
+    /// leaves this one bound to the throwing default below. Add the one-line explicit forwarder —
+    /// <c>IDocumentSessionOperations IDocumentSessionFactory.LightweightSession(string tenantId)
+    /// =&gt; LightweightSession(tenantId);</c> — or the suites will fail on a store that is otherwise
+    /// correct. This is the same near-miss <c>IDocumentReadOperations.Events</c> and
+    /// <c>IDocumentSessionOperations.PendingStreams</c> already carry, and the same reason it is
+    /// stated rather than left to be discovered.
+    /// </para>
+    /// </remarks>
+    IDocumentSessionOperations LightweightSession(string tenantId)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement tenant-scoped document sessions.");
+
+    /// <summary>
+    /// Open a read-only session scoped to one tenant.
+    /// </summary>
+    /// <inheritdoc cref="LightweightSession(string)" path="/remarks" />
+    IDocumentReadOperations QuerySession(string tenantId)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement tenant-scoped document sessions.");
 }
 
 /// <summary>
@@ -65,4 +102,14 @@ public interface IDocumentSessionFactory<TOperations, TQuerySession> : IDocument
 
     /// <inheritdoc cref="IDocumentSessionFactory.QuerySession" />
     new TQuerySession QuerySession();
+
+    /// <inheritdoc cref="IDocumentSessionFactory.LightweightSession(string)" />
+    new TOperations LightweightSession(string tenantId)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement tenant-scoped document sessions.");
+
+    /// <inheritdoc cref="IDocumentSessionFactory.QuerySession(string)" />
+    new TQuerySession QuerySession(string tenantId)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement tenant-scoped document sessions.");
 }

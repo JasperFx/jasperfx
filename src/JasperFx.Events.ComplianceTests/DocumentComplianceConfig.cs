@@ -71,6 +71,39 @@ public sealed class DocumentComplianceConfig
     }
 
     /// <summary>
+    /// Document types the suite asked the store to slice by tenant within one database — conjoined
+    /// document tenancy, where every row carries a tenant id and every read is scoped to one
+    /// (jasperfx#898).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The document mirror of <see cref="ComplianceStoreConfig.ConjoinedEventTenancy" />, and a
+    /// <em>per-type</em> list rather than a store-wide flag, because that is what the stores actually
+    /// spell: all three say <c>Schema.For&lt;T&gt;().MultiTenanted()</c> on their own options object,
+    /// one document type at a time. A store-wide default exists on some of them
+    /// (<c>Policies.AllDocumentsAreMultiTenanted()</c>) but not on all, and a suite that asked for the
+    /// store-wide form could not hold a single-tenanted document alongside a conjoined one — which
+    /// <see cref="DocumentConjoinedTenancyCompliance{TFixture}" /> needs, since the sharpest fact in
+    /// it is that a shared id lands in two rows rather than one.
+    /// </para>
+    /// <para>
+    /// Ignoring this does not make the suite skip; gate it with
+    /// <see cref="DocumentStorageComplianceFixture.SupportsConjoinedDocuments" /> instead. A fixture
+    /// that flips the gate and drops the replay fails every fact for a wiring reason — the jasperfx#672
+    /// rule — and worse, the <em>isolation</em> facts would fail rather than pass, since a
+    /// single-tenanted store folds both tenants' writes into one row.
+    /// </para>
+    /// </remarks>
+    public List<Type> ConjoinedDocuments { get; } = new();
+
+    /// <inheritdoc cref="ConjoinedDocuments" />
+    public DocumentComplianceConfig Conjoined<T>() where T : notnull
+    {
+        ConjoinedDocuments.Add(typeof(T));
+        return this;
+    }
+
+    /// <summary>
     /// Vector indexes the suite needs declared, for the search suites (jasperfx#842).
     /// </summary>
     /// <remarks>

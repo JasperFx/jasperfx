@@ -51,6 +51,18 @@ public abstract class DocumentStorageComplianceSuite<TFixture> : IAsyncLifetime
     protected IDocumentReadOperations QuerySession() => theFixture.Sessions.QuerySession();
 
     /// <summary>
+    /// Open a writable session scoped to one tenant (jasperfx#898). Callers dispose it.
+    /// </summary>
+    protected IDocumentSessionOperations LightweightSession(string tenantId)
+        => theFixture.Sessions.LightweightSession(tenantId);
+
+    /// <summary>
+    /// Open a read-only session scoped to one tenant. Callers dispose it.
+    /// </summary>
+    protected IDocumentReadOperations QuerySession(string tenantId)
+        => theFixture.Sessions.QuerySession(tenantId);
+
+    /// <summary>
     /// Store documents and commit them in one throwaway session — the setup step almost every test
     /// starts with.
     /// </summary>

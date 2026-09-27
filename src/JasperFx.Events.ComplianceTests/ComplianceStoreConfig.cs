@@ -107,6 +107,33 @@ public sealed class ComplianceStoreConfig
     public bool ConjoinedEventTenancy { get; set; }
 
     /// <summary>
+    /// Refuse the default tenant, so that every session and every reader has to name a tenant
+    /// explicitly (jasperfx#898).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A plain property the fixture resolves, for the same reason as
+    /// <see cref="ConjoinedEventTenancy" />: every store has the switch — Marten's
+    /// <c>Advanced.DefaultTenantUsageEnabled = false</c> and its siblings — but on its own options
+    /// object rather than on anything shared.
+    /// </para>
+    /// <para>
+    /// It is not a niche setting. On a database-per-tenant store it is the <em>automatic</em> state
+    /// once tenancy is configured, which is what made jasperfx#885 a real outage rather than an
+    /// inconvenience: the refusal happens when a session is opened, before any tenant scope could be
+    /// applied, so a surface reachable only through a tenant-less opener is not reachable at all.
+    /// That is a whole class of bug no other suite here can see, because every other suite's store
+    /// leaves the default tenant on.
+    /// </para>
+    /// <para>
+    /// Only the one fact that needs it sets it, and it does so through a second configuration
+    /// delegate: a store built this way refuses the tenant-less <c>OpenSession()</c> that most facts
+    /// in the suite open with.
+    /// </para>
+    /// </remarks>
+    public bool DisableDefaultTenantUsage { get; set; }
+
+    /// <summary>
     /// Tenant id → logical database name, for the suites that need a store backed by more than one
     /// database (jasperfx#810). Empty leaves the store single-database, which is every other suite.
     /// </summary>
