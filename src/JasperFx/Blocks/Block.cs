@@ -172,6 +172,47 @@ public class Block<T> : BlockBase<T>
         
     }
 
+    /// <summary>
+    /// Drop whatever <see cref="Activity" /> is ambient on this worker, so an item's action starts a
+    /// trace root rather than a child of something unrelated (jasperfx#900).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The workers are started with <c>Task.Run</c> in the constructor, and <c>Task.Run</c> flows the
+    /// <see cref="ExecutionContext" /> — so a worker captured whatever <see cref="Activity.Current" />
+    /// was set when the block was built and kept it for the block's whole lifetime, long after that
+    /// activity had ended. A block is a long-lived worker pool, so a construction-time ambient value is
+    /// never the right parent for work posted later: the reported case was a Marten daemon whose agents
+    /// were rebuilt inside an HTTP handler, after which every projection page span landed under that one
+    /// request — 3,943 spans in ten minutes, on a trace already reported as finished.
+    /// </para>
+    /// <para>
+    /// Called <b>per item</b> rather than once before the loop, because an action that starts an
+    /// activity and does not dispose it leaves it current on this worker — so clearing only at the top
+    /// would let the first item's leak become the second item's parent. Per item, every posted item is a
+    /// root regardless of what the item before it left behind.
+    /// </para>
+    /// <para>
+    /// Deliberately NOT <c>ExecutionContext.SuppressFlow()</c> around the <c>Task.Run</c> calls, which
+    /// would also fix the reported symptom. That stops <em>every</em> <see cref="AsyncLocal{T}" /> from
+    /// reaching the workers — logging scopes and the current culture included — and a caller relying on
+    /// those would lose them silently. Clearing one ambient value changes nothing else a worker
+    /// inherits, and nothing at all for the caller: an <see cref="AsyncLocal{T}" /> write after a
+    /// <c>Task.Run</c> boundary does not propagate back.
+    /// </para>
+    /// <para>
+    /// Guarded rather than assigned unconditionally: setting <see cref="Activity.Current" /> mutates the
+    /// execution context, and the overwhelmingly common case is that it is already null.
+    /// </para>
+    /// </remarks>
+    private static void detachAmbientActivity()
+    {
+        if (Activity.Current != null)
+        {
+            Activity.Current = null;
+        }
+    }
+
     private async Task processAsync()
     {
         try
@@ -183,6 +224,8 @@ public class Block<T> : BlockBase<T>
 
                 if (_channel.Reader.TryRead(out var item))
                 {
+                    detachAmbientActivity();
+
                     try
                     {
                         await _action(item, _cancellation.Token);
