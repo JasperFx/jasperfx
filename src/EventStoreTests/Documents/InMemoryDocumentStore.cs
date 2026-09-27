@@ -2,6 +2,8 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
+using JasperFx;
+using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
 
 namespace EventStoreTests.Documents;
@@ -23,7 +25,8 @@ namespace EventStoreTests.Documents;
 /// </remarks>
 public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSession, InMemoryDocumentSession>
 {
-    private readonly ConcurrentDictionary<Type, ConcurrentDictionary<object, object>> _documents = new();
+    private readonly ConcurrentDictionary<(Type Type, string Tenant), ConcurrentDictionary<object, object>>
+        _documents = new();
 
     /// <summary>
     /// The post-commit listeners this store raises — the reference implementation of jasperfx#679.
@@ -36,20 +39,78 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
     /// </remarks>
     public List<IDocumentCommitListener> Listeners { get; } = new();
 
-    public InMemoryDocumentSession LightweightSession() => new(this);
+    /// <summary>
+    /// The document types this store slices by tenant — the reference replay of
+    /// <see cref="DocumentComplianceConfig.ConjoinedDocuments" /> (jasperfx#898).
+    /// </summary>
+    /// <remarks>
+    /// A per-type set rather than a store-wide switch, because that is the shape the config carries
+    /// and the shape all three products spell (<c>Schema.For&lt;T&gt;().MultiTenanted()</c>). A type
+    /// that is not in here keeps living in the default tenant's bucket however the session was opened,
+    /// which is what lets the other document suites go on using <see cref="ComplianceWidget" />
+    /// untenanted.
+    /// </remarks>
+    public HashSet<Type> ConjoinedTypes { get; } = new();
 
-    public InMemoryDocumentSession QuerySession() => new(this);
+    public InMemoryDocumentSession LightweightSession() => new(this, StorageConstants.DefaultTenantId);
+
+    public InMemoryDocumentSession QuerySession() => new(this, StorageConstants.DefaultTenantId);
+
+    public InMemoryDocumentSession LightweightSession(string tenantId) => new(this, tenantId);
+
+    public InMemoryDocumentSession QuerySession(string tenantId) => new(this, tenantId);
 
     IDocumentSessionOperations IDocumentSessionFactory.LightweightSession() => LightweightSession();
 
     IDocumentReadOperations IDocumentSessionFactory.QuerySession() => QuerySession();
 
+    // ⚠️ The explicit forwarders are not boilerplate. C# interface implementation is not return-type
+    // covariant, so the four product-typed members above satisfy only the GENERIC interface; without
+    // these the non-generic contract members stay bound to their throwing defaults, and the
+    // compliance suites -- which hold the non-generic contract -- fail on a store whose tenancy is
+    // perfectly correct. See the remarks on IDocumentSessionFactory.LightweightSession(string).
+    IDocumentSessionOperations IDocumentSessionFactory.LightweightSession(string tenantId)
+        => LightweightSession(tenantId);
+
+    IDocumentReadOperations IDocumentSessionFactory.QuerySession(string tenantId) => QuerySession(tenantId);
+
     public void Clear() => _documents.Clear();
 
-    internal ConcurrentDictionary<object, object> StorageFor(Type documentType)
-        => _documents.GetOrAdd(documentType, _ => new ConcurrentDictionary<object, object>());
+    /// <summary>
+    /// The bucket a document type's rows live in for one session's tenant. A type that was never
+    /// declared conjoined resolves to the default tenant's bucket whatever the session asked for.
+    /// </summary>
+    internal ConcurrentDictionary<object, object> StorageFor(Type documentType, string tenantId)
+        => _documents.GetOrAdd((documentType, ScopeFor(documentType, tenantId)),
+            _ => new ConcurrentDictionary<object, object>());
 
-    internal IReadOnlyList<T> SnapshotOf<T>() => StorageFor(typeof(T)).Values.Cast<T>().ToList();
+    internal string ScopeFor(Type documentType, string tenantId)
+        => ConjoinedTypes.Contains(documentType) ? tenantId : StorageConstants.DefaultTenantId;
+
+    internal IReadOnlyList<T> SnapshotOf<T>(string tenantId)
+        => StorageFor(typeof(T), tenantId).Values.Cast<T>().ToList();
+
+    /// <summary>
+    /// Every row of a type across every tenant — what the fixture's <c>AnyTenant</c> seam forwards to.
+    /// </summary>
+    internal IReadOnlyList<T> SnapshotAcrossTenants<T>()
+        => _documents.Where(pair => pair.Key.Type == typeof(T))
+            .SelectMany(pair => pair.Value.Values)
+            .Cast<T>()
+            .ToList();
+
+    /// <summary>
+    /// Every row of a type belonging to any of the named tenants — the <c>TenantIsOneOf</c> seam.
+    /// </summary>
+    internal IReadOnlyList<T> SnapshotForTenants<T>(IEnumerable<string> tenantIds)
+    {
+        var scopes = tenantIds.Select(x => ScopeFor(typeof(T), x)).ToHashSet();
+
+        return _documents.Where(pair => pair.Key.Type == typeof(T) && scopes.Contains(pair.Key.Tenant))
+            .SelectMany(pair => pair.Value.Values)
+            .Cast<T>()
+            .ToList();
+    }
 
     /// <summary>
     /// Resolve a document's identity from a conventional <c>Id</c> member. The document contract does
@@ -75,9 +136,14 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
 public class InMemoryDocumentSession : IDocumentSessionOperations
 {
     private readonly InMemoryDocumentStore _store;
+    private readonly string _tenantId;
     private readonly List<Action<InMemoryChangeSet>> _pending = new();
 
-    internal InMemoryDocumentSession(InMemoryDocumentStore store) => _store = store;
+    internal InMemoryDocumentSession(InMemoryDocumentStore store, string tenantId)
+    {
+        _store = store;
+        _tenantId = tenantId;
+    }
 
     public Task<T?> LoadAsync<T>(Guid id, CancellationToken token = default) where T : notnull
         => Task.FromResult(load<T>(id));
@@ -101,10 +167,10 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         => Task.FromResult(load<T>(id));
 
     private T? load<T>(object id) where T : notnull
-        => _store.StorageFor(typeof(T)).TryGetValue(id, out var found) ? (T)found : default;
+        => _store.StorageFor(typeof(T), _tenantId).TryGetValue(id, out var found) ? (T)found : default;
 
     public IQueryable<T> Query<T>() where T : notnull
-        => InMemoryDocumentQueryable<T>.Wrap(_store.SnapshotOf<T>().AsQueryable());
+        => InMemoryDocumentQueryable<T>.Wrap(_store.SnapshotOf<T>(_tenantId).AsQueryable());
 
     public void Store<T>(params T[] entities) where T : notnull
     {
@@ -113,7 +179,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
             var id = InMemoryDocumentStore.IdentityOf(entity);
             _pending.Add(changes =>
             {
-                var storage = _store.StorageFor(typeof(T));
+                var storage = _store.StorageFor(typeof(T), _tenantId);
 
                 // Insert vs update is decided at commit time against what is actually stored, which
                 // is the only honest answer a store with no identity map can give. The contract
@@ -144,7 +210,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     private void deleteById<T>(object id) where T : notnull
         => _pending.Add(changes =>
         {
-            _store.StorageFor(typeof(T)).TryRemove(id, out _);
+            _store.StorageFor(typeof(T), _tenantId).TryRemove(id, out _);
             changes.RecordDeleted(typeof(T), id);
         });
 
@@ -153,7 +219,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         var matches = expression.Compile();
         _pending.Add(changes =>
         {
-            var storage = _store.StorageFor(typeof(T));
+            var storage = _store.StorageFor(typeof(T), _tenantId);
             foreach (var pair in storage.ToArray())
             {
                 if (matches((T)pair.Value))

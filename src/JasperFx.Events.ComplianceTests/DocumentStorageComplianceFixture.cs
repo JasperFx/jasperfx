@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Events.Documents;
@@ -161,6 +162,81 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     /// this must also replay <see cref="DocumentComplianceConfig.FullTextIndexes" />.
     /// </remarks>
     public virtual bool SupportsHybridSearch => false;
+
+    /// <summary>
+    /// Does this store slice documents by tenant within one database — conjoined document tenancy —
+    /// and route it through <see cref="IDocumentSessionFactory.LightweightSession(string)" /> /
+    /// <see cref="IDocumentSessionFactory.QuerySession(string)" />? Gates
+    /// <see cref="DocumentConjoinedTenancyCompliance{TFixture}" /> (jasperfx#898).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Default <b>false</b>, and for two reasons rather than the usual one. The tenant-scoped session
+    /// overloads are additive members with throwing defaults, so a store that has not written them is
+    /// a store that compiles and throws. And the replay half —
+    /// <see cref="DocumentComplianceConfig.ConjoinedDocuments" /> — is not optional on a store where
+    /// documents default to single-tenanted, which is all three of them.
+    /// </para>
+    /// <para>
+    /// ⚠️ <b>Read the covariance note on
+    /// <see cref="IDocumentSessionFactory.LightweightSession(string)" /> before flipping this.</b> A
+    /// store implementing the generic session factory has to write the explicit non-generic forwarder
+    /// as well, or the suites reach the throwing default on a store whose tenancy is perfectly
+    /// correct.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsConjoinedDocuments => false;
+
+    /// <summary>
+    /// Does this store offer the two deliberate escapes from tenant scoping — read every tenant's
+    /// rows, and read a named set of tenants' rows? Gates the cross-tenant facts of
+    /// <see cref="DocumentConjoinedTenancyCompliance{TFixture}" />.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="SupportsConjoinedDocuments" /> because the two genuinely come apart: a
+    /// store can scope every read to the session's tenant — which is the whole isolation contract —
+    /// and offer no way to deliberately step outside it. Default <b>false</b>; flip it after
+    /// implementing <see cref="QueryAllTenantsAsync{T}" /> and <see cref="QueryTenantsAsync{T}" />.
+    /// </remarks>
+    public virtual bool SupportsCrossTenantQueries => false;
+
+    /// <summary>
+    /// Every <typeparamref name="T" /> in the store, across every tenant — the store's own
+    /// <c>AnyTenant</c> escape, executed and materialized.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A seam member because the spelling genuinely differs in kind, not merely in name. Marten
+    /// writes it as an <em>element predicate</em> inside the <c>Where</c>
+    /// (<c>Query&lt;T&gt;().Where(x =&gt; x.AnyTenant())</c>, recognized by the LINQ parser from the
+    /// method's declaring type), while Polecat and Fisher write it as an <em>operator on the
+    /// queryable</em> (<c>Query&lt;T&gt;().AnyTenant()</c>). Neither form can be written once: the
+    /// predicate form carries the wrong <c>MethodInfo</c> if it is built in shared source, and the
+    /// operator form is an extension in each product's own namespace. Same reasoning as
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.HasTagFilter{TTag}" />.
+    /// </para>
+    /// <para>
+    /// Deliberately predicate-free and materialized, on the same reasoning as
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.QueryTableAsync" />: what is
+    /// under test is the tenant scope the escape lifts, not any provider's operator set. The moment
+    /// this hands back a queryable it starts pinning LINQ surface the library keeps out of scope
+    /// permanently.
+    /// </para>
+    /// </remarks>
+    public virtual Task<IReadOnlyList<T>> QueryAllTenantsAsync<T>(
+        IDocumentReadOperations session, CancellationToken token) where T : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement QueryAllTenantsAsync, so it cannot run the cross-tenant document compliance facts.");
+
+    /// <summary>
+    /// Every <typeparamref name="T" /> belonging to any of <paramref name="tenantIds" /> — the
+    /// store's own <c>TenantIsOneOf</c> escape, executed and materialized.
+    /// </summary>
+    /// <inheritdoc cref="QueryAllTenantsAsync{T}" path="/remarks" />
+    public virtual Task<IReadOnlyList<T>> QueryTenantsAsync<T>(
+        IDocumentReadOperations session, string[] tenantIds, CancellationToken token) where T : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement QueryTenantsAsync, so it cannot run the cross-tenant document compliance facts.");
 
     public virtual ValueTask InitializeAsync() => default;
 

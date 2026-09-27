@@ -365,6 +365,28 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsConjoinedEventTenancy => true;
 
     /// <summary>
+    /// True in a store that can be built with the default tenant refused — Marten's
+    /// <c>Advanced.DefaultTenantUsageEnabled = false</c> and its siblings — and whose fixture replays
+    /// <see cref="ComplianceStoreConfig.DisableDefaultTenantUsage" />. Gates the one fact of
+    /// <see cref="ConjoinedEventTenancyCompliance{TFixture,TOperations,TQuerySession}" /> that builds
+    /// a store that way (jasperfx#898).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Default <b>false</b>, and the gate has to short-circuit the fact's <em>configuration</em> as
+    /// well as its assertions: the fact builds a second store from its own delegate, and on a store
+    /// that ignores the flag every assertion in it is vacuous — the tenant-less routes it expects to
+    /// be refused simply work.
+    /// </para>
+    /// <para>
+    /// Worth flipping rather than living with. On a database-per-tenant store this is the automatic
+    /// state once tenancy is configured, so the surface this fact walks is the surface those
+    /// deployments have, and jasperfx#885 is what a hole in it looks like from the outside.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsDisablingDefaultTenant => false;
+
+    /// <summary>
     /// True in a store that has implemented the <c>IEvent.HasTag&lt;TTag&gt;</c> LINQ marker over
     /// its raw-event query and the <see cref="QueryRawEventsAsync"/> / <see cref="HasTagFilter{TTag}"/>
     /// seam members that reach it.

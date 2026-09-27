@@ -93,6 +93,39 @@ public class DocumentComplianceConfigTests
     }
 
     /// <remarks>
+    /// jasperfx#898. Every document type the conjoined suite exercises has to be declared conjoined
+    /// as well as declared at all, and the two lists are easy to let drift — adding a type to
+    /// <see cref="DocumentComplianceConfig.DocumentTypes" /> and forgetting
+    /// <see cref="DocumentComplianceConfig.Conjoined{T}" /> leaves a suite asserting tenant isolation
+    /// over a single-tenanted table. That fails rather than passing quietly, but it fails as a wall of
+    /// unexplained overwrites; this says which declaration is missing.
+    /// </remarks>
+    [Fact]
+    public void the_conjoined_suite_declares_every_document_type_it_uses_as_conjoined()
+    {
+        var config = new DocumentComplianceConfig();
+        ExposedDocumentConjoinedTenancyCompliance.TheConfiguration(config);
+
+        config.DocumentTypes.ShouldNotBeEmpty();
+        config.ConjoinedDocuments.ShouldBe(config.DocumentTypes, ignoreOrder: true);
+    }
+
+    /// <remarks>
+    /// Empty by default, matching <see cref="DocumentComplianceConfig.StreamIdentity" />'s null: every
+    /// other document suite wants its store left single-tenanted, and a non-empty default here would
+    /// change the storage every one of them is asserting against.
+    /// </remarks>
+    [Fact]
+    public void documents_are_not_conjoined_until_a_suite_asks()
+    {
+        new DocumentComplianceConfig().ConjoinedDocuments.ShouldBeEmpty();
+
+        var config = new DocumentComplianceConfig();
+        ExposedDocumentSessionCompliance.TheConfiguration(config);
+        config.ConjoinedDocuments.ShouldBeEmpty();
+    }
+
+    /// <remarks>
     /// Not public, so xunit never collects the inherited facts — the in-memory reference store is
     /// document-only and could not run this suite. All that is wanted is the configuration delegate.
     /// </remarks>
@@ -131,4 +164,10 @@ public class DocumentComplianceConfigTests
             new ExposedNumericRevisionCompliance().Configuration;
     }
 
+    private class ExposedDocumentConjoinedTenancyCompliance
+        : DocumentConjoinedTenancyCompliance<InMemoryDocumentComplianceFixture>
+    {
+        public static readonly Action<DocumentComplianceConfig> TheConfiguration =
+            new ExposedDocumentConjoinedTenancyCompliance().Configuration;
+    }
 }
