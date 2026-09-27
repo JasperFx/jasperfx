@@ -22,11 +22,13 @@
     JasperFx.Events, so the target is present even when the duplication comes from two bundling
     packages (Marten plus Polecat) and the standalone package is not referenced at all.
 
-    Set JasperFxEventsDedupeSourceGeneratorAnalyzers=false to opt out.
+    Set JasperFxEventsDedupeSourceGeneratorAnalyzers=false to opt out of the DEDUPE. Detection still
+    runs either way (jasperfx#902): with the dedupe off, a duplicate is reported as JFXEVT902 rather
+    than silently left to fail as CS0433, because opting out of the fix should not also opt out of the
+    diagnosis.
   -->
   <Target Name="JasperFxEventsDedupeSourceGeneratorAnalyzers"
-          BeforeTargets="CoreCompile"
-          Condition="'$(JasperFxEventsDedupeSourceGeneratorAnalyzers)' != 'false'">
+          BeforeTargets="CoreCompile">
 
     <ItemGroup>
       <_JasperFxEventsGenerator Include="@(Analyzer)"
@@ -41,7 +43,12 @@
       <_JasperFxEventsHasDuplicates Condition="$(_JasperFxEventsGeneratorList.Contains(';'))">true</_JasperFxEventsHasDuplicates>
     </PropertyGroup>
 
-    <ItemGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true'">
+    <PropertyGroup>
+      <_JasperFxEventsDedupeEnabled>true</_JasperFxEventsDedupeEnabled>
+      <_JasperFxEventsDedupeEnabled Condition="'$(JasperFxEventsDedupeSourceGeneratorAnalyzers)' == 'false'">false</_JasperFxEventsDedupeEnabled>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsDedupeEnabled)' == 'true'">
       <!-- Referencing the standalone package is an explicit statement of intent, so its copy wins over
            one bundled inside a store package. -->
       <_JasperFxEventsGeneratorStandalone Include="@(_JasperFxEventsGenerator)"
@@ -54,11 +61,11 @@
     <!-- Batched on purpose: MSBuild evaluates this PropertyGroup once per candidate, so the property
          ends up holding the last one. Analyzer ordering is stable within a build, so the same copy is
          kept on every build rather than alternating between them. -->
-    <PropertyGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true'">
+    <PropertyGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsDedupeEnabled)' == 'true'">
       <_JasperFxEventsGeneratorKeep>%(_JasperFxEventsGeneratorKeepCandidate.Identity)</_JasperFxEventsGeneratorKeep>
     </PropertyGroup>
 
-    <ItemGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsGeneratorKeep)' != ''">
+    <ItemGroup Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsDedupeEnabled)' == 'true' and '$(_JasperFxEventsGeneratorKeep)' != ''">
       <Analyzer Remove="@(_JasperFxEventsGenerator)" />
       <Analyzer Include="$(_JasperFxEventsGeneratorKeep)" />
     </ItemGroup>
@@ -66,9 +73,27 @@
     <!-- Normal importance rather than a warning: the duplication is a packaging accident the consumer
          did nothing wrong to cause, and it is now harmless. The line is there for anyone who wonders
          which copy ran. -->
-    <Message Condition="'$(_JasperFxEventsHasDuplicates)' == 'true'"
+    <Message Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsDedupeEnabled)' == 'true'"
              Importance="normal"
              Text="JasperFx.Events: the aggregate source generator was supplied more than once ($(_JasperFxEventsGeneratorList)). Keeping $(_JasperFxEventsGeneratorKeep) and dropping the rest, because two copies of one generator emit identical file paths and collide with CS0433 (jasperfx#891)." />
+
+    <!--
+      jasperfx#902 — the one case where the duplication is about to break the build AND this target can
+      still see it: the dedupe was turned off by hand, so nothing is going to drop the second copy.
+
+      A warning rather than a message, because the build is about to fail with a CS0433 that names one
+      assembly twice and mentions neither the generator nor the two analyzer copies. The consumer
+      opted out of the fix, so this is not noise: it is the diagnostic they no longer have.
+
+      Note what this deliberately does NOT claim to cover, which is most of jasperfx#902: a consumer on
+      a JasperFx.Events old enough to predate this target, or a compilation that does not run MSBuild
+      targets at all, reaches the same CS0433 with nothing of ours present to warn. That is the
+      jasperfx#894 shape (the build that can see the problem is not always a build we are in), and no
+      target can close it.
+    -->
+    <Warning Condition="'$(_JasperFxEventsHasDuplicates)' == 'true' and '$(_JasperFxEventsDedupeEnabled)' != 'true'"
+             Code="JFXEVT902"
+             Text="$(MSBuildProjectName) is being handed more than one copy of the aggregate source generator ($(_JasperFxEventsGeneratorList)), and JasperFxEventsDedupeSourceGeneratorAnalyzers is false so neither will be dropped. Two copies of one generator emit byte-identical file paths, and the emitted evolvers are file-scoped, so they mangle to the same name: expect &quot;error CS0433: The type 'XEvolver' exists in both 'YourAssembly' and 'YourAssembly'&quot; -- one assembly named twice, which is the fingerprint. A store package bundles the analyzer (Marten does, marten#4557), so dropping a direct PackageReference on JasperFx.Events.SourceGenerator usually resolves it; otherwise remove JasperFxEventsDedupeSourceGeneratorAnalyzers=false and let this build keep one copy. See jasperfx#902." />
   </Target>
 
   <!--

@@ -127,20 +127,65 @@ internal class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAg
     {
         var owner = _projectionType ?? typeof(TAggregate);
 
-        var assemblies = new List<Assembly> { typeof(TAggregate).Assembly };
-        if (_projectionType != null && _projectionType.Assembly != typeof(TAggregate).Assembly)
-        {
-            // The generator emits a projection-specific evolver into the PROJECTION's assembly, so
-            // confirmation there is just as good as confirmation in the aggregate's — see
-            // collectGeneratedEvolverAttributes, which scans both.
-            assemblies.Add(_projectionType.Assembly);
-        }
-
         return $"No source-generated dispatcher found for {owner.FullNameInCode()}. " +
                "Conventional Apply/Create/ShouldDelete methods are dispatched by the compile-time " +
                "JasperFx.Events.SourceGenerator; there is no runtime fallback. " +
                SourceGeneratorMarker.DescribeGeneratorReach(
-                   assemblies, $"the aggregate {typeof(TAggregate).FullNameInCode()}");
+                   EvidenceAssembliesFor(typeof(TAggregate), _projectionType),
+                   $"the aggregate {typeof(TAggregate).FullNameInCode()}");
+    }
+
+    /// <summary>
+    /// The assemblies whose marker is genuine evidence about whether the generator reached
+    /// <paramref name="aggregateType" />.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Extracted and made internal for jasperfx#906, which was a inverted verdict rather than a wording
+    /// problem: a projection registered as <c>Snapshot&lt;T&gt;()</c>,
+    /// <c>SingleStreamProjection&lt;T, TId&gt;</c> or <c>AggregateStream&lt;T&gt;</c> has a
+    /// <em>framework-owned</em> projection type — <c>Marten.Events.Aggregation.SingleStreamProjection&lt;T,
+    /// TId&gt;</c>, whose assembly is <c>Marten.dll</c>. The store's own build runs the generator, so that
+    /// assembly ALWAYS carries the marker. Admitting it to the evidence list pinned the verdict to "the
+    /// generator ran" for the most common registration shape in the product, and the message then told
+    /// the reader that the cause they actually had was not the cause. marten#5495 is exactly that shape.
+    /// </para>
+    /// <para>
+    /// The discriminator is <see cref="Type.IsConstructedGenericType" />, and it is narrower than it may
+    /// look. It is deliberately NOT a change of quantifier from <c>Any</c> to <c>All</c>: a user-declared
+    /// <c>MyProjection : SingleStreamProjection&lt;Agg, Guid&gt;</c> in assembly B really does get its
+    /// projection-specific evolver emitted into B, so confirmation in B is genuine evidence even when the
+    /// aggregate's assembly carries no marker, and <c>All</c> would break that. Such a subclass is not a
+    /// constructed generic, so it is still admitted.
+    /// </para>
+    /// <para>
+    /// A <em>closed generic</em> is excluded whoever owns it, framework or user. There is no user
+    /// declaration for the generator to hang a projection-specific evolver on — the closing happens at
+    /// run time — so nothing can have been emitted for it, in any assembly, and its assembly's marker
+    /// says nothing about this aggregate. The same-assembly case needs no special handling: if the
+    /// projection type lives in the aggregate's assembly it is already in the list.
+    /// </para>
+    /// </remarks>
+    internal static List<Assembly> EvidenceAssembliesFor(Type aggregateType, Type? projectionType)
+    {
+        var assemblies = new List<Assembly> { aggregateType.Assembly };
+
+        if (projectionType == null || projectionType.Assembly == aggregateType.Assembly)
+        {
+            return assemblies;
+        }
+
+        if (projectionType.IsConstructedGenericType)
+        {
+            return assemblies;
+        }
+
+        // A declared projection type of its own: the generator emits a projection-specific evolver into
+        // ITS assembly, so confirmation there is just as good as confirmation in the aggregate's — see
+        // collectGeneratedEvolverAttributes, which scans both.
+        assemblies.Add(projectionType.Assembly);
+
+        return assemblies;
     }
 
     // IAggregator<>: the runtime aggregator contract. Reachable only when the registration-time
