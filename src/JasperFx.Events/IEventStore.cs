@@ -39,6 +39,21 @@ public interface IEventStore
     bool HasMultipleTenants { get; }
 
     /// <summary>
+    /// True when this store provisions event storage: it registers any event type, or any projection or
+    /// subscription. False for a document-only store, which never has event tables, progression rows or
+    /// dead letters. See jasperfx#914.
+    /// </summary>
+    /// <remarks>
+    /// Lets a caller that enumerates every registered <see cref="IEventStore" /> — a monitoring console
+    /// polling progression — leave a document-only store out of the sweep instead of querying it on
+    /// every interval and treating "nothing to report" as ambiguous with "could not read". Defaults to
+    /// true so a store that has not implemented it keeps today's behavior. <see cref="RegisteredShardNames" />
+    /// is NOT a substitute: a store with event types and no projections has an empty shard list and real
+    /// event storage.
+    /// </remarks>
+    bool HasEventStore => true;
+
+    /// <summary>
     ///     jasperfx#420 — the configured default cap on how many projection rebuild cells may run
     ///     concurrently within a single database during a rebuild operation. <c>null</c> means
     ///     "unbounded" to JasperFx.Events, which is store-agnostic and has no notion of a connection

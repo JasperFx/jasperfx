@@ -217,6 +217,14 @@ public class TenantScopedExplorerReadDefaultsTests
     }
 
     [Fact]
+    public void has_event_store_defaults_to_true_so_an_unimplemented_store_is_still_polled()
+    {
+        // jasperfx#914. A false default would silently drop every store that has not implemented the
+        // member from a monitoring console's sweep.
+        theStore.HasEventStore.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task compact_stream_for_null_tenant_delegates_to_store_global()
     {
         var id = Guid.NewGuid();
