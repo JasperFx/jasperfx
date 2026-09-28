@@ -83,10 +83,16 @@ public class TenantScopedExplorerReadDefaultsTests
         }
 
         public Task CompactStreamAsync(Guid streamId, CancellationToken token = default)
-            => throw new NotImplementedException();
+        {
+            Calls.Add($"CompactStreamAsync({streamId})");
+            return Task.CompletedTask;
+        }
 
         public Task CompactStreamAsync(string streamKey, CancellationToken token = default)
-            => throw new NotImplementedException();
+        {
+            Calls.Add($"CompactStreamAsync({streamKey})");
+            return Task.CompletedTask;
+        }
     }
 
     // Only has to be distinguishable from null; nothing here is called.
@@ -207,6 +213,28 @@ public class TenantScopedExplorerReadDefaultsTests
         // explorer reads: the reader's own members take no tenant, so every FetchStreamAsync off it
         // would answer from whichever tenant the default session resolved.
         Should.Throw<NotSupportedException>(() => theStore.OpenReadOnlyEventStore("tenant-1"));
+        theRecorder.Calls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task compact_stream_for_null_tenant_delegates_to_store_global()
+    {
+        var id = Guid.NewGuid();
+
+        await theStore.CompactStreamAsync("stream-a", tenantId: null);
+        await theStore.CompactStreamAsync(id, tenantId: null);
+
+        theRecorder.Calls.ShouldBe(["CompactStreamAsync(stream-a)", $"CompactStreamAsync({id})"]);
+    }
+
+    [Fact]
+    public async Task compact_stream_for_a_tenant_throws_when_not_multi_tenanted()
+    {
+        // jasperfx#910. Running the tenant-less compaction instead would address the default tenant's
+        // partition or database, so a tenant's stream is either not found or — worse — a same-keyed
+        // default-tenant stream gets compacted in its place.
+        await Should.ThrowAsync<NotSupportedException>(() => theStore.CompactStreamAsync("stream-a", "tenant-1"));
+        await Should.ThrowAsync<NotSupportedException>(() => theStore.CompactStreamAsync(Guid.NewGuid(), "tenant-1"));
         theRecorder.Calls.ShouldBeEmpty();
     }
 
