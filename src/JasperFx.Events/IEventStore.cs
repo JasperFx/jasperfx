@@ -39,6 +39,21 @@ public interface IEventStore
     bool HasMultipleTenants { get; }
 
     /// <summary>
+    /// True when this store provisions event storage: it registers any event type, or any projection or
+    /// subscription. False for a document-only store, which never has event tables, progression rows or
+    /// dead letters. See jasperfx#914.
+    /// </summary>
+    /// <remarks>
+    /// Lets a caller that enumerates every registered <see cref="IEventStore" /> — a monitoring console
+    /// polling progression — leave a document-only store out of the sweep instead of querying it on
+    /// every interval and treating "nothing to report" as ambiguous with "could not read". Defaults to
+    /// true so a store that has not implemented it keeps today's behavior. <see cref="RegisteredShardNames" />
+    /// is NOT a substitute: a store with event types and no projections has an empty shard list and real
+    /// event storage.
+    /// </remarks>
+    bool HasEventStore => true;
+
+    /// <summary>
     ///     jasperfx#420 — the configured default cap on how many projection rebuild cells may run
     ///     concurrently within a single database during a rebuild operation. <c>null</c> means
     ///     "unbounded" to JasperFx.Events, which is store-agnostic and has no notion of a connection
@@ -196,6 +211,45 @@ public interface IEventStore
 
     /// <inheritdoc cref="CompactStreamAsync(Guid, CancellationToken)"/>
     Task CompactStreamAsync(string streamKey, CancellationToken token = default);
+
+    /// <summary>
+    /// Compact a stream that belongs to a single tenant partition, resolving the aggregate type from
+    /// that tenant's stream state. A null <paramref name="tenantId" /> is store-global and delegates to
+    /// the tenant-less overload (today's behavior). Event stores that implement multi-tenancy override
+    /// this to compact within a tenant-scoped session; the default throws for a non-null tenant. See
+    /// jasperfx#910.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The action-side twin of <see cref="OpenReadOnlyEventStore(string?)" /> (jasperfx#885/#888).
+    /// That overload made a stream-compaction policy able to SELECT a tenant's streams on a store whose
+    /// default tenant is disabled — the automatic state under database-per-tenant tenancy — and the
+    /// tenant-less compaction call then opened the store's default session and was refused for every
+    /// stream it had just selected.
+    /// </para>
+    /// <para>
+    /// Where the default tenant IS enabled, the tenant-less call is not a substitute either: it can only
+    /// address the default tenant's partition or database, so a tenant's stream is not the stream it
+    /// finds. Refusing a non-null tenant by default, rather than quietly running store-global, is what
+    /// keeps a store that has not implemented this from compacting the wrong stream or reporting a
+    /// stream it could not see as missing.
+    /// </para>
+    /// </remarks>
+    /// <param name="streamId">The stream to compact.</param>
+    /// <param name="tenantId">Tenant partition the stream belongs to. Null means store-global.</param>
+    /// <param name="token">Cancellation.</param>
+    Task CompactStreamAsync(Guid streamId, string? tenantId, CancellationToken token = default)
+        => tenantId == null
+            ? CompactStreamAsync(streamId, token)
+            : throw new NotSupportedException(
+                "Per-tenant CompactStreamAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
+
+    /// <inheritdoc cref="CompactStreamAsync(Guid, string?, CancellationToken)"/>
+    Task CompactStreamAsync(string streamKey, string? tenantId, CancellationToken token = default)
+        => tenantId == null
+            ? CompactStreamAsync(streamKey, token)
+            : throw new NotSupportedException(
+                "Per-tenant CompactStreamAsync is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
 
     /// <summary>
     /// Return a lightweight summary of the most recently updated streams,
