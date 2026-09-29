@@ -65,19 +65,63 @@ public class DatabaseDescriptor : OptionsDescription
     {
         var serverName = ServerName.Contains(',') ? ServerName.Split(',')[0] : ServerName;
 
-        // Sanitize the server name for use as a URI hostname. Unix socket paths
-        // (e.g. /cloudsql/platform-dev:europe-west4:shared-db) contain characters
-        // that are invalid in URI hostnames.
-        serverName = serverName.Replace('/', '_').Replace(':', '_');
-
         var parts = new List<string>
         {
             serverName,
             DatabaseName,
             SchemaOrNamespace
-        };
+        }.Where(x => x.IsNotEmpty()).ToArray();
 
-        return new Uri($"{Engine.ToLowerInvariant()}://{parts.Where(x => x.IsNotEmpty()).Select(Uri.EscapeDataString).Join("/")}");
+        // Whichever part lands first is the host, and the host obeys different rules than the path
+        // segments behind it. Keeping the "drop the empties, then take the first" order means a
+        // descriptor with no ServerName still names itself after its database, as it always has.
+        var tail = parts.Skip(1).Select(Uri.EscapeDataString).Join("/");
+        var scheme = Engine.ToLowerInvariant();
+        var host = parts.Length == 0 ? string.Empty : sanitizeHost(parts[0]);
+
+        var text = tail.IsEmpty() ? $"{scheme}://{host}" : $"{scheme}://{host}/{tail}";
+        if (Uri.TryCreate(text, UriKind.Absolute, out var uri))
+        {
+            return uri;
+        }
+
+        // A host of permitted characters can still be refused for its SHAPE: an empty DNS label, as
+        // in ".\SQLEXPRESS" sanitizing to "._sqlexpress", or an interior "..". Folding the dots in
+        // resolves every such case. Deliberately a fallback rather than an unconditional rule,
+        // because "." on its own IS a legal host and IS a real SQL Server data source (the local
+        // default instance) -- collapsing dots up front would rename it for no reason. Reaching here
+        // at all means the URI could not be built, so nothing that works today takes this path.
+        host = host.Replace('.', '_');
+
+        return new Uri(tail.IsEmpty() ? $"{scheme}://{host}" : $"{scheme}://{host}/{tail}");
+    }
+
+    /// <summary>
+    /// Map a server name onto the character set a URI host actually permits, replacing everything
+    /// else with an underscore.
+    /// </summary>
+    /// <remarks>
+    /// A server name cannot simply be escaped into the host position: <c>Uri.EscapeDataString</c>
+    /// percent-encodes anything outside the RFC 3986 unreserved set, and a percent-escape is not
+    /// legal in a host, so <c>new Uri</c> throws "The hostname could not be parsed". That took out
+    /// every SQL Server named instance (<c>db-host\MSSQL2017</c>), SQL Express (<c>.\SQLEXPRESS</c>)
+    /// and LocalDB (<c>(localdb)\MSSQLLocalDB</c>) — 27 printable ASCII characters in all.
+    ///
+    /// Sanitizing against the permitted set replaces enumerating the offenders one report at a time,
+    /// which is how this method acquired a comma split and then a <c>/</c> and <c>:</c> replacement.
+    /// Note <c>~</c> is unreserved for escaping purposes yet still rejected in a host, so the two
+    /// sets are genuinely different and this one is the one that matters here.
+    ///
+    /// This preserves every identity that works today. A server name reaches the host unchanged only
+    /// if every character is already in this set — anything else percent-encoded and threw — so the
+    /// inputs whose URI changes are exactly the inputs that used to crash. That matters because
+    /// <see cref="DatabaseUri"/> is load-bearing as an identity elsewhere (agent URIs, database ids).
+    /// </remarks>
+    private static string sanitizeHost(string serverName)
+    {
+        return new string(serverName
+            .Select(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '_' ? c : '_')
+            .ToArray());
     }
 
     /// <summary>
