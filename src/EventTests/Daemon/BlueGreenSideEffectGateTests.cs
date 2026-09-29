@@ -281,6 +281,12 @@ public class BlueGreenSideEffectGateTests
                 TestContext.Current.CancellationToken));
 
         ex.InnerException.ShouldBeOfType<DivideByZeroException>();
+
+        // jasperfx#912: the same exception now says WHICH of the start-failure cases this is, and this is
+        // the one path a real daemon reaches with a recorded cause. Faulted is deliberately not reported
+        // as transient -- whether a retry helps is the inner exception's business.
+        ex.Reason.ShouldBe(ShardStartFailureReason.Faulted);
+        ex.IsTransient.ShouldBeFalse();
     }
 
     // ---------------------------------------------------------------------------------------------

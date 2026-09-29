@@ -737,7 +737,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             throw new ShardStartException(name.Identity, cause);
         }
 
-        throw new ShardStartException(name.Identity, describeStartFailure(name));
+        var (reason, description) = describeStartFailure(name);
+        throw new ShardStartException(name.Identity, description, reason);
     }
 
     // wolverine#3519: turn the "agent not registered after a start that did not throw" miss into an
@@ -745,25 +746,24 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // (high-water detection still coming up, or a concurrent stop/replace evicting the just-registered
     // agent) and, less often since jasperfx#598 moved the warm-up off the start path, a failure to
     // resolve the blue/green side-effect gate mark.
-    private string describeStartFailure(ShardName name)
+    //
+    // jasperfx#912: the classification travels beside the prose. The four cases call for opposite
+    // responses — two are races worth retrying, one is a configuration error that must never be retried,
+    // one wants the pause reason surfaced — and a caller cannot be asked to recover that by matching
+    // English text.
+    private (ShardStartFailureReason, string) describeStartFailure(ShardName name)
     {
-        if (_agents.TryFind(name.Identity, out var existing))
-        {
-            return $"An agent is registered for this shard in status '{existing.Status}' rather than running. It was most likely paused by an error; check the log for the pause reason and restart the shard once resolved.";
-        }
+        var registeredStatus = _agents.TryFind(name.Identity, out var existing)
+            ? existing.Status
+            : (AgentStatus?)null;
 
-        if (!_highWater.IsRunning)
-        {
-            return "High-water detection is not running yet, so the shard could not be positioned. This is typically a transient startup race; retrying the start once high-water detection is up should succeed.";
-        }
-
-        var known = _store.AllShards().Select(x => x.Name.Identity).ToArray();
-        if (!known.Contains(name.Identity, StringComparer.OrdinalIgnoreCase))
-        {
-            return $"No such shard is registered with this store. Known shards are: {known.Join(", ")}.";
-        }
-
-        return "The shard is registered but did not start and did not report an error, which points at a startup race between concurrent agent starts on this daemon. Retrying the start usually succeeds.";
+        return ShardStartFailureClassifier.Classify(
+            registeredStatus,
+            _highWater.IsRunning,
+            // Deliberately lazy: the registry read is only needed once the two transient explanations
+            // are ruled out, which is where it was before this moved out of here.
+            () => _store.AllShards().Select(x => x.Name.Identity).ToArray(),
+            name.Identity);
     }
 
     public Task StopAgentAsync(ShardName shardName, Exception? ex = null)
