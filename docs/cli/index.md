@@ -69,6 +69,7 @@ JasperFx ships with several commands out of the box:
 | `help` | List all available commands |
 | `describe` | Describe the application configuration |
 | `check-env` | Run all registered environment checks |
+| `resources` | Set up, check, clear, tear down, or list the application's [stateful resources](./resources) |
 
 ## Command Discovery
 
