@@ -127,6 +127,10 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         => Assert.SkipUnless(theFixture.SupportsConjoinedDocuments,
             "This store does not slice documents by tenant within one database (jasperfx#898).");
 
+    private void SkipUnlessAllTenants()
+        => Assert.SkipUnless(theFixture.SupportsDocumentDiagnosticAllTenants,
+            "This store does not read every tenant; the all-tenants refusal fact covers it instead.");
+
     private void SkipUnlessCriteria()
         => Assert.SkipUnless(theFixture.SupportsDocumentDiagnosticCriteria,
             "This store does not apply Where / OrderBy; the refusal fact covers it instead.");
@@ -544,6 +548,130 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
 
         var fallback = await Diagnostics.LoadDocumentAsync(GadgetType, "shared", "", Cancellation);
         Member(fallback.ShouldNotBeNull().Json, nameof(ComplianceGadget.Kind))!.GetValue<string>().ShouldBe("default");
+    }
+
+    // ---------------------------------------------------------------- all tenants (#928)
+
+    private static DocumentQueryOptions AllTenants(int pageNumber = 1, int pageSize = 10)
+        => new(pageNumber, pageSize) { AllTenants = true };
+
+    private static string KindOf(StoredDocument document)
+        => Member(document.Json, nameof(ComplianceGadget.Kind))!.GetValue<string>();
+
+    [Fact]
+    public async Task all_tenants_reads_every_tenants_row_for_a_shared_id()
+    {
+        SkipUnlessConjoined();
+        SkipUnlessAllTenants();
+        await SharedGadgetIdAcrossTenantsAsync();
+
+        var result = await QueryAsync(GadgetType, AllTenants());
+
+        // The same id in three tenants is three rows, each saying which tenant it came from.
+        result.TotalCount.ShouldBe(3);
+        result.Documents.Count.ShouldBe(3);
+        result.Documents.ShouldAllBe(x => x.Id == "shared");
+        result.Documents.Select(x => x.TenantId).Distinct().Count().ShouldBe(3);
+
+        foreach (var tenant in new[] { TenantA, TenantB })
+        {
+            KindOf(result.Documents.Single(x => x.TenantId == tenant)).ShouldBe(tenant);
+        }
+
+        // The third is the default tenant's row, under whatever id the store gives its default tenant.
+        KindOf(result.Documents.Single(x => x.TenantId != TenantA && x.TenantId != TenantB)).ShouldBe("default");
+    }
+
+    [Fact]
+    public async Task all_tenants_with_id_equals_returns_the_id_in_every_tenant()
+    {
+        SkipUnlessConjoined();
+        SkipUnlessAllTenants();
+        await SharedGadgetIdAcrossTenantsAsync();
+        await PersistForAsync(TenantA, new ComplianceGadget { Id = "other", Kind = TenantA });
+
+        var result = await QueryAsync(GadgetType, AllTenants() with { IdEquals = "shared" });
+
+        result.TotalCount.ShouldBe(3);
+        result.Documents.ShouldAllBe(x => x.Id == "shared");
+    }
+
+    [Fact]
+    public async Task all_tenants_pages_do_not_repeat_rows_across_tenants()
+    {
+        SkipUnlessConjoined();
+        SkipUnlessAllTenants();
+        await SharedGadgetIdAcrossTenantsAsync();
+        await PersistForAsync(TenantA, new ComplianceGadget { Id = "a2", Kind = TenantA });
+        await PersistForAsync(TenantB, new ComplianceGadget { Id = "b2", Kind = TenantB });
+
+        var seen = new List<(string? Tenant, string Id)>();
+        for (var page = 1; page <= 3; page++)
+        {
+            var result = await QueryAsync(GadgetType, AllTenants(page, 2));
+            result.TotalCount.ShouldBe(5);
+            seen.AddRange(result.Documents.Select(x => (x.TenantId, x.Id)));
+        }
+
+        seen.Count.ShouldBe(5);
+        seen.Distinct().Count().ShouldBe(5);
+
+        // Deterministic: the same page twice is the same rows in the same order.
+        var again = await QueryAsync(GadgetType, AllTenants(2, 2));
+        again.Documents.Select(x => (x.TenantId, x.Id)).ShouldBe(seen.Skip(2).Take(2));
+    }
+
+    [Fact]
+    public async Task all_tenants_on_a_single_tenanted_type_reads_as_the_default()
+    {
+        _ = Diagnostics;
+        SkipUnlessAllTenants();
+        var widgets = await PersistWidgetsAsync(3);
+
+        var all = await QueryAsync(WidgetType, AllTenants());
+        var @default = await QueryAsync(WidgetType, new DocumentQueryOptions(1, 10));
+
+        all.TotalCount.ShouldBe(3);
+        IdsOf(all).ShouldBe(IdsOf(@default));
+        IdsOf(all).ShouldBe(widgets.Select(x => x.Id), ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task all_tenants_with_a_named_tenant_is_a_contradiction()
+    {
+        _ = Diagnostics;
+        await PersistWidgetsAsync(1);
+
+        // Asserted whatever the store supports: one read cannot be both, and the store must not pick.
+        await Should.ThrowAsync<ArgumentException>(
+            () => QueryAsync(WidgetType, AllTenants() with { TenantId = TenantA }));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task all_tenants_with_a_blank_tenant_is_not_a_contradiction(string? tenantId)
+    {
+        SkipUnlessAllTenants();
+        await PersistWidgetsAsync(2);
+
+        var result = await QueryAsync(WidgetType, AllTenants() with { TenantId = tenantId });
+        result.TotalCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task all_tenants_a_store_cannot_read_is_refused_not_narrowed()
+    {
+        _ = Diagnostics;
+        SkipUnlessConjoined();
+        Assert.SkipWhen(theFixture.SupportsDocumentDiagnosticAllTenants,
+            "This store reads every tenant; the all-tenants facts cover it.");
+        await SharedGadgetIdAcrossTenantsAsync();
+
+        var refused = await Should.ThrowAsync<DocumentCriteriaNotSupportedException>(
+            () => QueryAsync(GadgetType, AllTenants()));
+        refused.Criterion.ShouldBe(nameof(DocumentQueryOptions.AllTenants));
     }
 
     // ---------------------------------------------------------------- criteria (§1)

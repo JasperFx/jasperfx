@@ -745,6 +745,15 @@ separate contract with nothing on `Sessions` to reach it through. Override `Docu
 unfiltered page is the one wrong answer. Flip it once the store applies Dynamic LINQ criteria
 (jasperfx#869) and the filtering facts run instead.
 
+`SupportsDocumentDiagnosticAllTenants` (jasperfx#928) forks the same way. `DocumentQueryOptions.AllTenants`
+is the explicit "every tenant" read, since a blank tenant means the default tenant. Left `false` on a store
+with `SupportsConjoinedDocuments`, the suite asserts an all-tenants read is **refused** with
+`DocumentCriteriaNotSupportedException` (`Criterion == "AllTenants"`) rather than narrowed to the default
+tenant. Flip it once the store reads every tenant; the facts then pin one row per tenant for a shared id,
+each with its `TenantId`, and paging that never repeats a row across tenants. Combining `AllTenants` with
+a named `TenantId` throws `ArgumentException` whatever the flag says: call
+`DocumentQueryOptions.AssertValidTenantScope()` before reading.
+
 `DocumentCommitListenerCompliance` (jasperfx#679) is opt-in for a different reason: it needs only
 documents, so any store implementing the document contract can enroll, but it needs `BuildStoreAsync`
 to replay `config.CommitListeners` onto the store's own listener collection — `StoreOptions.Listeners`
