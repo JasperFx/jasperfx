@@ -277,6 +277,19 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     public virtual bool SupportsDocumentDiagnosticCriteria => false;
 
     /// <summary>
+    /// Does this store's <see cref="IDocumentStoreDiagnostics" /> honour
+    /// <see cref="DocumentQueryOptions.AllTenants" /> (jasperfx#928)?
+    /// </summary>
+    /// <remarks>
+    /// A fork, like <see cref="SupportsDocumentDiagnosticCriteria" />. Left <b>false</b> on a store with
+    /// <see cref="SupportsConjoinedDocuments" />, the suite asserts that an all-tenants read is
+    /// <b>refused</b> with <see cref="DocumentCriteriaNotSupportedException" /> — returning the default
+    /// tenant's rows as though they were every tenant's is the one wrong answer. Flip it once the store
+    /// reads every tenant and the all-tenants facts run instead.
+    /// </remarks>
+    public virtual bool SupportsDocumentDiagnosticAllTenants => false;
+
+    /// <summary>
     /// Does this store implement <see cref="IDocumentStoreDiagnosticsWriter" />? Gates the write facts
     /// of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />. Flip this and override
     /// <see cref="DocumentDiagnosticsWriter" /> together.

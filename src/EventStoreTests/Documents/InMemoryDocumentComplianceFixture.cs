@@ -94,6 +94,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsCrossTenantQueries => true;
 
+    public override bool SupportsDocumentDiagnosticAllTenants => true;
+
     /// <summary>
     /// True since jasperfx#903. See <see cref="in_memory_guid_optimistic_concurrency_compliance" /> for
     /// why this is worth implementing in a test double.

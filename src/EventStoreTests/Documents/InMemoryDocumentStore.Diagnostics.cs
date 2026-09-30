@@ -108,6 +108,8 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
                 "the in-memory reference store has no ordering translation (jasperfx#869).");
         }
 
+        options.AssertValidTenantScope();
+
         var pageNumber = Math.Max(1, options.PageNumber);
         var pageSize = Math.Max(1, options.PageSize);
 
@@ -116,7 +118,7 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             return Task.FromResult(new DocumentQueryResult((IReadOnlyList<StoredDocument>)[], 0, pageNumber, pageSize));
         }
 
-        var rows = RowsOf(requested, options.TenantId)
+        var rows = (options.AllTenants ? RowsOfEveryTenant(requested) : RowsOf(requested, options.TenantId))
             .Where(x => options.IncludeSoftDeleted || !x.IsDeleted);
 
         if (options.IdEquals is { } idText)
@@ -125,7 +127,11 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             rows = rows.Where(x => Equals(x.RawId, id));
         }
 
-        var all = rows.OrderBy(x => x.Document.Id, StringComparer.Ordinal).ToList();
+        // Tenant first, so a page never repeats a row from another tenant's page (jasperfx#928).
+        var all = rows
+            .OrderBy(x => x.Document.TenantId, StringComparer.Ordinal)
+            .ThenBy(x => x.Document.Id, StringComparer.Ordinal)
+            .ToList();
         var page = all.Skip((pageNumber - 1) * pageSize).Take(pageSize).Select(x => x.Document).ToList();
 
         return Task.FromResult(new DocumentQueryResult(page, all.Count, pageNumber, pageSize));
@@ -148,11 +154,27 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
     /// </summary>
     private IEnumerable<Row> RowsOf(Type requested, string? tenantId)
     {
-        var root = RootOf(requested);
         var tenant = DocumentQueryOptions.NormalizeTenantId(tenantId) ?? StorageConstants.DefaultTenantId;
-        var scope = ScopeFor(root, tenant);
+        return RowsIn(requested, ScopeFor(RootOf(requested), tenant));
+    }
 
-        foreach (var (id, document) in StorageFor(root, tenant))
+    /// <summary>
+    /// <see cref="RowsOf" /> for every tenant bucket the root has — no tenant predicate, the conjoined
+    /// reading of <see cref="DocumentQueryOptions.AllTenants" />. A single-tenanted root only ever has the
+    /// default tenant's bucket, so this reads exactly as the default read does.
+    /// </summary>
+    private IEnumerable<Row> RowsOfEveryTenant(Type requested)
+    {
+        var root = RootOf(requested);
+        return _documents.Keys.Where(x => x.Type == root).Select(x => x.Tenant).Distinct()
+            .SelectMany(scope => RowsIn(requested, scope));
+    }
+
+    private IEnumerable<Row> RowsIn(Type requested, string scope)
+    {
+        var root = RootOf(requested);
+
+        foreach (var (id, document) in StorageFor(root, scope))
         {
             if (!requested.IsInstanceOfType(document)) continue;
             if (!_metadata.TryGetValue((root, scope, id), out var meta)) continue;

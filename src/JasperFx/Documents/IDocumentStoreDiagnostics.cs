@@ -25,7 +25,9 @@ namespace JasperFx.Documents;
 /// <item><description><b>Tenancy.</b> A null, empty or whitespace tenant id means the default tenant —
 /// never "all tenants", and never a tenant literally named <c>""</c>. See
 /// <see cref="DocumentQueryOptions.NormalizeTenantId"/>. For database-per-tenant the implementation
-/// targets that tenant's physical database.</description></item>
+/// targets that tenant's physical database. Reading every tenant is its own explicit request,
+/// <see cref="DocumentQueryOptions.AllTenants"/> (jasperfx#928), and a query-only one: a load by id
+/// stays single-tenant.</description></item>
 /// <item><description><b>Identity.</b> An id arrives as text and is converted to the mapping's stored
 /// identity type before it is compared, so the comparison can use the primary-key index and so an
 /// upper-case Guid still matches.</description></item>
@@ -68,6 +70,7 @@ public interface IDocumentStoreDiagnostics
     /// <see cref="DocumentQueryOptions.Where"/> or <see cref="DocumentQueryOptions.OrderBy"/> — must throw
     /// <see cref="DocumentCriteriaNotSupportedException"/>. Silently returning the unfiltered page is the
     /// one wrong answer: a console cannot tell it apart from a filter that matched everything.
+    /// <see cref="DocumentQueryOptions.AllTenants"/> is held to the same rule — see there.
     /// </remarks>
     Task<DocumentQueryResult> QueryDocumentsAsync(
         string documentTypeName, DocumentQueryOptions options, CancellationToken token = default);
@@ -173,6 +176,46 @@ public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEqual
     /// Irrelevant for a type that hard-deletes.
     /// </summary>
     public bool IncludeSoftDeleted { get; init; }
+
+    /// <summary>
+    /// Read every tenant the store knows about instead of one (jasperfx#928). Default
+    /// <see langword="false"/>: a blank <see cref="TenantId"/> means the default tenant, so this is the
+    /// only way to ask for all of them.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description><b>Conjoined:</b> no tenant predicate is applied. A single-tenanted type reads
+    /// exactly as it would with no tenant.</description></item>
+    /// <item><description><b>Database-per-tenant:</b> the store fans out across its tenant databases —
+    /// only the store knows its tenancy.</description></item>
+    /// <item><description>Every row carries its <see cref="StoredDocument.TenantId"/>. The same id in two
+    /// tenants is two rows.</description></item>
+    /// <item><description>Paging is deterministic across tenants: tenant id first, then the query's own
+    /// order, so no page repeats a row from another.</description></item>
+    /// <item><description>Combined with a non-blank <see cref="TenantId"/> it is a contradiction, and the
+    /// store throws <see cref="ArgumentException"/> — see <see cref="AssertValidTenantScope"/>.</description></item>
+    /// <item><description>A store that cannot honour it — a database-per-tenant fan-out it does not
+    /// implement, say — throws <see cref="DocumentCriteriaNotSupportedException"/> naming
+    /// <c>nameof(AllTenants)</c> as its <see cref="DocumentCriteriaNotSupportedException.Criterion"/>. Returning only the
+    /// default tenant's rows as though they were all of them is the failure this flag exists to
+    /// prevent.</description></item>
+    /// </list>
+    /// </remarks>
+    public bool AllTenants { get; init; }
+
+    /// <summary>
+    /// Throws <see cref="ArgumentException"/> when <see cref="AllTenants"/> is combined with a non-blank
+    /// <see cref="TenantId"/> — one read cannot be scoped to one tenant and to all of them, and a store
+    /// should not pick. Every store calls this before it reads.
+    /// </summary>
+    public void AssertValidTenantScope()
+    {
+        if (AllTenants && NormalizeTenantId(TenantId) is { } tenantId)
+        {
+            throw new ArgumentException(
+                $"{nameof(AllTenants)} cannot be combined with {nameof(TenantId)} '{tenantId}'. Clear one of them.");
+        }
+    }
 
     /// <summary>
     /// The tenant a store should actually read: <see langword="null"/> — the default tenant — for a null,
