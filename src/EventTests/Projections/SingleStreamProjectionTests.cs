@@ -56,6 +56,28 @@ public class SingleStreamProjectionTests
         projection.AllEventTypes.ShouldNotContain(typeof(Compacted<MyOtherAggregate>));
     }
 
+    // marten#3942 / #3965: an aggregate whose only single-argument constructor takes its string
+    // identity (`public record Widget(string Id)`) is not an event-shaped Create. The reflection path
+    // refuses a simple-typed constructor parameter (CreateMethodCollection); the source generator
+    // matched on the display string prefix, and `string` displays as its keyword rather than
+    // System.String, so `typeof(string)` reached EventTypes. Every store hands these types to its
+    // event graph (ProjectionGraph.Describe -> AddEventType), and Marten refuses `string` there with
+    // "This type cannot be used as a Marten document".
+    [Fact]
+    public void a_string_identity_constructor_is_not_an_event_type()
+    {
+        var projection = new SingleStreamProjection<StringKeyedWidget, string>();
+
+        Should.NotThrow(() => projection.AssembleAndAssertValidity());
+
+        projection.AllEventTypes.ShouldNotContain(typeof(string));
+        projection.IncludedEventTypes.ShouldNotContain(typeof(string));
+
+        // The events that do belong are still there.
+        projection.AllEventTypes.ShouldContain(typeof(WidgetCreated));
+        projection.AllEventTypes.ShouldContain(typeof(WidgetRenamed));
+    }
+
     // AssembleAndAssertValidity ends with IncludedEventTypes.Fill(determineEventTypes()), so the
     // marker this override appends is written back into IncludedEventTypes -- and the next evaluation
     // concats that list again, past the base's own Distinct(), and appends the marker a second time.
@@ -454,4 +476,18 @@ public class CatchAllEvolveProjection : SingleStreamProjection<MyAggregate, Guid
 public class MyOtherAggregate
 {
     public Guid Id { get; set; }
+}
+
+// Fixture for marten#3942 / #3965: string identity, and a public (string id) primary constructor
+// that must not be read as a Create-from-event constructor.
+public record WidgetCreated;
+public record WidgetRenamed(string Name);
+
+public partial record StringKeyedWidget(string Id)
+{
+    public string Name { get; init; } = "";
+
+    public static StringKeyedWidget Create(IEvent<WidgetCreated> @event) => new(@event.StreamKey!);
+
+    public StringKeyedWidget Apply(WidgetRenamed @event) => this with { Name = @event.Name };
 }

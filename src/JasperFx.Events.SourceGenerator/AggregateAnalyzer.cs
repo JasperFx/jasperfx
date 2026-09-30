@@ -339,7 +339,14 @@ internal static class AggregateAnalyzer
             if (ctor.DeclaredAccessibility != Accessibility.Public) continue;
 
             var paramType = ctor.Parameters[0].Type;
-            if (IsFrameworkType(paramType)) continue;
+
+            // An identity or value constructor - `public Widget(string id)`, `Widget(int n)`,
+            // `Widget(Status s)` - is not a Create handler, and its parameter type must never reach
+            // EventTypes: Marten rejects string, primitives and enums as event types outright
+            // (DocumentMapping), and the others would widen the event filter. The runtime path has
+            // the same rule (CreateMethodCollection: `!IsSimple()`, marten#3942, jasperfx ee88feb);
+            // this one is deliberately stricter, see IsRegistrableDocumentType.
+            if (!IsRegistrableDocumentType(paramType)) continue;
 
             // Skip if the param looks like IEvent / IEvent<T> — those are
             // handled by the regular Apply/Create method discovery.
@@ -571,7 +578,7 @@ internal static class AggregateAnalyzer
         // For direct type patterns (on e.Data), use as-is
         var resolved = FindTypeByName(typeName, contextType);
         // Skip well-known non-event types
-        if (resolved != null && !IsFrameworkType(resolved))
+        if (IsRegistrableDocumentType(resolved))
             return resolved;
 
         return null;
@@ -1096,7 +1103,7 @@ internal static class AggregateAnalyzer
         foreach (var tn in typeNames)
         {
             var resolved = FindTypeByName(tn, classSymbol);
-            if (resolved != null && !IsFrameworkType(resolved) && seen.Add(resolved.ToDisplayString()))
+            if (IsRegistrableDocumentType(resolved) && seen.Add(resolved!.ToDisplayString()))
             {
                 documentTypes.Add(resolved);
             }
@@ -1164,6 +1171,15 @@ internal static class AggregateAnalyzer
         if (type == null) return false;
         if (type.TypeKind is TypeKind.TypeParameter or TypeKind.Dynamic or TypeKind.Error) return false;
         if (type.SpecialType != SpecialType.None) return false;
+
+        // Enums are not special types, and Marten's IsSimple() refuses them as documents and events.
+        // Arrays and pointers are never events either, and a constructed Nullable<T> or a tuple has no
+        // SpecialType of its own, so each of these is named here rather than left to the prefix test.
+        if (type.TypeKind is TypeKind.Enum or TypeKind.Array or TypeKind.Pointer or TypeKind.FunctionPointer)
+            return false;
+
+        if (type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T || type.IsTupleType)
+            return false;
 
         return !IsFrameworkType(type);
     }
@@ -1552,21 +1568,6 @@ internal static class AggregateAnalyzer
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Checks if the type has a constructor that takes exactly one parameter that isn't
-    /// a well-known framework type (i.e., it's likely an event parameter constructor
-    /// used for Create). We skip generating evolvers for these types because the runtime
-    /// handles them via expression compilation.
-    /// </summary>
-    private static bool HasEventParameterConstructor(INamedTypeSymbol type)
-    {
-        var constructors = type.InstanceConstructors;
-        return constructors.Any(c =>
-            c.Parameters.Length == 1 &&
-            c.DeclaredAccessibility == Accessibility.Public &&
-            !IsFrameworkType(c.Parameters[0].Type));
     }
 
     private static bool IsFrameworkType(ITypeSymbol type)
