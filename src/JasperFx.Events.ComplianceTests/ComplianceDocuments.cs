@@ -163,3 +163,41 @@ public class ComplianceMemory
     /// <summary>The embedding the vector half of a search reads.</summary>
     public float[] Embedding { get; set; } = [];
 }
+
+/// <summary>
+/// A document the diagnostics suite declares soft-deleted, so it can hold
+/// <c>IDocumentStoreDiagnostics</c> to jasperfx#870's soft-delete semantics.
+/// </summary>
+/// <remarks>
+/// Its own type rather than a flag on <see cref="ComplianceWidget" />: soft deletion is declared per
+/// type (<see cref="DocumentComplianceConfig.SoftDeleted{T}" />) and changes the table the store builds,
+/// so the soft-deleting and hard-deleting cases cannot share a document.
+/// </remarks>
+public class ComplianceTicket
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public int Priority { get; set; }
+}
+
+/// <summary>
+/// The root of a document hierarchy — <see cref="ComplianceTruck" /> and <see cref="ComplianceBus" />
+/// share its table — declared through <see cref="DocumentComplianceConfig.AddSubClass{TRoot,TSubClass}" />.
+/// </summary>
+public class ComplianceVehicle
+{
+    public Guid Id { get; set; }
+    public string Make { get; set; } = string.Empty;
+}
+
+/// <summary>A sub-class stored in <see cref="ComplianceVehicle" />'s table.</summary>
+public class ComplianceTruck : ComplianceVehicle
+{
+    public int Axles { get; set; }
+}
+
+/// <summary>A second sub-class, so "filter to the requested type" has something to exclude.</summary>
+public class ComplianceBus : ComplianceVehicle
+{
+    public int Seats { get; set; }
+}

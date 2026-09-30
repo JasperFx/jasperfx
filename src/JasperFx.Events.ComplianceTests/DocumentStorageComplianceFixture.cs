@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using JasperFx.Documents;
 using JasperFx.Events.Documents;
 using Xunit;
 
@@ -237,6 +238,76 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
         IDocumentReadOperations session, string[] tenantIds, CancellationToken token) where T : notnull
         => throw new NotSupportedException(
             $"{GetType().FullName} does not implement QueryTenantsAsync, so it cannot run the cross-tenant document compliance facts.");
+
+    /// <summary>
+    /// Does this store implement <see cref="IDocumentStoreDiagnostics" />? Gates
+    /// <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" /> (jasperfx#870).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A new seam, and deliberately so rather than a hole in the session contract: the diagnostics
+    /// surface is a <em>separate</em> contract — the one a console reaches through DI, by type name and
+    /// raw JSON — so there is nothing on <see cref="Sessions" /> it could be reached through. Flip this
+    /// and override <see cref="DocumentDiagnostics" /> together.
+    /// </para>
+    /// <para>
+    /// The suite writes its setup data through <see cref="Sessions" /> and reads it back through
+    /// <see cref="DocumentDiagnostics" />, so the two must be views of the same store.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsDocumentDiagnostics => false;
+
+    /// <summary>
+    /// The store's <see cref="IDocumentStoreDiagnostics" />, over the store <see cref="Sessions" /> opens.
+    /// </summary>
+    public virtual IDocumentStoreDiagnostics DocumentDiagnostics
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not expose IDocumentStoreDiagnostics, so it cannot run the document diagnostics compliance facts.");
+
+    /// <summary>
+    /// Can this store's <see cref="IDocumentStoreDiagnostics" /> apply
+    /// <see cref="DocumentQueryOptions.Where" /> and <see cref="DocumentQueryOptions.OrderBy" />?
+    /// </summary>
+    /// <remarks>
+    /// Not a skip gate in the usual sense. Left <b>false</b>, the criteria facts are replaced by the
+    /// refusal fact — a store without predicate support must throw
+    /// <see cref="DocumentCriteriaNotSupportedException" /> rather than return the unfiltered page, and
+    /// that is asserted, not skipped. Flip it once the store applies them (jasperfx#869).
+    /// </remarks>
+    public virtual bool SupportsDocumentDiagnosticCriteria => false;
+
+    /// <summary>
+    /// Does this store implement <see cref="IDocumentStoreDiagnosticsWriter" />? Gates the write facts
+    /// of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />. Flip this and override
+    /// <see cref="DocumentDiagnosticsWriter" /> together.
+    /// </summary>
+    public virtual bool SupportsDocumentDiagnosticWrites => false;
+
+    /// <summary>
+    /// The store's <see cref="IDocumentStoreDiagnosticsWriter" />, over the store <see cref="Sessions" />
+    /// opens.
+    /// </summary>
+    public virtual IDocumentStoreDiagnosticsWriter DocumentDiagnosticsWriter
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not expose IDocumentStoreDiagnosticsWriter, so it cannot run the document diagnostics write facts.");
+
+    /// <summary>
+    /// Does this fixture replay <see cref="DocumentComplianceConfig.SoftDeletedDocuments" />? Gates the
+    /// soft-delete facts of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />.
+    /// </summary>
+    /// <remarks>
+    /// Every current store supports soft deletes; the flag exists because no fixture replayed the
+    /// declaration before jasperfx#870, and a fixture that does not replay it would fail those facts for
+    /// a wiring reason.
+    /// </remarks>
+    public virtual bool SupportsSoftDeletedDocuments => false;
+
+    /// <summary>
+    /// Does this fixture replay <see cref="DocumentComplianceConfig.SubClasses" />? Gates the hierarchy
+    /// facts of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />, on the same reasoning as
+    /// <see cref="SupportsSoftDeletedDocuments" />.
+    /// </summary>
+    public virtual bool SupportsDocumentHierarchies => false;
 
     public virtual ValueTask InitializeAsync() => default;
 

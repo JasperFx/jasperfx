@@ -116,6 +116,15 @@ public class DocumentStoreUsage : OptionsDescription
     public string EnumStorage { get; set; } = "";
 
     /// <summary>
+    /// Member-name casing the store's serializer writes into the stored JSON — <c>"Default"</c> (as
+    /// declared, i.e. PascalCase), <c>"CamelCase"</c> or <c>"SnakeCase"</c> (jasperfx#870 §5). A console
+    /// needs it to build a member path into raw JSON or to explain why a filter on
+    /// <c>Status</c> matched nothing in a document stored as <c>status</c>. Empty when the implementation
+    /// hasn't populated it.
+    /// </summary>
+    public string SerializerCasing { get; set; } = "";
+
+    /// <summary>
     /// Code-generation snapshot — application assembly, output path, mode,
     /// source-writing toggle. Wrapped as a child descriptor (rather than
     /// flattened) so the relationship between the four obsolete-on-StoreOptions

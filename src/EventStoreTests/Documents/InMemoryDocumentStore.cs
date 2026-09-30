@@ -25,7 +25,7 @@ namespace EventStoreTests.Documents;
 /// past it — everything below is dictionaries, <c>AsQueryable()</c> and one query-provider wrapper.
 /// </para>
 /// </remarks>
-public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSession, InMemoryDocumentSession>
+public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSession, InMemoryDocumentSession>
 {
     private readonly ConcurrentDictionary<(Type Type, string Tenant), ConcurrentDictionary<object, object>>
         _documents = new();
@@ -88,21 +88,39 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
 
     IDocumentReadOperations IDocumentSessionFactory.QuerySession(string tenantId) => QuerySession(tenantId);
 
-    public void Clear() => _documents.Clear();
+    public void Clear()
+    {
+        _documents.Clear();
+        _metadata.Clear();
+    }
 
     /// <summary>
     /// The bucket a document type's rows live in for one session's tenant. A type that was never
-    /// declared conjoined resolves to the default tenant's bucket whatever the session asked for.
+    /// declared conjoined resolves to the default tenant's bucket whatever the session asked for, and a
+    /// declared sub-class resolves to its root's bucket — one table per hierarchy.
     /// </summary>
     internal ConcurrentDictionary<object, object> StorageFor(Type documentType, string tenantId)
-        => _documents.GetOrAdd((documentType, ScopeFor(documentType, tenantId)),
+    {
+        var root = RootOf(documentType);
+        return _documents.GetOrAdd((root, ScopeFor(root, tenantId)),
             _ => new ConcurrentDictionary<object, object>());
+    }
 
     internal string ScopeFor(Type documentType, string tenantId)
-        => ConjoinedTypes.Contains(documentType) ? tenantId : StorageConstants.DefaultTenantId;
+        => ConjoinedTypes.Contains(RootOf(documentType)) ? tenantId : StorageConstants.DefaultTenantId;
 
+    /// <summary>
+    /// Every live row a session reading <typeparamref name="T" /> may see: soft-deleted rows hidden, and
+    /// in a hierarchy only the rows that are a <typeparamref name="T" />.
+    /// </summary>
     internal IReadOnlyList<T> SnapshotOf<T>(string tenantId)
-        => StorageFor(typeof(T), tenantId).Values.Select(Copy<T>).ToList();
+    {
+        var scope = ScopeFor(typeof(T), tenantId);
+        return StorageFor(typeof(T), tenantId)
+            .Where(pair => pair.Value is T && !IsDeleted(typeof(T), scope, pair.Key))
+            .Select(pair => Copy<T>(pair.Value))
+            .ToList();
+    }
 
     /// <summary>
     /// A fresh instance of a stored document, standing in for the serialize-in / deserialize-out round
@@ -129,9 +147,13 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
     /// JSON is the mechanism because it is what the products actually do, and because it keeps the
     /// double honest about what survives a round trip.
     /// </para>
+    /// <para>
+    /// Round-tripped as the document's <em>runtime</em> type rather than <typeparamref name="T" />, so a
+    /// sub-class stored or read through its root keeps its sub-class members (jasperfx#870).
+    /// </para>
     /// </remarks>
     internal static T Copy<T>(object document)
-        => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize((T)document))!;
+        => (T)JsonSerializer.Deserialize(JsonSerializer.Serialize(document, document.GetType()), document.GetType())!;
 
     /// <summary>
     /// Every row of a type across every tenant — what the fixture's <c>AnyTenant</c> seam forwards to.
@@ -139,7 +161,7 @@ public class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSes
     internal IReadOnlyList<T> SnapshotAcrossTenants<T>()
         => _documents.Where(pair => pair.Key.Type == typeof(T))
             .SelectMany(pair => pair.Value.Values)
-            .Cast<T>()
+            .OfType<T>()
             .ToList();
 
     /// <summary>
@@ -211,6 +233,8 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
 
     private T? load<T>(object id) where T : notnull
         => _store.StorageFor(typeof(T), _tenantId).TryGetValue(id, out var found)
+           && found is T
+           && !_store.IsDeleted(typeof(T), _store.ScopeFor(typeof(T), _tenantId), id)
             ? InMemoryDocumentStore.Copy<T>(found)
             : default;
 
@@ -238,6 +262,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
                 // mutating its object afterwards must not rewrite stored state behind the store's back.
                 // Taken after guardVersion so the caller's own instance carries the landed version.
                 storage[id] = InMemoryDocumentStore.Copy<T>(entity)!;
+                _store.RecordWrite(typeof(T), _store.ScopeFor(typeof(T), _tenantId), id, entity.GetType());
 
                 if (existed)
                 {
@@ -309,7 +334,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     private void deleteById<T>(object id) where T : notnull
         => _pending.Add(changes =>
         {
-            _store.StorageFor(typeof(T), _tenantId).TryRemove(id, out _);
+            _store.Remove(typeof(T), _tenantId, id);
             changes.RecordDeleted(typeof(T), id);
         });
 
@@ -319,11 +344,12 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         _pending.Add(changes =>
         {
             var storage = _store.StorageFor(typeof(T), _tenantId);
+            var scope = _store.ScopeFor(typeof(T), _tenantId);
             foreach (var pair in storage.ToArray())
             {
-                if (matches((T)pair.Value))
+                if (pair.Value is T document && !_store.IsDeleted(typeof(T), scope, pair.Key) && matches(document))
                 {
-                    storage.TryRemove(pair.Key, out _);
+                    _store.Remove(typeof(T), _tenantId, pair.Key);
                     changes.RecordDeleted(typeof(T), pair.Key);
                 }
             }

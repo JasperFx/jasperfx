@@ -1,3 +1,4 @@
+using JasperFx.Documents;
 using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
 
@@ -51,10 +52,37 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
             _store.OptimisticConcurrencyTypes.Add(type);
         }
 
+        // Document types, soft deletes and hierarchies (jasperfx#870): what the diagnostics surface is
+        // defined over. The products spell these Schema.For<T>().SoftDeleted() and
+        // Schema.For<TRoot>().AddSubClass<TSub>().
+        _store.DocumentTypes.Clear();
+        _store.DocumentTypes.UnionWith(config.DocumentTypes);
+
+        _store.SoftDeletedTypes.Clear();
+        _store.SoftDeletedTypes.UnionWith(config.SoftDeletedDocuments);
+
+        _store.SubClassRoots.Clear();
+        foreach (var declaration in config.SubClasses)
+        {
+            _store.SubClassRoots[declaration.SubClass] = declaration.Root;
+        }
+
         return Task.CompletedTask;
     }
 
     public override IDocumentSessionFactory Sessions => _store;
+
+    public override bool SupportsDocumentDiagnostics => true;
+
+    public override IDocumentStoreDiagnostics DocumentDiagnostics => _store;
+
+    public override bool SupportsDocumentDiagnosticWrites => true;
+
+    public override IDocumentStoreDiagnosticsWriter DocumentDiagnosticsWriter => _store;
+
+    public override bool SupportsSoftDeletedDocuments => true;
+
+    public override bool SupportsDocumentHierarchies => true;
 
     public override Task CleanDocumentDataAsync()
     {
@@ -151,3 +179,14 @@ public class in_memory_document_conjoined_tenancy_compliance
 /// </remarks>
 public class in_memory_guid_optimistic_concurrency_compliance
     : GuidOptimisticConcurrencyCompliance<InMemoryDocumentComplianceFixture>;
+
+/// <summary>
+/// The document diagnostics surface and its write-side sibling (jasperfx#870), enrolled to <em>run</em>.
+/// </summary>
+/// <remarks>
+/// Everything but the criteria facts runs. <c>SupportsDocumentDiagnosticCriteria</c> stays false because
+/// Dynamic LINQ is jasperfx#869, not this double's to fake — so the refusal fact runs instead, which is
+/// the half of §1 a store without predicate support is held to.
+/// </remarks>
+public class in_memory_document_store_diagnostics_compliance
+    : DocumentStoreDiagnosticsCompliance<InMemoryDocumentComplianceFixture>;

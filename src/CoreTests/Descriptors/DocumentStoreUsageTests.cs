@@ -105,6 +105,69 @@ public class DocumentStoreUsageTests
         roundTripped.DocumentMetadata.TenantId.ShouldBeFalse();
     }
 
+    [Fact]
+    public void casing_and_structured_indexes_round_trip_through_json()
+    {
+        // jasperfx#870 §5: casing and structured index / duplicated-field metadata are
+        // wire shape a console reads, so they have to survive serialization.
+        var usage = new DocumentStoreUsage(new Uri("marten://main"), new FakeDocumentStore())
+        {
+            SerializerCasing = "CamelCase",
+            Documents =
+            [
+                new DocumentMappingDescriptor
+                {
+                    Alias = "order",
+                    Indexes =
+                    [
+                        new DocumentIndexDescriptor
+                        {
+                            Name = "mt_doc_order_idx_status",
+                            Members = ["Status"],
+                            Columns = ["status"],
+                            IsUnique = true,
+                            Method = "btree",
+                            Predicate = "mt_deleted = false"
+                        }
+                    ],
+                    DuplicatedFields =
+                    [
+                        new DuplicatedFieldDescriptor { MemberPath = "ShipTo.City", ColumnName = "ship_to_city", DbType = "varchar" }
+                    ]
+                }
+            ]
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(usage);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<DocumentStoreUsage>(json)!;
+
+        roundTripped.SerializerCasing.ShouldBe("CamelCase");
+
+        var mapping = roundTripped.Documents.ShouldHaveSingleItem();
+        var index = mapping.Indexes.ShouldHaveSingleItem();
+        index.Name.ShouldBe("mt_doc_order_idx_status");
+        index.Members.ShouldBe(["Status"]);
+        index.Columns.ShouldBe(["status"]);
+        index.IsUnique.ShouldBeTrue();
+        index.Method.ShouldBe("btree");
+        index.Predicate.ShouldBe("mt_deleted = false");
+
+        var field = mapping.DuplicatedFields.ShouldHaveSingleItem();
+        field.MemberPath.ShouldBe("ShipTo.City");
+        field.ColumnName.ShouldBe("ship_to_city");
+        field.DbType.ShouldBe("varchar");
+    }
+
+    [Fact]
+    public void structured_index_metadata_defaults_to_empty()
+    {
+        var mapping = new DocumentMappingDescriptor();
+        mapping.Indexes.ShouldBeEmpty();
+        mapping.DuplicatedFields.ShouldBeEmpty();
+
+        new DocumentStoreUsage().SerializerCasing.ShouldBe("");
+    }
+
     /// <summary>
     /// Stand-in for Marten's DocumentStore — exposes the kind of runtime
     /// handles (IStorage / IAdvanced / IDiagnostics / IOptions) that used to

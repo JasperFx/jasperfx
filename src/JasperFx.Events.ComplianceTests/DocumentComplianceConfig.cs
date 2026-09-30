@@ -104,6 +104,54 @@ public sealed class DocumentComplianceConfig
     }
 
     /// <summary>
+    /// Document types the suite asked the store to soft-delete — <c>Schema.For&lt;T&gt;().SoftDeleted()</c>
+    /// on every store (jasperfx#870).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Soft deletes remain outside the <em>session</em> contract — the README's out-of-scope list is
+    /// unchanged. This exists for <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />, because
+    /// jasperfx#870 made "a diagnostic read excludes soft-deleted rows unless asked" part of
+    /// <c>IDocumentStoreDiagnostics</c>, and a behavior over soft-deleted rows cannot be tested without a
+    /// way to ask for them.
+    /// </para>
+    /// <para>
+    /// Ignoring this does not make the soft-delete facts skip — gate them with
+    /// <see cref="DocumentStorageComplianceFixture.SupportsSoftDeletedDocuments" />. A fixture that flips
+    /// the gate and drops the replay hard-deletes the rows, and every soft-delete fact fails.
+    /// </para>
+    /// </remarks>
+    public List<Type> SoftDeletedDocuments { get; } = new();
+
+    /// <inheritdoc cref="SoftDeletedDocuments" />
+    public DocumentComplianceConfig SoftDeleted<T>() where T : notnull
+    {
+        SoftDeletedDocuments.Add(typeof(T));
+        return this;
+    }
+
+    /// <summary>
+    /// Sub-classes the suite asked the store to keep in their root's table — a document hierarchy,
+    /// <c>Schema.For&lt;TRoot&gt;().AddSubClass&lt;TSubClass&gt;()</c> on every store (jasperfx#870).
+    /// </summary>
+    /// <remarks>
+    /// Here for the same reason as <see cref="SoftDeletedDocuments" />: jasperfx#870 defined a diagnostic
+    /// read as filtered to the requested type, which only means something once a table holds more than
+    /// one type. Gate with <see cref="DocumentStorageComplianceFixture.SupportsDocumentHierarchies" />;
+    /// a fixture that drops the replay gives each sub-class its own table, and the hierarchy facts fail.
+    /// </remarks>
+    public List<DocumentSubClassDeclaration> SubClasses { get; } = new();
+
+    /// <inheritdoc cref="SubClasses" />
+    public DocumentComplianceConfig AddSubClass<TRoot, TSubClass>()
+        where TRoot : notnull
+        where TSubClass : TRoot
+    {
+        SubClasses.Add(new DocumentSubClassDeclaration(typeof(TRoot), typeof(TSubClass)));
+        return this;
+    }
+
+    /// <summary>
     /// Vector indexes the suite needs declared, for the search suites (jasperfx#842).
     /// </summary>
     /// <remarks>
@@ -318,6 +366,12 @@ public sealed record VectorIndexDeclaration(
     string MemberName,
     int Dimensions,
     Vectors.DistanceFunction Distance);
+
+/// <summary>
+/// One sub-class a suite needs stored in its root's table. See
+/// <see cref="DocumentComplianceConfig.SubClasses" />.
+/// </summary>
+public sealed record DocumentSubClassDeclaration(Type Root, Type SubClass);
 
 /// <summary>
 /// One full-text index a suite needs declared. See
