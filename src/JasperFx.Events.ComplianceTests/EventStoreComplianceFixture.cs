@@ -734,6 +734,22 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsCommitVisibilityProbe => false;
 
     /// <summary>
+    /// True in a store whose <see cref="IComplianceCompositeBuilder"/> implements
+    /// <see cref="IComplianceCompositeBuilder.Add"/>, so a fact can put a custom projection in a
+    /// composite stage rather than only a snapshot. Gates the async-daemon half of the jasperfx#886
+    /// phantom-deletion facts (jasperfx#917).
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>, the same declare-the-surface-then-implement ordering as
+    /// <see cref="SupportsMessageOutbox"/>: the builder member carries a throwing default and is reached
+    /// during store <em>construction</em>, so an ungated fact would fail on the default rather than
+    /// skip. Implement <c>Add</c> on the fixture's composite builder — one cast down to the product's
+    /// own projection type and one call to its composite's <c>Add(projection, stage)</c> — then flip
+    /// this.
+    /// </remarks>
+    public virtual bool SupportsAddingProjectionsToComposites => false;
+
+    /// <summary>
     /// True in a store whose registrar replays <see cref="ComplianceSubscription.IncludedEventTypes"/>
     /// onto its own subscription registration, so a declared allow list actually reaches the daemon.
     /// Gates the one event-filter fact of

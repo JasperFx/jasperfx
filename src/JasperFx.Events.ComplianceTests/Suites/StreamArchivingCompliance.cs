@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Events.Projections;
 using Shouldly;
@@ -64,6 +65,45 @@ public partial class ComplianceClosableLedger
     public void Apply(LedgerEntryPosted e) => Balance += e.Amount;
 
     public bool ShouldDelete(LedgerClosed e) => true;
+}
+
+/// <summary>
+/// What the stage-2 recorder writes for each <c>ProjectionDeleted&lt;ComplianceClosableLedger, Guid&gt;</c>
+/// it receives, keyed by the deleted ledger's id so a fact can load it back per ledger.
+/// </summary>
+public class ComplianceLedgerDeletionRecord
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Stage 2 of the jasperfx#917 composite: records every <c>ProjectionDeleted</c> the
+/// <see cref="ComplianceClosableLedger"/> snapshot in stage 1 hands downstream.
+/// </summary>
+/// <remarks>
+/// An explicit <c>ApplyAsync</c> override rather than a conventional <c>Create</c> method, so nothing
+/// depends on the source generator dispatching a closed-generic event type. It declares no
+/// <c>IncludeType</c> on purpose: the events it wants are synthesized by the upstream stage and never
+/// stored, so an allow list would name a type no store has registered. The explicit type argument on
+/// <c>Store&lt;T&gt;</c> is load-bearing — the generator's scan of <c>ApplyAsync</c> bodies for published
+/// types is syntactic (see <see cref="AuditRecordProjection"/>).
+/// </remarks>
+public partial class ComplianceLedgerDeletionRecorder: ComplianceEventProjection
+{
+    public override ValueTask ApplyAsync(ComplianceOperations operations, IEvent e, CancellationToken cancellation)
+    {
+        if (e.Data is ProjectionDeleted<ComplianceClosableLedger, Guid> deleted)
+        {
+            operations.Store<ComplianceLedgerDeletionRecord>(new ComplianceLedgerDeletionRecord
+            {
+                Id = deleted.Identity,
+                TenantId = deleted.TenantId
+            });
+        }
+
+        return new ValueTask();
+    }
 }
 
 #endregion
@@ -144,6 +184,24 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         config.Snapshot<ComplianceClosableLedger>(SnapshotLifecycle.Inline);
         config.AddCommitListener(_listener);
     };
+
+    /// <summary>
+    /// The deleting snapshot as stage 1 of an async composite, with a stage-2 member recording every
+    /// <c>ProjectionDeleted</c> stage 1 hands downstream (jasperfx#917).
+    /// </summary>
+    private static readonly Action<ComplianceStoreConfig> _deletingSnapshotCompositeConfiguration = config =>
+    {
+        config.SchemaName = "compliance_archiving_snapshot_delete_composite";
+        config.AddEventType<LedgerOpened>();
+        config.AddEventType<LedgerClosed>();
+        config.AddCompositeProjection(DeletingCompositeName, composite =>
+        {
+            composite.Snapshot<ComplianceClosableLedger>(1);
+            composite.Add(new ComplianceLedgerDeletionRecorder(), 2);
+        });
+    };
+
+    public const string DeletingCompositeName = "ComplianceClosableLedgerComposite";
 
     private static readonly Action<ComplianceStoreConfig> _stringSnapshotConfiguration = config =>
     {
@@ -424,11 +482,11 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
     /// it guards anything.
     /// </para>
     /// <para>
-    /// The <em>daemon</em> path is still uncovered here: <c>EventRange.MarkSliceAction</c> records a
+    /// The <em>daemon</em> path is
+    /// <see cref="creating_and_deleting_within_one_async_batch_hands_no_deletion_downstream" />
+    /// (jasperfx#917): there <c>EventRange.MarkSliceAction</c> would record a
     /// <c>ProjectionDeleted&lt;TDoc,TId&gt;</c> that downstream stages of a composite projection
-    /// receive for a document that never existed, and pinning that needs an
-    /// <c>IComplianceCompositeBuilder</c> addition that jasperfx#893 deliberately deferred as the more
-    /// expensive route. The other coverage for this direction is the unit test
+    /// receive for a document that never existed. The unit-level coverage for this direction is
     /// <c>sg_determine_action_reports_nothing_when_created_and_deleted_in_an_initially_empty_batch</c>,
     /// which asserts the <c>ActionType</c> itself against the real source-generated dispatcher.
     /// </para>
@@ -539,6 +597,86 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
             .ShouldHaveSingleItem();
 
         realDeletion.Id.ShouldBe(real);
+    }
+
+    /// <summary>
+    /// The async-daemon half of <see cref="creating_and_deleting_within_one_batch_reports_no_deletion" />:
+    /// a later stage of a composite projection must not receive a <c>ProjectionDeleted</c> for a
+    /// document that was created and deleted inside one batch, so never existed (jasperfx#917).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the path jasperfx#886's reporter actually hit: a second-stage projection counting
+    /// <c>ProjectionDeleted&lt;Entry, Guid&gt;</c>. Inline, the phantom surfaces in the commit's change
+    /// set; under the daemon it surfaces instead as a synthetic event that
+    /// <c>EventRange.MarkSliceAction</c> records and <c>ExecutionStage</c> prepends to every later
+    /// stage's batch. So stage 1 snapshots <see cref="ComplianceClosableLedger"/> and stage 2 is
+    /// <see cref="ComplianceLedgerDeletionRecorder"/>, which writes one row per deletion it is handed.
+    /// </para>
+    /// <para>
+    /// The phantom stream is appended before the daemon starts, so both of its events land in the
+    /// daemon's first batch against no prior snapshot — the exact shape that must report nothing.
+    /// </para>
+    /// <para>
+    /// <b>The control is what makes it an assertion</b>, as in the inline sibling: "stage 2 recorded
+    /// nothing" is trivially true of a store whose composite never runs stage 2 or never propagates
+    /// upstream actions at all. So a second ledger is created and allowed to materialize <em>first</em>,
+    /// then closed in a later batch, and stage 2 must record that deletion. Its open and close must not
+    /// share a batch — that would be the phantom shape again — which is why the daemon is caught up
+    /// between them.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task creating_and_deleting_within_one_async_batch_hands_no_deletion_downstream()
+    {
+        Assert.SkipUnless(theFixture.SupportsAsyncDaemon,
+            "This event store does not support the async projection daemon, which a composite requires");
+        Assert.SkipUnless(theFixture.SupportsAddingProjectionsToComposites,
+            "This event store's compliance composite builder does not implement Add(ProjectionBase, int)");
+
+        await theFixture.ConfigureAsync(_deletingSnapshotCompositeConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var phantom = Guid.NewGuid();
+        var real = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            var events = EventsFor(session);
+            events.StartStream<ComplianceClosableLedger>(phantom,
+                new LedgerOpened("Petty Cash"), new LedgerClosed());
+            events.StartStream<ComplianceClosableLedger>(real, new LedgerOpened("Real"));
+            await SaveChangesAsync(session);
+        }
+
+        await StartDaemonAsync();
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        await using (var reader = OpenSession())
+        {
+            // Stage 1 did run: the control ledger exists, so the phantom's absence below is not
+            // explained by a composite that never processed the batch.
+            (await LoadDocumentAsync<ComplianceClosableLedger>(reader, real)).ShouldNotBeNull();
+            (await LoadDocumentAsync<ComplianceClosableLedger>(reader, phantom)).ShouldBeNull();
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(real, new LedgerClosed());
+            await SaveChangesAsync(session);
+        }
+
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        await using var query = OpenSession();
+
+        (await LoadDocumentAsync<ComplianceLedgerDeletionRecord>(query, phantom)).ShouldBeNull(
+            "Stage 2 of the composite received a ProjectionDeleted for a document that was created and deleted inside one batch, so never existed (jasperfx#886).");
+
+        // The control: a delete of a document that DID exist reaches stage 2, so the assertion above
+        // cannot pass on a store that never propagates upstream actions to a later stage.
+        (await LoadDocumentAsync<ComplianceLedgerDeletionRecord>(query, real)).ShouldNotBeNull();
+        (await LoadDocumentAsync<ComplianceClosableLedger>(query, real)).ShouldBeNull();
     }
 
     [Fact]
