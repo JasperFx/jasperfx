@@ -180,4 +180,22 @@ public class ReadProjectionProgressDefaultsTests
     {
         new ProjectionProgressRow("Orders", null, 1, null, null).AgentStatus.ShouldBeNull();
     }
+
+    // jasperfx#924: LastUpdated is an init-only property rather than a positional parameter, so the
+    // five-argument constructor every store calls today still compiles and simply reports null.
+    [Fact]
+    public void last_updated_is_null_unless_a_store_sets_it()
+    {
+        var row = new ProjectionProgressRow("Orders", null, 1, "Running", null);
+        row.LastUpdated.ShouldBeNull();
+
+        var stamp = new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero);
+        (row with { LastUpdated = stamp }).LastUpdated.ShouldBe(stamp);
+    }
+
+    [Fact]
+    public void shard_state_last_updated_defaults_to_null()
+    {
+        new ShardState("HighWaterMark", 10).LastUpdated.ShouldBeNull();
+    }
 }
