@@ -101,6 +101,68 @@ public class DocumentMappingDescriptor
     /// schema gets applied" view.
     /// </summary>
     public string Ddl { get; set; } = "";
+
+    /// <summary>
+    /// The indexes on this document table in structured form (jasperfx#870 §5), so a console can say
+    /// whether a filter on a member can use one without parsing <see cref="Ddl"/>. Empty when the
+    /// implementation hasn't populated it — which is not the same as "no indexes"; <see cref="Ddl"/>
+    /// remains the canonical view.
+    /// </summary>
+    public List<DocumentIndexDescriptor> Indexes { get; set; } = new();
+
+    /// <summary>
+    /// Members duplicated out of the JSON body into their own columns (Marten's duplicated fields,
+    /// Polecat's and Fisher's equivalents). A filter on one of these reads a real column rather than the
+    /// JSON. Empty when the implementation hasn't populated it.
+    /// </summary>
+    public List<DuplicatedFieldDescriptor> DuplicatedFields { get; set; } = new();
+}
+
+/// <summary>
+/// One index on a document table, in structured form. See
+/// <see cref="DocumentMappingDescriptor.Indexes"/>.
+/// </summary>
+public class DocumentIndexDescriptor
+{
+    /// <summary>The index's name in the database.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>
+    /// The document member paths the index covers, dotted and in declaration casing
+    /// (e.g. <c>"ShipTo.City"</c>). Empty for an index over metadata columns only.
+    /// </summary>
+    public string[] Members { get; set; } = [];
+
+    /// <summary>The table columns or expressions the index is built over, as the store spells them.</summary>
+    public string[] Columns { get; set; } = [];
+
+    /// <summary>Whether the index enforces uniqueness.</summary>
+    public bool IsUnique { get; set; }
+
+    /// <summary>
+    /// The index method where the database has one (<c>"btree"</c>, <c>"gin"</c>, <c>"hnsw"</c>, …), or
+    /// null for the database's default.
+    /// </summary>
+    public string? Method { get; set; }
+
+    /// <summary>The partial-index predicate, or null for a full index.</summary>
+    public string? Predicate { get; set; }
+}
+
+/// <summary>
+/// One document member duplicated into its own column. See
+/// <see cref="DocumentMappingDescriptor.DuplicatedFields"/>.
+/// </summary>
+public class DuplicatedFieldDescriptor
+{
+    /// <summary>The member path, dotted and in declaration casing (e.g. <c>"ShipTo.City"</c>).</summary>
+    public string MemberPath { get; set; } = "";
+
+    /// <summary>The column the value is duplicated into.</summary>
+    public string ColumnName { get; set; } = "";
+
+    /// <summary>The column's database type, as the store spells it.</summary>
+    public string DbType { get; set; } = "";
 }
 
 /// <summary>

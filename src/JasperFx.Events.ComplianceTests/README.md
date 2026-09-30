@@ -692,6 +692,7 @@ alongside the event store — `JasperFx.Events.Documents`:
 | Post-commit session listeners and the change set they receive | `DocumentCommitListenerCompliance` |
 | What an explicit numeric revision means on the update path | `NumericRevisionCompliance` |
 | Conjoined (per-tenant) document tenancy | `DocumentConjoinedTenancyCompliance` |
+| `IDocumentStoreDiagnostics` and its write-side sibling — the console surface | `DocumentStoreDiagnosticsCompliance` |
 
 Enrollment is deliberately much cheaper than the event side. `DocumentStorageComplianceFixture` has
 **three** abstract members — build a store, hand back an `IDocumentSessionFactory`, wipe the data —
@@ -720,6 +721,29 @@ are reachable by a near-miss that the compiler does not catch: C# interface impl
 return-type covariant, so a session already declaring a member of the same name with the product's
 own type binds to the default instead of implementing the contract. Only a test calling through a
 contract-typed session notices.
+
+`DocumentStoreDiagnosticsCompliance` (jasperfx#870) holds `IDocumentStoreDiagnostics` and
+`IDocumentStoreDiagnosticsWriter` — the by-type-name, raw-JSON surface a monitoring console browses and
+edits through — to the semantics #870 defined after finding the three stores disagreeing: soft-deleted
+rows excluded unless asked for, results filtered to the requested type in a hierarchy, no tenant meaning
+the default tenant (never "all tenants", never a tenant named `""`), text ids converted to the stored
+identity type, metadata on every row, a `Subject` equal to the store's `IDocumentStoreUsageSource`, and a
+stale expected version refused with the current document. Setup writes through the session contract and
+assertions read through the diagnostics one, because what is under test is whether a console sees what
+the application wrote.
+
+It needs a new seam, and that is not a hole in the session contract: the diagnostics surface is a
+separate contract with nothing on `Sessions` to reach it through. Override `DocumentDiagnostics` (and
+`DocumentDiagnosticsWriter` for the write facts) and flip `SupportsDocumentDiagnostics` /
+`SupportsDocumentDiagnosticWrites`. Replay the two new config members —
+`config.SoftDeletedDocuments` (`Schema.For<T>().SoftDeleted()`) and `config.SubClasses`
+(`Schema.For<TRoot>().AddSubClass<TSub>()`) — and flip `SupportsSoftDeletedDocuments` /
+`SupportsDocumentHierarchies`. The tenancy facts reuse `SupportsConjoinedDocuments`.
+
+`SupportsDocumentDiagnosticCriteria` is a fork rather than a skip. Left `false`, the suite asserts that a
+`Where` or `OrderBy` is **refused** with `DocumentCriteriaNotSupportedException` — silently returning the
+unfiltered page is the one wrong answer. Flip it once the store applies Dynamic LINQ criteria
+(jasperfx#869) and the filtering facts run instead.
 
 `DocumentCommitListenerCompliance` (jasperfx#679) is opt-in for a different reason: it needs only
 documents, so any store implementing the document contract can enroll, but it needs `BuildStoreAsync`
