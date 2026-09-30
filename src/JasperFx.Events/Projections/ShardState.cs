@@ -114,6 +114,24 @@ public class ShardState
     public DateTimeOffset? LastHeartbeat { get; set; }
 
     /// <summary>
+    /// When this shard's progression row was last written — <b>liveness, not progress</b>. Populated
+    /// by <see cref="IEventDatabase.AllProjectionProgress(System.Threading.CancellationToken)" /> from
+    /// the row's own <c>last_updated</c> column; null on a state published live by a running agent,
+    /// and wherever a store cannot say.
+    /// <para>
+    /// This is the one persisted fact that says whether a progression row is still being
+    /// <em>maintained</em> (jasperfx#924). Neither neighbour says that: <see cref="LastAdvanced" />
+    /// does not move on a caught-up mark with no new events, which must still read as alive, and
+    /// <see cref="LastHeartbeat" /> hydrated from the table freezes at the last lifecycle transition.
+    /// A high-water detector refreshes <c>last_updated</c> on every cycle even when the sequence does
+    /// not move, so a monitor can tell "caught up, no new events" (fresh) from "no longer maintained"
+    /// (stale) — for example the tenant-less <c>HighWaterMark</c> row a store stops writing once it
+    /// tracks per-tenant marks under tenant-partitioned events (CritterWatch#1359).
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? LastUpdated { get; set; }
+
+    /// <summary>
     /// Current status of the subscription agent (e.g. "Running", "Paused", "Stopped")
     /// </summary>
     public string? AgentStatus { get; set; }

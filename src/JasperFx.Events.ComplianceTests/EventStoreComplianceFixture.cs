@@ -749,6 +749,19 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </remarks>
     public virtual bool SupportsAddingProjectionsToComposites => false;
 
+    /// True in a store whose <see cref="IEventDatabase.AllProjectionProgress(System.Threading.CancellationToken)" />
+    /// populates <see cref="Projections.ShardState.LastUpdated" /> from the progression row's own
+    /// <c>last_updated</c> column. Gates the two liveness facts of
+    /// <see cref="AsyncDaemonCompliance{TFixture,TOperations,TQuerySession}" /> (jasperfx#924).
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>, the same declare-the-surface-then-implement ordering as
+    /// <see cref="SupportsUpcasting"/>: the facts were written ahead of any store selecting the column.
+    /// Select <c>last_updated</c> in every form of the progress query, populate the property, then flip
+    /// this.
+    /// </remarks>
+    public virtual bool SupportsProgressionLastUpdated => false;
+
     /// <summary>
     /// True in a store whose registrar replays <see cref="ComplianceSubscription.IncludedEventTypes"/>
     /// onto its own subscription registration, so a declared allow list actually reaches the daemon.

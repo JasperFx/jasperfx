@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using JasperFx.Events.Projections;
 using Shouldly;
@@ -110,6 +111,112 @@ public abstract class AsyncDaemonCompliance<TFixture, TOperations, TQuerySession
         tally.ShouldNotBeNull();
         tally.AddedCount.ShouldBe(2);
         tally.RemovedCount.ShouldBe(0);
+    }
+
+    private void SkipUnlessProgressionLastUpdatedIsSupported()
+    {
+        SkipUnlessDaemonIsSupported();
+        Assert.SkipUnless(theFixture.SupportsProgressionLastUpdated,
+            "This event store does not populate ShardState.LastUpdated from AllProjectionProgress");
+    }
+
+    private async Task<IEventDatabase> theOnlyDatabaseAsync()
+    {
+        var databases = await EventStore.AllDatabases();
+        return databases.ShouldHaveSingleItem();
+    }
+
+    /// <summary>
+    /// Every row <c>AllProjectionProgress</c> returns carries the progression row's own
+    /// <c>last_updated</c>, read as a UTC instant (jasperfx#924).
+    /// </summary>
+    /// <remarks>
+    /// The window check is wide on purpose — the database clock and the test host's clock are not the
+    /// same clock — but narrow enough to catch a store that reads a zone-less column as local time
+    /// and shifts it by hours, which would make a live row look dead (or a dead one live).
+    /// </remarks>
+    [Fact]
+    public async Task all_projection_progress_carries_each_rows_last_updated()
+    {
+        SkipUnlessProgressionLastUpdatedIsSupported();
+
+        var floor = DateTimeOffset.UtcNow.AddMinutes(-5);
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<DaemonItemTally>(Guid.NewGuid(), new ItemAdded("one"));
+            await SaveChangesAsync(session);
+        }
+
+        await StartDaemonAsync();
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        var database = await theOnlyDatabaseAsync();
+        var progress = await database.AllProjectionProgress(Cancellation);
+
+        var ceiling = DateTimeOffset.UtcNow.AddMinutes(5);
+
+        progress.ShouldContain(x => x.ShardName == ShardState.HighWaterMark);
+        progress.ShouldContain(x => x.ShardName != ShardState.HighWaterMark);
+
+        foreach (var state in progress)
+        {
+            state.LastUpdated.ShouldNotBeNull($"{state.ShardName} came back without LastUpdated");
+            state.LastUpdated.Value.ShouldBeGreaterThan(floor, $"{state.ShardName}.LastUpdated");
+            state.LastUpdated.Value.ShouldBeLessThan(ceiling, $"{state.ShardName}.LastUpdated");
+        }
+    }
+
+    /// <summary>
+    /// The property that makes <see cref="ShardState.LastUpdated" /> a liveness signal at all: the
+    /// high-water row's <c>last_updated</c> keeps moving while the daemon runs with <em>no new
+    /// events</em>, when neither the sequence nor <see cref="ShardState.LastAdvanced" /> does
+    /// (jasperfx#924, CritterWatch#1359).
+    /// </summary>
+    /// <remarks>
+    /// Without this, a store could satisfy the fact above by stamping the read time, and a monitor
+    /// could not tell "caught up, no new events" from "no longer maintained" — which is the whole ask.
+    /// It polls rather than sleeping a fixed interval, because each store's high-water detector sets
+    /// its own idle cadence.
+    /// </remarks>
+    [Fact]
+    public async Task the_high_water_rows_last_updated_moves_on_an_idle_daemon()
+    {
+        SkipUnlessProgressionLastUpdatedIsSupported();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<DaemonItemTally>(Guid.NewGuid(), new ItemAdded("one"));
+            await SaveChangesAsync(session);
+        }
+
+        await StartDaemonAsync();
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        var database = await theOnlyDatabaseAsync();
+
+        async Task<ShardState> highWaterAsync()
+        {
+            var progress = await database.AllProjectionProgress(Cancellation);
+            return progress.Single(x => x.ShardName == ShardState.HighWaterMark);
+        }
+
+        var first = await highWaterAsync();
+        first.LastUpdated.ShouldNotBeNull();
+
+        var deadline = DateTimeOffset.UtcNow.Add(_timeout);
+        var latest = first;
+        while (latest.LastUpdated <= first.LastUpdated && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(250, Cancellation);
+            latest = await highWaterAsync();
+        }
+
+        // Nothing was appended, so the mark itself must not have moved -- only its freshness.
+        latest.Sequence.ShouldBe(first.Sequence);
+        latest.LastUpdated.ShouldNotBeNull();
+        latest.LastUpdated.Value.ShouldBeGreaterThan(first.LastUpdated.Value,
+            "The HighWaterMark row's last_updated did not move on an idle daemon, so it cannot distinguish a caught-up mark from an abandoned one");
     }
 
     [Fact]

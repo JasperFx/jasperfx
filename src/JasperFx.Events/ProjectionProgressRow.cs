@@ -48,4 +48,17 @@ public record ProjectionProgressRow(
     string? TenantId,
     long Sequence,
     string? AgentStatus,
-    DateTimeOffset? LastHeartbeat);
+    DateTimeOffset? LastHeartbeat)
+{
+    /// <summary>
+    /// When this progression row was last written — liveness, not progress. The per-cell counterpart
+    /// of <see cref="JasperFx.Events.Projections.ShardState.LastUpdated" />; see there for why neither
+    /// <see cref="LastHeartbeat" /> nor the sequence can answer "is this row still being maintained?".
+    /// Null where a store does not select it (jasperfx#924).
+    /// <para>
+    /// An init-only property rather than a sixth positional parameter so that stores and tests
+    /// constructing this record today keep compiling.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? LastUpdated { get; init; }
+}
