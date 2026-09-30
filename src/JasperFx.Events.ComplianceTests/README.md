@@ -186,6 +186,19 @@ which a last-write-wins aggregate would hide. Two of the three products already 
 named for that class of bug — `Bug_439_composite_member_teardown` and `composite_member_teardown` —
 which is what marks the behaviour as shared rather than product-owned.
 
+The builder has one optional second member, `Add(ProjectionBase projection, int stageNumber)`
+(jasperfx#917), for a fact that needs a custom projection in a stage rather than a snapshot — today
+`StreamArchivingCompliance.creating_and_deleting_within_one_async_batch_hands_no_deletion_downstream`,
+whose stage 2 records the synthetic `ProjectionDeleted<TDoc,TId>` events stage 1 hands downstream. It
+carries a throwing default, and that fact is gated on `SupportsAddingProjectionsToComposites`
+(default **false**). Implementing it is one cast and one forward — all three products expose
+`Add(projection, stageNumber)` on their composite — then flip the gate:
+
+```csharp
+public void Add(ProjectionBase projection, int stageNumber)
+    => _composite.Add((IProjectionSource<IDocumentOperations, IQuerySession>)projection, stageNumber);
+```
+
 `DcbHasTagLinqCompliance` (jasperfx#755) is opt-in through fixture seam members rather than the
 registrar. It pins the `IEvent.HasTag<TTag>(value)` LINQ marker — a DCB tag predicate composing with
 ordinary event predicates in one `Where()` over the raw-event query — which no shared surface can
