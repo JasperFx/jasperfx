@@ -135,9 +135,13 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
         try
         {
-            await using var batch = await buildBatchAsync(range);
+            // Deliberately not a using declaration. A composite member is handed the parent composite's
+            // shared batch, which the composite executes and disposes once every stage has run; a member
+            // that disposed it would release the batch's session while later stages and the composite's
+            // own flush still had operations to write. Same rule as GroupedProjectionExecution.
+            var batch = await buildBatchAsync(range);
 
-            // Executing the SQL commands for the ProjectionUpdateBatch
+            // Executing the SQL commands for the ProjectionUpdateBatch. This disposes the batch.
             if (range.BatchBehavior == BatchBehavior.Individual)
             {
                 await applyBatchOperationsToDatabaseAsync(range, batch).ConfigureAwait(false);
