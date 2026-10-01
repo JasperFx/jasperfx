@@ -187,6 +187,73 @@ public interface IDocumentReadOperations : IAsyncDisposable
         };
 
     /// <summary>
+    /// Load every document of type <typeparamref name="T" /> whose <see cref="Guid" /> identity is in
+    /// <paramref name="ids" />, in one round trip on a store that implements this member.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An identity with no document is omitted rather than represented by a <see langword="null" />,
+    /// a repeated identity yields its document once, and the order of the result is not defined — key
+    /// the result by identity rather than zipping it against <paramref name="ids" />. An empty
+    /// <paramref name="ids" /> returns an empty list.
+    /// </para>
+    /// <para>
+    /// The reason this is on the contract rather than spelled as
+    /// <c>Query&lt;T&gt;().Where(x =&gt; ids.Contains(x.Id))</c>: <c>Contains</c> over a large list
+    /// hits a per-store parameter ceiling (about 2,100 on Polecat, 32,767 on Fisher), so a store-agnostic
+    /// caller would have to chunk by hand, whereas every store's own <c>LoadManyAsync</c> has no such
+    /// limit. See <see href="https://github.com/JasperFx/jasperfx/issues/930" />.
+    /// </para>
+    /// <para>
+    /// <b>The default implementation is correct but not batched:</b> it loads the distinct identities
+    /// one at a time through <see cref="LoadAsync{T}(Guid,CancellationToken)" />, sequentially, because
+    /// a session is not safe for concurrent use. A store overrides it to get the single round trip;
+    /// the shared compliance suite pins the result, not the round-trip count. ⚠️ A store whose session
+    /// already declares a <c>LoadManyAsync</c> of its own (Marten's takes no token, or takes it first)
+    /// does <em>not</em> implicitly satisfy this, because the signatures differ, so the call silently
+    /// binds to this default; a one-line explicit implementation forwarding to the store's own is what
+    /// closes it.
+    /// </para>
+    /// </remarks>
+    async Task<IReadOnlyList<T>> LoadManyAsync<T>(IEnumerable<Guid> ids, CancellationToken token = default)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        var documents = new List<T>();
+        foreach (var id in ids.Distinct())
+        {
+            var document = await LoadAsync<T>(id, token).ConfigureAwait(false);
+            if (document is not null) documents.Add(document);
+        }
+
+        return documents;
+    }
+
+    /// <summary>
+    /// Load every document of type <typeparamref name="T" /> whose <see cref="string" /> identity is
+    /// in <paramref name="ids" />, in one round trip on a store that implements this member.
+    /// </summary>
+    /// <remarks>
+    /// Same semantics and the same not-batched default as
+    /// <see cref="LoadManyAsync{T}(IEnumerable{Guid},CancellationToken)" />.
+    /// </remarks>
+    async Task<IReadOnlyList<T>> LoadManyAsync<T>(IEnumerable<string> ids, CancellationToken token = default)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        var documents = new List<T>();
+        foreach (var id in ids.Distinct())
+        {
+            var document = await LoadAsync<T>(id, token).ConfigureAwait(false);
+            if (document is not null) documents.Add(document);
+        }
+
+        return documents;
+    }
+
+    /// <summary>
     /// Start a LINQ query over a document type.
     /// </summary>
     /// <remarks>

@@ -126,6 +126,73 @@ public abstract class DocumentLoadAndStoreCompliance<TFixture> : DocumentStorage
     }
 
     [Fact]
+    public async Task load_many_by_guid_returns_the_documents_that_exist()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        await PersistAsync(
+            new ComplianceWidget { Id = a, Name = "A" },
+            new ComplianceWidget { Id = b, Name = "B" },
+            new ComplianceWidget { Id = Guid.NewGuid(), Name = "Not asked for" });
+
+        await using var query = QuerySession();
+
+        // A missing id is omitted, a repeated id yields its document once, and order is not part of
+        // the contract (jasperfx#930).
+        var loaded = await query.LoadManyAsync<ComplianceWidget>(new[] { b, Guid.NewGuid(), a, b }, Cancellation);
+
+        loaded.Select(x => x.Name).OrderBy(x => x).ShouldBe(new[] { "A", "B" });
+    }
+
+    [Fact]
+    public async Task load_many_by_string_returns_the_documents_that_exist()
+    {
+        await PersistAsync(
+            new ComplianceGadget { Id = "many-1", Kind = "ratchet" },
+            new ComplianceGadget { Id = "many-2", Kind = "spanner" },
+            new ComplianceGadget { Id = "many-3", Kind = "not asked for" });
+
+        await using var query = QuerySession();
+        var loaded = await query.LoadManyAsync<ComplianceGadget>(
+            new[] { "many-2", "nothing-here", "many-1", "many-2" }, Cancellation);
+
+        loaded.Select(x => x.Id).OrderBy(x => x).ShouldBe(new[] { "many-1", "many-2" });
+    }
+
+    [Fact]
+    public async Task load_many_with_no_ids_returns_an_empty_list()
+    {
+        await using var query = QuerySession();
+
+        (await query.LoadManyAsync<ComplianceWidget>(Array.Empty<Guid>(), Cancellation)).ShouldBeEmpty();
+        (await query.LoadManyAsync<ComplianceGadget>(Array.Empty<string>(), Cancellation)).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// Past the parameter ceiling a <c>Contains</c> query hits on Polecat (about 2,100), which is a
+    /// reason this member is on the contract at all. Fisher's ceiling is higher still, so this only
+    /// pins the one a store-agnostic caller is most likely to meet first.
+    /// </remarks>
+    [Fact]
+    public async Task load_many_is_not_bounded_by_a_query_parameter_ceiling()
+    {
+        var widgets = Enumerable.Range(0, 2_500)
+            .Select(i => new ComplianceWidget { Id = Guid.NewGuid(), Name = $"W{i}" })
+            .ToArray();
+
+        await using (var session = LightweightSession())
+        {
+            session.Store(widgets);
+            await session.SaveChangesAsync(Cancellation);
+        }
+
+        await using var query = QuerySession();
+        var loaded = await query.LoadManyAsync<ComplianceWidget>(widgets.Select(x => x.Id), Cancellation);
+
+        loaded.Count.ShouldBe(widgets.Length);
+    }
+
+    [Fact]
     public async Task store_accepts_many_documents_in_one_call()
     {
         var widgets = new[]
