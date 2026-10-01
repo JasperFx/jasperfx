@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using JasperFx.Events.Projections;
 using Shouldly;
@@ -193,6 +194,103 @@ public abstract class FetchForWritingCompliance<TFixture, TOperations, TQuerySes
             EventsFor(session).Append(streamId, 99, new MoneyDeposited(1));
             await SaveChangesAsync(session);
         });
+    }
+
+    [Fact]
+    public async Task fetch_many_for_writing_returns_one_handle_per_id_in_order()
+    {
+        var rich = await anOpenAccountAsync(new MoneyDeposited(100), new MoneyDeposited(50));
+        var missing = Guid.NewGuid();
+        var poor = await anOpenAccountAsync(new MoneyWithdrawn(5));
+
+        await using var session = OpenSession();
+        var streams = await EventsFor(session)
+            .FetchManyForWriting<ComplianceAccount>(new[] { rich, missing, poor }, Cancellation);
+
+        // In the order asked for, so a caller can zip the result against its ids (jasperfx#930).
+        streams.Select(x => x.Id).ShouldBe(new[] { rich, missing, poor });
+
+        streams[0].Aggregate.ShouldNotBeNull();
+        streams[0].Aggregate!.Balance.ShouldBe(150);
+        streams[0].StartingVersion.ShouldBe(3);
+
+        // A stream that does not exist yet is a handle at version 0, exactly as FetchForWriting has it.
+        streams[1].Aggregate.ShouldBeNull();
+        streams[1].StartingVersion.ShouldBe(0);
+
+        streams[2].Aggregate.ShouldNotBeNull();
+        streams[2].Aggregate!.Balance.ShouldBe(-5);
+        streams[2].StartingVersion.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task fetch_many_for_writing_commits_appends_to_every_handle()
+    {
+        var first = await anOpenAccountAsync(new MoneyDeposited(10));
+        var brandNew = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            var streams = await EventsFor(session)
+                .FetchManyForWriting<ComplianceAccount>(new[] { first, brandNew }, Cancellation);
+
+            streams[0].AppendOne(new MoneyDeposited(1));
+            streams[1].AppendOne(new AccountOpened("Gunnar"));
+            await SaveChangesAsync(session);
+        }
+
+        await using var reader = OpenSession();
+        (await LoadDocumentAsync<ComplianceAccount>(reader, first))!.Balance.ShouldBe(11);
+        (await LoadDocumentAsync<ComplianceAccount>(reader, brandNew))!.Owner.ShouldBe("Gunnar");
+    }
+
+    /// <remarks>
+    /// The point of fetching many for writing rather than reading many: every handle keeps its own
+    /// starting version, so a concurrent write to any one of the streams still fails the commit.
+    /// </remarks>
+    [Fact]
+    public async Task fetch_many_for_writing_guards_each_stream_on_its_own_version()
+    {
+        var untouched = await anOpenAccountAsync(new MoneyDeposited(100));
+        var contended = await anOpenAccountAsync(new MoneyDeposited(100));
+
+        await using var session = OpenSession();
+        var streams = await EventsFor(session)
+            .FetchManyForWriting<ComplianceAccount>(new[] { untouched, contended }, Cancellation);
+
+        await using (var rival = OpenSession())
+        {
+            var stream = await EventsFor(rival).FetchForWriting<ComplianceAccount>(contended, Cancellation);
+            stream.AppendOne(new MoneyDeposited(10));
+            await SaveChangesAsync(rival);
+        }
+
+        streams[0].AppendOne(new MoneyDeposited(1));
+        streams[1].AppendOne(new MoneyDeposited(20));
+        await ShouldFailWithAsync<ConcurrencyException>(() => SaveChangesAsync(session));
+
+        await using var reader = OpenSession();
+        (await LoadDocumentAsync<ComplianceAccount>(reader, contended))!.Balance.ShouldBe(110);
+    }
+
+    [Fact]
+    public async Task fetch_many_for_writing_rejects_a_repeated_id()
+    {
+        var streamId = await anOpenAccountAsync();
+
+        await using var session = OpenSession();
+        await Should.ThrowAsync<ArgumentException>(() => EventsFor(session)
+            .FetchManyForWriting<ComplianceAccount>(new[] { streamId, streamId }, Cancellation));
+    }
+
+    [Fact]
+    public async Task fetch_many_for_writing_with_no_ids_returns_no_handles()
+    {
+        await using var session = OpenSession();
+        var streams = await EventsFor(session)
+            .FetchManyForWriting<ComplianceAccount>(Array.Empty<Guid>(), Cancellation);
+
+        streams.ShouldBeEmpty();
     }
 
     [Fact]

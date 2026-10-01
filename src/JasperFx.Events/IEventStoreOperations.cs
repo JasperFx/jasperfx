@@ -168,6 +168,86 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
         where T : class;
 
     /// <summary>
+    /// Fetch the projected aggregate T for each of <paramref name="ids" /> for writing, in one round
+    /// trip on a store that implements this member — the many-stream form of
+    /// <see cref="FetchForWriting{T}(Guid, CancellationToken)" />.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Returns exactly one <see cref="IEventStream{T}" /> per id, in the order of <paramref name="ids" />,
+    /// and each one behaves as if it had been fetched by its own <c>FetchForWriting</c> call: a stream
+    /// that does not exist yet comes back with a <see langword="null" /> aggregate at version 0, and
+    /// each handle keeps its own starting version, so <c>SaveChangesAsync</c> still guards every stream
+    /// it was appended to and no other. Repeated ids are rejected with an
+    /// <see cref="ArgumentException" />, because two handles on one stream in one session would race
+    /// each other's expected version.
+    /// </para>
+    /// <para>
+    /// A distinct name rather than a <c>FetchForWriting</c> overload, so that nothing which resolves
+    /// <c>FetchForWriting</c> by name — Wolverine's aggregate-handler codegen among others — has a new
+    /// candidate to consider. See <see href="https://github.com/JasperFx/jasperfx/issues/930" />.
+    /// </para>
+    /// <para>
+    /// <b>The default implementation is correct but not batched:</b> it calls
+    /// <see cref="FetchForWriting{T}(Guid, CancellationToken)" /> once per id, sequentially, because a
+    /// session is not safe for concurrent use. A store overrides it — every store already has a
+    /// batched <c>FetchForWriting</c> in its batch-query API — to get the single round trip; the shared
+    /// compliance suite pins the semantics, not the round-trip count.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">When <paramref name="ids" /> repeats an id.</exception>
+    async Task<IReadOnlyList<IEventStream<T>>> FetchManyForWriting<T>(IReadOnlyList<Guid> ids,
+        CancellationToken cancellation = default) where T : class
+    {
+        assertDistinct(ids, nameof(ids));
+
+        var streams = new IEventStream<T>[ids.Count];
+        for (var i = 0; i < ids.Count; i++)
+        {
+            streams[i] = await FetchForWriting<T>(ids[i], cancellation).ConfigureAwait(false);
+        }
+
+        return streams;
+    }
+
+    /// <summary>
+    /// Fetch the projected aggregate T for each of <paramref name="keys" /> for writing, in one round
+    /// trip on a store that implements this member — the many-stream form of
+    /// <see cref="FetchForWriting{T}(string, CancellationToken)" />.
+    /// </summary>
+    /// <inheritdoc cref="FetchManyForWriting{T}(IReadOnlyList{Guid}, CancellationToken)" path="/remarks"/>
+    /// <exception cref="ArgumentException">When <paramref name="keys" /> repeats a key.</exception>
+    async Task<IReadOnlyList<IEventStream<T>>> FetchManyForWriting<T>(IReadOnlyList<string> keys,
+        CancellationToken cancellation = default) where T : class
+    {
+        assertDistinct(keys, nameof(keys));
+
+        var streams = new IEventStream<T>[keys.Count];
+        for (var i = 0; i < keys.Count; i++)
+        {
+            streams[i] = await FetchForWriting<T>(keys[i], cancellation).ConfigureAwait(false);
+        }
+
+        return streams;
+    }
+
+    private static void assertDistinct<TKey>(IReadOnlyList<TKey> keys, string paramName) where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(keys, paramName);
+
+        var seen = new HashSet<TKey>();
+        foreach (var key in keys)
+        {
+            if (!seen.Add(key))
+            {
+                throw new ArgumentException(
+                    $"{nameof(FetchManyForWriting)} was given the stream identity '{key}' more than once. Each stream can be fetched for writing once per call, because two handles on one stream would race each other's expected version.",
+                    paramName);
+            }
+        }
+    }
+
+    /// <summary>
     /// Fetch projected aggregate T by id for exclusive writing.
     /// </summary>
     Task<IEventStream<T>> FetchForExclusiveWriting<T>(Guid id, CancellationToken cancellation = default)

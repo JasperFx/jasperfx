@@ -397,4 +397,41 @@ public abstract class StringStreamIdentityCompliance<TFixture, TOperations, TQue
         after.Key.ShouldBe(key);
         after.IsArchived.ShouldBeTrue();
     }
+
+    [Fact]
+    public async Task fetch_many_for_writing_by_key_returns_one_handle_per_key_in_order()
+    {
+        var existing = await aLedgerAsync(new StringLedgerEntryPosted(25));
+        var missing = streamKey();
+
+        await using (var session = OpenSession())
+        {
+            var streams = await EventsFor(session)
+                .FetchManyForWriting<StringLedger>(new[] { missing, existing }, Cancellation);
+
+            streams.Select(x => x.Key).ShouldBe(new[] { missing, existing });
+            streams[0].Aggregate.ShouldBeNull();
+            streams[0].StartingVersion.ShouldBe(0);
+            streams[1].Aggregate.ShouldNotBeNull();
+            streams[1].StartingVersion.ShouldBe(2);
+
+            streams[0].AppendOne(new StringLedgerOpened("Gunnar"));
+            streams[1].AppendOne(new StringLedgerEntryPosted(5));
+            await SaveChangesAsync(session);
+        }
+
+        await using var query = OpenSession();
+        (await EventsFor(query).FetchStreamAsync(missing, token: Cancellation)).Count.ShouldBe(1);
+        (await EventsFor(query).FetchStreamAsync(existing, token: Cancellation)).Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task fetch_many_for_writing_by_key_rejects_a_repeated_key()
+    {
+        var key = await aLedgerAsync();
+
+        await using var session = OpenSession();
+        await Should.ThrowAsync<ArgumentException>(() => EventsFor(session)
+            .FetchManyForWriting<StringLedger>(new[] { key, key }, Cancellation));
+    }
 }
