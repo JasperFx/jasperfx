@@ -71,9 +71,17 @@ public interface IDocumentStoreDiagnostics
             $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnostics)}.{nameof(Subject)}, which was added in JasperFx 2.77. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.77 or later.");
 
     /// <summary>
-    /// The mapped document types this store can query (CLR type name + table alias + schema), so a
+    /// The document types this store can query (CLR type name + table alias + schema), so a
     /// console can populate a type picker without a separate metadata round-trip.
     /// </summary>
+    /// <remarks>
+    /// <b>Sub-classes are listed (jasperfx#932).</b> Every mapped root is listed, and so is every
+    /// sub-class registered under one, because every member taking a <c>documentTypeName</c> already
+    /// accepts a sub-class name and narrows to its rows — a picker that could not offer it would hide a
+    /// capability the contract guarantees. A sub-class entry names its mapped root in
+    /// <see cref="DocumentTypeRef.RootTypeName"/>, so a picker can group or indent it; a root leaves it
+    /// <see langword="null"/>. Pinned by <c>DocumentStoreDiagnosticsCompliance</c>.
+    /// </remarks>
     Task<IReadOnlyList<DocumentTypeRef>> DocumentTypesAsync(CancellationToken token = default);
 
     /// <summary>
@@ -174,7 +182,21 @@ public interface IDocumentStoreDiagnostics
 }
 
 /// <summary>A queryable document type on a store: CLR type name, table alias, and schema.</summary>
-public record DocumentTypeRef(string TypeName, string Alias, string SchemaName);
+/// <remarks>
+/// Grows through init-only members rather than positional parameters, so the constructor and
+/// <c>Deconstruct</c> a store compiled against an older JasperFx calls stay where they were.
+/// </remarks>
+public record DocumentTypeRef(string TypeName, string Alias, string SchemaName)
+{
+    /// <summary>
+    /// For a sub-class registered under a mapped root, that root's <see cref="TypeName"/> — the type
+    /// whose table holds its rows. <see langword="null"/> for a mapped root itself (jasperfx#932).
+    /// </summary>
+    public string? RootTypeName { get; init; }
+
+    /// <summary>Whether this entry is a sub-class of a mapped root rather than a root.</summary>
+    public bool IsSubClass => RootTypeName is not null;
+}
 
 /// <summary>
 /// Options for <see cref="IDocumentStoreDiagnostics.QueryDocumentsAsync"/>. Paging is required; the

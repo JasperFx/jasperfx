@@ -107,4 +107,26 @@ public class DocumentStoreDiagnosticsContractTests
             return Task.FromResult(id == "missing" ? null : new StoredDocument(id, $$"""{"id":"{{id}}"}"""));
         }
     }
+
+    [Fact]
+    public void document_type_ref_is_a_root_unless_it_names_one()
+    {
+        var root = new DocumentTypeRef("Vehicle", "vehicle", "public");
+        root.RootTypeName.ShouldBeNull();
+        root.IsSubClass.ShouldBeFalse();
+
+        var subClass = root with { TypeName = "Truck", RootTypeName = "Vehicle" };
+        subClass.IsSubClass.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A store compiled against an older JasperFx calls the three-argument constructor and
+    /// <c>Deconstruct</c>; growing the record positionally would break it at runtime (jasperfx#932).
+    /// </summary>
+    [Fact]
+    public void document_type_ref_keeps_its_positional_shape()
+    {
+        typeof(DocumentTypeRef).GetConstructor([typeof(string), typeof(string), typeof(string)]).ShouldNotBeNull();
+        typeof(DocumentTypeRef).GetMethod("Deconstruct")!.GetParameters().Length.ShouldBe(3);
+    }
 }

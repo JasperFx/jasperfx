@@ -438,6 +438,38 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         return (plain, truck, bus);
     }
 
+    /// <remarks>
+    /// The stores used to disagree here — Polecat listed sub-classes, Marten and Fisher did not — and a
+    /// store-agnostic picker could not tell which answer it had (jasperfx#932). Listed, each naming its
+    /// root, because the query side already honors a sub-class name.
+    /// </remarks>
+    [Fact]
+    public async Task document_types_list_sub_classes_under_their_root()
+    {
+        SkipUnlessHierarchies();
+
+        var types = (await Diagnostics.DocumentTypesAsync(Cancellation)).ToDictionary(x => x.TypeName);
+
+        types.ShouldContainKey(VehicleType);
+        types[VehicleType].RootTypeName.ShouldBeNull();
+        types[VehicleType].IsSubClass.ShouldBeFalse();
+
+        types.ShouldContainKey(TruckType);
+        types[TruckType].RootTypeName.ShouldBe(VehicleType);
+        types[TruckType].IsSubClass.ShouldBeTrue();
+
+        types.ShouldContainKey(BusType);
+        types[BusType].RootTypeName.ShouldBe(VehicleType);
+    }
+
+    [Fact]
+    public async Task document_types_mark_a_type_without_sub_classes_as_a_root()
+    {
+        var types = await Diagnostics.DocumentTypesAsync(Cancellation);
+
+        types.Single(x => x.TypeName == WidgetType).RootTypeName.ShouldBeNull();
+    }
+
     [Fact]
     public async Task naming_a_sub_class_returns_only_that_sub_class()
     {
