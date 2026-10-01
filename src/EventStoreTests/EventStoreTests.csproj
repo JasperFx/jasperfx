@@ -20,6 +20,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <None Include="ContractGrowth\abstract-interface-members.txt" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
         <ProjectReference Include="..\JasperFx\JasperFx.csproj"/>
         <!--

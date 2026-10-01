@@ -180,6 +180,20 @@ Core utilities are organized as static extension method classes in `src/JasperFx
 
 ---
 
+## Growing a Shipped Interface
+
+Marten, Polecat, Fisher and Wolverine implement JasperFx interfaces and declare an **open-ended** JasperFx range, so NuGet routinely resolves a store built against an older minor beside a newer JasperFx. A new **abstract** member on an interface they implement is invisible to restore and build, then throws `TypeLoadException` at startup (jasperfx#931: 2.77 did this to every released Marten).
+
+**Policy (jasperfx#933):**
+- In a minor release, a member added to an existing public interface carries a **default implementation**. It either answers what it can without the implementer (forward to an older member, as `IDocumentStoreDiagnostics.LoadDocumentAsync` does), or throws `NotSupportedException` naming `GetType()`.
+- New abstract members on existing interfaces wait for a major. A brand-new interface may be all-abstract.
+- Grow records through init-only members, not positional parameters, so older callers' constructor and `Deconstruct` stay put (`DocumentTypeRef.RootTypeName`).
+- The compliance suites, not the compiler, hold current stores to the real behavior.
+
+**Enforced by** `src/EventStoreTests/ContractGrowth/AbstractInterfaceMemberRatchetTests.cs` against `abstract-interface-members.txt`, which records every abstract member of every public interface in JasperFx and JasperFx.Events. Regenerate the record with `JASPERFX_UPDATE_CONTRACT_BASELINE=true` after adding a new interface (or, in a major, removing a member). Never regenerate it to silence a failure on an existing interface.
+
+---
+
 ## Naming Conventions
 
 | Pattern | Convention | Example |
