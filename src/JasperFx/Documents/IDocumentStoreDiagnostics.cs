@@ -39,6 +39,16 @@ namespace JasperFx.Documents;
 /// <c>FullNameInCode()</c>, and every member taking a <c>documentTypeName</c> accepts that spelling for
 /// both mapped roots and registered sub-classes. Stores may additionally accept the short name or alias.
 /// </para>
+/// <para>
+/// <b>Growing this contract (jasperfx#931, jasperfx#933).</b> A member added after the contract first
+/// shipped carries a default implementation. The stores implement this interface on their
+/// <c>DocumentStore</c>, and every store declares an open-ended JasperFx range, so a store build compiled
+/// against an older JasperFx is routinely loaded beside a newer one; a new abstract member turns that
+/// into a <see cref="TypeLoadException"/> at startup that restore and build never report. A default
+/// either answers the part that is answerable without the store, or throws
+/// <see cref="NotSupportedException"/> naming the implementing type, so only a caller of the new member
+/// fails. The shared compliance suite is what holds a current store to the real behavior.
+/// </para>
 /// </remarks>
 public interface IDocumentStoreDiagnostics
 {
@@ -53,7 +63,12 @@ public interface IDocumentStoreDiagnostics
     /// a lookup table. On every current store the <c>DocumentStore</c> implements both interfaces, and a
     /// single <c>Subject</c> property satisfies them together.
     /// </remarks>
-    Uri Subject { get; }
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store built against a JasperFx older than 2.77.
+    /// </exception>
+    Uri Subject
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnostics)}.{nameof(Subject)}, which was added in JasperFx 2.77. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.77 or later.");
 
     /// <summary>
     /// The mapped document types this store can query (CLR type name + table alias + schema), so a
@@ -81,7 +96,9 @@ public interface IDocumentStoreDiagnostics
     /// </summary>
     /// <remarks>
     /// Superseded by <see cref="LoadDocumentAsync"/>, which takes a tenant and returns metadata. The
-    /// default implementation forwards there, so a store implements the load once.
+    /// default implementation forwards there, so a store implements the load once. A store built against
+    /// a JasperFx older than 2.77 implements this member and not that one, and the default of
+    /// <see cref="LoadDocumentAsync"/> forwards back here for exactly that case.
     /// </remarks>
     async Task<string?> LoadDocumentJsonAsync(
         string documentTypeName, string id, CancellationToken token = default)
@@ -98,8 +115,62 @@ public interface IDocumentStoreDiagnostics
     /// <see cref="DocumentQueryOptions.TenantId"/>.
     /// </param>
     /// <param name="token">Cancellation.</param>
+    /// <remarks>
+    /// <para>
+    /// Added in JasperFx 2.77 and default-implemented so that a store built against an older JasperFx
+    /// still loads (jasperfx#931). Such a store implements the older <see cref="LoadDocumentJsonAsync"/>
+    /// instead, so the default answers the part that member can: a default-tenant load, forwarded to it
+    /// and returned as a <see cref="StoredDocument"/> carrying the JSON and no metadata. A tenant it
+    /// cannot honor throws <see cref="NotSupportedException"/> rather than silently reading the default
+    /// tenant.
+    /// </para>
+    /// <para>
+    /// The forward happens only when the store's own type implements <see cref="LoadDocumentJsonAsync"/>;
+    /// a store implementing neither member gets the exception, never a recursion between the two
+    /// defaults.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only: on a store that implements neither load, or when a tenant
+    /// is named on a store that only implements <see cref="LoadDocumentJsonAsync"/>.
+    /// </exception>
     Task<StoredDocument?> LoadDocumentAsync(
-        string documentTypeName, string id, string? tenantId, CancellationToken token = default);
+        string documentTypeName, string id, string? tenantId, CancellationToken token = default)
+    {
+        if (!implementsLegacyJsonLoad(GetType()))
+        {
+            throw new NotSupportedException(
+                $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnostics)}.{nameof(LoadDocumentAsync)}, which was added in JasperFx 2.77. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.77 or later.");
+        }
+
+        if (DocumentQueryOptions.NormalizeTenantId(tenantId) is { } tenant)
+        {
+            throw new NotSupportedException(
+                $"{GetType().FullName} was built against a JasperFx older than 2.77 and can only load a document from the default tenant, so it cannot load '{id}' for tenant '{tenant}'. Upgrade the store package to a version built against JasperFx 2.77 or later.");
+        }
+
+        return loadThroughLegacyJsonAsync(documentTypeName, id, token);
+    }
+
+    private async Task<StoredDocument?> loadThroughLegacyJsonAsync(
+        string documentTypeName, string id, CancellationToken token)
+    {
+        var json = await LoadDocumentJsonAsync(documentTypeName, id, token).ConfigureAwait(false);
+        return json is null ? null : new StoredDocument(id, json) { DocumentType = documentTypeName };
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Type, bool> _legacyJsonLoad = new();
+
+    /// <summary>
+    /// Whether <paramref name="type"/> supplies its own <see cref="LoadDocumentJsonAsync"/>, rather
+    /// than inheriting the default that forwards to <see cref="LoadDocumentAsync"/>.
+    /// </summary>
+    private static bool implementsLegacyJsonLoad(Type type) => _legacyJsonLoad.GetOrAdd(type, static t =>
+    {
+        var map = t.GetInterfaceMap(typeof(IDocumentStoreDiagnostics));
+        var index = Array.FindIndex(map.InterfaceMethods, m => m.Name == nameof(LoadDocumentJsonAsync));
+        return map.TargetMethods[index].DeclaringType != typeof(IDocumentStoreDiagnostics);
+    });
 }
 
 /// <summary>A queryable document type on a store: CLR type name, table alias, and schema.</summary>
