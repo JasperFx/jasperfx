@@ -88,8 +88,12 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
 
     Task<IReadOnlyList<DocumentTypeRef>> IDocumentStoreDiagnostics.DocumentTypesAsync(CancellationToken token)
         => Task.FromResult<IReadOnlyList<DocumentTypeRef>>(DocumentTypes
-            .Where(x => !SubClassRoots.ContainsKey(x))
-            .Select(x => new DocumentTypeRef(x.FullNameInCode(), x.Name.ToLowerInvariant(), "inmemory"))
+            .Concat(SubClassRoots.Keys)
+            .Distinct()
+            .Select(x => new DocumentTypeRef(x.FullNameInCode(), x.Name.ToLowerInvariant(), "inmemory")
+            {
+                RootTypeName = SubClassRoots.TryGetValue(x, out var root) ? root.FullNameInCode() : null
+            })
             .OrderBy(x => x.TypeName, StringComparer.Ordinal)
             .ToList());
 
