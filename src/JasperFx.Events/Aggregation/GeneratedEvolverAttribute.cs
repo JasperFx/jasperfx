@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace JasperFx.Events.Aggregation;
 
 /// <summary>
@@ -7,7 +9,11 @@ namespace JasperFx.Events.Aggregation;
 [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
 public class GeneratedEvolverAttribute : Attribute
 {
-    public GeneratedEvolverAttribute(Type aggregateType, Type evolverType)
+    // EvolverType is annotated so the trimmer keeps the generated evolver's constructors. The evolver is a
+    // `file`-scoped class, so an application cannot root it itself, and the runtime constructs it reflectively.
+    // Without the annotation a Native AOT publish strips the constructors. See #940.
+    public GeneratedEvolverAttribute(Type aggregateType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type evolverType)
     {
         AggregateType = aggregateType;
         EvolverType = evolverType;
@@ -20,13 +26,16 @@ public class GeneratedEvolverAttribute : Attribute
     /// projection (or no-op projection) that happens to share the aggregate type. Self-aggregating
     /// evolvers leave <see cref="ProjectionType"/> null and bind by aggregate type alone. See #462.
     /// </summary>
-    public GeneratedEvolverAttribute(Type aggregateType, Type evolverType, Type projectionType)
+    public GeneratedEvolverAttribute(Type aggregateType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type evolverType,
+        Type projectionType)
         : this(aggregateType, evolverType)
     {
         ProjectionType = projectionType;
     }
 
     public Type AggregateType { get; }
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
     public Type EvolverType { get; }
 
     /// <summary>
