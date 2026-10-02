@@ -54,6 +54,7 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
     private readonly IEventDatabase _database;
     private readonly Block<EventRange> _executionBlock;
     private readonly ILogger _logger;
+    private volatile bool _draining;
 
 
     public SubscriptionExecutionBase(IEventDatabase database, ShardName name, ILogger logger)
@@ -153,8 +154,17 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
 
     public async Task StopAndDrainAsync(CancellationToken token)
     {
-        await _executionBlock.WaitForCompletionAsync().ConfigureAwait(false);
-        await _cancellation.CancelAsync().ConfigureAwait(false);
+        // Queued ranges are left to whoever runs the shard next, from the progression the in-flight range marks
+        _draining = true;
+
+        try
+        {
+            await _executionBlock.WaitForCompletionAsync().WaitAsync(token).ConfigureAwait(false);
+        }
+        finally
+        {
+            await _cancellation.CancelAsync().ConfigureAwait(false);
+        }
     }
 
     public async Task HardStopAsync()
@@ -173,7 +183,7 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
 
     private async Task executeRange(EventRange range, CancellationToken _)
     {
-        if (_cancellation.IsCancellationRequested)
+        if (_draining || _cancellation.IsCancellationRequested)
         {
             return;
         }
@@ -189,6 +199,12 @@ public abstract class SubscriptionExecutionBase : ISubscriptionExecution, IHasLo
             var mode = range.Agent.SideEffectsSuppressed ? ShardExecutionMode.Rebuild : Mode;
 
             await executeRangeAsync(_database, range, mode, _cancellation.Token);
+
+            // A timed-out drain or a hard stop already reported the shard stopped; a late range must not undo that
+            if (_cancellation.IsCancellationRequested)
+            {
+                return;
+            }
 
             await range.Agent.MarkSuccessAsync(range.SequenceCeiling);
 
