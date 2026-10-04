@@ -55,14 +55,20 @@ public class ResilientEventLoader : IEventLoader
         _database = database;
     }
 
-    public Task<EventPage> LoadAsync(EventRequest request, CancellationToken token)
+    public async Task<EventPage> LoadAsync(EventRequest request, CancellationToken token)
     {
         try
         {
             var execution = new EventLoadExecution(request, _inner);
-            return _pipeline.ExecuteAsync(static (x, t) => x.ExecuteAsync(t), execution, token).AsTask();
+
+            // Awaited inside the try so that asynchronous failures -- the query, the connection, the
+            // retries running out -- are wrapped too, not only synchronous ones (jasperfx#948)
+            return await _pipeline.ExecuteAsync(static (x, t) => x.ExecuteAsync(t), execution, token)
+                .ConfigureAwait(false);
         }
-        catch (Exception e)
+        // A cancellation of the caller's own token is shutdown, not a load failure. It stays a bare
+        // OperationCanceledException because daemon teardown paths catch exactly that type
+        catch (Exception e) when (!(e is OperationCanceledException && token.IsCancellationRequested))
         {
             throw new EventLoaderException(request.Name, _database, e);
         }
