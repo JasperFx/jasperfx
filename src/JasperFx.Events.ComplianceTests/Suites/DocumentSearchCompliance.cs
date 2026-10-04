@@ -24,6 +24,8 @@ namespace JasperFx.Events.ComplianceTests;
 /// <list type="bullet">
 ///   <item>nearest comes first, and the score is a DISTANCE on every metric</item>
 ///   <item>the store's own implicit predicates apply, exactly as they do to <c>Query&lt;T&gt;()</c></item>
+///   <item>a search for a SUB-CLASS of a hierarchy returns only that sub-class, and one for the
+///   root returns the whole hierarchy</item>
 ///   <item>a filter narrows BEFORE the limit, so the result is the top-k of the filtered set</item>
 ///   <item>a type with no declared index is refused rather than answered wrongly</item>
 ///   <item>the document-only form is the scored form's documents, in the same order</item>
@@ -34,6 +36,15 @@ namespace JasperFx.Events.ComplianceTests;
 /// outright, and neither Marten.PgVector search had a soft-delete predicate while Polecat and Fisher
 /// both did. A capability every store is assumed to share, with nothing shared holding any of them to
 /// it, is exactly where these live.
+/// </para>
+/// <para>
+/// ⚠️ <b>The hierarchy facts were added after the suite shipped WITHOUT them, and every store
+/// enrolled was wrong.</b> fisher#285 had already named the hierarchy filter as missing and the
+/// suite still went out with no fact for it; Polecat then found the same thing independently on all
+/// three of its search surfaces (polecat#723) and Marten on vector search (marten#5440). A search
+/// returns its rows deserialized as the <c>T</c> that was asked for, so an unfiltered scan of a
+/// shared hierarchy table does not merely include the siblings — it materializes them as the
+/// sub-class the caller named. Naming a gap in a remark is not covering it.
 /// </para>
 /// <para>
 /// <b>The embeddings are hand-written, not generated.</b> A suite that called a model would be
@@ -50,6 +61,14 @@ public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageCompli
         config.AddDocumentType<ComplianceMemory>();
         config.AddVectorIndex<ComplianceMemory>(nameof(ComplianceMemory.Embedding), 3);
         config.AddFullTextIndex<ComplianceMemory>(nameof(ComplianceMemory.Body));
+
+        // The declarations above are on the ROOT, and that is the point: a sub-class shares its
+        // root's table, so it shares the index — and a store routes a sub-class search to the root's
+        // provider, which is how the discriminator came to be left off. Gated on
+        // SupportsDocumentHierarchies; a fixture that drops the replay gives each sub-class its own
+        // table and these facts fail rather than skip.
+        config.AddSubClass<ComplianceMemory, ComplianceExcerpt>();
+        config.AddSubClass<ComplianceMemory, ComplianceDigest>();
     };
 
     protected override Action<DocumentComplianceConfig> Configuration => _configuration;
@@ -293,5 +312,134 @@ public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageCompli
             x => x.Embedding, "fox", TowardsAlpha, limit: 3, token: Cancellation);
 
         documents.Select(x => x.Id).ShouldBe(scored.Select(x => x.Document.Id));
+    }
+
+    // ---- hierarchies ---------------------------------------------------------------------------
+
+    private static readonly Guid PlainMemoryId = Guid.NewGuid();
+    private static readonly Guid ExcerptId = Guid.NewGuid();
+    private static readonly Guid DigestId = Guid.NewGuid();
+
+    /// <summary>
+    /// One row of each type in the hierarchy, every body carrying the term, and the embeddings
+    /// ordered so the row NEAREST <see cref="TowardsAlpha" /> is the Digest — a SIBLING of the
+    /// Excerpt the facts search for, which is the furthest of the three.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ Arranged that way deliberately. A store with no discriminator predicate does not return
+    /// the right document plus some extras — it returns the WRONG document first, as the sub-class
+    /// that was asked for, with that sub-class's own members at their defaults.
+    /// </remarks>
+    private async Task theHierarchyAsync()
+    {
+        await using var session = LightweightSession();
+
+        session.Store(new ComplianceMemory
+        {
+            Id = PlainMemoryId, Body = "the fox waits", Scope = "wanted", Embedding = [0.9f, 0.1f, 0f]
+        });
+        session.Store(new ComplianceExcerpt
+        {
+            Id = ExcerptId, Body = "a fox excerpt", Scope = "wanted", Source = "archive",
+            Embedding = [0f, 1f, 0f]
+        });
+        session.Store(new ComplianceDigest
+        {
+            Id = DigestId, Body = "fox digest", Scope = "wanted", Period = "weekly",
+            Embedding = [1f, 0f, 0f]
+        });
+
+        await session.SaveChangesAsync(Cancellation);
+    }
+
+    private void SkipUnlessHierarchies()
+        => Assert.SkipUnless(theFixture.SupportsDocumentHierarchies,
+            "This fixture does not replay DocumentComplianceConfig.SubClasses.");
+
+    [Fact]
+    public async Task a_vector_search_for_a_sub_class_returns_only_that_sub_class()
+    {
+        Assert.SkipUnless(theFixture.SupportsVectorSearch,
+            "This store does not implement IDocumentReadOperations.Search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+        var hits = await query.Search.VectorSearchWithScoresAsync<ComplianceExcerpt>(
+            x => x.Embedding, TowardsAlpha, limit: 10, token: Cancellation);
+
+        // ⚠️ The id assertion and the member assertion are two different failures. Without the
+        // discriminator a store returns three rows here, nearest first — so the id check catches the
+        // over-wide scan — and every one of them is an Excerpt instance, so the member check is what
+        // catches a row of the wrong type that happens to have the right id.
+        hits.Select(x => x.Document.Id).ShouldBe([ExcerptId]);
+        hits.Single().Document.Source.ShouldBe("archive");
+    }
+
+    [Fact]
+    public async Task a_vector_search_for_the_root_returns_the_whole_hierarchy()
+    {
+        Assert.SkipUnless(theFixture.SupportsVectorSearch,
+            "This store does not implement IDocumentReadOperations.Search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+        var hits = await query.Search.VectorSearchWithScoresAsync<ComplianceMemory>(
+            x => x.Embedding, TowardsAlpha, limit: 10, token: Cancellation);
+
+        // The root means the whole hierarchy, nearest first — the counterpart to the fact above,
+        // and what stops a store satisfying it by filtering to the root's own alias.
+        //
+        // ⚠️ Deliberately silent on the CLR TYPE of each row. Whether a root search resolves each
+        // row to its concrete type the way Query&lt;TRoot&gt;() does is a separate question with a
+        // different blast radius (marten#5440, polecat#723 point 3) and no store answers it yet, so
+        // pinning it here would fail every store over a decision none of them has made.
+        hits.Select(x => x.Document.Id).ShouldBe([DigestId, PlainMemoryId, ExcerptId]);
+    }
+
+    [Fact]
+    public async Task a_hybrid_search_for_a_sub_class_returns_only_that_sub_class()
+    {
+        Assert.SkipUnless(theFixture.SupportsHybridSearch,
+            "This store does not implement hybrid search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+        var hits = await query.Search.HybridSearchWithScoresAsync<ComplianceExcerpt>(
+            x => x.Embedding, "fox", TowardsAlpha, limit: 10, token: Cancellation);
+
+        // Both legs read the same table, so a discriminator on only one of them lets the siblings
+        // back in through the other — the same reasoning as the filter reaching both legs.
+        hits.Select(x => x.Document.Id).ShouldBe([ExcerptId]);
+        hits.Single().Document.Source.ShouldBe("archive");
+    }
+
+    [Fact]
+    public async Task a_sub_class_search_still_takes_a_filter()
+    {
+        Assert.SkipUnless(theFixture.SupportsVectorSearch,
+            "This store does not implement IDocumentReadOperations.Search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+
+        // The discriminator is ANDed with the caller's predicate rather than replacing it, and the
+        // predicate can name the SUB-CLASS's own members.
+        var none = await query.Search.VectorSearchWithScoresAsync<ComplianceExcerpt>(
+            x => x.Embedding, TowardsAlpha, limit: 10,
+            filter: x => x.Source == "nothing-has-this", token: Cancellation);
+        none.ShouldBeEmpty();
+
+        var one = await query.Search.VectorSearchWithScoresAsync<ComplianceExcerpt>(
+            x => x.Embedding, TowardsAlpha, limit: 10,
+            filter: x => x.Source == "archive", token: Cancellation);
+        one.Select(x => x.Document.Id).ShouldBe([ExcerptId]);
     }
 }
