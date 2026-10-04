@@ -352,7 +352,55 @@ public sealed class DocumentComplianceConfig
         NumericRevisionTypes.Add(typeof(T));
         return this;
     }
+
+    /// <summary>
+    /// Document members a suite asked the store to treat as the concurrency version, named through
+    /// the store's own metadata mapping — Marten's and Polecat's
+    /// <c>Schema.For&lt;T&gt;().Metadata(m =&gt; m.Version.MapTo(x =&gt; x.Member))</c> — rather than
+    /// through a marker interface (polecat#720).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the decision <see cref="NumericRevisionTypes" /> left open.</b> Those remarks record
+    /// that jasperfx#819 §2 could not become a suite because "the declared route has no document
+    /// member… what a suite would additionally need is a way to say which member is the revision,
+    /// which is a decision rather than an omission." This is that seam, and the member's own CLR type
+    /// settles which kind of concurrency is being named: <see cref="Guid" /> is the optimistic guard,
+    /// <see cref="int" /> and <see cref="long" /> are revisions.
+    /// </para>
+    /// <para>
+    /// A member <em>name</em> rather than an expression, matching
+    /// <see cref="FullTextIndexDeclaration" />: each store spells the mapping with its own
+    /// expression type, so the fixture builds the lambda and the suite stays store-neutral.
+    /// </para>
+    /// <para>
+    /// Gated by <see cref="DocumentStorageComplianceFixture.SupportsMappedConcurrencyMember" />, which
+    /// defaults false. A fixture that drops this declaration therefore skips the facts rather than
+    /// failing them — the opposite of <see cref="OptimisticConcurrencyTypes" />, and deliberately so:
+    /// there, every store under test already had the behavior and a dropped declaration meant a
+    /// mis-wired fixture; here the mapped route is a capability a store may simply not offer.
+    /// </para>
+    /// </remarks>
+    public List<MappedVersionDeclaration> MappedVersionMembers { get; } = new();
+
+    /// <inheritdoc cref="MappedVersionMembers" />
+    /// <param name="memberName">
+    /// The document member the version column is mapped onto. Its CLR type names the mode.
+    /// </param>
+    public DocumentComplianceConfig MapVersionTo<T>(string memberName) where T : notnull
+    {
+        MappedVersionMembers.Add(new MappedVersionDeclaration(typeof(T), memberName));
+        return this;
+    }
 }
+
+/// <summary>
+/// One document member a suite needs mapped as the concurrency version. See
+/// <see cref="DocumentComplianceConfig.MappedVersionMembers" />.
+/// </summary>
+/// <param name="DocumentType">The document the mapping is declared on.</param>
+/// <param name="MemberName">The member the version column is mapped onto.</param>
+public sealed record MappedVersionDeclaration(Type DocumentType, string MemberName);
 
 /// <summary>
 /// One vector index a suite needs declared. See <see cref="DocumentComplianceConfig.VectorIndexes" />.

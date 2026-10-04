@@ -66,6 +66,27 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
     /// </remarks>
     public HashSet<Type> OptimisticConcurrencyTypes { get; } = new();
 
+    /// <summary>
+    /// Document members declared as the concurrency version through the store's own metadata mapping
+    /// rather than through <see cref="IVersioned" /> — the replay of
+    /// <see cref="DocumentComplianceConfig.MappedVersionMembers" /> (polecat#720).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Implemented here rather than left for the products for the jasperfx#903 reason, which that
+    /// issue paid for the hard way: a fact that skips everywhere it could be run is a fact nobody has
+    /// checked. The mapped route is where this exact field has now been found broken four times
+    /// (fisher#245, marten#5372, polecat#592, polecat#720) — including twice after a shared suite
+    /// existed for the marker-interface half — so a reference store that cannot exercise it leaves
+    /// the new facts in precisely the state that produced those four.
+    /// </para>
+    /// <para>
+    /// A <see cref="MemberInfo" /> per type: the member's own CLR type is what names the mode, which
+    /// is the rule Polecat adopted and the one the suite's documentation states.
+    /// </para>
+    /// </remarks>
+    public Dictionary<Type, MemberInfo> MappedVersionMembers { get; } = new();
+
     public InMemoryDocumentSession LightweightSession() => new(this, StorageConstants.DefaultTenantId);
 
     public InMemoryDocumentSession QuerySession() => new(this, StorageConstants.DefaultTenantId);
@@ -306,22 +327,60 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     private void guardVersion<T>(
         T entity, ConcurrentDictionary<object, object> storage, object id, bool existed) where T : notnull
     {
-        if (entity is not IVersioned versioned) return;
         if (!_store.OptimisticConcurrencyTypes.Contains(typeof(T))) return;
 
-        if (existed && storage[id] is IVersioned stored)
+        // polecat#720: the marker interface first, then a member the configuration named. Reading the
+        // version through one accessor rather than two branches is the point -- the four independent
+        // sightings of this bug are all a second code path that forgot to ask.
+        var member = _store.MappedVersionMembers.GetValueOrDefault(typeof(T));
+        if (entity is not IVersioned && member is null) return;
+
+        var expected = VersionOf(entity, member);
+
+        if (existed && storage[id] is { } raw)
         {
             // A non-empty version is a claim about what the caller believes is stored. If it is wrong,
             // the write is refused and the stored row stands untouched -- asserted by
             // a_stale_instance_is_refused_and_the_winner_stands.
-            if (versioned.Version != Guid.Empty && versioned.Version != stored.Version)
+            if (expected != Guid.Empty && expected != VersionOf(raw, member))
             {
                 throw new ConcurrencyException(typeof(T), id);
             }
         }
 
         // The write-back. Mutating the caller's instance is the contract, not a convenience.
-        versioned.Version = Guid.NewGuid();
+        ApplyVersion(entity, member, Guid.NewGuid());
+    }
+
+    private static Guid VersionOf(object entity, MemberInfo? member)
+        => entity switch
+        {
+            IVersioned versioned => versioned.Version,
+            _ => member switch
+            {
+                PropertyInfo property => (Guid)(property.GetValue(entity) ?? Guid.Empty),
+                FieldInfo field => (Guid)(field.GetValue(entity) ?? Guid.Empty),
+                _ => Guid.Empty
+            }
+        };
+
+    private static void ApplyVersion(object entity, MemberInfo? member, Guid version)
+    {
+        if (entity is IVersioned versioned)
+        {
+            versioned.Version = version;
+            return;
+        }
+
+        switch (member)
+        {
+            case PropertyInfo property:
+                property.SetValue(entity, version);
+                break;
+            case FieldInfo field:
+                field.SetValue(entity, version);
+                break;
+        }
     }
 
     public void Delete<T>(T entity) where T : notnull

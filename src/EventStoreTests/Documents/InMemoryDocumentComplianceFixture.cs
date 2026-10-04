@@ -1,3 +1,4 @@
+using System.Reflection;
 using JasperFx.Documents;
 using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
@@ -52,6 +53,24 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
             _store.OptimisticConcurrencyTypes.Add(type);
         }
 
+        // polecat#720 — the same guard reached through a member the configuration names. The products
+        // spell this Schema.For<T>().Metadata(m => m.Version.MapTo(x => x.Member)); here the member
+        // name resolves straight to its MemberInfo, which is all the store needs.
+        _store.MappedVersionMembers.Clear();
+        foreach (var declaration in config.MappedVersionMembers)
+        {
+            var member = (MemberInfo?)declaration.DocumentType.GetProperty(declaration.MemberName)
+                         ?? declaration.DocumentType.GetField(declaration.MemberName);
+            if (member is null)
+            {
+                throw new InvalidOperationException(
+                    $"Document type '{declaration.DocumentType.FullName}' has no member named " +
+                    $"'{declaration.MemberName}' to map the version column onto.");
+            }
+
+            _store.MappedVersionMembers[declaration.DocumentType] = member;
+        }
+
         // Document types, soft deletes and hierarchies (jasperfx#870): what the diagnostics surface is
         // defined over. The products spell these Schema.For<T>().SoftDeleted() and
         // Schema.For<TRoot>().AddSubClass<TSub>().
@@ -101,6 +120,14 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
     /// why this is worth implementing in a test double.
     /// </summary>
     public override bool SupportsOptimisticConcurrency => true;
+
+    /// <summary>
+    /// True from the suite's first release, deliberately. polecat#720 is the fourth independent
+    /// sighting of this field, and two of those came <em>after</em> a shared suite existed for the
+    /// marker-interface half — so landing the mapped facts in the state that produced them (gated
+    /// false everywhere, never executed) would repeat jasperfx#903 knowingly.
+    /// </summary>
+    public override bool SupportsMappedConcurrencyMember => true;
 
     /// <inheritdoc />
     /// <remarks>

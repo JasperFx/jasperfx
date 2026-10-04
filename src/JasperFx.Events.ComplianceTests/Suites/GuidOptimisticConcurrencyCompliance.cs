@@ -78,6 +78,13 @@ public abstract class GuidOptimisticConcurrencyCompliance<TFixture> : DocumentSt
         config.AddDocumentType<ComplianceShipment>();
         config.UseOptimisticConcurrency<ComplianceShipment>();
 
+        // polecat#720 — the same guard, reached through a member the configuration names instead of
+        // through IVersioned. Declared unconditionally: a fixture that drops MapVersionTo gets a
+        // plain document type and the facts below skip on SupportsMappedConcurrencyMember.
+        config.AddDocumentType<CompliancePallet>();
+        config.UseOptimisticConcurrency<CompliancePallet>();
+        config.MapVersionTo<CompliancePallet>(nameof(CompliancePallet.Etag));
+
         // The control. A type with no version member shares the store and must be untouched by any
         // of this.
         config.AddDocumentType<ComplianceWidget>();
@@ -89,6 +96,13 @@ public abstract class GuidOptimisticConcurrencyCompliance<TFixture> : DocumentSt
     {
         Assert.SkipUnless(theFixture.SupportsOptimisticConcurrency,
             "This document store does not implement Guid optimistic concurrency");
+    }
+
+    private void SkipUnlessMappedMemberSupported()
+    {
+        SkipUnlessSupported();
+        Assert.SkipUnless(theFixture.SupportsMappedConcurrencyMember,
+            "This document store does not let a document name its concurrency version through its metadata mapping");
     }
 
     /// <summary>
@@ -283,5 +297,150 @@ public abstract class GuidOptimisticConcurrencyCompliance<TFixture> : DocumentSt
         var widget = await final.LoadAsync<ComplianceWidget>(id, Cancellation);
         widget.ShouldNotBeNull();
         widget.Weight.ShouldBe(9);
+    }
+
+    // ---- the mapped member (polecat#720) ----
+    //
+    // The same three facts as above, over a type whose version member is named by the configuration
+    // rather than by IVersioned. They are not a restatement: the marker-interface route and the
+    // mapped route are separate code paths in every store that offers both, and the mapped one has
+    // now been found broken independently in two of them. Keeping the pairing — "a cross-session
+    // write succeeds" beside "a stale write is still refused" — for the same reason the marker facts
+    // keep it: seeding nothing passes one half and fails the other.
+
+    private async Task StoreAsync(CompliancePallet pallet)
+    {
+        await using var session = LightweightSession();
+        session.Store(pallet);
+        await session.SaveChangesAsync(Cancellation);
+    }
+
+    private async Task<CompliancePallet> LoadPalletAsync(Guid id)
+    {
+        await using var query = QuerySession();
+        var loaded = await query.LoadAsync<CompliancePallet>(id, Cancellation);
+        loaded.ShouldNotBeNull();
+        return loaded;
+    }
+
+    private async Task<Guid> APalletAsync()
+    {
+        var id = Guid.NewGuid();
+        await StoreAsync(new CompliancePallet { Id = id, Carrier = "Acme", Status = "draft" });
+        return id;
+    }
+
+    /// <summary>
+    /// The baseline, and on its own the fact that says the mapping is wired at all: the store stamps
+    /// the mapped member on write and projects it back on load. A store that guards the column
+    /// correctly but never touches the member passes nothing below this line.
+    /// </summary>
+    [Fact]
+    public async Task a_mapped_version_member_is_stamped_and_read_back()
+    {
+        SkipUnlessMappedMemberSupported();
+
+        var id = await APalletAsync();
+
+        var stored = await LoadPalletAsync(id);
+        stored.Carrier.ShouldBe("Acme");
+        stored.Etag.ShouldNotBe(Guid.Empty,
+            "The store committed a document whose version is mapped onto a member and left that member at its default, so a later write has nothing to be guarded against.");
+    }
+
+    /// <summary>
+    /// <b>The fact polecat#720 was filed on, and marten#5384 before it.</b> A document loaded in one
+    /// session and stored through another succeeds. The seeding path consults the marker interfaces
+    /// and nothing else, so a mapped member is invisible at exactly the moment it matters: the guard
+    /// binds nothing, the matched branch never fires, and the write comes back refused — every time,
+    /// on an unmodified row.
+    /// </summary>
+    [Fact]
+    public async Task a_mapped_version_document_loaded_in_one_session_can_be_stored_through_another()
+    {
+        SkipUnlessMappedMemberSupported();
+
+        var id = await APalletAsync();
+
+        var loaded = await LoadPalletAsync(id);
+
+        loaded.Status = "shipped";
+        await StoreAsync(loaded);
+
+        (await LoadPalletAsync(id)).Status.ShouldBe("shipped");
+    }
+
+    /// <summary>
+    /// <b>The twin.</b> Without it, the cheap fix for the fact above — stop guarding a mapped type —
+    /// passes, and the mapping becomes decoration.
+    /// </summary>
+    [Fact]
+    public async Task a_stale_mapped_version_is_refused_and_the_winner_stands()
+    {
+        SkipUnlessMappedMemberSupported();
+
+        var id = await APalletAsync();
+
+        var first = await LoadPalletAsync(id);
+        var second = await LoadPalletAsync(id);
+
+        first.Status = "shipped";
+        await StoreAsync(first);
+
+        second.Status = "cancelled";
+        await Should.ThrowAsync<ConcurrencyException>(() => StoreAsync(second));
+
+        (await LoadPalletAsync(id)).Status.ShouldBe("shipped");
+    }
+
+    /// <summary>
+    /// A new instance still inserts. <see cref="Guid.Empty" /> on a mapped member means "never
+    /// stored", exactly as it does on <see cref="IVersioned.Version" />, and must stay unseeded —
+    /// the insert branch has no prior version to guard on, so seeding the zero turns every create
+    /// into a refusal.
+    /// </summary>
+    /// <remarks>
+    /// Carried separately from <see cref="a_mapped_version_member_is_stamped_and_read_back" />
+    /// because it is the half a store breaks when it fixes the cross-session fact by seeding the
+    /// mapped member unconditionally — which is the obvious fix, and wrong.
+    /// </remarks>
+    [Fact]
+    public async Task a_new_instance_with_a_default_mapped_version_still_inserts()
+    {
+        SkipUnlessMappedMemberSupported();
+
+        var pallet = new CompliancePallet { Id = Guid.NewGuid(), Carrier = "Beta", Status = "new" };
+        pallet.Etag.ShouldBe(Guid.Empty);
+
+        await StoreAsync(pallet);
+
+        (await LoadPalletAsync(pallet.Id)).Carrier.ShouldBe("Beta");
+    }
+
+    /// <summary>
+    /// A successful write moves the mapped member on, so the same instance can be stored again
+    /// without tripping its own guard — the mapped twin of
+    /// <see cref="a_successful_write_moves_the_instances_own_version_on" />.
+    /// </summary>
+    [Fact]
+    public async Task a_successful_write_moves_the_mapped_member_on()
+    {
+        SkipUnlessMappedMemberSupported();
+
+        var id = await APalletAsync();
+
+        var pallet = await LoadPalletAsync(id);
+        var loadedEtag = pallet.Etag;
+
+        pallet.Status = "shipped";
+        await StoreAsync(pallet);
+
+        pallet.Etag.ShouldNotBe(loadedEtag,
+            "The store committed a write without moving the mapped version member on, so storing the same instance again guards on a version that is no longer current.");
+
+        pallet.Status = "delivered";
+        await StoreAsync(pallet);
+
+        (await LoadPalletAsync(id)).Status.ShouldBe("delivered");
     }
 }

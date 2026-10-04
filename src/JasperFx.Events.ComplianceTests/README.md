@@ -879,6 +879,29 @@ store whose escape is really "drop the tenant filter" satisfies the `AnyTenant` 
 then hands `TenantIsOneOf` every tenant's rows as well, so the narrow case only has teeth measured
 against the wide one in the same arrangement.
 
+`GuidOptimisticConcurrencyCompliance` carries a **second route to the same guard**, added by
+polecat#720: a document whose version member is named by the store's own metadata mapping
+(`Schema.For<T>().Metadata(m => m.Version.MapTo(x => x.Etag))`) rather than by `IVersioned`. It is
+opt-in through `SupportsMappedConcurrencyMember` (default **false**) and declared through
+`config.MapVersionTo<T>(memberName)` — a member *name* rather than an expression, because each store
+spells the mapping with its own expression type.
+
+This is the decision `DocumentComplianceConfig.NumericRevisionTypes`' remarks left open. Those
+recorded that jasperfx#819 §2 could not become a suite because the declared route "has no document
+member… what a suite would additionally need is a way to say which member is the revision, which is a
+decision rather than an omission." This is that seam.
+
+**Why it earns five more facts rather than a note.** This one field has now been found broken four
+times independently — fisher#245, marten#5372, polecat#592, polecat#720 — and *two of those came
+after* a shared suite existed for the marker-interface half. The marker route and the mapped route
+are separate code paths in every store that offers both, so a store can be perfectly green on the
+five original facts with the mapped route wired to nothing. That is exactly what polecat#720 was, and
+what marten#5384 (superseding marten#5372) is. Hence a separate gate: folding it into
+`SupportsOptimisticConcurrency` would let the whole mapped route ride in on the marker's green.
+
+The reference store implements it, so the facts run here rather than skipping everywhere — the
+jasperfx#903 lesson applied in advance rather than after the fact.
+
 ⚠️ **The Guid concurrency fact is a cautionary tale worth reading before writing a tenanted
 variant of any other suite's fact** (jasperfx#903). As shipped in 2.75.0 it asserted a refusal no
 correct store could produce: it advanced tenant A's row by storing a loaded instance, then re-stored
