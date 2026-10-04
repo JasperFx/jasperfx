@@ -1,6 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
-using FastExpressionCompiler;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Tags;
 
@@ -232,33 +230,10 @@ public interface IEvent
     {
         if (typeof(TId) == typeof(Guid)) return e => e.StreamId.As<TId>();
         if (typeof(TId) == typeof(string)) return e => e.StreamKey!.As<TId>();
-        
-        var valueTypeInfo = ValueTypeInfo.ForType(typeof(TId));
-        
-        var e = Expression.Parameter(typeof(IEvent), "e");
-        var eMember = valueTypeInfo.SimpleType == typeof(Guid)
-            ? ReflectionHelper.GetProperty<IEvent>(x => x.StreamId)
-            : ReflectionHelper.GetProperty<IEvent>(x => x.StreamKey!);
 
-        var raw = Expression.Call(e, eMember.GetMethod!);
-        Expression? wrapped = null;
-        if (valueTypeInfo.Builder != null)
-        {
-            wrapped = Expression.Call(null, valueTypeInfo.Builder, raw);
-        }
-        else if (valueTypeInfo.Ctor != null)
-        {
-            wrapped = Expression.New(valueTypeInfo.Ctor, raw);
-        }
-        else
-        {
-            throw new NotSupportedException("Cannot build a type converter for strong typed id type " +
-                                            valueTypeInfo.OuterType.FullNameInCode());
-        }
-
-        var lambda = Expression.Lambda<Func<IEvent, TId>>(wrapped, e);
-
-        return lambda.CompileFast();
+        // GH-950: composed from ValueTypeInfo.CreateWrapper, which falls back to reflection under
+        // Native AOT, rather than compiling an expression tree of its own.
+        return Internals.StrongTypedIdentitySource.For<IEvent, TId>(e => e.StreamId, e => e.StreamKey!);
     }
     
     /// <summary>
