@@ -240,3 +240,31 @@ public class ComplianceBus : ComplianceVehicle
 {
     public int Seats { get; set; }
 }
+
+/// <summary>
+/// A sub-class of <see cref="ComplianceMemory" />, so the search suite can ask what a search for a
+/// SUB-CLASS means over a shared hierarchy table (jasperfx#944, polecat#723, marten#5440).
+/// </summary>
+/// <remarks>
+/// ⚠️ <b><see cref="Source" /> is what makes the bug observable, and a count assertion would miss
+/// it.</b> A search returns its rows materialized as the <c>T</c> that was asked for, so a store
+/// scanning the hierarchy table without a discriminator predicate does not merely include the
+/// siblings — it hands them back AS this type, with this member at its default. Both found
+/// instances of that (Polecat on all three search surfaces, Marten on vector search) were found
+/// by reading rather than by a test, because every store's own search tests use a flat type.
+/// </remarks>
+public class ComplianceExcerpt : ComplianceMemory
+{
+    /// <summary>Set on every persisted excerpt; default on a row of the wrong type.</summary>
+    public string Source { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// A second sub-class of <see cref="ComplianceMemory" />, so "only the requested sub-class" has a
+/// SIBLING to exclude and not merely the base type. The sibling is the sharper case: it is the one
+/// the corpus puts NEAREST the query vector.
+/// </summary>
+public class ComplianceDigest : ComplianceMemory
+{
+    public string Period { get; set; } = string.Empty;
+}

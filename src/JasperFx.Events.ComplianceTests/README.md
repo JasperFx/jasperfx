@@ -995,10 +995,27 @@ search had a soft-delete predicate where Polecat and Fisher both did. The suite 
 `IDocumentReadOperations.Search` carries a throwing default — a store that has not implemented search
 compiles and throws, which is exactly what a capability gate is for.
 
-Note the one thing a fixture must do beyond flipping the flag: replay
-`DocumentComplianceConfig.VectorIndexes` and `FullTextIndexes`. A vector search reads a **declared**
-index, and every store spells that declaration on its own options object, so a fixture that ignores
-the declaration fails every fact rather than skipping — the jasperfx#672 rule again.
+⚠️ **The hierarchy facts are the cautionary half of that paragraph.** The suite cited fisher#285's
+missing hierarchy filter as a reason to exist and then shipped with no fact for it — and every store
+enrolled turned out to be wrong: Polecat on all three of its search surfaces (polecat#723), Marten on
+vector search (marten#5440), each found by reading rather than by a test, because every store's own
+search tests use a flat document type. A search returns its rows deserialized as the `T` the caller
+asked for, so an unfiltered scan of a shared hierarchy table does not merely include the siblings, it
+**materializes them as the sub-class that was named** — which is why those facts assert the
+sub-class's own member and not only the row count. Naming a gap in a remark is not covering it.
+
+Note the two things a fixture must do beyond flipping the flag: replay
+`DocumentComplianceConfig.VectorIndexes` and `FullTextIndexes`, and — for the hierarchy facts —
+replay `config.SubClasses` and flip `SupportsDocumentHierarchies`, the same seam
+`DocumentStoreDiagnosticsCompliance` uses. A vector search reads a **declared** index, and every
+store spells that declaration on its own options object, so a fixture that ignores the declaration
+fails every fact rather than skipping — the jasperfx#672 rule again.
+
+The one thing the hierarchy facts deliberately stay silent on is the **CLR type of each row a ROOT
+search returns**. `Query<TRoot>()` resolves each row through its discriminator to its concrete type;
+no store's search path does, and whether it should is a separate decision with a different blast
+radius (marten#5440's other half, polecat#723 point 3). Pinning it here would fail every store over a
+question none of them has answered.
 
 Session semantics *are* now in scope, via the document contract above. The rest of the document-db
 side — patching, bulk insert, LINQ joins / grouping / `Include`, soft-delete semantics, document
