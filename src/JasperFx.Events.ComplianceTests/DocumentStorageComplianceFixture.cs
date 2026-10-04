@@ -128,6 +128,34 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     public virtual bool SupportsOptimisticConcurrency => false;
 
     /// <summary>
+    /// Does this store let a document name its concurrency version through its own metadata mapping —
+    /// <c>Metadata(m =&gt; m.Version.MapTo(x =&gt; x.Member))</c> — rather than through
+    /// <see cref="JasperFx.Metadata.IVersioned" />? Gates the mapped-member facts in
+    /// <see cref="GuidOptimisticConcurrencyCompliance{TFixture}" /> (polecat#720).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Separate from <see cref="SupportsOptimisticConcurrency" /> because it is a separate claim. A
+    /// store can implement the guard perfectly off the marker interface and still have the mapped
+    /// route wired to nothing — which is precisely what polecat#720 was, and what marten#5384
+    /// (superseding marten#5372) is. Folding the two flags together would let the whole mapped route
+    /// ride in on the marker's green.
+    /// </para>
+    /// <para>
+    /// Default <b>false</b>, and a fixture that leaves it false must say in a comment whether that is
+    /// "not built yet" or a deliberate divergence — a store with no metadata-mapping DSL at all has
+    /// nothing to bind this to, which is a real answer rather than a gap.
+    /// </para>
+    /// <para>
+    /// A fixture flipping it true must also replay
+    /// <see cref="DocumentComplianceConfig.MappedVersionMembers" /> onto its own options, the same way
+    /// <see cref="SupportsOptimisticConcurrency" /> requires replaying
+    /// <see cref="DocumentComplianceConfig.OptimisticConcurrencyTypes" />.
+    /// </para>
+    /// </remarks>
+    public virtual bool SupportsMappedConcurrencyMember => false;
+
+    /// <summary>
     /// Does this store implement <see cref="Vectors.IDocumentSearchOperations.VectorSearchWithScoresAsync{T}" />,
     /// reached through <see cref="IDocumentReadOperations.Search" />? Gates
     /// <see cref="DocumentSearchCompliance{TFixture}" /> (jasperfx#842).

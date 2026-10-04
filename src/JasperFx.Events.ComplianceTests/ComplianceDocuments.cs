@@ -128,6 +128,45 @@ public class ComplianceShipment: IVersioned
 }
 
 /// <summary>
+/// A document whose optimistic-concurrency version lives on a member of its own naming, declared
+/// through <see cref="DocumentComplianceConfig.MapVersionTo{T}" /> rather than through
+/// <see cref="IVersioned" /> (polecat#720).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Deliberately implements no marker interface.</b> The whole point of the mapped route is that
+/// the member is named by configuration, so a type that also implemented <see cref="IVersioned" />
+/// would let a store pass these facts off the marker and never consult the mapping — which is
+/// exactly the bug the facts exist to catch.
+/// </para>
+/// <para>
+/// <b>Why the shared suites needed this.</b>
+/// <see cref="DocumentComplianceConfig.NumericRevisionTypes" />' remarks already record that
+/// jasperfx#819 §2 could not run, because "the declared route has no document member" and every
+/// revision fact works by setting one and reading it back. That was filed as a decision left open:
+/// "what a suite would additionally need is a way to say which member is the revision". This is
+/// that way, and polecat#720 is what came of not having it — the <b>fourth</b> independent sighting
+/// of the same field (fisher#245, marten#5372, polecat#592, polecat#720), found each time by a
+/// store rather than by the shared suite that exists to hold it.
+/// </para>
+/// <para>
+/// <see cref="Etag" /> rather than <c>Version</c> on purpose: a store that quietly falls back to a
+/// member <em>named</em> <c>Version</c> would pass these facts while ignoring the mapping it was
+/// given, and that fallback is real — it is how more than one store resolves the numeric member
+/// today.
+/// </para>
+/// </remarks>
+public class CompliancePallet
+{
+    public Guid Id { get; set; }
+    public string Carrier { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>The mapped concurrency version. Named by the configuration, not by any interface.</summary>
+    public Guid Etag { get; set; }
+}
+
+/// <summary>
 /// A document carrying both a full-text-searchable body and an embedding, so the search suites can
 /// hold vector search, hybrid search and their filters to one definition (jasperfx#842).
 /// </summary>
