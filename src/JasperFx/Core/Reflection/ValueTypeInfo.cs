@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using FastExpressionCompiler;
 using ImTools;
 
@@ -87,7 +88,13 @@ public class ValueTypeInfo
     public MethodInfo? Builder { get; }
     public ConstructorInfo? Ctor { get; }
 
-    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
+    /// <summary>
+    ///     Build a delegate that wraps an inner value in the outer value type. On a JIT runtime
+    ///     this compiles an expression tree; when dynamic code generation is unavailable
+    ///     (Native AOT) it falls back to invoking the already-resolved constructor or builder
+    ///     method through reflection.
+    /// </summary>
+    [RequiresUnreferencedCode("On a JIT runtime, compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate. Under NativeAOT the reflective fallback is trim-safe so this warning is conservative.")]
     public Func<TInner, TOuter> CreateWrapper<TOuter, TInner>()
     {
         if (_converter != null)
@@ -95,6 +102,30 @@ public class ValueTypeInfo
             return (Func<TInner, TOuter>)_converter;
         }
 
+        _converter = RuntimeFeature.IsDynamicCodeSupported
+            ? CompiledWrapper<TOuter, TInner>()
+            : ReflectiveWrapper<TOuter, TInner>();
+
+        return (Func<TInner, TOuter>)_converter;
+    }
+
+    /// <summary>
+    ///     Build a delegate that extracts the inner value from the outer value type. On a JIT
+    ///     runtime this compiles an expression tree; when dynamic code generation is unavailable
+    ///     (Native AOT) it falls back to reading <see cref="ValueProperty"/> through reflection.
+    /// </summary>
+    [RequiresUnreferencedCode("On a JIT runtime, compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate. Under NativeAOT the reflective fallback is trim-safe so this warning is conservative.")]
+    public Func<TOuter, TInner> UnWrapper<TOuter, TInner>()
+    {
+        return RuntimeFeature.IsDynamicCodeSupported
+            ? CompiledUnWrapper<TOuter, TInner>()
+            : ReflectiveUnWrapper<TOuter, TInner>();
+    }
+
+    [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
+    [RequiresDynamicCode("Compiles an expression tree via FastExpressionCompiler.")]
+    private Func<TInner, TOuter> CompiledWrapper<TOuter, TInner>()
+    {
         var inner = Expression.Parameter(typeof(TInner), "inner");
         Expression builder;
         if (Builder != null)
@@ -112,24 +143,40 @@ public class ValueTypeInfo
         }
 
         var lambda = Expression.Lambda<Func<TInner, TOuter>>(builder, inner);
-
-        _converter = lambda.CompileFast();
-        return (Func<TInner, TOuter>)_converter;
+        return lambda.CompileFast();
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <typeparam name="TOuter"></typeparam>
-    /// <typeparam name="TInner"></typeparam>
-    /// <returns></returns>
+    internal Func<TInner, TOuter> ReflectiveWrapper<TOuter, TInner>()
+    {
+        if (Builder != null)
+        {
+            var method = Builder;
+            return inner => (TOuter)method.Invoke(null, [inner])!;
+        }
+
+        if (Ctor != null)
+        {
+            var ctor = Ctor;
+            return inner => (TOuter)ctor.Invoke([inner]);
+        }
+
+        throw new NotSupportedException("Cannot build a type converter for strong typed id type " +
+                                        OuterType.FullNameInCode());
+    }
+
     [RequiresUnreferencedCode("Compiles an expression tree via FastExpressionCompiler; the trimmer cannot reason about types reached only through the resulting delegate.")]
-    public Func<TOuter, TInner> UnWrapper<TOuter, TInner>()
+    [RequiresDynamicCode("Compiles an expression tree via FastExpressionCompiler.")]
+    private Func<TOuter, TInner> CompiledUnWrapper<TOuter, TInner>()
     {
         var outer = Expression.Parameter(typeof(TOuter), "outer");
         var getter = ValueProperty.GetMethod!;
         var lambda = Expression.Lambda<Func<TOuter, TInner>>(Expression.Call(outer, getter), outer);
         return lambda.CompileFast();
     }
-    
+
+    internal Func<TOuter, TInner> ReflectiveUnWrapper<TOuter, TInner>()
+    {
+        var property = ValueProperty;
+        return outer => (TInner)property.GetValue(outer)!;
+    }
 }

@@ -92,7 +92,51 @@ public class ValueTypeInfoTests
         
         valueTypeInfo.UnWrapper<ValueWithStatic, int>()(new ValueWithStatic(inner)).ShouldBe(inner);
     }
+
+    // GH-942: the reflective paths are what CreateWrapper / UnWrapper use when
+    // RuntimeFeature.IsDynamicCodeSupported is false (Native AOT)
+
+    [Fact]
+    public void reflective_wrapper_and_unwrapper_for_ctor()
+    {
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(InvoiceId));
+
+        var inner = Guid.NewGuid();
+        valueTypeInfo.ReflectiveWrapper<InvoiceId, Guid>()(inner).Value.ShouldBe(inner);
+        valueTypeInfo.ReflectiveUnWrapper<InvoiceId, Guid>()(new InvoiceId(inner)).ShouldBe(inner);
+    }
+
+    [Fact]
+    public void reflective_wrapper_and_unwrapper_for_readonly_record_struct()
+    {
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(AlertId));
+
+        var inner = Guid.NewGuid();
+        valueTypeInfo.ReflectiveWrapper<AlertId, Guid>()(inner).Value.ShouldBe(inner);
+        valueTypeInfo.ReflectiveUnWrapper<AlertId, Guid>()(new AlertId(inner)).ShouldBe(inner);
+    }
+
+    [Fact]
+    public void reflective_wrapper_and_unwrapper_for_builder_method()
+    {
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(OrderId));
+
+        var inner = Guid.NewGuid().ToString();
+        valueTypeInfo.ReflectiveWrapper<OrderId, string>()(inner).Inner.ShouldBe(inner);
+        valueTypeInfo.ReflectiveUnWrapper<OrderId, string>()(OrderId.From(inner)).ShouldBe(inner);
+    }
+
+    [Fact]
+    public void reflective_wrapper_and_unwrapper_for_fsharp_discriminated_union()
+    {
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(FSharpIntId));
+
+        var wrapped = valueTypeInfo.ReflectiveWrapper<FSharpIntId, int>()(42);
+        valueTypeInfo.ReflectiveUnWrapper<FSharpIntId, int>()(wrapped).ShouldBe(42);
+    }
 }
+
+public readonly record struct AlertId(Guid Value);
 
 public record InvoiceId(Guid Value);
 
