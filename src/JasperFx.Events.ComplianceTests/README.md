@@ -977,6 +977,15 @@ Note the one thing a fixture must do beyond flipping the flag: replay
 index, and every store spells that declaration on its own options object, so a fixture that ignores
 the declaration fails every fact rather than skipping — the jasperfx#672 rule again.
 
+The hierarchy facts (jasperfx#944) additionally replay `DocumentComplianceConfig.SubClasses` —
+`ComplianceNote` and `ComplianceTranscript` under `ComplianceMemory` — and are gated on
+`SupportsDocumentHierarchies` as well. They assert a member only the requested sub-class carries
+(`ComplianceNote.Author`), never just a count: a search materializes its rows as the requested `T`, so
+a store with no discriminator returns siblings *as* the sub-class, with its members at their defaults,
+and the right number of them whenever the hierarchy holds one row per type. The corpus puts the
+sibling nearest the query vector, so the missing predicate shows up as the wrong document **first**.
+Whether a root search resolves each row to its concrete type is deliberately not pinned.
+
 Session semantics *are* now in scope, via the document contract above. The rest of the document-db
 side — patching, bulk insert, LINQ joins / grouping / `Include`, soft-delete semantics, document
 metadata, session listeners, the stores' `Advanced` surfaces and schema management — stays out, and

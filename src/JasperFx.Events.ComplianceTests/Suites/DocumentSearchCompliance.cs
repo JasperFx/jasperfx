@@ -40,6 +40,15 @@ namespace JasperFx.Events.ComplianceTests;
 /// testing the model. Three-dimensional unit-ish vectors along the axes make "nearest" a fact anyone
 /// can check by reading, and they behave the same under cosine, L2 and inner product ordering.
 /// </para>
+/// <para>
+/// <b>The hierarchy facts (jasperfx#944) assert a member, not a count.</b> A search materializes its
+/// rows as the <c>T</c> that was asked for, so a store with no discriminator returns the right NUMBER
+/// of wrong objects whenever the hierarchy holds one row per type — siblings deserialized as the
+/// requested sub-class with that sub-class's own members at their defaults. Those facts are gated on
+/// <see cref="DocumentStorageComplianceFixture.SupportsDocumentHierarchies" /> as well as the search
+/// gates. Whether a search for the ROOT resolves each row to its concrete type the way
+/// <c>Query&lt;TRoot&gt;()</c> does is deliberately not pinned: no store's search path does it yet.
+/// </para>
 /// </remarks>
 public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageComplianceSuite<TFixture>
     where TFixture : DocumentStorageComplianceFixture, new()
@@ -50,6 +59,11 @@ public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageCompli
         config.AddDocumentType<ComplianceMemory>();
         config.AddVectorIndex<ComplianceMemory>(nameof(ComplianceMemory.Embedding), 3);
         config.AddFullTextIndex<ComplianceMemory>(nameof(ComplianceMemory.Body));
+
+        // jasperfx#944. Replayed only by fixtures with SupportsDocumentHierarchies; the facts that
+        // need it are gated on that flag.
+        config.AddSubClass<ComplianceMemory, ComplianceNote>();
+        config.AddSubClass<ComplianceMemory, ComplianceTranscript>();
     };
 
     protected override Action<DocumentComplianceConfig> Configuration => _configuration;
@@ -78,6 +92,44 @@ public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageCompli
     };
 
     private Task theMemoriesAsync() => PersistAsync(Alpha, Bravo, Charlie);
+
+    private static readonly Guid TranscriptId = Guid.NewGuid();
+    private static readonly Guid NearNoteId = Guid.NewGuid();
+    private static readonly Guid PlainId = Guid.NewGuid();
+    private static readonly Guid FarNoteId = Guid.NewGuid();
+
+    // jasperfx#944. Ordered nearest-to-furthest from TowardsAlpha under every metric, and the
+    // SIBLING is deliberately the nearest of all: a store with no discriminator answers a search for
+    // ComplianceNote with the transcript FIRST, rather than with the right notes plus extras.
+    private async Task theHierarchyAsync()
+    {
+        // Each stored under its own static type, as the diagnostics suite's hierarchy facts do.
+        await using var session = LightweightSession();
+        session.Store(new ComplianceTranscript
+        {
+            Id = TranscriptId, Body = "the fox in the snow", Scope = "wanted", Embedding = [1f, 0f, 0f],
+            Speakers = 4
+        });
+        session.Store(new ComplianceNote
+        {
+            Id = NearNoteId, Body = "a fox at dusk", Scope = "wanted", Embedding = [0.8f, 0.6f, 0f],
+            Author = "ursula"
+        });
+        session.Store(new ComplianceMemory
+        {
+            Id = PlainId, Body = "fox tracks by the river", Scope = "wanted", Embedding = [0.6f, 0.8f, 0f]
+        });
+        session.Store(new ComplianceNote
+        {
+            Id = FarNoteId, Body = "unrelated weather notes", Scope = "other", Embedding = [0f, 0f, 1f],
+            Author = "gene"
+        });
+        await session.SaveChangesAsync(Cancellation);
+    }
+
+    private void SkipUnlessHierarchies()
+        => Assert.SkipUnless(theFixture.SupportsDocumentHierarchies,
+            "This fixture does not replay DocumentComplianceConfig.SubClasses.");
 
     [Fact]
     public async Task nearest_comes_first_and_the_score_is_a_distance()
@@ -293,5 +345,91 @@ public abstract class DocumentSearchCompliance<TFixture> : DocumentStorageCompli
             x => x.Embedding, "fox", TowardsAlpha, limit: 3, token: Cancellation);
 
         documents.Select(x => x.Id).ShouldBe(scored.Select(x => x.Document.Id));
+    }
+
+    [Fact]
+    public async Task a_vector_search_for_a_sub_class_returns_only_that_sub_class()
+    {
+        Assert.SkipUnless(theFixture.SupportsVectorSearch,
+            "This store does not implement IDocumentReadOperations.Search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+        var hits = await query.Search.VectorSearchWithScoresAsync<ComplianceNote>(
+            x => x.Embedding, TowardsAlpha, limit: 4, token: Cancellation);
+
+        // The transcript is the nearest row in the table and the plain memory the third; neither is
+        // a note. Ids first, so a failure names the intruder...
+        hits.Select(x => x.Document.Id).ShouldBe([NearNoteId, FarNoteId]);
+
+        // ...and then a member only a note carries, because a store with no discriminator hands
+        // siblings back AS notes, with Author at its default.
+        hits.Select(x => x.Document.Author).ShouldBe(["ursula", "gene"]);
+        hits.Select(x => x.Distance).ShouldBeInOrder();
+    }
+
+    [Fact]
+    public async Task a_vector_search_for_the_root_returns_the_whole_hierarchy_nearest_first()
+    {
+        Assert.SkipUnless(theFixture.SupportsVectorSearch,
+            "This store does not implement IDocumentReadOperations.Search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+        var hits = await query.Search.VectorSearchWithScoresAsync<ComplianceMemory>(
+            x => x.Embedding, TowardsAlpha, limit: 4, token: Cancellation);
+
+        // Ids only. Whether each row comes back as its concrete sub-class, the way Query<TRoot>()
+        // resolves it, is deliberately not pinned — see the remarks on the class.
+        hits.Select(x => x.Document.Id).ShouldBe([TranscriptId, NearNoteId, PlainId, FarNoteId]);
+        hits.Select(x => x.Distance).ShouldBeInOrder();
+    }
+
+    [Fact]
+    public async Task a_hybrid_search_for_a_sub_class_returns_only_that_sub_class()
+    {
+        Assert.SkipUnless(theFixture.SupportsHybridSearch,
+            "This store does not implement hybrid search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        await using var query = QuerySession();
+        var hits = await query.Search.HybridSearchWithScoresAsync<ComplianceNote>(
+            x => x.Embedding, "fox", TowardsAlpha, limit: 4, token: Cancellation);
+
+        // Both legs read the same table. The transcript carries the term AND is nearest the query
+        // vector, and the plain memory carries the term too, so a discriminator on only one leg lets
+        // them back in through the other.
+        hits.ShouldNotBeEmpty();
+        hits.Select(x => x.Document.Id).ShouldBeSubsetOf([NearNoteId, FarNoteId]);
+        hits.Select(x => x.Document.Id).ShouldContain(NearNoteId);
+        hits.ShouldAllBe(x => x.Document.Author != string.Empty);
+    }
+
+    [Fact]
+    public async Task a_sub_class_search_takes_a_filter_on_the_sub_class_own_members()
+    {
+        Assert.SkipUnless(theFixture.SupportsVectorSearch,
+            "This store does not implement IDocumentReadOperations.Search.");
+        SkipUnlessHierarchies();
+
+        await theHierarchyAsync();
+
+        // Author is declared on ComplianceNote, not on the root whose table it is stored in. The
+        // far note is the furthest row of the whole hierarchy and must still be the answer: the
+        // filter and the discriminator both narrow before the limit.
+        await using var query = QuerySession();
+        var hits = await query.Search.VectorSearchWithScoresAsync<ComplianceNote>(
+            x => x.Embedding, TowardsAlpha, limit: 1,
+            filter: x => x.Author == "gene", token: Cancellation);
+
+        hits.Count.ShouldBe(1);
+        hits[0].Document.Id.ShouldBe(FarNoteId);
+        hits[0].Document.Author.ShouldBe("gene");
     }
 }

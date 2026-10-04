@@ -165,6 +165,30 @@ public class ComplianceMemory
 }
 
 /// <summary>
+/// A sub-class stored in <see cref="ComplianceMemory" />'s table, for the hierarchy facts of the
+/// search suite (jasperfx#944).
+/// </summary>
+/// <remarks>
+/// <see cref="Author" /> is the point of it: a search answers with rows deserialized as the
+/// <c>T</c> that was asked for, so a store with no discriminator returns a SIBLING materialized as a
+/// note, with <see cref="Author" /> at its default. Only a member the sub-class alone carries tells
+/// that apart from the right answer — a count cannot.
+/// </remarks>
+public class ComplianceNote : ComplianceMemory
+{
+    public string Author { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// The sibling of <see cref="ComplianceNote" />, so "only the requested sub-class" has something to
+/// exclude other than the root.
+/// </summary>
+public class ComplianceTranscript : ComplianceMemory
+{
+    public int Speakers { get; set; }
+}
+
+/// <summary>
 /// A document the diagnostics suite declares soft-deleted, so it can hold
 /// <c>IDocumentStoreDiagnostics</c> to jasperfx#870's soft-delete semantics.
 /// </summary>
