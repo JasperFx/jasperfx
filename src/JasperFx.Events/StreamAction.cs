@@ -1,6 +1,4 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
-using FastExpressionCompiler;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 
@@ -487,33 +485,10 @@ public class StreamAction
     {
         if (typeof(TId) == typeof(Guid)) return e => e.Id.As<TId>();
         if (typeof(TId) == typeof(string)) return e => e.Key!.As<TId>();
-        
-        var valueTypeInfo = ValueTypeInfo.ForType(typeof(TId));
-        
-        var e = Expression.Parameter(typeof(StreamAction), "e");
-        var eMember = valueTypeInfo.SimpleType == typeof(Guid)
-            ? ReflectionHelper.GetProperty<StreamAction>(x => x.Id)
-            : ReflectionHelper.GetProperty<StreamAction>(x => x.Key!);
 
-        var raw = Expression.Call(e, eMember.GetMethod!);
-        Expression? wrapped = null;
-        if (valueTypeInfo.Builder != null)
-        {
-            wrapped = Expression.Call(null, valueTypeInfo.Builder, raw);
-        }
-        else if (valueTypeInfo.Ctor != null)
-        {
-            wrapped = Expression.New(valueTypeInfo.Ctor, raw);
-        }
-        else
-        {
-            throw new NotSupportedException("Cannot build a type converter for strong typed id type " +
-                                            valueTypeInfo.OuterType.FullNameInCode());
-        }
-
-        var lambda = Expression.Lambda<Func<StreamAction, TId>>(wrapped, e);
-
-        return lambda.CompileFast();
+        // GH-950: composed from ValueTypeInfo.CreateWrapper, which falls back to reflection under
+        // Native AOT, rather than compiling an expression tree of its own.
+        return Internals.StrongTypedIdentitySource.For<StreamAction, TId>(e => e.Id, e => e.Key!);
     }
     
     public StreamAction Clone()
