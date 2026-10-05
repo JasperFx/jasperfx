@@ -60,21 +60,26 @@ public class FSharpSourceWriter : ISourceWriter, IDisposable
                 if (bufferSpan.IsEmpty)
                 {
                     BlankLine();
+                    continue;
                 }
-                else if (bufferSpan.StartsWith("BLOCK:"))
+
+                // GH-956: the same directive rules as the C# writer, so `ENDPOINT_COUNT <- 3` is code here too
+                switch (SourceWriterDirective.Parse(bufferSpan, out var content))
                 {
-                    // F#: emit the line and indent, but DO NOT open a '{'
-                    WriteLine(bufferSpan.Slice(6));
-                    IndentionLevel++;
-                }
-                else if (bufferSpan.StartsWith("END"))
-                {
-                    // F#: dedent only, no closing '}'
-                    FinishBlock();
-                }
-                else
-                {
-                    WriteLine(bufferSpan);
+                    case SourceWriterDirectiveKind.Block:
+                        // F#: emit the line and indent, but DO NOT open a '{'
+                        WriteLine(content);
+                        IndentionLevel++;
+                        break;
+
+                    case SourceWriterDirectiveKind.End:
+                        // F#: dedent only, no closing '}'
+                        FinishBlock();
+                        break;
+
+                    default:
+                        WriteLine(content);
+                        break;
                 }
             }
             finally
