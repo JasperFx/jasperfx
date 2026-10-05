@@ -6,6 +6,7 @@ using System.Text.Json;
 using JasperFx;
 using JasperFx.Events.Documents;
 using JasperFx.Metadata;
+using JasperFx.MultiTenancy;
 
 namespace JasperFx.Events.InMemory;
 
@@ -122,6 +123,8 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
         {
             _documents.Clear();
             _metadata.Clear();
+            _streams.Clear();
+            _events.Clear();
         }
     }
 
@@ -130,8 +133,8 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
     private readonly object _commitLock = new();
 
     /// <summary>
-    /// Apply <paramref name="apply"/> as one all-or-nothing unit of work. On any exception the documents
-    /// and row metadata are restored to what they were before, the undo actions the unit registered run
+    /// Apply <paramref name="apply"/> as one all-or-nothing unit of work. On any exception the documents,
+    /// row metadata, streams and events are restored to what they were before, the undo actions the unit registered run
     /// (in reverse), and the exception propagates.
     /// </summary>
     internal void CommitAtomically(Action<InMemoryChangeSet> apply, InMemoryChangeSet changes)
@@ -142,6 +145,11 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
             // replaced rather than mutated, so a shallow copy of each bucket is a full snapshot.
             var documents = _documents.ToDictionary(x => x.Key, x => x.Value.ToArray());
             var metadata = _metadata.ToArray();
+
+            // jasperfx#964: the event half of the same unit. StreamRow is immutable and events are only
+            // ever appended, so the rows plus the event count are a full snapshot.
+            var streams = _streams.ToArray();
+            var eventCount = _events.Count;
 
             try
             {
@@ -157,6 +165,10 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
 
                 _metadata.Clear();
                 foreach (var (key, row) in metadata) _metadata[key] = row;
+
+                _streams.Clear();
+                foreach (var (key, row) in streams) _streams[key] = row;
+                _events.RemoveRange(eventCount, _events.Count - eventCount);
 
                 changes.Undo();
                 throw;
@@ -268,7 +280,7 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
 /// read-only session, which is legal — the contract's tiers are about what a caller may do, not about
 /// how many classes a store needs.
 /// </summary>
-public class InMemoryDocumentSession : IDocumentSessionOperations
+public class InMemoryDocumentSession : IDocumentSessionOperations, IMetadataContext, IEventTenancySource
 {
     private readonly InMemoryDocumentStore _store;
     private readonly string _tenantId;
@@ -278,7 +290,53 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     {
         _store = store;
         _tenantId = tenantId;
+        Events = new InMemoryEventOperations(this);
     }
+
+    internal InMemoryDocumentStore OwningStore => _store;
+
+    /// <summary>The tenant this session reads and writes as.</summary>
+    public string TenantId => _tenantId;
+
+    /// <summary>
+    /// The event store API on this session (jasperfx#964): appends ride this session's unit of work and
+    /// commit with its documents, all or nothing.
+    /// </summary>
+    public InMemoryEventOperations Events { get; }
+
+    // Both forwarders are required: interface implementation is not covariant, so the public property
+    // above satisfies neither contract member on its own, and the contract defaults throw.
+    IQueryEventStore IDocumentReadOperations.Events => Events;
+
+    IEventStoreOperations IDocumentSessionOperations.Events => Events;
+
+    /// <inheritdoc />
+    public IReadOnlyList<StreamAction> PendingStreams => Events.PendingStreams;
+
+    // ---- IMetadataContext: what Rich append metadata copies onto each event ----
+
+    /// <inheritdoc />
+    public string? CausationId { get; set; }
+
+    /// <inheritdoc />
+    public string? CorrelationId { get; set; }
+
+    /// <inheritdoc />
+    public string? CurrentUserName { get; set; }
+
+    /// <inheritdoc />
+    public Dictionary<string, object>? Headers { get; } = new();
+
+    bool IMetadataContext.CausationIdEnabled => _store.Events.CausationIdEnabled;
+
+    bool IMetadataContext.CorrelationIdEnabled => _store.Events.CorrelationIdEnabled;
+
+    bool IMetadataContext.HeadersEnabled => _store.Events.HeadersEnabled;
+
+    bool IMetadataContext.UserNameEnabled => _store.Events.UserNameEnabled;
+
+    /// <summary>Events are single-tenanted on the prototyping store; documents keep conjoined tenancy.</summary>
+    public TenancyStyle EventTenancyStyle => TenancyStyle.Single;
 
     public Task<T?> LoadAsync<T>(Guid id, CancellationToken token = default) where T : notnull
         => Task.FromResult(load<T>(id));
@@ -475,7 +533,9 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         // succeeded, and a store that applied first would break the second half of that.
         token.ThrowIfCancellationRequested();
 
-        if (_pending.Count == 0)
+        var streams = Events.PendingStreams;
+
+        if (_pending.Count == 0 && streams.Count == 0)
         {
             // An empty unit of work raises nothing. The contract permits either answer here and the
             // compliance suite asserts neither; this side is chosen to match Fisher.
@@ -493,9 +553,13 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
             {
                 change(set);
             }
+
+            // jasperfx#964: the event streams land in the same unit as the documents
+            _store.AppendStreams(streams, this);
         }, changes);
 
         _pending.Clear();
+        Events.ClearPendingStreams();
 
         foreach (var listener in _store.Listeners)
         {
@@ -506,6 +570,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     public ValueTask DisposeAsync()
     {
         _pending.Clear();
+        Events.ClearPendingStreams();
         GC.SuppressFinalize(this);
         return default;
     }

@@ -1,5 +1,6 @@
 using System.Reflection;
 using JasperFx.Documents;
+using JasperFx.Events;
 using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
 using JasperFx.Events.InMemory;
@@ -85,6 +86,13 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
         foreach (var declaration in config.SubClasses)
         {
             _store.SubClassRoots[declaration.SubClass] = declaration.Root;
+        }
+
+        // jasperfx#964: the document-tier event suites declare their stream identity and event types.
+        _store.Events.StreamIdentity = config.StreamIdentity ?? StreamIdentity.AsGuid;
+        foreach (var eventType in config.EventTypes)
+        {
+            _store.Events.AddEventType(eventType);
         }
 
         return Task.CompletedTask;
@@ -220,3 +228,10 @@ public class in_memory_guid_optimistic_concurrency_compliance
 /// </remarks>
 public class in_memory_document_store_diagnostics_compliance
     : DocumentStoreDiagnosticsCompliance<InMemoryDocumentComplianceFixture>;
+
+// jasperfx#964: the event half of the prototyping store, at the document tier.
+public class in_memory_document_session_events_compliance
+    : DocumentSessionEventsCompliance<InMemoryDocumentComplianceFixture>;
+
+public class in_memory_pending_stream_actions_compliance
+    : PendingStreamActionsCompliance<InMemoryDocumentComplianceFixture>;
