@@ -18,6 +18,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     private readonly IJasperFxProjection<TOperations> _projection;
     protected readonly ShardName _shardName;
     protected readonly IEventStore<TOperations, TQuerySession> _store;
+    private volatile bool _draining;
 
     public ProjectionExecution(ShardName shardName, AsyncOptions options,
         IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
@@ -70,7 +71,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
     public ValueTask EnqueueAsync(EventPage page, ISubscriptionAgent subscriptionAgent)
     {
-        if (_cancellation.IsCancellationRequested)
+        if (_draining || _cancellation.IsCancellationRequested)
         {
             return new ValueTask();
         }
@@ -95,8 +96,17 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
     public async Task StopAndDrainAsync(CancellationToken token)
     {
-        await _building.WaitForCompletionAsync();
-        await _cancellation.CancelAsync().ConfigureAwait(false);
+        // Queued pages are left to whoever runs the shard next, from the progression the in-flight page marks
+        _draining = true;
+
+        try
+        {
+            await _building.WaitForCompletionAsync().WaitAsync(token).ConfigureAwait(false);
+        }
+        finally
+        {
+            await _cancellation.CancelAsync().ConfigureAwait(false);
+        }
     }
 
     public async Task HardStopAsync()
@@ -126,7 +136,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
     private async Task processRangeAsync(EventRange range, CancellationToken _)
     {
-        if (_cancellation.IsCancellationRequested)
+        if (_draining || _cancellation.IsCancellationRequested)
         {
             return;
         }
@@ -229,6 +239,12 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
             // Polly is already around the basic retry here, so anything that gets past this
             // probably deserves a full circuit break
             await batch.ExecuteAsync(_cancellation.Token).ConfigureAwait(false);
+
+            // A timed-out drain or a hard stop already reported the shard stopped; a late page must not undo that
+            if (_cancellation.IsCancellationRequested)
+            {
+                return;
+            }
 
             await range.Agent.MarkSuccessAsync(range.SequenceCeiling);
 
