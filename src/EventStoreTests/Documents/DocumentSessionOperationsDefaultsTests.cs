@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using JasperFx.Events;
 using JasperFx.Events.Documents;
 using Shouldly;
+using JasperFx.Events.InMemory;
 
 namespace EventStoreTests.Documents;
 

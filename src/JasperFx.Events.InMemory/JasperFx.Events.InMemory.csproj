@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <Description>An in-memory document and event store for prototyping a Critter Stack application from stub types before choosing Marten, Polecat or Fisher. Deliberately short-lived: it refuses to start in Production.</Description>
+        <AssemblyName>JasperFx.Events.InMemory</AssemblyName>
+        <PackageId>JasperFx.Events.InMemory</PackageId>
+        <Version>$(JasperFxVersion)</Version>
+        <PackageTags>jasperfx;events;documents;in-memory;prototyping;critter-stack</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="EventStoreTests" />
+    </ItemGroup>
+</Project>

@@ -366,7 +366,8 @@ partial class Build : NukeBuild
                 Solution.src.JasperFx_Events_SourceGenerator,
                 Solution.src.JasperFx_SourceGenerator,
                 Solution.src.JasperFx_Aspire,
-                Solution.src.JasperFx_Events_MicrosoftExtensionsAI
+                Solution.src.JasperFx_Events_MicrosoftExtensionsAI,
+                Solution.src.JasperFx_Events_InMemory
             };
 
             foreach (var project in projects)

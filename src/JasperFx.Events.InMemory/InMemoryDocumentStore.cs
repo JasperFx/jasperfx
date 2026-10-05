@@ -4,25 +4,32 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using JasperFx;
-using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
 using JasperFx.Metadata;
 
-namespace EventStoreTests.Documents;
+namespace JasperFx.Events.InMemory;
 
 /// <summary>
-/// A deliberately naive, in-memory implementation of the jasperfx#647 document contract.
+/// An in-memory implementation of the jasperfx#647 document contract — the document half of the
+/// prototyping store in <c>JasperFx.Events.InMemory</c> (jasperfx#963).
 /// </summary>
 /// <remarks>
 /// <para>
-/// Not a product and not shipped — it exists so the shared document compliance suites are actually
-/// executed by something before Marten, Polecat and Fisher enroll in them. A compliance suite nobody
-/// has ever run is a liability: it can encode an assertion that no correct store could satisfy, and
-/// the first three teams to hit it have no way to tell a suite bug from a product bug.
+/// <b>For prototyping, not production.</b> It exists so a stub-first application can run its handlers
+/// and specifications before choosing Marten, Polecat or Fisher, and it is meant to be swapped out
+/// early. Nothing is persisted, there is no LINQ translation (queries are LINQ-to-objects over
+/// snapshots), and there is no search.
 /// </para>
 /// <para>
-/// It also stands as the smallest possible proof that the contract is implementable without reaching
-/// past it — everything below is dictionaries, <c>AsQueryable()</c> and one query-provider wrapper.
+/// It began as the reference implementation that runs the shared document compliance suites in this
+/// repository, and it still does: a compliance suite nobody has ever run can encode an assertion no
+/// correct store could satisfy. It is also the smallest proof that the contract is implementable
+/// without reaching past it — dictionaries, <c>AsQueryable()</c> and one query-provider wrapper.
+/// </para>
+/// <para>
+/// <b>Commits are all-or-nothing</b> (jasperfx#963): a unit of work is applied under one store-wide
+/// lock, and if any part of it fails — a refused optimistic concurrency check, say — every change it
+/// made is rolled back, including the version written back onto the caller's instances.
 /// </para>
 /// </remarks>
 public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDocumentSession, InMemoryDocumentSession>
@@ -43,20 +50,20 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
 
     /// <summary>
     /// The document types this store slices by tenant — the reference replay of
-    /// <see cref="DocumentComplianceConfig.ConjoinedDocuments" /> (jasperfx#898).
+    /// <c>DocumentComplianceConfig.ConjoinedDocuments</c> (jasperfx#898).
     /// </summary>
     /// <remarks>
     /// A per-type set rather than a store-wide switch, because that is the shape the config carries
     /// and the shape all three products spell (<c>Schema.For&lt;T&gt;().MultiTenanted()</c>). A type
     /// that is not in here keeps living in the default tenant's bucket however the session was opened,
-    /// which is what lets the other document suites go on using <see cref="ComplianceWidget" />
+    /// which is what lets the other document suites go on using <c>ComplianceWidget</c>
     /// untenanted.
     /// </remarks>
     public HashSet<Type> ConjoinedTypes { get; } = new();
 
     /// <summary>
     /// Document types declared for <see cref="IVersioned" /> Guid optimistic concurrency — the replay
-    /// of <see cref="DocumentComplianceConfig.OptimisticConcurrencyTypes" />.
+    /// of <c>DocumentComplianceConfig.OptimisticConcurrencyTypes</c>.
     /// </summary>
     /// <remarks>
     /// Declared rather than inferred from the marker alone, deliberately: the stores disagree about
@@ -69,7 +76,7 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
     /// <summary>
     /// Document members declared as the concurrency version through the store's own metadata mapping
     /// rather than through <see cref="IVersioned" /> — the replay of
-    /// <see cref="DocumentComplianceConfig.MappedVersionMembers" /> (polecat#720).
+    /// <c>DocumentComplianceConfig.MappedVersionMembers</c> (polecat#720).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -111,8 +118,50 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
 
     public void Clear()
     {
-        _documents.Clear();
-        _metadata.Clear();
+        lock (_commitLock)
+        {
+            _documents.Clear();
+            _metadata.Clear();
+        }
+    }
+
+    // jasperfx#963. One commit at a time, so two sessions' units of work never interleave, and a
+    // failed one is rolled back before anyone else commits on top of it.
+    private readonly object _commitLock = new();
+
+    /// <summary>
+    /// Apply <paramref name="apply"/> as one all-or-nothing unit of work. On any exception the documents
+    /// and row metadata are restored to what they were before, the undo actions the unit registered run
+    /// (in reverse), and the exception propagates.
+    /// </summary>
+    internal void CommitAtomically(Action<InMemoryChangeSet> apply, InMemoryChangeSet changes)
+    {
+        lock (_commitLock)
+        {
+            // RowMetadata is an immutable record replaced with `with`, and stored documents are
+            // replaced rather than mutated, so a shallow copy of each bucket is a full snapshot.
+            var documents = _documents.ToDictionary(x => x.Key, x => x.Value.ToArray());
+            var metadata = _metadata.ToArray();
+
+            try
+            {
+                apply(changes);
+            }
+            catch
+            {
+                _documents.Clear();
+                foreach (var (key, rows) in documents)
+                {
+                    _documents[key] = new ConcurrentDictionary<object, object>(rows);
+                }
+
+                _metadata.Clear();
+                foreach (var (key, row) in metadata) _metadata[key] = row;
+
+                changes.Undo();
+                throw;
+            }
+        }
     }
 
     /// <summary>
@@ -277,7 +326,7 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
                 // document landing in exactly one of the two collections.
                 var existed = storage.ContainsKey(id);
 
-                guardVersion(entity, storage, id, existed);
+                guardVersion(entity, storage, id, existed, changes);
 
                 // A COPY, not the caller's instance: a real store serializes at commit, so a caller
                 // mutating its object afterwards must not rewrite stored state behind the store's back.
@@ -325,7 +374,8 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
     /// </para>
     /// </remarks>
     private void guardVersion<T>(
-        T entity, ConcurrentDictionary<object, object> storage, object id, bool existed) where T : notnull
+        T entity, ConcurrentDictionary<object, object> storage, object id, bool existed, InMemoryChangeSet changes)
+        where T : notnull
     {
         if (!_store.OptimisticConcurrencyTypes.Contains(typeof(T))) return;
 
@@ -348,8 +398,11 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
             }
         }
 
-        // The write-back. Mutating the caller's instance is the contract, not a convenience.
+        // The write-back. Mutating the caller's instance is the contract, not a convenience -- and an
+        // all-or-nothing commit has to take it back if a later change in the same unit fails, or the
+        // caller is left holding a version that was never stored (jasperfx#963).
         ApplyVersion(entity, member, Guid.NewGuid());
+        changes.OnUndo(() => ApplyVersion(entity, member, expected));
     }
 
     private static Guid VersionOf(object entity, MemberInfo? member)
@@ -430,11 +483,17 @@ public class InMemoryDocumentSession : IDocumentSessionOperations
         }
 
         var changes = new InMemoryChangeSet();
+        var pending = _pending.ToArray();
 
-        foreach (var change in _pending)
+        // All or nothing (jasperfx#963): a change that throws -- a refused concurrency check -- leaves
+        // the store exactly as it was, and the unit stays pending only in the sense that nothing landed.
+        _store.CommitAtomically(set =>
         {
-            change(changes);
-        }
+            foreach (var change in pending)
+            {
+                change(set);
+            }
+        }, changes);
 
         _pending.Clear();
 
@@ -477,6 +536,18 @@ internal class InMemoryChangeSet : IDocumentChangeSet
     internal void RecordInserted(object document) => _inserted.Add(document);
 
     internal void RecordUpdated(object document) => _updated.Add(document);
+
+    private readonly List<Action> _undo = new();
+
+    /// <summary>Register something to take back if the unit of work is rolled back.</summary>
+    internal void OnUndo(Action undo) => _undo.Add(undo);
+
+    /// <summary>Run every registered undo action, most recent first.</summary>
+    internal void Undo()
+    {
+        for (var i = _undo.Count - 1; i >= 0; i--) _undo[i]();
+        _undo.Clear();
+    }
 
     internal void RecordDeleted(Type documentType, object? id)
         => _deleted.Add(new InMemoryDeletion(documentType, id));
