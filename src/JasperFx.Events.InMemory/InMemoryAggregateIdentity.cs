@@ -74,6 +74,22 @@ internal static class InMemoryAggregateIdentity
     }
 
     /// <summary>
+    /// The identity an aggregate's stored snapshot is keyed on for a stream: the stream id itself, or the
+    /// stream id wrapped in the aggregate's strong-typed identity.
+    /// </summary>
+    internal static object DocumentIdFor(Type aggregateType, object streamId)
+    {
+        var idType = FindIdMember(aggregateType) switch
+        {
+            PropertyInfo property => property.PropertyType,
+            FieldInfo field => field.FieldType,
+            _ => null
+        };
+
+        return idType is null ? streamId : identityValue(idType, streamId) ?? streamId;
+    }
+
+    /// <summary>
     /// The Guid or string stream id inside <paramref name="id"/>: the id itself, or the single value of a
     /// strong-typed identity wrapper.
     /// </summary>

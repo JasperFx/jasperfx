@@ -25,6 +25,25 @@ public class InMemoryEventRegistry : EventRegistry, IAggregationSourceFactory<II
     public bool UserNameEnabled { get; set; }
 
     /// <summary>
+    /// Wrap event data in its envelope. An envelope already built with <c>BuildEvent</c> -- one the caller
+    /// stamped headers onto, say -- is passed through rather than wrapped a second time.
+    /// </summary>
+    public override IEvent BuildEvent(object eventData)
+    {
+        ArgumentNullException.ThrowIfNull(eventData);
+
+        if (eventData is IEvent e)
+        {
+            var mapping = EventMappingFor(e.EventType);
+            e.EventTypeName = mapping.EventTypeName;
+            e.DotNetTypeName = mapping.DotNetTypeName;
+            return e;
+        }
+
+        return base.BuildEvent(eventData);
+    }
+
+    /// <summary>
     /// The alias an aggregate type is recorded under on its streams. <see cref="EventRegistry"/> throws
     /// here by default, and <see cref="StreamAction.PrepareEvents"/> asks for it on every stream that
     /// names an aggregate type.

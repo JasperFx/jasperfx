@@ -9,7 +9,15 @@ The package carries `InMemoryDocumentStore`, an implementation of the JasperFx.E
 as the real stores, plus an event store behind `session.Events`: start streams, append (including
 optimistic appends with expected versions), and read streams and stream state back. Events commit in the
 same unit of work as documents, and aggregates fold live from their streams with `AggregateStreamAsync`,
-`FetchForWriting`, `FetchLatest` and `WriteToAggregate`. Inline projections are still being added.
+`FetchForWriting`, `FetchLatest` and `WriteToAggregate`.
+
+Inline projections run inside that same commit: register an inline snapshot with
+`store.Projections.Snapshot<T>(SnapshotLifecycle.Inline)`, or a projection class with
+`store.Projections.Add(projection, ProjectionLifecycle.Inline)`. The projection base classes are in
+`JasperFx.Events.InMemory.Projections` and named like Marten's and Fisher's -- `SingleStreamProjection<TDoc, TId>`,
+`MultiStreamProjection<TDoc, TId>` and `EventProjection` -- so a projection moves to a real store with a
+`using` change. If a projection throws, the events and documents from that unit of work are rolled back
+with it.
 
 Live aggregation folds with the source-generated `Apply` / `Create` dispatchers -- there's no runtime
 fallback -- and this package carries `JasperFx.Events.SourceGenerator` as an analyzer, so any project that
@@ -46,7 +54,7 @@ What to know before you lean on it:
 - **Commits are all-or-nothing.** If any part of a unit of work fails -- a refused optimistic
   concurrency check, say -- nothing from that unit lands.
 - **Nothing is persisted.** Restart the process and the data is gone.
-- **Out of scope:** the async projection daemon, archiving and compacting streams, rewriting events, and
+- **Out of scope:** the async projection daemon (so Async projections are refused), archiving and compacting streams, rewriting events, and
   tag (DCB) queries. Those throw a `NotSupportedException` that says so.
 - **Queries are LINQ-to-objects** over snapshots of the stored documents. There's no query
   translation and no search.

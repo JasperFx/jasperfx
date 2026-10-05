@@ -303,7 +303,9 @@ public partial class InMemoryEventOperations
         if (Store.Projections.TryFindAggregate(typeof(T), out var projection)
             && projection.Lifecycle == ProjectionLifecycle.Inline)
         {
-            return await _session.LoadAsync<T>(streamId, token).ConfigureAwait(false);
+            // The snapshot is keyed on the aggregate's own identity, which may wrap the stream id
+            return await _session.LoadAsync<T>(InMemoryAggregateIdentity.DocumentIdFor(typeof(T), streamId), token)
+                .ConfigureAwait(false);
         }
 
         return await aggregateStreamAsync<T>(streamId, 0, null, null, 0, token).ConfigureAwait(false);

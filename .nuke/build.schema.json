@@ -41,6 +41,7 @@
         "TestCore",
         "TestEvents",
         "TestEventStore",
+        "TestInMemoryEventStore",
         "TestMicrosoftExtensionsAI",
         "TestSourceGenerators"
       ]

@@ -6,7 +6,7 @@ namespace JasperFx.Events.InMemory;
 /// </summary>
 public partial class InMemoryDocumentStore
 {
-    // Both guarded by _commitLock, for reads as well as writes: a reader must never see half a commit.
+    // Both guarded by the commit gate, for reads as well as writes: a reader must never see half a commit.
     private readonly Dictionary<object, StreamRow> _streams = new();
     private readonly List<IEvent> _events = new();
 
@@ -22,7 +22,18 @@ public partial class InMemoryDocumentStore
     /// The projections registered on the store, and the source of the aggregators live aggregation folds
     /// with (jasperfx#964).
     /// </summary>
-    public Projections.InMemoryProjectionGraph Projections => _projections ??= new(Events);
+    public Projections.InMemoryProjectionGraph Projections => _projections ??= buildProjections();
+
+    private Projections.InMemoryProjectionGraph buildProjections()
+    {
+        var projections = new Projections.InMemoryProjectionGraph(Events);
+
+        // Self-aggregating types with a source-generated evolver are reported by AllAggregateTypes() without
+        // being registered, as on Marten, Polecat and Fisher.
+        projections.DiscoverGeneratedEvolvers(AppDomain.CurrentDomain.GetAssemblies());
+
+        return projections;
+    }
 
     /// <summary>One stream. Immutable, so a shallow copy of <see cref="_streams"/> is a full snapshot.</summary>
     internal sealed record StreamRow(
@@ -37,7 +48,7 @@ public partial class InMemoryDocumentStore
         => Events.StreamIdentity == StreamIdentity.AsGuid ? stream.Id : stream.Key!;
 
     /// <summary>
-    /// Append a unit of work's streams. Called from inside <see cref="CommitAtomically"/>, so any throw
+    /// Append a unit of work's streams. Called from inside <see cref="CommitAtomicallyAsync"/>, so any throw
     /// here -- a collision, a stale expected version -- rolls back the documents and every stream.
     /// </summary>
     internal void AppendStreams(IReadOnlyCollection<StreamAction> streams, IMetadataContext session)
@@ -98,7 +109,7 @@ public partial class InMemoryDocumentStore
 
     internal long? CurrentVersion(object streamKey)
     {
-        lock (_commitLock)
+        using (EnterReadGate())
         {
             return _streams.TryGetValue(streamKey, out var row) ? row.Version : null;
         }
@@ -106,7 +117,7 @@ public partial class InMemoryDocumentStore
 
     internal StreamState? StreamStateFor(object streamKey)
     {
-        lock (_commitLock)
+        using (EnterReadGate())
         {
             if (!_streams.TryGetValue(streamKey, out var row)) return null;
 
@@ -119,7 +130,7 @@ public partial class InMemoryDocumentStore
     internal IReadOnlyList<IEvent> EventsFor(object streamKey, long version, DateTimeOffset? timestamp,
         long fromVersion)
     {
-        lock (_commitLock)
+        using (EnterReadGate())
         {
             return _events
                 .Where(x => streamKey is Guid id ? x.StreamId == id : x.StreamKey == (string)streamKey)
@@ -133,7 +144,7 @@ public partial class InMemoryDocumentStore
 
     internal IEvent? EventById(Guid eventId)
     {
-        lock (_commitLock)
+        using (EnterReadGate())
         {
             return _events.FirstOrDefault(x => x.Id == eventId);
         }

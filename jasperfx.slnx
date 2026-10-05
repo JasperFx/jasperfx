@@ -55,6 +55,7 @@
   <Project Path="src/CoreTests/CoreTests.csproj" />
   <Project Path="src/EventStoreTests/EventStoreTests.csproj" />
   <Project Path="src/EventTests/EventTests.csproj" />
+  <Project Path="src/InMemoryEventStoreTests/InMemoryEventStoreTests.csproj" />
   <Project Path="src/ExtensionCommands/ExtensionCommands.csproj" />
   <Project Path="src/FakeApp/FakeApp.csproj" />
   <Project Path="src/FakeTool/FakeTool.csproj" />

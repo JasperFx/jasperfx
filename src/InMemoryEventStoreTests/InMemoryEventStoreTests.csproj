@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <IsTestProject>true</IsTestProject>
+        <!-- An xunit v3 test project is its own MTP executable and won't build without this. -->
+        <OutputType>Exe</OutputType>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+        <PackageReference Include="xunit.v3" />
+        <PackageReference Include="Shouldly" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx.Events.InMemory\JasperFx.Events.InMemory.csproj" />
+        <!-- Folds dispatch through source-generated Apply / Create methods with no runtime fallback, and
+             the compliance aggregates compile into THIS assembly, so the generator has to run here. -->
+        <ProjectReference Include="..\JasperFx.Events.SourceGenerator\JasperFx.Events.SourceGenerator.csproj"
+                          OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <!-- jasperfx#964: the event compliance suites, compiled here as source the way Marten, Polecat and
+         Fisher consume the JasperFx.Events.ComplianceTests package - not as a ProjectReference. The
+         aggregate source generator binds each suite's session parameter by type name, so the shared
+         aggregates have to be compiled in an assembly whose ComplianceQuerySession alias names this
+         store's session (see ComplianceAliases.cs).
+
+         Local/ is the JasperFx repo's own placeholder half and is excluded, because the aliases here
+         replace it. The two flat-table files are re-included: that suite's projection needs a store
+         partial no alias can stand in for, and this store has no flat tables, so the placeholder base
+         is enough to compile it (the suite skips through SupportsFlatTableProjections). -->
+    <ItemGroup>
+        <Compile Include="..\JasperFx.Events.ComplianceTests\**\*.cs"
+                 Exclude="..\JasperFx.Events.ComplianceTests\bin\**;..\JasperFx.Events.ComplianceTests\obj\**;..\JasperFx.Events.ComplianceTests\Local\**"
+                 Link="ComplianceTests\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="..\JasperFx.Events.ComplianceTests\Local\ComplianceFlatTableProjectionPlaceholder.cs;..\JasperFx.Events.ComplianceTests\Local\ComplianceFlatTableProjectionShim.cs"
+                 Link="ComplianceTests\Local\%(Filename)%(Extension)" />
+    </ItemGroup>
+
+</Project>
