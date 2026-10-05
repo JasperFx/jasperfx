@@ -1,4 +1,7 @@
+using JasperFx.Events;
 using JasperFx.Events.Documents;
+using JasperFx.Events.Projections;
+using EventStoreTests.Documents.LiveAggregation;
 using JasperFx.Events.InMemory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -77,6 +80,75 @@ public class InMemoryStoreRegistrationTests
 
         await using var session = host.Services.GetRequiredService<IDocumentSessionFactory>().LightweightSession();
         session.ShouldBeOfType<InMemoryDocumentSession>();
+    }
+
+    // ---- jasperfx#964 phase 4: the event store, end to end through the registration ----
+
+    [Fact]
+    public async Task events_and_an_inline_snapshot_end_to_end_through_the_registration()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var host = buildHost(Environments.Development,
+            x => x.ConfigureProjections(projections => projections.Snapshot<Ticket>(SnapshotLifecycle.Inline)));
+        await host.StartAsync(token);
+
+        // Only the store-agnostic contract from here on, which is all Wolverine's integration will see
+        var sessions = host.Services.GetRequiredService<IDocumentSessionFactory>();
+        var id = Guid.NewGuid();
+
+        await using (var session = sessions.LightweightSession())
+        {
+            session.Events.StartStream<Ticket>(id, new TicketOpened("printer on fire"));
+            await session.SaveChangesAsync(token);
+        }
+
+        await using (var session = sessions.LightweightSession())
+        {
+            var stream = await session.Events.FetchForWriting<Ticket>(id, token);
+            stream.Aggregate!.Title.ShouldBe("printer on fire");
+
+            stream.AppendOne(new TicketAssigned("agent-7"));
+            await session.SaveChangesAsync(token);
+        }
+
+        // FetchLatest is on the writable session's event API
+        await using (var query = sessions.LightweightSession())
+        {
+            (await query.Events.FetchLatest<Ticket>(id, token))!.AssignedTo.ShouldBe("agent-7");
+
+            // ...and that came from the inline snapshot, written in the commit
+            (await query.LoadAsync<Ticket>(id, token))!.AssignedTo.ShouldBe("agent-7");
+        }
+
+        await host.StopAsync(token);
+    }
+
+    [Fact]
+    public async Task the_event_configuration_applies_before_projections_whatever_the_call_order()
+    {
+        var token = TestContext.Current.CancellationToken;
+
+        // A stub with no Id is closed over the STREAM identity when it is registered as a snapshot, so the
+        // registration only works if the string identity was configured first
+        using var host = buildHost(Environments.Development, x => x
+            .ConfigureProjections(projections => projections.Snapshot<Escalation>(SnapshotLifecycle.Inline))
+            .ConfigureEvents(events => events.StreamIdentity = StreamIdentity.AsString));
+        await host.StartAsync(token);
+
+        var sessions = host.Services.GetRequiredService<IDocumentSessionFactory>();
+
+        await using (var session = sessions.LightweightSession())
+        {
+            session.Events.StartStream<Escalation>("ESC-1", new TicketOpened("stub"), new TicketAssigned("agent-1"));
+            await session.SaveChangesAsync(token);
+        }
+
+        await using (var query = sessions.LightweightSession())
+        {
+            (await query.Events.FetchLatest<Escalation>("ESC-1", token))!.Count.ShouldBe(2);
+        }
+
+        await host.StopAsync(token);
     }
 
     public sealed class CapturingLoggerProvider : ILoggerProvider
