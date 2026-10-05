@@ -188,9 +188,14 @@ public static class EventModelLinks
             {
                 if (!sameType(emitted, consumed)) continue;
 
+                // jasperfx#958. The To end is the sticky the consuming slice actually DRAWS: when it
+                // also emits the same event, the consumed one folds into the emitted one there.
+                var drawn = effect.EmittedEvents.FirstOrDefault(x => EventModelSliceDescriptor.SameType(x, consumed))
+                            ?? consumed;
+
                 yield return new EventModelLink(
                     cause.Name, EventModelElement.IdFor(cause.Name, EventModelElementKind.Event, emitted.FullName),
-                    effect.Name, EventModelElement.IdFor(effect.Name, EventModelElementKind.Event, consumed.FullName),
+                    effect.Name, EventModelElement.IdFor(effect.Name, EventModelElementKind.Event, drawn.FullName),
                     EventModelLinkKind.EventConsumed, emitted);
             }
         }
@@ -201,20 +206,18 @@ public static class EventModelLinks
             {
                 if (!sameType(produced, read)) continue;
 
+                var drawn = effect.ReadModelTypes.FirstOrDefault(x => EventModelSliceDescriptor.SameType(x, read))
+                            ?? read;
+
                 yield return new EventModelLink(
                     cause.Name, EventModelElement.IdFor(cause.Name, EventModelElementKind.ReadModel, produced.FullName),
-                    effect.Name, EventModelElement.IdFor(effect.Name, EventModelElementKind.ReadModel, read.FullName),
+                    effect.Name, EventModelElement.IdFor(effect.Name, EventModelElementKind.ReadModel, drawn.FullName),
                     EventModelLinkKind.ReadModelRead, produced);
             }
         }
     }
 
-    /// <summary>
-    /// Do these two descriptors name the same type? <see cref="EventModelSliceDescriptor.Merge"/>'s
-    /// rule, applied per comparison rather than per list.
-    /// </summary>
+    // jasperfx#958: one rule for "the same type" everywhere -- EventModelSliceDescriptor.SameType.
     private static bool sameType(TypeDescriptor left, TypeDescriptor right)
-        => string.IsNullOrEmpty(left.AssemblyName) || string.IsNullOrEmpty(right.AssemblyName)
-            ? string.Equals(left.Name, right.Name, StringComparison.Ordinal)
-            : string.Equals(left.FullName, right.FullName, StringComparison.Ordinal);
+        => EventModelSliceDescriptor.SameType(left, right);
 }
