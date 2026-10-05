@@ -70,7 +70,17 @@ public sealed class EventModelDefinitionSource : IEventModelDefinitionSource
 
         var builder = new EventModelBuilder();
         definition.Configure(builder);
-        return Task.FromResult<EventModelDescriptor?>(builder.Build(definition.Name));
+        var descriptor = builder.Build(definition.Name);
+
+        // jasperfx#959. Name the definition on its slices, so a disagreement against one of them says
+        // WHICH model declared the losing claim instead of "Declared claims …". A declared origin is
+        // attribution only and never disagrees with another source's (EventModelSliceDescriptor.Merge).
+        descriptor = descriptor with
+        {
+            Slices = descriptor.Slices.Select(x => x.Origin is null ? x with { Origin = Subject } : x).ToList(),
+        };
+
+        return Task.FromResult<EventModelDescriptor?>(descriptor);
     }
 
     private sealed class LambdaDefinition : EventModelDefinition
