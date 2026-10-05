@@ -100,12 +100,14 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         TriggerLabel: true, TriggerType: true, TriggerKind: true, TriggerOrigin: true,
         Pattern: true, CommandType: true, HandlerType: true, AggregateTypes: true,
         EmittedEvents: true, PublishedMessages: true, ProjectionTypes: true, ReadModelTypes: true,
-        ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true
+        ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true,
+        ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true
       })
     ).toEqual([
-      'AggregateTypes', 'CommandType', 'Domain', 'EmittedEvents', 'ExternalSystems', 'HandlerType',
-      'Hotspots', 'Pattern', 'ProjectionTypes', 'PublishedMessages', 'ReadModelTypes',
-      'Specifications', 'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType'
+      'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'Domain', 'EmittedEvents',
+      'ExternalSystems', 'HandlerType', 'Hotspots', 'Origin', 'Pattern', 'ProjectionTypes',
+      'PublishedMessages', 'ReadModelTypes', 'ReadsFrom', 'Specifications', 'StartsStream',
+      'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType'
     ])
   })
 })

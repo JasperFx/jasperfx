@@ -1,16 +1,26 @@
+using JasperFx.Core.Reflection;
+using JasperFx.Descriptors;
+
 namespace JasperFx.Events.EventModeling;
 
 /// <summary>
 /// Fluent root used by an <see cref="EventModelDefinition"/> (or an inline
-/// <c>services.AddEventModel(name, configure)</c> lambda) to lay the overlay on an
-/// Event Model: name slices, group them by domain, label triggers, link
-/// specifications and flag open questions. Each call to <see cref="Slice"/> opens one slice.
+/// <c>services.AddEventModel(name, configure)</c> lambda) to declare an Event Model: open slices with
+/// <see cref="Slice"/> or a pattern verb (<see cref="Command{TCommand}"/>, <see cref="Automation(string)"/>,
+/// <see cref="View{TView}"/>, <see cref="Translation"/>), declare their roles by type or by name, group
+/// them by domain and chapter, declare aggregates, link specifications and flag open questions.
 /// </summary>
+/// <remarks>
+/// Everything declared here sits on the <see cref="EventModelProvenance.Declared"/> rung, so once code
+/// exists the derived model wins and any difference becomes a hotspot (jasperfx#703, jasperfx#957).
+/// </remarks>
 public class EventModelBuilder
 {
     private readonly List<EventModelSliceBuilder> _slices = new();
     private readonly List<HotspotDescriptor> _hotspots = new();
+    private readonly List<AggregateDescriptor> _aggregates = new();
     private string? _defaultDomain;
+    private string? _defaultChapter;
 
     /// <summary>
     /// Optional friendly name of the event model. When unset, the discovery layer falls back to
@@ -56,10 +66,102 @@ public class EventModelBuilder
     /// <param name="sliceName">Display name of the slice.</param>
     public EventModelSliceBuilder Slice(string sliceName)
     {
-        var slice = new EventModelSliceBuilder(sliceName, _defaultDomain);
+        var slice = new EventModelSliceBuilder(sliceName, _defaultDomain, _defaultChapter);
         _slices.Add(slice);
         return slice;
     }
+
+    /// <summary>
+    /// Chapter — a span of the timeline — applied to every slice opened after this call that does not
+    /// set its own with <see cref="EventModelSliceBuilder.InChapter"/> (jasperfx#957).
+    /// </summary>
+    /// <param name="chapter">Chapter name.</param>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelBuilder InChapter(string chapter)
+    {
+        _defaultChapter = chapter;
+        return this;
+    }
+
+    /// <summary>
+    /// Open a <see cref="SlicePattern.Command"/> slice for <typeparamref name="TCommand"/>, named for the
+    /// command — the name Wolverine derives for the same slice, so the two merge (jasperfx#957).
+    /// </summary>
+    public EventModelSliceBuilder Command<TCommand>()
+        => Slice(SliceNameFor(typeof(TCommand))).Pattern(SlicePattern.Command).Command<TCommand>();
+
+    /// <summary>Open a <see cref="SlicePattern.Command"/> slice for a command that has no type yet.</summary>
+    /// <param name="commandName">The command's name, which also names the slice.</param>
+    public EventModelSliceBuilder Command(string commandName)
+        => Slice(commandName).Pattern(SlicePattern.Command).Command(commandName);
+
+    /// <summary>
+    /// Open an <see cref="SlicePattern.Automation"/> slice — the system reacting to something. Say what it
+    /// reacts to with <see cref="EventModelSliceBuilder.On{T}"/>.
+    /// </summary>
+    /// <param name="sliceName">Display name of the slice.</param>
+    public EventModelSliceBuilder Automation(string sliceName)
+        => Slice(sliceName).Pattern(SlicePattern.Automation);
+
+    /// <summary>
+    /// Open an <see cref="SlicePattern.Automation"/> slice for <typeparamref name="TCommand"/> fired by the
+    /// job scheduler — Wolverine's cron scheduling — named for the command, as Wolverine names it.
+    /// </summary>
+    public EventModelSliceBuilder Automation<TCommand>()
+        => Slice(SliceNameFor(typeof(TCommand)))
+            .Pattern(SlicePattern.Automation)
+            .TriggeredBy(TriggerKind.JobScheduler)
+            .Command<TCommand>();
+
+    /// <summary>
+    /// Open a <see cref="SlicePattern.View"/> slice producing <typeparamref name="TView"/>, named for the
+    /// view — the name the store-derived source gives the same slice (jasperfx#825). Say which events it
+    /// folds with <see cref="EventModelSliceBuilder.From{T}"/>.
+    /// </summary>
+    public EventModelSliceBuilder View<TView>()
+        => Slice(SliceNameFor(typeof(TView))).Pattern(SlicePattern.View).Produces<TView>();
+
+    /// <summary>Open a <see cref="SlicePattern.View"/> slice for a view that has no type yet.</summary>
+    /// <param name="viewName">The view's name, which also names the slice.</param>
+    public EventModelSliceBuilder View(string viewName)
+        => Slice(viewName).Pattern(SlicePattern.View).Produces(viewName);
+
+    /// <summary>Open a <see cref="SlicePattern.Translation"/> slice — something outside, translated in.</summary>
+    /// <param name="sliceName">Display name of the slice.</param>
+    public EventModelSliceBuilder Translation(string sliceName)
+        => Slice(sliceName).Pattern(SlicePattern.Translation);
+
+    /// <summary>
+    /// Declare an aggregate of the model (jasperfx#957). The events it applies are derived from the code
+    /// once it exists; until then the aggregate renders on its own.
+    /// </summary>
+    /// <param name="kind">What sort of aggregate it is.</param>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelBuilder Aggregate<TAggregate>(AggregateKind kind = AggregateKind.WriteAggregate)
+        => addAggregate(TypeDescriptor.For(typeof(TAggregate)), kind);
+
+    /// <summary>Declare an aggregate that has no type yet.</summary>
+    /// <param name="aggregateName">The aggregate's name.</param>
+    /// <param name="kind">What sort of aggregate it is.</param>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelBuilder Aggregate(string aggregateName, AggregateKind kind = AggregateKind.WriteAggregate)
+        => addAggregate(EventModelSliceBuilder.Declared(aggregateName), kind);
+
+    private EventModelBuilder addAggregate(TypeDescriptor type, AggregateKind kind)
+    {
+        if (!_aggregates.Any(x => EventModelSliceDescriptor.SameType(x.Type, type)))
+        {
+            _aggregates.Add(new AggregateDescriptor(type, kind, Array.Empty<TypeDescriptor>()));
+        }
+
+        return this;
+    }
+
+    /// <summary>
+    /// The slice name a type-first verb gives a type: its short name, or its short name in code for a
+    /// generic — the same rule Wolverine uses when it derives the slice, so the two merge by name.
+    /// </summary>
+    internal static string SliceNameFor(Type type) => type.IsGenericType ? type.ShortNameInCode() : type.Name;
 
     /// <summary>
     /// Snapshot the configured slices as descriptor records. Called by the discovery layer once
@@ -75,5 +177,5 @@ public class EventModelBuilder
     /// </summary>
     /// <param name="fallbackName">Name used when <see cref="Name"/> is unset.</param>
     public EventModelDescriptor Build(string fallbackName)
-        => new(Name ?? fallbackName, BuildSlices()) { Hotspots = _hotspots.ToList() };
+        => new(Name ?? fallbackName, BuildSlices()) { Hotspots = _hotspots.ToList(), Aggregates = _aggregates.ToList() };
 }

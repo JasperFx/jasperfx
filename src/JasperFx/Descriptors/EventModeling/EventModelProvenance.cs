@@ -136,4 +136,10 @@ public enum EventModelRole
     /// disagreement hotspot a running console already holds.
     /// </remarks>
     Origin,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.StartsStream"/> — the aggregate whose stream the slice
+    /// starts (jasperfx#957). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    StartsStream,
 }
