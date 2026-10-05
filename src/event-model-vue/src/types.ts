@@ -47,8 +47,19 @@ export type TriggerKind =
  * claims about the same role and the merge had to drop one. It is emitted by the merge, never by
  * a source, and only when a claim is actually lost — two sources on one rung whose lists simply
  * union have not disagreed about anything.
+ *
+ * `ModelCollapse` (jasperfx#837) is several of a service's Event Models folded into one.
+ *
+ * `SliceCollision` (jasperfx#954) is one source describing two different slices under one name —
+ * two different handlers. The merge kept the first and refused to fold the second into it; the two
+ * handlers ride on `winningClaim` / `losingClaim`, as a disagreement's claims do.
  */
-export type HotspotOrigin = 'PendingSpecification' | 'Prose' | 'SourceDisagreement'
+export type HotspotOrigin =
+  | 'PendingSpecification'
+  | 'Prose'
+  | 'SourceDisagreement'
+  | 'ModelCollapse'
+  | 'SliceCollision'
 
 /**
  * How much authority a source's claim carries — the three-rung ladder that decides precedence
