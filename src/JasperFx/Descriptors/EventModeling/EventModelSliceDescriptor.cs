@@ -680,10 +680,13 @@ public sealed record EventModelSliceDescriptor(
         // it twice would put two overlapping stickies on the canvas and double every edge off it.
         // Consumed events feed the projection / read model edges below exactly as emitted ones do;
         // what they do NOT get is an edge from the processor, because the slice did not write them.
+        //
+        // jasperfx#958. "The same event" is a type identity, not an id: a consumed event declared by name
+        // ("AppointmentConfirmed", no assembly) is the emitted CritterCrush.Scheduling.AppointmentConfirmed
+        // once the code exists, and comparing ids (built from FullName) drew both.
         var consumed = ConsumedEvents
-            .Select(x => EventModelElement.ForType(Name, EventModelElementKind.Event, x))
-            .Where(x => events.All(e => e.Id != x.Id))
-            .Select(x => add(x, EventModelRole.ConsumedEvents))
+            .Where(x => EmittedEvents.All(e => !SameType(e, x)))
+            .Select(x => add(EventModelElement.ForType(Name, EventModelElementKind.Event, x), EventModelRole.ConsumedEvents))
             .ToList();
 
         var inboundEvents = events.Concat(consumed).ToList();
@@ -695,9 +698,8 @@ public sealed record EventModelSliceDescriptor(
         // Same dedupe rule as consumed events, for the same reason: a slice that both reads and
         // produces one read model draws one sticky.
         var readsFrom = ReadsFrom
-            .Select(x => EventModelElement.ForType(Name, EventModelElementKind.ReadModel, x))
-            .Where(x => readModels.All(r => r.Id != x.Id))
-            .Select(x => add(x, EventModelRole.ReadsFrom))
+            .Where(x => ReadModelTypes.All(r => !SameType(r, x)))
+            .Select(x => add(EventModelElement.ForType(Name, EventModelElementKind.ReadModel, x), EventModelRole.ReadsFrom))
             .ToList();
 
         var outboundSystems = ExternalSystems
@@ -856,7 +858,6 @@ public sealed record EventModelDescriptor(
         var slices = new List<EventModelSliceDescriptor>();
         var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
         var aggregates = new List<AggregateDescriptor>();
-        var aggregateNames = new HashSet<string>(StringComparer.Ordinal);
         var hotspots = new List<HotspotDescriptor>();
         var hotspotKeys = new HashSet<string>(StringComparer.Ordinal);
 
@@ -875,9 +876,22 @@ public sealed record EventModelDescriptor(
                 }
             }
 
+            // jasperfx#958. One aggregate per TYPE IDENTITY, not per FullName: an aggregate declared by
+            // name ("Appointment", no assembly) is the same aggregate as the real type once it exists.
+            // First wins as before, except that a real type replaces a declaration in place -- it
+            // carries the namespace and the applied events the declaration could not know.
             foreach (var aggregate in descriptor.Aggregates)
             {
-                if (aggregateNames.Add(aggregate.Type.FullName)) aggregates.Add(aggregate);
+                var existing = aggregates.FindIndex(x => EventModelSliceDescriptor.SameType(x.Type, aggregate.Type));
+                if (existing < 0)
+                {
+                    aggregates.Add(aggregate);
+                }
+                else if (string.IsNullOrEmpty(aggregates[existing].Type.AssemblyName)
+                         && !string.IsNullOrEmpty(aggregate.Type.AssemblyName))
+                {
+                    aggregates[existing] = aggregate;
+                }
             }
 
             foreach (var hotspot in descriptor.Hotspots)
