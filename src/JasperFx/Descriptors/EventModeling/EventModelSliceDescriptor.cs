@@ -486,7 +486,23 @@ public sealed record EventModelSliceDescriptor(
         // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
         // now leave a SourceDisagreement naming both stores, instead of the survivor carrying nothing
         // to say where it came from. A declared slice claims no origin, so it never takes one away.
-        var origin = mergeScalar(EventModelRole.Origin, Origin, other.Origin, x => x.OriginalString);
+        var origin = mergeOrigin();
+
+        // jasperfx#959. A declared slice's Origin is attribution -- which model file or definition said
+        // it -- not a claim about where the slice lives. Declarations always meet code from another
+        // source, and spec-first work routinely has two declared sources (a model and its specs), so a
+        // Declared-rung origin never disagrees: the higher rung keeps its origin, a tie keeps the first,
+        // and nothing is recorded. Two stores on Derived / Observed still disagree exactly as #836 says.
+        Uri? mergeOrigin()
+        {
+            if (ProvenanceFor(EventModelRole.Origin) == EventModelProvenance.Declared
+                || other.ProvenanceFor(EventModelRole.Origin) == EventModelProvenance.Declared)
+            {
+                return takeOther(EventModelRole.Origin) ? other.Origin : Origin;
+            }
+
+            return mergeScalar(EventModelRole.Origin, Origin, other.Origin, x => x.OriginalString);
+        }
 
         // Hotspots are annotations rather than claims about the system, so they always union: a
         // higher rung replacing the list would throw away the findings recorded here.
