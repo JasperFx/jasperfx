@@ -45,8 +45,8 @@ public class SourceWriterTests
 
         lines[5].ShouldBe("    }");
 
-        // There's a line break between the blocks
-        lines[7].ShouldBe("}");
+        // GH-956: no blank line between a closing brace and the brace that encloses it
+        lines[6].ShouldBe("}");
     }
 
     [Fact]
