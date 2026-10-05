@@ -8,8 +8,13 @@ The package carries `InMemoryDocumentStore`, an implementation of the JasperFx.E
 (`IDocumentSessionFactory` / `IDocumentSessionOperations`) that runs the same document compliance suites
 as the real stores, plus an event store behind `session.Events`: start streams, append (including
 optimistic appends with expected versions), and read streams and stream state back. Events commit in the
-same unit of work as documents. Live aggregation (`FetchForWriting`, `FetchLatest`,
-`AggregateStreamAsync`) and inline projections are still being added.
+same unit of work as documents, and aggregates fold live from their streams with `AggregateStreamAsync`,
+`FetchForWriting`, `FetchLatest` and `WriteToAggregate`. Inline projections are still being added.
+
+Live aggregation folds with the source-generated `Apply` / `Create` dispatchers -- there's no runtime
+fallback -- and this package carries `JasperFx.Events.SourceGenerator` as an analyzer, so any project that
+references it runs the generator over its aggregates. An aggregate doesn't need an `Id` yet: a stub with no identity member takes its
+stream's id type.
 
 Register it with the deliberately awkward name:
 

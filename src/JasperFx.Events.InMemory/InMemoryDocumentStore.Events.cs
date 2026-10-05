@@ -16,6 +16,14 @@ public partial class InMemoryDocumentStore
     /// </summary>
     public InMemoryEventRegistry Events { get; } = new();
 
+    private Projections.InMemoryProjectionGraph? _projections;
+
+    /// <summary>
+    /// The projections registered on the store, and the source of the aggregators live aggregation folds
+    /// with (jasperfx#964).
+    /// </summary>
+    public Projections.InMemoryProjectionGraph Projections => _projections ??= new(Events);
+
     /// <summary>One stream. Immutable, so a shallow copy of <see cref="_streams"/> is a full snapshot.</summary>
     internal sealed record StreamRow(
         object Id,
