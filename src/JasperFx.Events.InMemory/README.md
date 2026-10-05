@@ -8,9 +8,24 @@ Today the package carries the document half: `InMemoryDocumentStore`, an impleme
 JasperFx.Events document contract (`IDocumentSessionFactory` / `IDocumentSessionOperations`) that runs
 the same document compliance suites as the real stores.
 
+Register it with the deliberately awkward name:
+
 ```csharp
 using JasperFx.Events.InMemory;
 
+builder.Services.AddInMemoryStoreForPrototyping(x =>
+{
+    x.ConfigureDocuments(store => store.OptimisticConcurrencyTypes.Add(typeof(Incident)));
+});
+```
+
+Every host start logs a warning that the in-memory store is in use, and a host whose environment is
+`Production` refuses to start. A test host that never set `DOTNET_ENVIRONMENT` lands in `Production`
+by default -- set it to `Development`, or opt in with `x.AllowStartingInTheProductionEnvironment = true`.
+
+You can also use the store directly:
+
+```csharp
 var store = new InMemoryDocumentStore();
 
 await using var session = store.LightweightSession();
