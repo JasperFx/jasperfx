@@ -1,6 +1,10 @@
 # The Overlay
 
-The overlay is the hand-written half of an Event Model. It **names, groups, annotates, links and flags** — and it declares no roles at all. Everything role-shaped (the command, the handler, the aggregates, the events, the projections, the read models, the trigger *kind*, the slice pattern) belongs to the sources that read your code.
+The overlay is the part of an Event Model you write by hand that **names, groups, annotates, links and flags** slices -- the things code can never tell you. This page covers those builder methods.
+
+::: tip
+The same builder can also declare a slice's *roles* (its command, aggregates, events and so on) for design-first work before the code exists. That's covered in [Declaring the Model in Code](/event-modeling/declaring).
+:::
 
 ## `EventModelDefinition`
 
@@ -145,20 +149,20 @@ public class CrmNotification : EventModelDefinition
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/IncidentServiceEventModel.cs#L81-L100' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_incident_service_external_flow' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-::: danger Don't reach for this
-For anything your host's own code implements, do not use `ForFlowNotOwnedHere`. A declaration here is a second, hand-maintained copy of what the code already says, and it will drift — that is the entire problem the derived-roles design exists to solve. The escape hatch is for code that is not in your compilation at all.
+::: tip
+For flows your own code implements, declare the roles directly with the [role methods](/event-modeling/declaring#declaring-roles) instead. Those sit on the same rung, and once the code exists the derived roles take over and any difference shows up as a hotspot. `ForFlowNotOwnedHere` stays the clearest way to say "no source is ever going to derive this one".
 :::
 
-## Why the split is enforced by merge order
+## Why the code always wins
 
-Sources are merged derived-first, and merging keeps the *first* non-null value for every scalar. So if Wolverine stamped `CommandType = CloseIncident` and your overlay somehow also set one, Wolverine's wins:
+Every source sits on a rung of the [provenance ladder](/event-modeling/descriptors#provenance-decides-the-merge), and for each role the higher rung's claim wins regardless of the order the sources were registered in. So if Wolverine stamped `CommandType = CloseIncident` and your overlay also declared one, Wolverine's wins:
 
 <!-- snippet: sample_a_derived_slice -->
 <a id='snippet-sample_a_derived_slice'></a>
 ```cs
-// This is what a source builds — Wolverine reading its own HTTP chain for
+// This is what a source builds -- Wolverine reading its own HTTP chain for
 // CloseIncidentEndpoint. You never hand-write this; it is here so you can see
-// exactly which slots the overlay is *not* allowed to fill.
+// exactly which slots the code fills in.
 var derived = new EventModelSliceDescriptor(
     "CloseIncident",
     TriggerLabel: null,
@@ -178,10 +182,11 @@ var derived = new EventModelSliceDescriptor(
         Label = "POST /api/incidents/close/{id}"
     },
     AggregateTypes = [TypeDescriptor.For(typeof(Incident))],
-    PublishedMessages = [TypeDescriptor.For(typeof(ArchiveIncident))]
+    PublishedMessages = [TypeDescriptor.For(typeof(ArchiveIncident))],
+    Provenance = EventModelProvenance.Derived
 };
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L72-L99' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_a_derived_slice' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L72-L100' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_a_derived_slice' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 <!-- snippet: sample_merging_the_overlay_onto_a_derived_slice -->
@@ -195,14 +200,14 @@ builder.Slice("CloseIncident")
 
 var overlay = builder.BuildSlices().Single();
 
-// Derived first: scalars keep the first non-null value, so a derived role always wins
-var merged = derived.Merge(overlay);
+// The derived rung outranks the declared one, whichever order the merge runs in
+var merged = overlay.Merge(derived);
 
-Console.WriteLine(merged.CommandType!.Name);   // CloseIncident — from the chain
-Console.WriteLine(merged.TriggerLabel);        // Agent clicks Close — from the overlay
-Console.WriteLine(merged.Hotspots.Count);      // 1 — from the overlay
+Console.WriteLine(merged.CommandType!.Name);   // CloseIncident -- from the chain
+Console.WriteLine(merged.TriggerLabel);        // Agent clicks Close -- from the overlay
+Console.WriteLine(merged.Hotspots.Count);      // 1 -- from the overlay
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L101-L118' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_merging_the_overlay_onto_a_derived_slice' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L102-L119' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_merging_the_overlay_onto_a_derived_slice' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Lists are unioned rather than replaced, deduplicated by identity, order preserved — so an overlay hotspot lands next to a derived one instead of displacing it.
+Hotspots always union, so an overlay hotspot lands next to a derived one instead of displacing it. For every other role, the highest rung that claims it wins outright, and if a lower rung claimed something different, that difference is recorded as a [source disagreement](/event-modeling/hotspots#a-source-disagreement-is-a-hotspot).

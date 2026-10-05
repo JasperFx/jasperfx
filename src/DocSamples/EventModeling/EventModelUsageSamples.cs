@@ -71,9 +71,9 @@ public class EventModelUsageSamples
     {
         #region sample_a_derived_slice
 
-        // This is what a source builds — Wolverine reading its own HTTP chain for
+        // This is what a source builds -- Wolverine reading its own HTTP chain for
         // CloseIncidentEndpoint. You never hand-write this; it is here so you can see
-        // exactly which slots the overlay is *not* allowed to fill.
+        // exactly which slots the code fills in.
         var derived = new EventModelSliceDescriptor(
             "CloseIncident",
             TriggerLabel: null,
@@ -93,7 +93,8 @@ public class EventModelUsageSamples
                 Label = "POST /api/incidents/close/{id}"
             },
             AggregateTypes = [TypeDescriptor.For(typeof(Incident))],
-            PublishedMessages = [TypeDescriptor.For(typeof(ArchiveIncident))]
+            PublishedMessages = [TypeDescriptor.For(typeof(ArchiveIncident))],
+            Provenance = EventModelProvenance.Derived
         };
 
         #endregion
@@ -108,12 +109,12 @@ public class EventModelUsageSamples
 
         var overlay = builder.BuildSlices().Single();
 
-        // Derived first: scalars keep the first non-null value, so a derived role always wins
-        var merged = derived.Merge(overlay);
+        // The derived rung outranks the declared one, whichever order the merge runs in
+        var merged = overlay.Merge(derived);
 
-        Console.WriteLine(merged.CommandType!.Name);   // CloseIncident — from the chain
-        Console.WriteLine(merged.TriggerLabel);        // Agent clicks Close — from the overlay
-        Console.WriteLine(merged.Hotspots.Count);      // 1 — from the overlay
+        Console.WriteLine(merged.CommandType!.Name);   // CloseIncident -- from the chain
+        Console.WriteLine(merged.TriggerLabel);        // Agent clicks Close -- from the overlay
+        Console.WriteLine(merged.Hotspots.Count);      // 1 -- from the overlay
 
         #endregion
     }

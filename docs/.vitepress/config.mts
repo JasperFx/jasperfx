@@ -49,6 +49,7 @@ export default withMermaid(
           collapsed: false,
           items: [
             { text: 'Overview', link: '/event-modeling/' },
+            { text: 'Declaring the Model in Code', link: '/event-modeling/declaring' },
             { text: 'The Overlay', link: '/event-modeling/overlay' },
             { text: 'Hotspots', link: '/event-modeling/hotspots' },
             { text: 'Descriptors & the Wire', link: '/event-modeling/descriptors' }
