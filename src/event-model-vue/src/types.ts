@@ -109,6 +109,16 @@ export interface EventModelClaim {
   value: string
 }
 
+/** What a domain policy covers (jasperfx#960); a string under the wire's string-enum converter. */
+export type DomainAssignmentScope = 'Assembly' | 'Namespace' | 'Type'
+
+/** A declared policy putting handlers and endpoints in a domain — a module (jasperfx#960). */
+export interface DomainAssignmentDescriptor {
+  domain: string
+  scope: DomainAssignmentScope
+  target: string
+}
+
 /** Which way messages flow between the model and an external system. */
 export type ExternalSystemDirection = 'Inbound' | 'Outbound'
 
@@ -285,6 +295,11 @@ export interface EventModelDescriptor {
   slices?: EventModelSliceDescriptor[]
   /** The model's aggregate-shaped types, in first-appearance order. Slices point at these by type. */
   aggregates?: AggregateDescriptor[]
+  /**
+   * Declared policies putting handlers and endpoints in domains — modules, in a modular monolith
+   * (jasperfx#960). Consumed by the sources that derive slices; a viewer needs nothing from them.
+   */
+  domainAssignments?: DomainAssignmentDescriptor[]
   /** Cross-slice links, computed upstream. Absent on any producer below JasperFx.Events 2.69. */
   links?: EventModelLink[]
 }

@@ -835,6 +835,13 @@ public sealed record EventModelDescriptor(
     public IReadOnlyList<AggregateDescriptor> Aggregates { get; init; } = Array.Empty<AggregateDescriptor>();
 
     /// <summary>
+    /// Declared policies putting handlers and endpoints in domains — modules, in a modular monolith
+    /// (jasperfx#960). Applied by <c>EventModelDomains.Resolve</c> in the sources that derive slices
+    /// from code. Never null.
+    /// </summary>
+    public IReadOnlyList<DomainAssignmentDescriptor> DomainAssignments { get; init; } = Array.Empty<DomainAssignmentDescriptor>();
+
+    /// <summary>
     /// Hotspots that belong to the model rather than to any one slice — the open question that
     /// spans the whole flow, declared through the overlay with <c>Hotspot("…")</c> on the
     /// <c>EventModelBuilder</c> (jasperfx#690). Hotspots about a single slice live on
@@ -894,9 +901,12 @@ public sealed record EventModelDescriptor(
         var aggregates = new List<AggregateDescriptor>();
         var hotspots = new List<HotspotDescriptor>();
         var hotspotKeys = new HashSet<string>(StringComparer.Ordinal);
+        var assignments = new List<DomainAssignmentDescriptor>();
 
         foreach (var descriptor in descriptors)
         {
+            assignments.AddRange(descriptor.DomainAssignments);
+
             foreach (var slice in descriptor.Slices)
             {
                 if (indexByName.TryGetValue(slice.Name, out var index))
@@ -934,7 +944,14 @@ public sealed record EventModelDescriptor(
             }
         }
 
-        return new EventModelDescriptor(name, slices) { Aggregates = aggregates, Hotspots = hotspots };
+        // jasperfx#960. Policies are declarations, not claims: they union. Conflicting ones are reported
+        // when they are applied (EventModelDomains.Resolve), where the type they disagree about is known.
+        var domainAssignments = assignments.Distinct().ToList();
+
+        return new EventModelDescriptor(name, slices)
+        {
+            Aggregates = aggregates, Hotspots = hotspots, DomainAssignments = domainAssignments,
+        };
     }
 
     /// <summary>

@@ -85,6 +85,8 @@ export type {
   EventModelProvenance,
   EventModelRole,
   EventModelSliceDescriptor,
+  DomainAssignmentDescriptor,
+  DomainAssignmentScope,
   ExternalSystemDescriptor,
   ExternalSystemDirection,
   HotspotDescriptor,
