@@ -4,9 +4,12 @@ An in-memory store for **prototyping** a Critter Stack application from stub typ
 Marten, Polecat or Fisher. It's meant to be a short-lived step: swap it for a real store as soon as the
 design settles.
 
-Today the package carries the document half: `InMemoryDocumentStore`, an implementation of the
-JasperFx.Events document contract (`IDocumentSessionFactory` / `IDocumentSessionOperations`) that runs
-the same document compliance suites as the real stores.
+The package carries `InMemoryDocumentStore`, an implementation of the JasperFx.Events document contract
+(`IDocumentSessionFactory` / `IDocumentSessionOperations`) that runs the same document compliance suites
+as the real stores, plus an event store behind `session.Events`: start streams, append (including
+optimistic appends with expected versions), and read streams and stream state back. Events commit in the
+same unit of work as documents. Live aggregation (`FetchForWriting`, `FetchLatest`,
+`AggregateStreamAsync`) and inline projections are still being added.
 
 Register it with the deliberately awkward name:
 
@@ -38,5 +41,7 @@ What to know before you lean on it:
 - **Commits are all-or-nothing.** If any part of a unit of work fails -- a refused optimistic
   concurrency check, say -- nothing from that unit lands.
 - **Nothing is persisted.** Restart the process and the data is gone.
+- **Out of scope:** the async projection daemon, archiving and compacting streams, rewriting events, and
+  tag (DCB) queries. Those throw a `NotSupportedException` that says so.
 - **Queries are LINQ-to-objects** over snapshots of the stored documents. There's no query
   translation and no search.
