@@ -156,6 +156,20 @@ Collapsing *one* model loses nothing, so it records nothing — a service that r
 Every other role goes to the highest rung that claims it. `Hotspots` always unions, because hotspots are annotations rather than claims about the system — letting a higher-rung source's list replace a lower one would throw away the findings this exists to record.
 :::
 
+## A slice-name collision is a hotspot
+
+The fifth origin is another one you never write. Slices merge by name, so if **one** source hands over two *different* slices under the same name -- two different handler types -- folding them together would attribute one handler's output to the other. That's exactly what used to happen when two modules in a modular monolith handled the same message.
+
+The merge refuses to do that now. It keeps the first slice, folds nothing else in, and records a `SliceCollision` hotspot naming both handlers:
+
+> ⚠ `event-model://wolverine/ describes two slices named 'OrderPlaced' with different handlers -- kept Shipping.OrderPlacedHandler, not folded: Billing.OrderPlacedHandler. Give each its own name, e.g. by declaring its Domain.`
+
+The two handlers ride on `WinningClaim` and `LosingClaim` with `Role = HandlerType`, just like a disagreement. The usual fix is to [declare which module each handler belongs to](/event-modeling/declaring#modules-are-domains).
+
+::: info
+It's only a collision when the **same** source (the same `Origin`) did it. Two *different* sources describing one slice with different handlers is normal -- Wolverine.HTTP deliberately names an endpoint's slice for its request type so the endpoint and the message handler for that command become one slice -- and that's handled as an ordinary disagreement.
+:::
+
 ## Prefer the pending spec
 
 ::: tip

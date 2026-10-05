@@ -4,17 +4,15 @@
 
 JasperFx.Events carries the model as a **semantic model in the codebase** instead. Most of it is derived from code you have already written, so it cannot drift; the small remainder that code genuinely cannot express, you declare.
 
-## The one rule
+## Derived from code, declared by you
 
-> **Roles are derived. Names, groupings, labels, links and open questions are declared.**
+Most of the model is *stamped by the source that can already see it*: Wolverine from its HTTP, handler and gRPC chains; the Bobcat generator from Gherkin specifications; a source generator from your projection types. That covers the command type, the handler, the aggregates, the events emitted, the messages published, the projections, the read models, the trigger kind and the slice pattern.
 
-The command type, the handler, the aggregates, the events emitted, the messages published, the projections, the read models, the trigger kind, the slice pattern — all of that is *stamped by the source that can already see it*: Wolverine from its HTTP, handler and gRPC chains; the Bobcat generator from Gherkin specifications; a source generator from your projection types.
+You can also **declare** the model yourself, which is how you do design-first work before any of that code exists: write stub types, declare the slices and their roles against them, and let the derived model take over as you build. See [Declaring the Model in Code](/event-modeling/declaring).
 
-What you write by hand is an **overlay**: the display name of a slice, the bounded context it belongs to, the human label on its trigger ("Agent clicks Close"), a link to a specification that lives outside the compilation, and a hotspot for a question nobody has answered yet.
+Declarations sit on the bottom rung of a three-rung ladder of authority -- **declared** below **derived from code** below **observed in production** -- so a hand-written line can never overwrite what the code actually does, and neither can overwrite what a running system was seen doing. When the code and your declaration disagree about a role, the code wins and the disagreement shows up as a [hotspot](/event-modeling/hotspots#a-source-disagreement-is-a-hotspot). See [provenance](/event-modeling/descriptors#provenance-decides-the-merge) for how the ladder is applied, role by role.
 
-The overlay sits on the bottom rung of a three-rung ladder of authority — **declared** below **derived from code** below **observed in production** — so a hand-written line can never overwrite what the code actually does, and neither can overwrite what a running system was seen doing. If the code and your overlay disagree about a role, the code wins. See [provenance](/event-modeling/descriptors#provenance-decides-the-merge) for how the ladder is applied, role by role.
-
-Note that this only applies to roles the other rungs *claim*. Nothing but a declaration ever claims a slice's name, its domain, its trigger label or its specification links, so those are yours and stay yours.
+Some things only ever come from declarations: a slice's name, its domain and chapter, the human label on its trigger ("Agent clicks Close"), and its specification links. Those are yours and stay yours.
 
 ## The sample: IncidentService
 

@@ -6,6 +6,8 @@ Every source of an Event Model — Wolverine's chains, the Bobcat generator, a s
 
 One slice. The positional constructor is the original 2.x shape and is kept source- and binary-compatible; everything added since is an `init` property with a safe default, so older payloads and precompiled callers keep working.
 
+"Derived" below is where a role normally comes from once code exists. Every one of them can also be [declared](/event-modeling/declaring) for design-first work; a declaration sits on the lowest rung, so the derived claim wins when both are present.
+
 | Slot | Filled by | Holds |
 |------|-----------|-------|
 | `Name` | Both | Display name; also the merge key across sources |
@@ -26,8 +28,9 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `ExternalSystems` | Derived | Systems on either end of a translation |
 | `Specifications` | Derived (mostly) | Bound specs by `{Feature}/{Scenario}` plus resolved types |
 | `Hotspots` | Both | Pending specs (derived) and prose (overlay) |
-| `Domain` | **Overlay** | Bounded context |
-| `Chapter` | **Overlay** | A named span of slices — the navigation unit above `Domain` |
+| `Domain` | **Declared** | Bounded context -- in a modular monolith, the module |
+| `Chapter` | **Declared** | A named span of slices — the navigation unit above `Domain` |
+| `StartsStream` | Either | The aggregate whose stream the slice *starts*, as against appends to |
 | `Origin` | Any source | *Which* source contributed the slice — a file path, a suite or assembly name, a store URI. Stamp it and a [source disagreement](/event-modeling/hotspots#a-rung-is-not-an-identity) names a party rather than a rung |
 
 ### What a slice reads
@@ -46,9 +49,9 @@ This is what a derived source produces for `CloseIncident`:
 <!-- snippet: sample_a_derived_slice -->
 <a id='snippet-sample_a_derived_slice'></a>
 ```cs
-// This is what a source builds — Wolverine reading its own HTTP chain for
+// This is what a source builds -- Wolverine reading its own HTTP chain for
 // CloseIncidentEndpoint. You never hand-write this; it is here so you can see
-// exactly which slots the overlay is *not* allowed to fill.
+// exactly which slots the code fills in.
 var derived = new EventModelSliceDescriptor(
     "CloseIncident",
     TriggerLabel: null,
@@ -68,15 +71,18 @@ var derived = new EventModelSliceDescriptor(
         Label = "POST /api/incidents/close/{id}"
     },
     AggregateTypes = [TypeDescriptor.For(typeof(Incident))],
-    PublishedMessages = [TypeDescriptor.For(typeof(ArchiveIncident))]
+    PublishedMessages = [TypeDescriptor.For(typeof(ArchiveIncident))],
+    Provenance = EventModelProvenance.Derived
 };
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L72-L99' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_a_derived_slice' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L72-L100' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_a_derived_slice' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ## `EventModelDescriptor`
 
-The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind and applied events), model-level `Hotspots`, and the cross-slice `Links`.
+The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind and applied events), model-level `Hotspots`, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
+
+A type declared by name -- a `TypeDescriptor` with no namespace and no assembly -- is the same type as the real one once it exists. `EventModelSliceDescriptor.SameType()` is that rule: full names when both sides are real types, simple names when either side is a declaration. The merge, the links, the rendered elements and the model's aggregates all use it, so a declaration and its real type are one element, never two.
 
 ## The rendering contract
 
@@ -119,7 +125,7 @@ foreach (var edge in slice.Edges)
     Console.WriteLine($"{edge.FromId} -> {edge.ToId}");
 }
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L123-L138' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_reading_the_rendering_contract' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L124-L139' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_reading_the_rendering_contract' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `EventModelPalette.ColorFor` is the shared reference so two viewers of one descriptor agree on what a colour means:
@@ -223,7 +229,7 @@ var options = new JsonSerializerOptions
 
 var json = JsonSerializer.Serialize(model, options);
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L143-L153' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_serializing_an_event_model' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L144-L154' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_serializing_an_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 Because `Elements`, `Edges` and `Links` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
