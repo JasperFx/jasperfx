@@ -30,15 +30,35 @@ public class BlockIdleWakeupTests
         block.Count.ShouldBe(0u);
     }
 
+    /// <summary>
+    /// The claim is that Post() never runs the action on the publisher's thread -- NOT that the item is
+    /// still unprocessed when Post() returns. This used to assert processed == 1 straight after Post(),
+    /// which a correct block can fail: a worker on ANOTHER thread is free to pick "second" up before the
+    /// publisher reads the counter, and on a loaded machine (a full nuke build) it did.
+    ///
+    /// So detect inline execution directly: the action counts itself only when it runs on the
+    /// publisher's thread while Post() is still on that thread's stack. Thread identity is meaningful
+    /// only inside that window -- once the publisher awaits, its thread goes back to the pool and can
+    /// legitimately run the action (see post_does_not_absorb_the_latency_of_a_slow_action).
+    /// </summary>
     [Fact]
     public async Task post_after_idle_does_not_process_inline_on_the_publisher()
     {
         var processed = 0;
+        var inline = 0;
+        var publisherThread = 0;
+        var posting = 0;
         var firstDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var secondDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         await using var block = new Block<string>(5, Block<string>.Unbounded, (item, _) =>
         {
+            if (Volatile.Read(ref posting) == 1
+                && Environment.CurrentManagedThreadId == Volatile.Read(ref publisherThread))
+            {
+                Interlocked.Increment(ref inline);
+            }
+
             Interlocked.Increment(ref processed);
             if (item == "first")
             {
@@ -59,9 +79,12 @@ public class BlockIdleWakeupTests
         // Let processAsync park in WaitToReadAsync. This is the idle worker.
         await Task.Delay(100, TestContext.Current.CancellationToken);
 
+        Volatile.Write(ref publisherThread, Environment.CurrentManagedThreadId);
+        Volatile.Write(ref posting, 1);
         block.Post("second");
+        Volatile.Write(ref posting, 0);
 
-        Volatile.Read(ref processed).ShouldBe(1);
+        Volatile.Read(ref inline).ShouldBe(0);
 
         await secondDone.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Volatile.Read(ref processed).ShouldBe(2);
