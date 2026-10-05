@@ -54,6 +54,27 @@ public enum HotspotOrigin
     /// System.Text.Json defaults.
     /// </remarks>
     ModelCollapse,
+
+    /// <summary>
+    /// One source described two <em>different</em> slices under the same name — two different handler
+    /// types — so <see cref="EventModelSliceDescriptor.Merge"/> kept the first and refused to fold the
+    /// second into it (jasperfx#954).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Folding them was the bug: the survivor took the first handler while the role lists unioned, so
+    /// the model attributed the second handler's output to the first and recorded nothing. Wolverine's
+    /// <c>MultipleHandlerBehavior.Separated</c> is how it happens in practice — one message, one handler
+    /// per module, every slice named for the message (JasperFx/wolverine#4829).
+    /// </para>
+    /// <para>
+    /// Distinct from <see cref="SourceDisagreement"/>, which is two sources describing <em>one</em>
+    /// slice differently. Here nothing disagreed about a slice; two slices shared a key. Appended rather
+    /// than slotted in, because <see cref="HotspotOrigin"/> goes over the wire as an integer under the
+    /// System.Text.Json defaults.
+    /// </para>
+    /// </remarks>
+    SliceCollision,
 }
 
 /// <summary>
@@ -255,6 +276,26 @@ public sealed record HotspotDescriptor(
         return winner.Source is null
             ? $"{role}: two {winner.Provenance} sources disagree — kept {winner.Value}, dropped {loser.Value}"
             : $"{role}: {winner.Source} contradicts itself — kept {winner.Value}, dropped {loser.Value}";
+    }
+
+    /// <summary>
+    /// A hotspot for one source describing two different slices under the name
+    /// <paramref name="sliceName"/> (jasperfx#954). <paramref name="kept"/> is the handler the merge
+    /// kept; <paramref name="dropped"/> is the slice it refused to fold in. Both are
+    /// <see cref="EventModelRole.HandlerType"/> claims.
+    /// </summary>
+    public static HotspotDescriptor SliceCollision(string sliceName, EventModelClaim kept, EventModelClaim dropped)
+    {
+        var source = kept.Source is null ? "One source" : kept.Source;
+
+        return new HotspotDescriptor(HotspotOrigin.SliceCollision,
+            $"{source} describes two slices named '{sliceName}' with different handlers — kept {kept.Value}, " +
+            $"not folded: {dropped.Value}. Give each its own name, e.g. by declaring its Domain.")
+        {
+            Role = EventModelRole.HandlerType,
+            WinningClaim = kept,
+            LosingClaim = dropped,
+        };
     }
 
     /// <summary>

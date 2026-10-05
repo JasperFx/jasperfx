@@ -686,7 +686,11 @@ function titleFor(node: { element: EventModelElement; sliceName: string }): stri
   if (provenance) parts.push(PROVENANCE_LABEL[provenance] ?? provenance)
 
   const hotspot = hotspotFor(node)
-  if (hotspot?.origin === 'SourceDisagreement' && hotspot.winningClaim && hotspot.losingClaim) {
+  if (
+    (hotspot?.origin === 'SourceDisagreement' || hotspot?.origin === 'SliceCollision') &&
+    hotspot.winningClaim &&
+    hotspot.losingClaim
+  ) {
     parts.push(
       `Kept: ${hotspot.winningClaim.provenance} claims ${hotspot.winningClaim.value}`,
       `Dropped: ${hotspot.losingClaim.provenance} claims ${hotspot.losingClaim.value}`
@@ -733,6 +737,8 @@ function segmentsFor(element: EventModelElement): string[] {
  */
 const HOTSPOT_ORIGIN_LABEL: Record<string, string> = {
   SourceDisagreement: 'Sources disagree',
+  SliceCollision: 'Slice name collision',
+  ModelCollapse: 'Models collapsed',
   PendingSpecification: 'Pending spec',
   Prose: 'Note'
 }
@@ -743,7 +749,8 @@ function originLabelFor(hotspot: HotspotDescriptor): string {
 
 /** The two claims of a disagreement, kept first — null unless both are on the descriptor. */
 function claimsFor(hotspot: HotspotDescriptor) {
-  if (hotspot.origin !== 'SourceDisagreement') return null
+  // A slice collision (jasperfx#954) carries its two handlers the same way a disagreement carries its claims
+  if (hotspot.origin !== 'SourceDisagreement' && hotspot.origin !== 'SliceCollision') return null
   const kept = hotspot.winningClaim
   const dropped = hotspot.losingClaim
   // A disagreement whose pair did not survive the wire degrades to its text, never to half a
@@ -1715,7 +1722,8 @@ function outcomeFor(sliceName: string): string | null {
 /* jasperfx#704 — a source disagreement is a FINDING, not decoration, and it is worth more than the
    generic magenta sticky every other hotspot gets. A double outline in the hotspot colour reads as
    "two sources, one of them dropped" at a glance, and the two claims are on the tooltip. */
-.em-card[data-hotspot-origin='SourceDisagreement'] {
+.em-card[data-hotspot-origin='SourceDisagreement'],
+.em-card[data-hotspot-origin='SliceCollision'] {
   outline: 2px solid #e91e63;
   outline-offset: 2px;
   font-weight: 600;

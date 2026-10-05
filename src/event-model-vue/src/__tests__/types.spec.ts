@@ -71,10 +71,16 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
     ).toEqual(['External', 'Grpc', 'Http', 'Human', 'JobScheduler', 'MessageHandler'])
   })
 
-  it('pins HotspotOrigin including the jasperfx#704 addition', () => {
+  it('pins HotspotOrigin including the jasperfx#704, #837 and #954 additions', () => {
     expect(
-      members<HotspotOrigin>({ PendingSpecification: true, Prose: true, SourceDisagreement: true })
-    ).toEqual(['PendingSpecification', 'Prose', 'SourceDisagreement'])
+      members<HotspotOrigin>({
+        PendingSpecification: true,
+        Prose: true,
+        SourceDisagreement: true,
+        ModelCollapse: true,
+        SliceCollision: true
+      })
+    ).toEqual(['ModelCollapse', 'PendingSpecification', 'Prose', 'SliceCollision', 'SourceDisagreement'])
   })
 
   it('pins the provenance ladder, lowest authority first', () => {

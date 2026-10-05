@@ -340,6 +340,23 @@ public sealed record EventModelSliceDescriptor(
                 nameof(other));
         }
 
+        // jasperfx#954. One source, one rung, two different handlers under one name: these are two
+        // slices that collided on the key, not two views of one slice. Folding them is what attributed
+        // one handler's output to another; keep the first, say so, and fold nothing else in.
+        if (collidesWith(other))
+        {
+            var collision = HotspotDescriptor.SliceCollision(Name,
+                new EventModelClaim(ProvenanceFor(EventModelRole.HandlerType)!.Value, HandlerType!.FullName,
+                    Origin?.OriginalString),
+                new EventModelClaim(other.ProvenanceFor(EventModelRole.HandlerType)!.Value,
+                    other.HandlerType!.FullName, other.Origin?.OriginalString));
+
+            return this with
+            {
+                Hotspots = union(union(Hotspots, other.Hotspots, hotspotKey), [collision], hotspotKey),
+            };
+        }
+
         var claimedBy = new Dictionary<EventModelRole, EventModelProvenance>();
         var disagreements = new List<HotspotDescriptor>();
 
@@ -436,6 +453,24 @@ public sealed record EventModelSliceDescriptor(
             return tookTheirs ? theirs : mine;
         }
 
+        // jasperfx#954. A type scalar disagrees by identity, not by simple name: two handlers both called
+        // OrderPlacedHandler in different namespaces are different claims, and comparing Name alone
+        // dropped one of them without a hotspot. The rendering stays the simple name unless that is
+        // the only thing the two have in common.
+        TypeDescriptor? mergeType(EventModelRole role, TypeDescriptor? mine, TypeDescriptor? theirs)
+        {
+            var tookTheirs = takeOther(role);
+
+            if (Claims(role) && other.Claims(role) && !SameType(mine!, theirs!))
+            {
+                var sameName = string.Equals(mine!.Name, theirs!.Name, StringComparison.Ordinal);
+                disagree(role, tookTheirs, sameName ? mine.FullName : mine.Name,
+                    sameName ? theirs.FullName : theirs.Name);
+            }
+
+            return tookTheirs ? theirs : mine;
+        }
+
         // Key on FullName only when BOTH sides have a real one. A declared type does not exist
         // yet, so its FullName is synthesized from the model's single namespace — and the code it
         // describes puts types in whatever namespaces it likes, typically one per domain. Keying
@@ -457,9 +492,9 @@ public sealed record EventModelSliceDescriptor(
         }
 
         var triggerLabel = mergeScalar(EventModelRole.TriggerLabel, TriggerLabel, other.TriggerLabel, x => x);
-        var triggerType = mergeScalar(EventModelRole.TriggerType, TriggerType, other.TriggerType, x => x.Name);
-        var commandType = mergeScalar(EventModelRole.CommandType, CommandType, other.CommandType, x => x.Name);
-        var handlerType = mergeScalar(EventModelRole.HandlerType, HandlerType, other.HandlerType, x => x.Name);
+        var triggerType = mergeType(EventModelRole.TriggerType, TriggerType, other.TriggerType);
+        var commandType = mergeType(EventModelRole.CommandType, CommandType, other.CommandType);
+        var handlerType = mergeType(EventModelRole.HandlerType, HandlerType, other.HandlerType);
         var emittedEvents = mergeTypes(EventModelRole.EmittedEvents, EmittedEvents, other.EmittedEvents);
         var projectionTypes = mergeTypes(EventModelRole.ProjectionTypes, ProjectionTypes, other.ProjectionTypes);
         var readModelTypes = mergeTypes(EventModelRole.ReadModelTypes, ReadModelTypes, other.ReadModelTypes);
@@ -515,6 +550,30 @@ public sealed record EventModelSliceDescriptor(
     }
 
     private static string hotspotKey(HotspotDescriptor hotspot) => $"{hotspot.Origin}:{hotspot.Text}";
+
+    // jasperfx#954. A collision is the SAME source on the SAME rung naming two different handlers.
+    // Across sources the same name with different handlers is the designed fold -- Wolverine.HTTP names
+    // an endpoint's slice for its request type precisely so the endpoint and the message handler for
+    // that command become one slice -- and the per-role merge already records that as a disagreement.
+    // "The same source" has to be PROVEN by a stamped Origin: two unattributed slices may well be two
+    // sources, and those keep the per-role merge and its disagreement hotspot.
+    private bool collidesWith(EventModelSliceDescriptor other)
+        => HandlerType is not null
+           && other.HandlerType is not null
+           && Origin is not null
+           && Origin == other.Origin
+           && ProvenanceFor(EventModelRole.HandlerType) == other.ProvenanceFor(EventModelRole.HandlerType)
+           && !SameType(HandlerType, other.HandlerType);
+
+    /// <summary>
+    /// Whether two type descriptors name the same type: by <see cref="TypeDescriptor.FullName"/> when
+    /// both are real types, by <see cref="TypeDescriptor.Name"/> when either is a declaration (an empty
+    /// <see cref="TypeDescriptor.AssemblyName"/>, jasperfx#798). Ordinal.
+    /// </summary>
+    internal static bool SameType(TypeDescriptor a, TypeDescriptor b)
+        => string.IsNullOrEmpty(a.AssemblyName) || string.IsNullOrEmpty(b.AssemblyName)
+            ? string.Equals(a.Name, b.Name, StringComparison.Ordinal)
+            : string.Equals(a.FullName, b.FullName, StringComparison.Ordinal);
 
     private static string render<T>(IReadOnlyList<T> items, Func<T, string> display)
         => string.Join(", ", items.Select(display));
