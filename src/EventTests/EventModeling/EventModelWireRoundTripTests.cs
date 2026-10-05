@@ -36,6 +36,8 @@ public class EventModelWireRoundTripTests
             TriggerKind = TriggerKind.Http,
             TriggerOrigin = new PublisherOrigin { HttpMethod = "POST", HttpRoute = "/orders", Label = "POST /orders" },
             AggregateTypes = new[] { T<Order>() },
+            // jasperfx#957: the aggregate whose stream the slice starts
+            StartsStream = T<Order>(),
             PublishedMessages = new[] { T<NotifyWarehouse>() },
             ExternalSystems = new[] { new ExternalSystemDescriptor("Warehouse", ExternalSystemDirection.Outbound, "rabbitmq://queue/warehouse") },
             Hotspots = new[]
@@ -164,6 +166,7 @@ public class EventModelWireRoundTripTests
             actual.ReadsFrom.ShouldBe(expected.ReadsFrom);
             actual.Chapter.ShouldBe(expected.Chapter);
             actual.Origin.ShouldBe(expected.Origin);
+            actual.StartsStream.ShouldBe(expected.StartsStream);
             actual.Provenance.ShouldBe(expected.Provenance);
             actual.ClaimedBy.Count.ShouldBe(expected.ClaimedBy.Count);
             foreach (var claim in expected.ClaimedBy)

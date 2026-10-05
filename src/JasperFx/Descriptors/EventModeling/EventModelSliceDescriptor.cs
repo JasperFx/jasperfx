@@ -176,6 +176,19 @@ public sealed record EventModelSliceDescriptor(
     public string? Chapter { get; init; }
 
     /// <summary>
+    /// The aggregate whose stream this slice <em>starts</em>, as against appends to (jasperfx#957). Null
+    /// when the slice starts no stream, or when no source has said.
+    /// </summary>
+    /// <remarks>
+    /// A dedicated role because "starts the stream" is a different design decision from "acts on this
+    /// aggregate", and the code that implements it differs: a start has no existing stream to load and
+    /// has to choose the new stream's id. Wolverine's scaffold command reads it to write a
+    /// <c>StartStream</c> instead of a write-model handler. The aggregate also appears in
+    /// <see cref="AggregateTypes"/>, so a viewer that knows nothing of this role still draws it.
+    /// </remarks>
+    public TypeDescriptor? StartsStream { get; init; }
+
+    /// <summary>
     /// <em>Which</em> source produced this slice, as against <see cref="Provenance"/>'s <em>what rung
     /// it sits on</em> (jasperfx#836). The contributing source's <c>IEventModelDefinitionSource.Subject</c>,
     /// or for the store-derived rung the store's own <c>EventStoreUsage.SubjectUri</c>. Null when the
@@ -269,6 +282,7 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.ReadsFrom => ReadsFrom.Count > 0,
         EventModelRole.Chapter => Chapter is not null,
         EventModelRole.Origin => Origin is not null,
+        EventModelRole.StartsStream => StartsStream is not null,
         _ => false,
     };
 
@@ -517,6 +531,9 @@ public sealed record EventModelSliceDescriptor(
         var readsFrom = mergeTypes(EventModelRole.ReadsFrom, ReadsFrom, other.ReadsFrom);
         var chapter = mergeScalar(EventModelRole.Chapter, Chapter, other.Chapter, x => x);
 
+        // jasperfx#957. Compared by type identity, like every other type scalar.
+        var startsStream = mergeType(EventModelRole.StartsStream, StartsStream, other.StartsStream);
+
         // jasperfx#836. Origin merges as any other scalar does, which gives the store dimension the
         // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
         // now leave a SourceDisagreement naming both stores, instead of the survivor carrying nothing
@@ -559,6 +576,7 @@ public sealed record EventModelSliceDescriptor(
             ConsumedEvents = consumedEvents,
             ReadsFrom = readsFrom,
             Chapter = chapter,
+            StartsStream = startsStream,
             Origin = origin,
             Provenance = higher(Provenance, other.Provenance),
             ClaimedBy = claimedBy,
@@ -586,7 +604,7 @@ public sealed record EventModelSliceDescriptor(
     /// both are real types, by <see cref="TypeDescriptor.Name"/> when either is a declaration (an empty
     /// <see cref="TypeDescriptor.AssemblyName"/>, jasperfx#798). Ordinal.
     /// </summary>
-    internal static bool SameType(TypeDescriptor a, TypeDescriptor b)
+    public static bool SameType(TypeDescriptor a, TypeDescriptor b)
         => string.IsNullOrEmpty(a.AssemblyName) || string.IsNullOrEmpty(b.AssemblyName)
             ? string.Equals(a.Name, b.Name, StringComparison.Ordinal)
             : string.Equals(a.FullName, b.FullName, StringComparison.Ordinal);

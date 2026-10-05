@@ -96,6 +96,11 @@ export type EventModelRole =
   | 'Hotspots'
   | 'Specifications'
   | 'Domain'
+  | 'ConsumedEvents'
+  | 'ReadsFrom'
+  | 'Chapter'
+  | 'Origin'
+  | 'StartsStream'
 
 /** One source's claim about one role, as it stood before a merge resolved the disagreement. */
 export interface EventModelClaim {
@@ -184,6 +189,13 @@ export interface EventModelSliceDescriptor {
    * producer below JasperFx.Events 2.69, and from every slice a producer never chaptered.
    */
   chapter?: string | null
+
+  /**
+   * The aggregate whose stream this slice STARTS, as against appends to (jasperfx#957). The aggregate is
+   * also in `aggregateTypes`, so a viewer that ignores this still draws it. Absent from any producer
+   * below the JasperFx.Events release that added it.
+   */
+  startsStream?: TypeDescriptor | null
   pattern?: SlicePattern | null
   /**
    * Aggregate-shaped types this slice writes through, in declaration order.
