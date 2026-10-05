@@ -3,8 +3,8 @@
     <JasperFxEventsDedupeSourceGeneratorAnalyzers>false</JasperFxEventsDedupeSourceGeneratorAnalyzers>
   </PropertyGroup>
   <ItemGroup>
-    <Analyzer Include="/Users/jeremymiller/code/jasperfx/.nuke/temp/targets-smoke/a/JasperFx.Events.SourceGenerator.dll" />
-        <Analyzer Include="/Users/jeremymiller/code/jasperfx/.nuke/temp/targets-smoke/b/JasperFx.Events.SourceGenerator.dll" />
+    <Analyzer Include="/Users/jeremymiller/code/jasperfx-794/.nuke/temp/targets-smoke/a/JasperFx.Events.SourceGenerator.dll" />
+        <Analyzer Include="/Users/jeremymiller/code/jasperfx-794/.nuke/temp/targets-smoke/b/JasperFx.Events.SourceGenerator.dll" />
   </ItemGroup>
-  <Import Project="/Users/jeremymiller/code/jasperfx/src/JasperFx.Events/build/JasperFx.Events.targets" />
+  <Import Project="/Users/jeremymiller/code/jasperfx-794/src/JasperFx.Events/build/JasperFx.Events.targets" />
 </Project>
