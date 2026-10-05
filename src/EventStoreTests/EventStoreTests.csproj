@@ -37,6 +37,10 @@
         <!-- jasperfx#963: the in-memory store graduated from this project into a shipped package; the
              document compliance suites still run against it here. -->
         <ProjectReference Include="..\JasperFx.Events.InMemory\JasperFx.Events.InMemory.csproj" />
+        <!-- jasperfx#964: live aggregation folds with source-generated Apply / Create dispatchers, emitted
+             into the aggregate's own assembly, so the test aggregates need the generator here. -->
+        <ProjectReference Include="..\JasperFx.Events.SourceGenerator\JasperFx.Events.SourceGenerator.csproj"
+                          OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>
 
 </Project>

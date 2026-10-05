@@ -4,6 +4,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using JasperFx;
+using JasperFx.Events.Daemon;
 using JasperFx.Events.Documents;
 using JasperFx.Metadata;
 using JasperFx.MultiTenancy;
@@ -280,7 +281,7 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
 /// read-only session, which is legal — the contract's tiers are about what a caller may do, not about
 /// how many classes a store needs.
 /// </summary>
-public class InMemoryDocumentSession : IDocumentSessionOperations, IMetadataContext, IEventTenancySource
+public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContext, IEventTenancySource
 {
     private readonly InMemoryDocumentStore _store;
     private readonly string _tenantId;
@@ -337,6 +338,21 @@ public class InMemoryDocumentSession : IDocumentSessionOperations, IMetadataCont
 
     /// <summary>Events are single-tenanted on the prototyping store; documents keep conjoined tenancy.</summary>
     public TenancyStyle EventTenancyStyle => TenancyStyle.Single;
+
+    // ---- IStorageOperations: the seams the shared projection runtime uses ----
+
+    /// <inheritdoc />
+    public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
+        CancellationToken cancellationToken)
+        => throw new NotSupportedException(
+            "Inline projections are not available on the in-memory prototyping store yet (jasperfx#964).");
+
+    /// <summary>Inline projections on the prototyping store never publish side effects.</summary>
+    public bool EnableSideEffectsOnInlineProjections => false;
+
+    /// <inheritdoc />
+    public ValueTask<IMessageSink> GetOrStartMessageSink()
+        => throw InMemoryEventRegistry.NotSupported("Publishing messages from projections");
 
     public Task<T?> LoadAsync<T>(Guid id, CancellationToken token = default) where T : notnull
         => Task.FromResult(load<T>(id));

@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using JasperFx.Events.Aggregation;
+using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.InMemory;
 
@@ -6,7 +8,7 @@ namespace JasperFx.Events.InMemory;
 /// The event configuration of the in-memory prototyping store (jasperfx#964): stream identity, the
 /// event types, and which metadata the store records on each event.
 /// </summary>
-public class InMemoryEventRegistry : EventRegistry
+public class InMemoryEventRegistry : EventRegistry, IAggregationSourceFactory<IInMemoryQuerySession>
 {
     private readonly ConcurrentDictionary<string, Type> _aggregatesByAlias = new();
 
@@ -40,6 +42,27 @@ public class InMemoryEventRegistry : EventRegistry
             ? type
             : throw new ArgumentOutOfRangeException(nameof(aggregateTypeName),
                 $"No aggregate type has been recorded under the alias '{aggregateTypeName}'.");
+
+    /// <summary>
+    /// The live aggregator for an aggregate no projection was registered for (jasperfx#964): a
+    /// single-stream projection closed over the aggregate's own identity type, so the source-generated
+    /// evolver for its Apply / Create methods matches. <see cref="ProjectionGraph{TProjection,TOperations,TQuerySession}"/>
+    /// falls back to this factory on the registry it was built with.
+    /// </summary>
+    IAggregatorSource<IInMemoryQuerySession>? IAggregationSourceFactory<IInMemoryQuerySession>.Build<TDoc>()
+    {
+        var projection = InMemoryAggregateIdentity.CreateLiveProjection<TDoc>(
+            InMemoryAggregateIdentity.ResolveIdType(typeof(TDoc), StreamIdentity));
+
+        projection.AssembleAndAssertValidity();
+
+        foreach (var eventType in projection.IncludedEventTypes)
+        {
+            AddEventType(eventType);
+        }
+
+        return projection as IAggregatorSource<IInMemoryQuerySession>;
+    }
 
     internal static NotSupportedException NotSupported(string member)
         => new($"{member} is not supported by the in-memory prototyping store (AddInMemoryStoreForPrototyping). " +

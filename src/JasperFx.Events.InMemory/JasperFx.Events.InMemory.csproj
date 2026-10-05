@@ -9,7 +9,26 @@
 
     <ItemGroup>
         <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
+        <ProjectReference Include="..\JasperFx.Events.SourceGenerator\JasperFx.Events.SourceGenerator.csproj"
+                          OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     </ItemGroup>
+
+    <!-- jasperfx#964: live aggregation folds with source-generated Apply / Create dispatchers and there is
+         no runtime fallback, but the generator does not flow transitively from JasperFx.Events. So, like
+         Marten (marten#4557), this package carries the analyzer in analyzers/dotnet/cs and every project
+         that references it runs the generator. Contributed once, from a single TFM, to avoid a duplicate
+         package file. -->
+    <PropertyGroup>
+        <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_BundleEventsSourceGeneratorAnalyzer</TargetsForTfmSpecificContentInPackage>
+    </PropertyGroup>
+
+    <Target Name="_BundleEventsSourceGeneratorAnalyzer" Condition="'$(TargetFramework)' == 'net9.0'">
+        <ItemGroup>
+            <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)..\JasperFx.Events.SourceGenerator\bin\$(Configuration)\netstandard2.0\JasperFx.Events.SourceGenerator.dll">
+                <PackagePath>analyzers/dotnet/cs</PackagePath>
+            </TfmSpecificPackageFile>
+        </ItemGroup>
+    </Target>
 
     <ItemGroup>
         <InternalsVisibleTo Include="EventStoreTests" />
