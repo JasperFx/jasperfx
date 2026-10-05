@@ -6,9 +6,8 @@ using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Documents;
 using JasperFx.Events;
-using JasperFx.Events.ComplianceTests;
 
-namespace EventStoreTests.Documents;
+namespace JasperFx.Events.InMemory;
 
 /// <summary>
 /// The reference <see cref="IDocumentStoreDiagnostics" /> and <see cref="IDocumentStoreDiagnosticsWriter" />
@@ -32,13 +31,13 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
 {
     private readonly ConcurrentDictionary<(Type Root, string Tenant, object Id), RowMetadata> _metadata = new();
 
-    /// <summary>Every declared document type — the replay of <see cref="DocumentComplianceConfig.DocumentTypes" />.</summary>
+    /// <summary>Every declared document type — the replay of <c>DocumentComplianceConfig.DocumentTypes</c>.</summary>
     public HashSet<Type> DocumentTypes { get; } = new();
 
-    /// <summary>Soft-deleted roots — the replay of <see cref="DocumentComplianceConfig.SoftDeletedDocuments" />.</summary>
+    /// <summary>Soft-deleted roots — the replay of <c>DocumentComplianceConfig.SoftDeletedDocuments</c>.</summary>
     public HashSet<Type> SoftDeletedTypes { get; } = new();
 
-    /// <summary>Sub-class → root — the replay of <see cref="DocumentComplianceConfig.SubClasses" />.</summary>
+    /// <summary>Sub-class → root — the replay of <c>DocumentComplianceConfig.SubClasses</c>.</summary>
     public Dictionary<Type, Type> SubClassRoots { get; } = new();
 
     public Uri Subject { get; } = new("inmemory://main");

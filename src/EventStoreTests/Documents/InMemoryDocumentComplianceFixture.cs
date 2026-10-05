@@ -2,6 +2,7 @@ using System.Reflection;
 using JasperFx.Documents;
 using JasperFx.Events.ComplianceTests;
 using JasperFx.Events.Documents;
+using JasperFx.Events.InMemory;
 
 namespace EventStoreTests.Documents;
 

@@ -1,5 +1,6 @@
 using JasperFx.Events.Documents;
 using Shouldly;
+using JasperFx.Events.InMemory;
 
 namespace EventStoreTests.Documents;
 

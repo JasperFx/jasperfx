@@ -34,6 +34,9 @@
           none of the reasons the package ships as source apply to compiling them here.
         -->
         <ProjectReference Include="..\JasperFx.Events.ComplianceTests\JasperFx.Events.ComplianceTests.csproj" />
+        <!-- jasperfx#963: the in-memory store graduated from this project into a shipped package; the
+             document compliance suites still run against it here. -->
+        <ProjectReference Include="..\JasperFx.Events.InMemory\JasperFx.Events.InMemory.csproj" />
     </ItemGroup>
 
 </Project>
