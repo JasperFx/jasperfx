@@ -21,8 +21,10 @@ with it.
 
 Live aggregation folds with the source-generated `Apply` / `Create` dispatchers -- there's no runtime
 fallback -- and this package carries `JasperFx.Events.SourceGenerator` as an analyzer, so any project that
-references it runs the generator over its aggregates. An aggregate doesn't need an `Id` yet: a stub with no identity member takes its
-stream's id type.
+references it runs the generator over its aggregates. An aggregate doesn't need an `Id` yet: a stub with no
+identity member takes its stream's id type. The generator learns that id type from a call site such as
+`FetchLatest<T>("key")` or `AggregateStreamAsync<T>(id)`, so a stub that's only ever *started* with a
+string key needs one of those calls somewhere before it can be folded.
 
 Register it with the deliberately awkward name:
 
@@ -32,7 +34,34 @@ using JasperFx.Events.InMemory;
 builder.Services.AddInMemoryStoreForPrototyping(x =>
 {
     x.ConfigureDocuments(store => store.OptimisticConcurrencyTypes.Add(typeof(Incident)));
+
+    x.ConfigureEvents(events =>
+    {
+        events.StreamIdentity = StreamIdentity.AsString;
+        events.CorrelationIdEnabled = true;
+    });
+
+    x.ConfigureProjections(projections =>
+    {
+        projections.Snapshot<Incident>(SnapshotLifecycle.Inline);
+        projections.Add(new IncidentHistoryProjection(), ProjectionLifecycle.Inline);
+    });
 });
+```
+
+The configuration is applied documents first, then events, then projections, whatever order you call
+them in, because a projection is closed over the stream identity when it's registered.
+
+The registration exposes the store as `IDocumentSessionFactory`, so code written against the
+store-agnostic contract runs against it unchanged:
+
+```csharp
+var sessions = services.GetRequiredService<IDocumentSessionFactory>();
+
+await using var session = sessions.LightweightSession();
+var stream = await session.Events.FetchForWriting<Incident>(incidentId);
+stream.AppendOne(new IncidentAssigned("agent-7"));
+await session.SaveChangesAsync();
 ```
 
 Every host start logs a warning that the in-memory store is in use, and a host whose environment is

@@ -14,6 +14,24 @@ public sealed class InMemoryStoreOptions
 {
     internal List<Action<InMemoryDocumentStore>> StoreConfigurations { get; } = new();
 
+    internal List<Action<InMemoryEventRegistry>> EventConfigurations { get; } = new();
+
+    internal List<Action<Projections.InMemoryProjectionGraph>> ProjectionConfigurations { get; } = new();
+
+    /// <summary>
+    /// Build and configure the store: documents, then events, then projections, whatever order the
+    /// configuration calls were made in. A projection is closed over the stream identity when it is
+    /// registered, so the event configuration has to be in place first.
+    /// </summary>
+    internal InMemoryDocumentStore BuildStore()
+    {
+        var store = new InMemoryDocumentStore();
+        foreach (var configuration in StoreConfigurations) configuration(store);
+        foreach (var configuration in EventConfigurations) configuration(store.Events);
+        foreach (var configuration in ProjectionConfigurations) configuration(store.Projections);
+        return store;
+    }
+
     /// <summary>
     /// Let the store start when the host environment is <c>Production</c>. Off by default, and meant to
     /// stay off: the in-memory store persists nothing.
@@ -32,6 +50,27 @@ public sealed class InMemoryStoreOptions
     public InMemoryStoreOptions ConfigureDocuments(Action<InMemoryDocumentStore> configure)
     {
         StoreConfigurations.Add(configure);
+        return this;
+    }
+
+    /// <summary>
+    /// Configure the event store (jasperfx#964): stream identity, event types, and which metadata --
+    /// correlation and causation ids, user name, headers -- is recorded on each event.
+    /// </summary>
+    public InMemoryStoreOptions ConfigureEvents(Action<InMemoryEventRegistry> configure)
+    {
+        EventConfigurations.Add(configure);
+        return this;
+    }
+
+    /// <summary>
+    /// Register projections (jasperfx#964): inline snapshots with
+    /// <c>Snapshot&lt;T&gt;(SnapshotLifecycle.Inline)</c>, and projection classes with
+    /// <c>Add(projection, ProjectionLifecycle.Inline)</c>. Runs after <see cref="ConfigureEvents"/>.
+    /// </summary>
+    public InMemoryStoreOptions ConfigureProjections(Action<Projections.InMemoryProjectionGraph> configure)
+    {
+        ProjectionConfigurations.Add(configure);
         return this;
     }
 }
@@ -64,12 +103,7 @@ public static class InMemoryStoreRegistration
         configure?.Invoke(options);
 
         services.AddSingleton(options);
-        services.TryAddSingleton(_ =>
-        {
-            var store = new InMemoryDocumentStore();
-            foreach (var configuration in options.StoreConfigurations) configuration(store);
-            return store;
-        });
+        services.TryAddSingleton(_ => options.BuildStore());
         services.TryAddSingleton<IDocumentSessionFactory>(s => s.GetRequiredService<InMemoryDocumentStore>());
 
         // A hosted service, so the guard runs as the host starts -- before anything has written to a
