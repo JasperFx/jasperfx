@@ -54,7 +54,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot, SmokeTestBuildTargets);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestInMemoryEventStore, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot, SmokeTestBuildTargets);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -125,6 +125,19 @@ partial class Build : NukeBuild
         {
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventStoreTests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
+    // jasperfx#964: the event compliance suites, compiled as source and run against the in-memory
+    // prototyping store.
+    Target TestInMemoryEventStore => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.InMemoryEventStoreTests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());

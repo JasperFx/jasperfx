@@ -32,5 +32,6 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="EventStoreTests" />
+        <InternalsVisibleTo Include="InMemoryEventStoreTests" />
     </ItemGroup>
 </Project>

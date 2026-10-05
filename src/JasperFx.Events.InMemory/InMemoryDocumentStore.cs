@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
@@ -120,60 +121,105 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
 
     public void Clear()
     {
-        lock (_commitLock)
-        {
-            _documents.Clear();
-            _metadata.Clear();
-            _streams.Clear();
-            _events.Clear();
-        }
+        using var _ = EnterReadGate();
+
+        _documents.Clear();
+        _metadata.Clear();
+        _streams.Clear();
+        _events.Clear();
     }
 
     // jasperfx#963. One commit at a time, so two sessions' units of work never interleave, and a
-    // failed one is rolled back before anyone else commits on top of it.
-    private readonly object _commitLock = new();
+    // failed one is rolled back before anyone else commits on top of it. A semaphore rather than a
+    // lock since jasperfx#964 phase 3: inline projections run inside the commit, and they are async.
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    // Set on the async flow that holds the gate, so a read made from inside the commit -- an inline
+    // projection loading its snapshot, or aggregating a stream -- does not wait on itself. A semaphore is
+    // not re-entrant, and an AsyncLocal flows into everything the commit awaits but never back out.
+    private readonly AsyncLocal<bool> _holdsGate = new();
+
+    /// <summary>
+    /// Take the commit gate for a read, so a reader never sees half a commit. A no-op on the flow that is
+    /// committing.
+    /// </summary>
+    internal GateRelease EnterReadGate()
+    {
+        if (_holdsGate.Value) return default;
+
+        _gate.Wait();
+        return new GateRelease(_gate);
+    }
+
+    internal readonly struct GateRelease(SemaphoreSlim? gate) : IDisposable
+    {
+        public void Dispose() => gate?.Release();
+    }
 
     /// <summary>
     /// Apply <paramref name="apply"/> as one all-or-nothing unit of work. On any exception the documents,
-    /// row metadata, streams and events are restored to what they were before, the undo actions the unit registered run
-    /// (in reverse), and the exception propagates.
+    /// row metadata, streams and events are restored to what they were before, the undo actions the unit
+    /// registered run (in reverse), and the exception propagates.
     /// </summary>
-    internal void CommitAtomically(Action<InMemoryChangeSet> apply, InMemoryChangeSet changes)
+    internal async Task CommitAtomicallyAsync(Func<InMemoryChangeSet, Task> apply, InMemoryChangeSet changes,
+        CancellationToken token)
     {
-        lock (_commitLock)
+        if (_holdsGate.Value)
         {
-            // RowMetadata is an immutable record replaced with `with`, and stored documents are
-            // replaced rather than mutated, so a shallow copy of each bucket is a full snapshot.
-            var documents = _documents.ToDictionary(x => x.Key, x => x.Value.ToArray());
-            var metadata = _metadata.ToArray();
+            // An inline projection that saved a second session from inside the commit would wait on the
+            // gate its own commit holds, forever. Refuse it instead of hanging.
+            throw new InvalidOperationException(
+                "A unit of work cannot be committed from inside another commit on the in-memory prototyping store.");
+        }
 
-            // jasperfx#964: the event half of the same unit. StreamRow is immutable and events are only
-            // ever appended, so the rows plus the event count are a full snapshot.
-            var streams = _streams.ToArray();
-            var eventCount = _events.Count;
+        await _gate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await commitAsync(apply, changes).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
-            try
+    // A separate async method so the AsyncLocal set here is scoped to this flow and is gone again once it
+    // returns: an async method's changes to an AsyncLocal never leak back into its caller.
+    private async Task commitAsync(Func<InMemoryChangeSet, Task> apply, InMemoryChangeSet changes)
+    {
+        _holdsGate.Value = true;
+
+        // RowMetadata is an immutable record replaced with `with`, and stored documents are
+        // replaced rather than mutated, so a shallow copy of each bucket is a full snapshot.
+        var documents = _documents.ToDictionary(x => x.Key, x => x.Value.ToArray());
+        var metadata = _metadata.ToArray();
+
+        // jasperfx#964: the event half of the same unit. StreamRow is immutable and events are only
+        // ever appended, so the rows plus the event count are a full snapshot.
+        var streams = _streams.ToArray();
+        var eventCount = _events.Count;
+
+        try
+        {
+            await apply(changes).ConfigureAwait(false);
+        }
+        catch
+        {
+            _documents.Clear();
+            foreach (var (key, rows) in documents)
             {
-                apply(changes);
+                _documents[key] = new ConcurrentDictionary<object, object>(rows);
             }
-            catch
-            {
-                _documents.Clear();
-                foreach (var (key, rows) in documents)
-                {
-                    _documents[key] = new ConcurrentDictionary<object, object>(rows);
-                }
 
-                _metadata.Clear();
-                foreach (var (key, row) in metadata) _metadata[key] = row;
+            _metadata.Clear();
+            foreach (var (key, row) in metadata) _metadata[key] = row;
 
-                _streams.Clear();
-                foreach (var (key, row) in streams) _streams[key] = row;
-                _events.RemoveRange(eventCount, _events.Count - eventCount);
+            _streams.Clear();
+            foreach (var (key, row) in streams) _streams[key] = row;
+            _events.RemoveRange(eventCount, _events.Count - eventCount);
 
-                changes.Undo();
-                throw;
-            }
+            changes.Undo();
+            throw;
         }
     }
 
@@ -292,6 +338,11 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
         _store = store;
         _tenantId = tenantId;
         Events = new InMemoryEventOperations(this);
+
+        // Tracing context reaches the events this session appends, as on Marten, Polecat and Fisher. A
+        // value the caller sets afterwards wins.
+        CorrelationId = Activity.Current?.RootId;
+        CausationId = Activity.Current?.ParentId;
     }
 
     internal InMemoryDocumentStore OwningStore => _store;
@@ -341,11 +392,24 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
 
     // ---- IStorageOperations: the seams the shared projection runtime uses ----
 
-    /// <inheritdoc />
+    // The change set of the commit in flight, so inline projections record what they write into the same
+    // unit the listeners are told about. Null outside SaveChangesAsync.
+    private InMemoryChangeSet? _committing;
+
+    /// <summary>
+    /// The storage an inline projection writes its documents through (jasperfx#964). Only meaningful
+    /// inside this session's commit, which is the only place the shared projection runtime asks for it.
+    /// </summary>
     public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
         CancellationToken cancellationToken)
-        => throw new NotSupportedException(
-            "Inline projections are not available on the in-memory prototyping store yet (jasperfx#964).");
+    {
+        var changes = _committing ?? throw new InvalidOperationException(
+            "Projection storage on the in-memory prototyping store is only available to inline projections, " +
+            "while the session is committing.");
+
+        return Task.FromResult<IProjectionStorage<TDoc, TId>>(
+            new Projections.InMemoryProjectionStorage<TDoc, TId>(_store, changes, tenantId));
+    }
 
     /// <summary>Inline projections on the prototyping store never publish side effects.</summary>
     public bool EnableSideEffectsOnInlineProjections => false;
@@ -560,19 +624,46 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
 
         var changes = new InMemoryChangeSet();
         var pending = _pending.ToArray();
+        var inline = _store.Projections.InlineProjections(_store);
 
-        // All or nothing (jasperfx#963): a change that throws -- a refused concurrency check -- leaves
-        // the store exactly as it was, and the unit stays pending only in the sense that nothing landed.
-        _store.CommitAtomically(set =>
+        // All or nothing (jasperfx#963): a change that throws -- a refused concurrency check, a projection
+        // that fails -- leaves the store exactly as it was, and this session's work stays pending.
+        try
         {
-            foreach (var change in pending)
+            await _store.CommitAtomicallyAsync(async set =>
             {
-                change(set);
-            }
+                _committing = set;
 
-            // jasperfx#964: the event streams land in the same unit as the documents
-            _store.AppendStreams(streams, this);
-        }, changes);
+                // Cleared up front, so what an inline projection queues through this session (an
+                // EventProjection's Store) can be told apart from the caller's own work and drained.
+                _pending.Clear();
+
+                foreach (var change in pending)
+                {
+                    change(set);
+                }
+
+                // jasperfx#964: the event streams land in the same unit as the documents
+                _store.AppendStreams(streams, this);
+
+                // ...and so do the documents the inline projections derive from them
+                foreach (var projection in inline)
+                {
+                    await projection.ApplyAsync(this, streams, token).ConfigureAwait(false);
+                    drainQueuedByProjection(set);
+                }
+            }, changes, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            _pending.Clear();
+            _pending.AddRange(pending);
+            throw;
+        }
+        finally
+        {
+            _committing = null;
+        }
 
         _pending.Clear();
         Events.ClearPendingStreams();
@@ -580,6 +671,21 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
         foreach (var listener in _store.Listeners)
         {
             await listener.AfterCommitAsync(this, changes, token).ConfigureAwait(false);
+        }
+    }
+
+    private void drainQueuedByProjection(InMemoryChangeSet changes)
+    {
+        // A queued change may itself queue nothing, but loop anyway rather than assume it
+        while (_pending.Count > 0)
+        {
+            var queued = _pending.ToArray();
+            _pending.Clear();
+
+            foreach (var change in queued)
+            {
+                change(changes);
+            }
         }
     }
 

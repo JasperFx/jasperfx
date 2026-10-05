@@ -80,6 +80,14 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         _metadata.TryRemove((root, scope, id), out _);
     }
 
+    /// <summary>A removal that ignores soft deletes: the row and its metadata are gone.</summary>
+    internal void HardRemove(Type documentType, string tenantId, object id)
+    {
+        var root = RootOf(documentType);
+        StorageFor(root, tenantId).TryRemove(id, out _);
+        _metadata.TryRemove((root, ScopeFor(root, tenantId), id), out _);
+    }
+
     Task<DocumentStoreUsage?> IDocumentStoreUsageSource.TryCreateUsage(CancellationToken token)
         => Task.FromResult<DocumentStoreUsage?>(null);
 
