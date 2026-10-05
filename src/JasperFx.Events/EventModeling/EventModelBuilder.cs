@@ -19,6 +19,7 @@ public class EventModelBuilder
     private readonly List<EventModelSliceBuilder> _slices = new();
     private readonly List<HotspotDescriptor> _hotspots = new();
     private readonly List<AggregateDescriptor> _aggregates = new();
+    private readonly List<DomainAssignmentDescriptor> _domainAssignments = new();
     private string? _defaultDomain;
     private string? _defaultChapter;
 
@@ -69,6 +70,24 @@ public class EventModelBuilder
         var slice = new EventModelSliceBuilder(sliceName, _defaultDomain, _defaultChapter);
         _slices.Add(slice);
         return slice;
+    }
+
+    /// <summary>
+    /// Declare which handlers and endpoints belong to <paramref name="domain"/> — a module, in a modular
+    /// monolith (jasperfx#960). Membership is declared, never inferred: policies declared here and
+    /// <see cref="DomainAttribute"/> are the only inputs.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Domain("Billing").Includes(typeof(BillingModule).Assembly);
+    /// model.Domain("Shipping").IncludesNamespace("MyApp.Shipping");
+    /// </code>
+    /// </example>
+    /// <param name="domain">The domain (module) name.</param>
+    public DomainPolicyBuilder Domain(string domain)
+    {
+        if (string.IsNullOrWhiteSpace(domain)) throw new ArgumentException("A domain needs a name", nameof(domain));
+        return new DomainPolicyBuilder(domain, _domainAssignments);
     }
 
     /// <summary>
@@ -177,5 +196,10 @@ public class EventModelBuilder
     /// </summary>
     /// <param name="fallbackName">Name used when <see cref="Name"/> is unset.</param>
     public EventModelDescriptor Build(string fallbackName)
-        => new(Name ?? fallbackName, BuildSlices()) { Hotspots = _hotspots.ToList(), Aggregates = _aggregates.ToList() };
+        => new(Name ?? fallbackName, BuildSlices())
+        {
+            Hotspots = _hotspots.ToList(),
+            Aggregates = _aggregates.ToList(),
+            DomainAssignments = _domainAssignments.ToList(),
+        };
 }

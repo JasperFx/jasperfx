@@ -103,6 +103,12 @@ public class EventModelWireRoundTripTests
     })
     {
         Aggregates = new[] { new AggregateDescriptor(T<Order>(), AggregateKind.WriteAggregate, new[] { T<OrderPlaced>() }) },
+        // jasperfx#960: module membership policies travel with the model
+        DomainAssignments = new[]
+        {
+            new DomainAssignmentDescriptor("Ordering", DomainAssignmentScope.Namespace, "Shop.Ordering"),
+            new DomainAssignmentDescriptor("Warehouse", DomainAssignmentScope.Assembly, "Shop.Warehouse"),
+        },
         Hotspots = new[]
         {
             HotspotDescriptor.Prose("Do we own the SLA clock, or does the CRM?"),
@@ -127,6 +133,7 @@ public class EventModelWireRoundTripTests
         back.Hotspots.ShouldBe(model.Hotspots);
         // AggregateDescriptor / SpecificationDescriptor carry lists, and record equality compares
         // lists by reference — so compare those member-wise
+        back.DomainAssignments.ShouldBe(model.DomainAssignments);
         back.Aggregates.Count.ShouldBe(model.Aggregates.Count);
         for (var i = 0; i < model.Aggregates.Count; i++)
         {
