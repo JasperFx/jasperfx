@@ -231,4 +231,89 @@ public class ShardNameTests
         tagged.Identity.ShouldBe(identityBefore);
         tagged.RelativeUrl.ShouldBe(urlBefore);
     }
+
+    [Fact]
+    public void relative_url_carries_the_tenant_and_version()
+    {
+        ShardName.Compose("Trip", "All", "TenantA", 2).RelativeUrl.ShouldBe("trip/all/v2/tenanta");
+        ShardName.Compose("Trip", "All", "TenantA").RelativeUrl.ShouldBe("trip/all/tenanta");
+    }
+
+    [Fact]
+    public void every_shard_shares_the_default_database_until_told_otherwise()
+    {
+        new ShardName("Foo").Database.ShouldBe(new Uri("database://default"));
+        new ShardName("Bar").Database.ShouldBeSameAs(new ShardName("Foo").Database);
+    }
+
+    // jasperfx#952 replaced string.Split in TryParse with IndexOf boundaries. This pins the new
+    // parser to the old Split-based grammar over random strings built from the grammar's own pieces.
+    [Fact]
+    public void try_parse_matches_the_split_based_grammar()
+    {
+        var pieces = new[] { ":", ":", "V", "V2", "V10", "2", "Foo", "All", "t1", "", ShardState.HighWaterMark };
+        var random = new Random(952);
+
+        for (var i = 0; i < 20_000; i++)
+        {
+            var text = string.Concat(Enumerable.Range(0, random.Next(1, 8)).Select(_ => pieces[random.Next(pieces.Length)]));
+
+            var expectedParsed = splitBasedTryParse(text, out var expected);
+            ShardName.TryParse(text, out var actual).ShouldBe(expectedParsed, text);
+
+            if (!expectedParsed) continue;
+
+            actual!.Name.ShouldBe(expected!.Name, text);
+            actual.ShardKey.ShouldBe(expected.ShardKey, text);
+            actual.Version.ShouldBe(expected.Version, text);
+            actual.TenantId.ShouldBe(expected.TenantId, text);
+            actual.Identity.ShouldBe(expected.Identity, text);
+            actual.RelativeUrl.ShouldBe(expected.RelativeUrl, text);
+        }
+    }
+
+    // The TryParse implementation as it was before jasperfx#952
+    private static bool splitBasedTryParse(string text, out ShardName? shardName)
+    {
+        shardName = null;
+        if (string.IsNullOrEmpty(text)) return false;
+
+        if (text == ShardState.HighWaterMark)
+        {
+            shardName = new ShardName(ShardState.HighWaterMark);
+            return true;
+        }
+
+        var parts = text.Split(':');
+        if (parts[0] == ShardState.HighWaterMark)
+        {
+            if (parts.Length != 2 || string.IsNullOrEmpty(parts[1])) return false;
+            shardName = ShardName.HighWaterMarkFor(parts[1]);
+            return true;
+        }
+
+        static bool version(string segment, out uint v)
+        {
+            v = 1;
+            return segment.Length >= 2 && segment[0] == 'V' && uint.TryParse(segment.AsSpan(1), out v);
+        }
+
+        switch (parts.Length)
+        {
+            case 2:
+                shardName = new ShardName(parts[0], parts[1], 1, null);
+                return true;
+            case 3 when version(parts[1], out var v3):
+                shardName = new ShardName(parts[0], parts[2], v3, null);
+                return true;
+            case 3:
+                shardName = new ShardName(parts[0], parts[1], 1, parts[2]);
+                return true;
+            case 4 when version(parts[1], out var v4):
+                shardName = new ShardName(parts[0], parts[2], v4, parts[3]);
+                return true;
+            default:
+                return false;
+        }
+    }
 }
