@@ -508,8 +508,11 @@ public class BlueGreenSideEffectGateTests
         {
             var entry = new Page(subscriptionAgent.SideEffectsSuppressed, page.Floor, page.Ceiling);
             RecordedPages.Add(entry);
-            _pages.Writer.TryWrite(entry);
+
+            // Persist the progression before announcing the page, so a test that awaits the page
+            // and then asserts on progress can't read the previous value.
             _harness.SetProgress(subscriptionAgent.Name.Identity, page.Ceiling);
+            _pages.Writer.TryWrite(entry);
             return subscriptionAgent.MarkSuccessAsync(page.Ceiling);
         }
 

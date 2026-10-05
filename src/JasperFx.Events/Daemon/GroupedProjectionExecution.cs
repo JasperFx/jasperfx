@@ -13,6 +13,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     private readonly IBlock<EventRange> _grouping;
     private readonly ILogger _logger;
     private readonly IGroupedProjectionRunner _runner;
+    private volatile bool _draining;
 
     public GroupedProjectionExecution(ShardName shardName, IGroupedProjectionRunner runner, ILogger logger)
     {
@@ -82,7 +83,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
     public ValueTask EnqueueAsync(EventPage page, ISubscriptionAgent subscriptionAgent)
     {
-        if (_cancellation.IsCancellationRequested)
+        if (_draining || _cancellation.IsCancellationRequested)
         {
             return new ValueTask();
         }
@@ -97,10 +98,19 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
     public async Task StopAndDrainAsync(CancellationToken token)
     {
+        // Queued pages, grouped or not, are left to whoever runs the shard next, from the progression the
+        // in-flight page marks. A page still being grouped when the drain starts is dropped before it's applied.
+        _draining = true;
         _grouping.Complete();
-        await _grouping.WaitForCompletionAsync().ConfigureAwait(false);
 
-        await _cancellation.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await _grouping.WaitForCompletionAsync().WaitAsync(token).ConfigureAwait(false);
+        }
+        finally
+        {
+            await _cancellation.CancelAsync().ConfigureAwait(false);
+        }
     }
 
     public async Task HardStopAsync()
@@ -141,7 +151,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
-        if (_cancellation.IsCancellationRequested)
+        if (_draining || _cancellation.IsCancellationRequested)
         {
             return null!;
         }
@@ -195,7 +205,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
     private async Task processRangeAsync(EventRange range, CancellationToken _)
     {
-        if (_cancellation.IsCancellationRequested)
+        if (_draining || _cancellation.IsCancellationRequested)
         {
             return;
         }
@@ -321,6 +331,12 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             // mutations. A build/commit that failed never reaches here, so its mutations are
             // discarded and a retry rebuilds from committed state instead of double-applying.
             _runner.ApplyPendingCacheUpdates();
+
+            // A timed-out drain or a hard stop already reported the shard stopped; a late page must not undo that
+            if (_cancellation.IsCancellationRequested)
+            {
+                return;
+            }
 
             await range.Agent.MarkSuccessAsync(range.SequenceCeiling);
 
