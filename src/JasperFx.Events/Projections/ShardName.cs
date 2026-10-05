@@ -48,19 +48,13 @@ public class ShardName
         // The tenant is a distinct, trailing slot in the grammar -- it is NEVER folded
         // into the ShardKey. A null/empty tenant means "store-global" and keeps the
         // Identity/RelativeUrl byte-for-byte identical to the pre-tenancy behavior.
+        // RelativeUrl is built lazily -- only the URL-based APIs read it, and the daemon creates
+        // one of these per (shard x tenant) on every pass. See jasperfx#952.
         var identitySuffix = TenantId == null ? string.Empty : $":{TenantId}";
-        var urlSuffix = TenantId == null ? string.Empty : $"/{TenantId}";
 
-        if (version > 1)
-        {
-            Identity = $"{name}:V{version}:{shardKey}{identitySuffix}";
-            RelativeUrl = $"{name}/{shardKey}/v{version}{urlSuffix}".ToLowerInvariant();
-        }
-        else
-        {
-            Identity = $"{name}:{shardKey}{identitySuffix}";
-            RelativeUrl = $"{name}/{shardKey}{urlSuffix}".ToLowerInvariant();
-        }
+        Identity = version > 1
+            ? $"{name}:V{version}:{shardKey}{identitySuffix}"
+            : $"{name}:{shardKey}{identitySuffix}";
 
         // The high-water mark is addressed by a bare, well-known identity rather than the
         // Name:ShardKey grammar -- but ONLY when it is store-global. jasperfx#618: a per-tenant
@@ -145,42 +139,59 @@ public class ShardName
             return true;
         }
 
-        var parts = text.Split(':');
+        // Segment boundaries by IndexOf rather than string.Split: no array, and the version
+        // segment is inspected as a span instead of being allocated and dropped. See jasperfx#952.
+        var c1 = text.IndexOf(':');
+        if (c1 < 0)
+        {
+            return false;
+        }
+
+        var c2 = text.IndexOf(':', c1 + 1);
+        var c3 = c2 < 0 ? -1 : text.IndexOf(':', c2 + 1);
+        if (c3 >= 0 && text.IndexOf(':', c3 + 1) >= 0)
+        {
+            // five or more segments
+            return false;
+        }
 
         // jasperfx#618: HighWaterMark:{tenant} is a real persisted row shape. Parsing it through the
         // generic Name:ShardKey branch put the tenant id in the ShardKey slot, left TenantId null,
         // and collapsed Identity back to the bare store-global constant -- true, plus a wrong answer.
-        if (parts[0] == ShardState.HighWaterMark)
+        if (text.AsSpan(0, c1).SequenceEqual(ShardState.HighWaterMark))
         {
-            if (parts.Length != 2 || string.IsNullOrEmpty(parts[1]))
+            if (c2 >= 0 || c1 == text.Length - 1)
             {
                 return false;
             }
 
-            shardName = HighWaterMarkFor(parts[1]);
+            shardName = HighWaterMarkFor(text.Substring(c1 + 1));
             return true;
         }
 
-        switch (parts.Length)
+        var segments = c2 < 0 ? 2 : c3 < 0 ? 3 : 4;
+        switch (segments)
         {
             case 2:
                 // Name:ShardKey
-                shardName = new ShardName(parts[0], parts[1], 1, null);
+                shardName = new ShardName(text.Substring(0, c1), text.Substring(c1 + 1), 1, null);
                 return true;
 
-            case 3 when TryParseVersion(parts[1], out var versionedKeyVersion):
+            case 3 when TryParseVersion(text.AsSpan(c1 + 1, c2 - c1 - 1), out var versionedKeyVersion):
                 // Name:V{n}:ShardKey
-                shardName = new ShardName(parts[0], parts[2], versionedKeyVersion, null);
+                shardName = new ShardName(text.Substring(0, c1), text.Substring(c2 + 1), versionedKeyVersion, null);
                 return true;
 
             case 3:
                 // Name:ShardKey:Tenant
-                shardName = new ShardName(parts[0], parts[1], 1, parts[2]);
+                shardName = new ShardName(text.Substring(0, c1), text.Substring(c1 + 1, c2 - c1 - 1), 1,
+                    text.Substring(c2 + 1));
                 return true;
 
-            case 4 when TryParseVersion(parts[1], out var versionedTenantVersion):
+            case 4 when TryParseVersion(text.AsSpan(c1 + 1, c2 - c1 - 1), out var versionedTenantVersion):
                 // Name:V{n}:ShardKey:Tenant
-                shardName = new ShardName(parts[0], parts[2], versionedTenantVersion, parts[3]);
+                shardName = new ShardName(text.Substring(0, c1), text.Substring(c2 + 1, c3 - c2 - 1),
+                    versionedTenantVersion, text.Substring(c3 + 1));
                 return true;
 
             default:
@@ -188,7 +199,7 @@ public class ShardName
         }
     }
 
-    private static bool TryParseVersion(string segment, out uint version)
+    private static bool TryParseVersion(ReadOnlySpan<char> segment, out uint version)
     {
         version = 1;
         if (segment.Length < 2 || segment[0] != 'V')
@@ -196,11 +207,20 @@ public class ShardName
             return false;
         }
 
-        return uint.TryParse(segment.AsSpan(1), out version);
+        return uint.TryParse(segment.Slice(1), out version);
     }
 
-    public string RelativeUrl { get; }
+    private string? _relativeUrl;
 
+    public string RelativeUrl => _relativeUrl ??= buildRelativeUrl();
+
+    private string buildRelativeUrl()
+    {
+        var urlSuffix = TenantId == null ? string.Empty : $"/{TenantId}";
+        return (Version > 1
+            ? $"{Name}/{ShardKey}/v{Version}{urlSuffix}"
+            : $"{Name}/{ShardKey}{urlSuffix}").ToLowerInvariant();
+    }
     public ShardName CloneForDatabase(Uri database)
     {
         return new ShardName(Name, ShardKey, Version, TenantId) { Database = database };
@@ -215,7 +235,10 @@ public class ShardName
         return new ShardName(Name, ShardKey, Version, tenantId) { Database = Database };
     }
 
-    public Uri Database { get; set; } = new Uri("database://default");
+    // Uri is immutable, so every shard can share the default rather than parsing its own.
+    private static readonly Uri DefaultDatabase = new("database://default");
+
+    public Uri Database { get; set; } = DefaultDatabase;
 
     /// <summary>
     ///     Parent projection name
