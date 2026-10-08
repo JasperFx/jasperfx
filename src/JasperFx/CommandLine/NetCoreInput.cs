@@ -80,10 +80,17 @@ public class NetCoreInput : IHostBuilderInput
         {
             _hostBuilder = value;
 
-            if (value is PreBuiltHostBuilder && EnvironmentFlag.IsNotEmpty())
+            // With WebApplication, the same args usually went through CreateBuilder(args) first,
+            // so the flag has already taken effect (WebApplicationFactory passes --environment
+            // this way). Only warn when the built host disagrees with the requested environment.
+            if (value is PreBuiltHostBuilder prebuilt && EnvironmentFlag.IsNotEmpty())
             {
-                AnsiConsole.MarkupLine($"[bold red]JasperFx cannot override the environment name when running against a pre-build IHost. Try setting dotnet run --environment Name before the \"--\" separator in your command arguments to pass it directly to the dotnet command line[/]");
-                AnsiConsole.MarkupLine("");
+                var actual = prebuilt.Host.Services.GetService<IHostEnvironment>()?.EnvironmentName;
+                if (!EnvironmentFlag.EqualsIgnoreCase(actual ?? string.Empty))
+                {
+                    AnsiConsole.MarkupLine($"[bold red]JasperFx cannot override the environment name to '{Markup.Escape(EnvironmentFlag)}' when running against a pre-built IHost that is already running as '{Markup.Escape(actual ?? "unknown")}'. Try setting dotnet run --environment Name before the \"--\" separator in your command arguments to pass it directly to the dotnet command line[/]");
+                    AnsiConsole.MarkupLine("");
+                }
             }
         }
     }
