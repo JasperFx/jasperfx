@@ -38,6 +38,9 @@ public class EventModelWireRoundTripTests
             AggregateTypes = new[] { T<Order>() },
             // jasperfx#957: the aggregate whose stream the slice starts
             StartsStream = T<Order>(),
+            // jasperfx#994: why the slice has its aggregate, and a DCB decider model
+            AggregateDeclaration = AggregateDeclaration.Explicit,
+            DeciderModel = T<OrderSummary>(),
             PublishedMessages = new[] { T<NotifyWarehouse>() },
             ExternalSystems = new[] { new ExternalSystemDescriptor("Warehouse", ExternalSystemDirection.Outbound, "rabbitmq://queue/warehouse") },
             Hotspots = new[]
@@ -48,6 +51,11 @@ public class EventModelWireRoundTripTests
                 HotspotDescriptor.SourceDisagreement(EventModelRole.EmittedEvents,
                     new EventModelClaim(EventModelProvenance.Observed, "OrderPlaced, AuditRecorded"),
                     new EventModelClaim(EventModelProvenance.Derived, "OrderPlaced")),
+                // jasperfx#995: the Specified rung, numbered 3 on the wire, and the unplaced-spec origin
+                HotspotDescriptor.SourceDisagreement(EventModelRole.Specifications,
+                    new EventModelClaim(EventModelProvenance.Specified, "Place Order/Place an order"),
+                    new EventModelClaim(EventModelProvenance.Declared, "Place Order/old name")),
+                HotspotDescriptor.UnresolvedSpecification("Place Order/ambiguous", "is ambiguous"),
             },
             Specifications = new[]
             {
@@ -174,6 +182,8 @@ public class EventModelWireRoundTripTests
             actual.Chapter.ShouldBe(expected.Chapter);
             actual.Origin.ShouldBe(expected.Origin);
             actual.StartsStream.ShouldBe(expected.StartsStream);
+            actual.AggregateDeclaration.ShouldBe(expected.AggregateDeclaration);
+            actual.DeciderModel.ShouldBe(expected.DeciderModel);
             actual.Provenance.ShouldBe(expected.Provenance);
             actual.ClaimedBy.Count.ShouldBe(expected.ClaimedBy.Count);
             foreach (var claim in expected.ClaimedBy)

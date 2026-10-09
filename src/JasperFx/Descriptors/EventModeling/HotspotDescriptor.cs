@@ -75,6 +75,14 @@ public enum HotspotOrigin
     /// </para>
     /// </remarks>
     SliceCollision,
+
+    /// <summary>
+    /// A specification's command is handled by several slices and nothing in its binding — a domain, a
+    /// namespace, an explicit slice — picks one, so <see cref="EventModelSpecifications.Link"/> linked it to
+    /// none of them rather than guess (jasperfx#995). Also raised when an explicit slice marker names a
+    /// slice the model does not have. Appended for the same wire reason as <see cref="SliceCollision"/>.
+    /// </summary>
+    UnresolvedSpecification,
 }
 
 /// <summary>
@@ -169,8 +177,9 @@ public sealed record EventModelClaim(EventModelProvenance Provenance, string Val
 ///     (<c>{Feature}/{Scenario}</c>); for prose it is the note itself.
 /// </param>
 /// <param name="SpecificationIdentity">
-///     The <c>{Feature}/{Scenario}</c> identity of the pending specification, when
-///     <see cref="Origin"/> is <see cref="HotspotOrigin.PendingSpecification"/>; otherwise null.
+///     The <c>{Feature}/{Scenario}</c> identity of the specification, when <see cref="Origin"/> is
+///     <see cref="HotspotOrigin.PendingSpecification"/> or <see cref="HotspotOrigin.UnresolvedSpecification"/>;
+///     otherwise null.
 /// </param>
 public sealed record HotspotDescriptor(
     HotspotOrigin Origin,
@@ -238,6 +247,15 @@ public sealed record HotspotDescriptor(
     /// <summary>A hotspot for a specification that is pending (jasperfx#689).</summary>
     public static HotspotDescriptor PendingSpecification(string specificationIdentity)
         => new(HotspotOrigin.PendingSpecification, specificationIdentity, specificationIdentity);
+
+    /// <summary>
+    /// A specification the join could not place — see <see cref="HotspotOrigin.UnresolvedSpecification"/>
+    /// (jasperfx#995). <paramref name="specificationIdentity"/> is also the hotspot's key, so the same spec
+    /// reported twice is one hotspot.
+    /// </summary>
+    public static HotspotDescriptor UnresolvedSpecification(string specificationIdentity, string reason)
+        => new(HotspotOrigin.UnresolvedSpecification, $"Specification '{specificationIdentity}' {reason}",
+            specificationIdentity);
 
     /// <summary>A free-text prose hotspot — see <see cref="HotspotOrigin.Prose"/> (jasperfx#690).</summary>
     public static HotspotDescriptor Prose(string text)

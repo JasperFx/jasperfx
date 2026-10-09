@@ -24,5 +24,6 @@
     <ItemGroup>
         <ProjectReference Include="..\JasperFx.SourceGenerator\JasperFx.SourceGenerator.csproj" />
         <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
     </ItemGroup>
 </Project>

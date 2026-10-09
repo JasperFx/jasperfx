@@ -99,6 +99,8 @@ Every role takes either a type or a name:
 | `HandledBy<T>()` | The handler or endpoint type |
 | `Against<T>()` (or `UsesAggregate<T>()`) | An aggregate the slice decides against |
 | `StartsStream<T>()` | The aggregate whose stream the slice *starts* -- see below |
+| `NoAggregate()` | Deliberately no aggregate -- see [A default aggregate](#a-default-aggregate) |
+| `DeciderModel<T>()` | The DCB decider model the slice decides through, rather than single-stream aggregates |
 | `Emits<T>()` | An event the slice writes |
 | `Publishes<T>()` | A non-event message the slice sends out |
 | `On<T>()` (or `From<T>()`) | An event the slice reacts to or folds |
@@ -143,6 +145,47 @@ A typo in a name is just a second, mysterious box on the diagram. A typo in a ty
 `StartsStream<T>()` says this slice *starts* a new stream for the aggregate rather than appending to an existing one. That's a different design decision than `Against<T>()`, and the code is different too: there's no existing stream to load, and you have to decide what the new stream's identity will be. Wolverine's scaffolding reads this role to write a `StartStream` instead of a write-model handler.
 
 The aggregate is also recorded as one of the slice's aggregates, so any viewer that doesn't know about this role still draws it.
+
+## A Default Aggregate
+
+Most commands in a chapter decide against the same aggregate. Say so once with `ForAggregate<T>()`, the companion to `InChapter()`:
+
+```csharp
+public override void Configure(EventModelBuilder model)
+{
+    model.InChapter("BookingAppointments");
+    model.ForAggregate<Appointment>();          // or ForAggregate("Appointment")
+
+    model.Command<ConfirmAppointment>()         // decides against Appointment
+        .Emits<AppointmentConfirmed>();
+
+    model.Command<RescheduleAppointment>()
+        .Against<Calendar>()                    // an explicit Against replaces the default
+        .Emits<AppointmentRescheduled>();
+
+    model.Command<ProposeAppointment>()
+        .StartsStream<Appointment>()            // a slice that starts a stream ignores the default
+        .Emits<AppointmentProposed>();
+
+    model.Command<RecordWalkIn>()
+        .NoAggregate()                          // deliberately none
+        .Emits<WalkInRecorded>();
+
+    model.Command<BookSlot>()
+        .DeciderModel<SlotBooking>()            // a DCB decider model instead
+        .Emits<SlotBooked>();
+}
+```
+
+The rules:
+
+- The last `ForAggregate` wins, and applies to every **command** slice opened after it that declares none of `Against`, `StartsStream`, `NoAggregate` or `DeciderModel`. Earlier slices, views, automations and translations are untouched.
+- Like `InDomain` and `InChapter`, it never carries into another definition: each definition gets a fresh builder.
+- `ForAggregate` also declares the aggregate on the model. `Aggregate<T>()` is unchanged: it declares an aggregate and sets no default.
+- `NoAggregate()` is for a slice that genuinely decides against nothing. Tooling such as Wolverine's scaffold stops warning about the missing aggregate. Combining it with `Against` on one slice throws.
+- `DeciderModel<T>()` only records the decider type for now; how its events are selected waits on the Dynamic Consistency Boundary design.
+
+Each slice says *why* it has its aggregate on `AggregateDeclaration` -- `Default`, `Explicit`, `None` or `DeciderModel` -- so tooling can explain it. A default-applied aggregate is still a declared claim: if the handler decides against something else, the code wins and the difference becomes a hotspot.
 
 ## Aggregates
 
@@ -247,7 +290,7 @@ That's the workflow in a nutshell:
 3. Write the specifications -- they'll be red
 4. Build the handlers until the specifications pass and the disagreements go away
 
-Some things never come from code. Slice names, trigger labels like "Agent clicks Escalate", domains, chapters and specification links only ever come from declarations, so those stay yours.
+Some things never come from code. Slice names, trigger labels like "Agent clicks Escalate", domains and chapters only ever come from declarations, so those stay yours. Specification links can come from the specifications themselves -- see [Links from the specifications](/event-modeling/descriptors#links-from-the-specifications).
 
 ::: tip
 For a while, this builder could only name, group and annotate slices -- the [overlay](/event-modeling/overlay). The provenance ladder is what made it safe to declare roles again: a declaration can no longer overwrite what the code actually does.
@@ -255,7 +298,7 @@ For a while, this builder could only name, group and annotate slices -- the [ove
 
 ## Registering the Model
 
-Register each definition with the container, the same way as an overlay:
+Register each definition with the container, the same way as an overlay -- or all of them at once with `AddDiscoveredEventModels(assembly)`. A definition that doesn't override `Name` contributes to the application's model, so one definition per chapter merges with the code without any further wiring:
 
 <!-- snippet: sample_registering_declared_models -->
 <a id='snippet-sample_registering_declared_models'></a>

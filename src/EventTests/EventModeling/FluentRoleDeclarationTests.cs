@@ -235,7 +235,11 @@ namespace EventTests.EventModeling
         public void the_new_role_is_appended_so_the_wire_integers_do_not_move()
         {
             ((int)EventModelRole.StartsStream).ShouldBe((int)EventModelRole.Origin + 1);
-            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.StartsStream);
+
+            // jasperfx#994 appended two more after it, the same way.
+            ((int)EventModelRole.AggregateDeclaration).ShouldBe((int)EventModelRole.StartsStream + 1);
+            ((int)EventModelRole.DeciderModel).ShouldBe((int)EventModelRole.StartsStream + 2);
+            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.DeciderModel);
         }
 
         [Fact]

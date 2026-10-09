@@ -71,27 +71,32 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
     ).toEqual(['External', 'Grpc', 'Http', 'Human', 'JobScheduler', 'MessageHandler'])
   })
 
-  it('pins HotspotOrigin including the jasperfx#704, #837 and #954 additions', () => {
+  it('pins HotspotOrigin including the jasperfx#704, #837, #954 and #995 additions', () => {
     expect(
       members<HotspotOrigin>({
         PendingSpecification: true,
         Prose: true,
         SourceDisagreement: true,
         ModelCollapse: true,
-        SliceCollision: true
+        SliceCollision: true,
+        UnresolvedSpecification: true
       })
-    ).toEqual(['ModelCollapse', 'PendingSpecification', 'Prose', 'SliceCollision', 'SourceDisagreement'])
+    ).toEqual([
+      'ModelCollapse', 'PendingSpecification', 'Prose', 'SliceCollision', 'SourceDisagreement',
+      'UnresolvedSpecification'
+    ])
   })
 
   it('pins the provenance ladder, lowest authority first', () => {
     expect(
-      members<EventModelProvenance>({ Declared: true, Derived: true, Observed: true })
-    ).toEqual(['Declared', 'Derived', 'Observed'])
+      members<EventModelProvenance>({ Declared: true, Specified: true, Derived: true, Observed: true })
+    ).toEqual(['Declared', 'Derived', 'Observed', 'Specified'])
 
     // The ORDER is the contract — higher rung wins, so a reordering here would invert precedence
-    // for any consumer that ranks by index.
-    expect(PROVENANCE_ORDER).toEqual(['Declared', 'Derived', 'Observed'])
-    expect(Object.keys(PROVENANCE_LABEL).sort()).toEqual(['Declared', 'Derived', 'Observed'])
+    // for any consumer that ranks by index. Specified (jasperfx#995) ranks second although the
+    // C# enum numbers it 3; on this string wire only the order below says where it sits.
+    expect(PROVENANCE_ORDER).toEqual(['Declared', 'Specified', 'Derived', 'Observed'])
+    expect(Object.keys(PROVENANCE_LABEL).sort()).toEqual(['Declared', 'Derived', 'Observed', 'Specified'])
   })
 
   it('pins EventModelRole — a SourceDisagreement hotspot names one of these', () => {
@@ -101,10 +106,12 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         Pattern: true, CommandType: true, HandlerType: true, AggregateTypes: true,
         EmittedEvents: true, PublishedMessages: true, ProjectionTypes: true, ReadModelTypes: true,
         ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true,
-        ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true
+        ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true,
+        AggregateDeclaration: true, DeciderModel: true
       })
     ).toEqual([
-      'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'Domain', 'EmittedEvents',
+      'AggregateDeclaration', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
+      'Domain', 'EmittedEvents',
       'ExternalSystems', 'HandlerType', 'Hotspots', 'Origin', 'Pattern', 'ProjectionTypes',
       'PublishedMessages', 'ReadModelTypes', 'ReadsFrom', 'Specifications', 'StartsStream',
       'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType'

@@ -44,7 +44,9 @@ public class IncidentServiceModel : EventModelDefinition
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/IncidentServiceEventModel.cs#L5-L35' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_incident_service_overlay' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-`Name` is the model this overlay contributes to. Several definitions can return the same name and they are all folded into one model — which is how IncidentService keeps its slice names in one class and its open questions in another. Leave `Name` alone and it defaults to the class name.
+`Name` is the model this overlay contributes to. Leave it alone and the definition contributes to **the application's model**: the service name (`JasperFxOptions.ServiceName`, which Wolverine keeps in step with `WolverineOptions.ServiceName`), or the entry assembly's name when there is none. That is the name Wolverine and the stores give the model they derive from your code, so any number of definitions — one per chapter, one per module — fold onto the code without restating a name. Override `Name` only for an app that genuinely hosts several models; IncidentService does, which is why its samples say `"Helpdesk"`.
+
+Each slice still records which definition declared it, on `Origin` (`event-model://{ClassName}`), so a disagreement with the code names the definition that lost.
 
 ## Slice names are the merge key
 
@@ -70,11 +72,22 @@ builder.Slice("ArchiveIncident").InDomain("Retention");  // Retention
 
 A human-readable label for what starts the slice — "Agent clicks Close", "Customer submits the incident form". This is the one thing about a trigger that code genuinely cannot express. The trigger's *kind* (`Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External`) and its CLR type are derived; only the sentence is yours.
 
-### `LinksToSpecification(string)`
+### `LinksToSpecification(string)` and `LinksToSpecification<TSpec>(scenario)`
 
 Binds a specification to the slice by its `{Feature}/{Scenario}` identity.
 
 Use this **only** for a specification the binding source cannot see for itself — a manual test plan, a partner's acceptance suite, something outside the compilation. Specs the Bobcat generator or a code-first runner can see are bound by them, with their step types resolved, and re-typing them here would just be a second copy waiting to go stale.
+
+When the definition can reference the spec class, prefer the typed overload — the IDE navigates it and a rename keeps it in sync:
+
+```csharp
+model.Command<ApplyToVolunteer>()
+    .LinksToSpecification<apply_to_volunteer>(nameof(apply_to_volunteer.volunteer_application_submitted));
+```
+
+The identity is derived the way Bobcat derives it (`SpecificationIdentity.For`): the class's `[BobcatFeature]` title, or its name with one `Spec`/`Specs`/`Specification`/`Fixture` suffix removed, read as a sentence; then the method name read as a sentence. The example above links `apply to volunteer/volunteer application submitted`, exactly what the string overload would take.
+
+Most definitions live in the app and their specs in a test project, so neither overload is reachable. There, let the specifications supply the links: see [Links from the specifications](/event-modeling/descriptors#links-from-the-specifications).
 
 ### `Hotspot(string)`
 
@@ -94,11 +107,13 @@ services.AddEventModel<IncidentServiceHotspots>();
 // ...or every EventModelDefinition in an assembly
 services.AddEventModelsFromAssembly(typeof(IncidentServiceModel).Assembly);
 ```
+
+`AddDiscoveredEventModels(assembly)` does the same from a compile-time manifest: `JasperFx.SourceGenerator` emits `JasperFx.Generated.DiscoveredEventModels` into every assembly that references JasperFx.Events, listing each public, concrete, non-generic `EventModelDefinition` subclass with a public constructor and rooting those constructors for the trimmer. No type is enumerated at runtime.
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L13-L22' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_registering_an_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 ::: warning AOT
-`AddEventModelsFromAssembly` walks `Assembly.ExportedTypes` and is marked `[RequiresUnreferencedCode]`. Applications publishing native AOT should register each definition explicitly with `AddEventModel<T>()`.
+`AddEventModelsFromAssembly` walks `Assembly.ExportedTypes` when the assembly has no generated manifest, and is marked `[RequiresUnreferencedCode]`. Applications publishing native AOT should reference `JasperFx.SourceGenerator` in each assembly that declares definitions and call `AddDiscoveredEventModels(assembly)`, or register each definition explicitly with `AddEventModel<T>()`. An assembly built without the generator still falls back to the scan.
 :::
 
 For something small, skip the class entirely:
