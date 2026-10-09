@@ -60,11 +60,12 @@ export type HotspotOrigin =
   | 'SourceDisagreement'
   | 'ModelCollapse'
   | 'SliceCollision'
+  | 'UnresolvedSpecification'
 
 /**
- * How much authority a source's claim carries — the three-rung ladder that decides precedence
+ * How much authority a source's claim carries — the ladder that decides precedence
  * when several sources describe the same slice (jasperfx#703). Higher rung wins, per claimed
- * role rather than wholesale.
+ * role rather than wholesale. `Specified` (jasperfx#995) ranks between `Declared` and `Derived`.
  *
  * ⚠️ Not the same axis as CritterWatch's `LifecycleProvenance`, despite the overlapping member
  * name. That one is a RECONCILIATION of one edge across static and runtime discovery, where
@@ -73,7 +74,7 @@ export type HotspotOrigin =
  * `Observed`, and its `Confirmed` has no rung here: agreement between rungs is expressed by the
  * ABSENCE of a `SourceDisagreement` hotspot rather than by a fourth value.
  */
-export type EventModelProvenance = 'Declared' | 'Derived' | 'Observed'
+export type EventModelProvenance = 'Declared' | 'Specified' | 'Derived' | 'Observed'
 
 /**
  * The slice members provenance is tracked against, so precedence is decided per claimed role.
@@ -101,6 +102,8 @@ export type EventModelRole =
   | 'Chapter'
   | 'Origin'
   | 'StartsStream'
+  | 'AggregateDeclaration'
+  | 'DeciderModel'
 
 /** One source's claim about one role, as it stood before a merge resolved the disagreement. */
 export interface EventModelClaim {
@@ -206,6 +209,17 @@ export interface EventModelSliceDescriptor {
    * below the JasperFx.Events release that added it.
    */
   startsStream?: TypeDescriptor | null
+  /**
+   * WHY the slice has the aggregate it has, when a declaration said (jasperfx#994): applied from the
+   * definition's `ForAggregate` default, declared on the slice, deliberately none, or a DCB decider
+   * model. Absent when nobody said, which is always the case for code-derived slices.
+   */
+  aggregateDeclaration?: AggregateDeclaration | null
+  /**
+   * The Dynamic Consistency Boundary decider model the slice decides through, rather than single-stream
+   * aggregates (jasperfx#994). Recorded only; how its events are selected is not modelled yet.
+   */
+  deciderModel?: TypeDescriptor | null
   pattern?: SlicePattern | null
   /**
    * Aggregate-shaped types this slice writes through, in declaration order.
@@ -231,6 +245,9 @@ export interface EventModelSliceDescriptor {
  * Which aggregate-marker attribute a type carries. String members on the wire, not ordinals.
  */
 export type AggregateKind = 'WriteAggregate' | 'ReadAggregate' | 'ConsistentAggregate' | 'BoundaryModel'
+
+/** Why a slice has its aggregate (jasperfx#994). */
+export type AggregateDeclaration = 'Default' | 'Explicit' | 'None' | 'DeciderModel'
 
 /**
  * One aggregate-shaped type of the model, with the events it applies.
@@ -315,6 +332,7 @@ export const LANE_ORDER: readonly EventModelLane[] = [
 /** Ladder rungs, lowest authority first. Order is part of the contract. */
 export const PROVENANCE_ORDER: readonly EventModelProvenance[] = [
   'Declared',
+  'Specified',
   'Derived',
   'Observed'
 ] as const
@@ -322,6 +340,7 @@ export const PROVENANCE_ORDER: readonly EventModelProvenance[] = [
 /** What each rung means, for a legend or a tooltip. */
 export const PROVENANCE_LABEL: Record<EventModelProvenance, string> = {
   Declared: 'Declared — somebody wrote it down (a spec or the overlay)',
+  Specified: 'Specified — read off the specifications, joined by command type (jasperfx#995)',
   Derived: 'Derived — read out of the code (Wolverine chains, the source generator)',
   Observed: 'Observed — seen happening in a running system'
 }

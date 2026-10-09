@@ -42,11 +42,18 @@ public static class EventModelServiceCollectionExtensions
 
     /// <summary>
     /// Register every concrete <see cref="EventModelDefinition"/> subclass exported by
-    /// <paramref name="assembly"/>.
+    /// <paramref name="assembly"/>. Reads the source-generated manifest when the assembly has one, as
+    /// <see cref="AddDiscoveredEventModels"/> does, and scans <c>ExportedTypes</c> otherwise.
     /// </summary>
-    [RequiresUnreferencedCode("Enumerates Assembly.ExportedTypes to find EventModelDefinition subclasses. AOT-publishing apps should register each definition explicitly with AddEventModel<T>().")]
+    [RequiresUnreferencedCode("Enumerates Assembly.ExportedTypes to find EventModelDefinition subclasses when the assembly has no source-generated manifest. AOT-publishing apps should use AddDiscoveredEventModels(assembly) with JasperFx.SourceGenerator, or register each definition with AddEventModel<T>().")]
     public static IServiceCollection AddEventModelsFromAssembly(this IServiceCollection services, Assembly assembly)
     {
+        if (TryReadDefinitionManifest(assembly, out var definitionTypes))
+        {
+            foreach (var type in definitionTypes) services.AddEventModel(type);
+            return services;
+        }
+
         foreach (var type in assembly.GetExportedTypes())
         {
             if (type.IsAbstract || !typeof(EventModelDefinition).IsAssignableFrom(type)) continue;
@@ -54,6 +61,50 @@ public static class EventModelServiceCollectionExtensions
         }
 
         return services;
+    }
+
+    /// <summary>
+    /// Register every <see cref="EventModelDefinition"/> subclass in <paramref name="assembly"/> from
+    /// its source-generated <c>JasperFx.Generated.DiscoveredEventModels</c> manifest — AOT-safe, with no
+    /// type enumeration (jasperfx#993).
+    /// </summary>
+    /// <remarks>
+    /// The manifest is emitted by <c>JasperFx.SourceGenerator</c> into every assembly that references
+    /// JasperFx.Events, empty when there are no definitions. An assembly built without the generator has
+    /// none, and falls back to the same reflective scan as <see cref="AddEventModelsFromAssembly"/> —
+    /// which is not trim-safe, so an AOT app has to reference the generator in each assembly that
+    /// declares definitions.
+    /// </remarks>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "The reflective scan is reached only for an assembly without the source-generated DiscoveredEventModels manifest. Trim/AOT apps reference JasperFx.SourceGenerator, which emits the manifest as ordinary code in each consuming assembly; an app that omits it has opted into the scan.")]
+    public static IServiceCollection AddDiscoveredEventModels(this IServiceCollection services, Assembly assembly)
+        => services.AddEventModelsFromAssembly(assembly);
+
+    /// <summary>
+    /// The definition types listed by <paramref name="assembly"/>'s generated manifest, or false when it
+    /// has none. The lookup is by name because the manifest is <c>internal</c> to the assembly it lists.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "JasperFx.Generated.DiscoveredEventModels is emitted by JasperFx.SourceGenerator into the consuming assembly as ordinary code; when it has been trimmed away the lookup degrades to 'no manifest'.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+        Justification = "Same as IL2026: DefinitionTypes is a generated public static property of the manifest type.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
+        Justification = "The manifest roots each listed type's public constructors with [DynamicDependency], which is what EventModelDefinitionSource.For needs.")]
+    internal static bool TryReadDefinitionManifest(Assembly assembly,
+        [NotNullWhen(true)] out IReadOnlyList<Type>? definitionTypes)
+    {
+        definitionTypes = null;
+        if (assembly.IsDynamic) return false;
+
+        var manifestType = assembly.GetType("JasperFx.Generated.DiscoveredEventModels");
+        var property = manifestType?.GetProperty("DefinitionTypes", BindingFlags.Public | BindingFlags.Static);
+        if (property?.GetValue(null) is not IEnumerable<Type> types) return false;
+
+        definitionTypes = types
+            .Where(x => !x.IsAbstract && typeof(EventModelDefinition).IsAssignableFrom(x))
+            .ToList();
+
+        return true;
     }
 
     /// <summary>
@@ -113,6 +164,33 @@ public static class EventModelServiceCollectionExtensions
 /// </summary>
 public static class EventModelDiscovery
 {
+    /// <summary>
+    /// The name of <em>the application's</em> model — what a definition with no
+    /// <see cref="EventModelDefinition.Name"/> contributes to (jasperfx#992).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="JasperFxOptions.ServiceName"/> when one is registered. That is the name the
+    /// code-derived sources use: Wolverine names its model after <c>WolverineOptions.ServiceName</c> and
+    /// carries it back to <see cref="JasperFxOptions"/>, and Marten, Polecat and Fisher name theirs after
+    /// the same value unless a store sets its own model name. Otherwise the entry assembly's name, which
+    /// is what <see cref="JasperFxOptions.ServiceName"/> defaults to; failing that,
+    /// <see cref="ProjectionEventModelSource.DefaultModelName"/>.
+    /// </para>
+    /// <para>
+    /// Public so a source that derives a model from code can name it the same way rather than repeat
+    /// the rule.
+    /// </para>
+    /// </remarks>
+    public static string ApplicationModelName(IServiceProvider services)
+    {
+        var serviceName = services.GetService<JasperFxOptions>()?.ServiceName;
+        if (!string.IsNullOrWhiteSpace(serviceName)) return serviceName;
+
+        var entry = Assembly.GetEntryAssembly()?.GetName().Name;
+        return string.IsNullOrWhiteSpace(entry) ? ProjectionEventModelSource.DefaultModelName : entry;
+    }
+
     /// <summary>
     /// Ask every registered source for its descriptor, stamping each one with the source's
     /// <see cref="IEventModelDefinitionSource.Provenance"/> (jasperfx#703). Sources that return null

@@ -39,8 +39,9 @@ public class EventModelDiscoveryTests
 
         var descriptors = await EventModelDiscovery.DiscoverAsync(services);
 
+        // jasperfx#992: no Name override means the application's model, not the class name.
         var model = descriptors.Single();
-        model.Name.ShouldBe("OrdersOverlay");
+        model.Name.ShouldBe(EventModelDiscovery.ApplicationModelName(services));
         model.Slices.Single().Name.ShouldBe("PlaceOrder");
         model.Slices.Single().Domain.ShouldBe("Orders");
     }
@@ -97,11 +98,15 @@ public class EventModelDiscoveryTests
             .AddEventModelsFromAssembly(typeof(EventModelDiscoveryTests).Assembly)
             .BuildServiceProvider();
 
-        var names = (await EventModelDiscovery.DiscoverAsync(services)).Select(x => x.Name).ToList();
-        names.ShouldContain("OrdersOverlay");
-        names.ShouldContain("Orders");       // NamedOverlay
-        names.ShouldContain("DependentOverlay");
-        names.ShouldNotContain(nameof(AbstractOverlay));
+        var descriptors = await EventModelDiscovery.DiscoverAsync(services);
+        var application = EventModelDiscovery.ApplicationModelName(services);
+
+        // Unnamed definitions land in the application's model (jasperfx#992); a named one keeps its own.
+        var slices = descriptors.Where(x => x.Name == application).SelectMany(x => x.Slices).ToList();
+        slices.ShouldContain(x => x.Origin == new Uri("event-model://OrdersOverlay"));
+        slices.ShouldContain(x => x.Origin == new Uri("event-model://DependentOverlay"));
+        descriptors.ShouldContain(x => x.Name == "Orders"); // NamedOverlay
+        descriptors.SelectMany(x => x.Slices).ShouldNotContain(x => x.Origin == new Uri($"event-model://{nameof(AbstractOverlay)}"));
     }
 
     [Fact]
@@ -122,7 +127,7 @@ public class EventModelDiscoveryTests
         // will register — first, then the overlay. Registration order is merge order.
         var services = new ServiceCollection()
             .AddEventModelSource(new DerivedSource())
-            .AddEventModel<OrdersOverlay>()            // model name "OrdersOverlay" — a second model
+            .AddEventModel<OrdersOverlay>()            // the application's model — a second model here
             .AddEventModel("Orders", model =>          // model name "Orders" — folds onto the derived one
             {
                 model.Slice("PlaceOrder").InDomain("Orders").TriggeredBy("User clicks Place Order");
@@ -132,7 +137,7 @@ public class EventModelDiscoveryTests
 
         var models = await EventModelDiscovery.AssembleAsync(services);
 
-        models.Select(m => m.Name).ShouldBe(new[] { "Orders", "OrdersOverlay" });
+        models.Select(m => m.Name).ShouldBe(new[] { "Orders", EventModelDiscovery.ApplicationModelName(services) });
 
         var orders = models[0];
         orders.Slices.Select(s => s.Name).ShouldBe(new[] { "PlaceOrder", "CancelOrder" });

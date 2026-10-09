@@ -39,6 +39,8 @@ public class EventModelSliceBuilder
     private TypeDescriptor? _commandType;
     private TypeDescriptor? _handlerType;
     private TypeDescriptor? _startsStream;
+    private bool _noAggregate;
+    private TypeDescriptor? _deciderModel;
     private readonly List<TypeDescriptor> _aggregateTypes = new();
     private readonly List<TypeDescriptor> _emittedEvents = new();
     private readonly List<TypeDescriptor> _publishedMessages = new();
@@ -70,6 +72,13 @@ public class EventModelSliceBuilder
         _domain = domain;
         _chapter = chapter;
     }
+
+    /// <summary>
+    /// The aggregate from <see cref="EventModelBuilder.ForAggregate{TAggregate}"/> in effect when this
+    /// slice was opened. Applied at build time, and only to a <see cref="SlicePattern.Command"/> slice
+    /// that declared no aggregate of its own (jasperfx#994).
+    /// </summary>
+    internal TypeDescriptor? DefaultAggregate { get; init; }
 
     /// <summary>
     /// Group this slice under a domain / bounded context (overrides the builder-level default). In a
@@ -179,6 +188,40 @@ public class EventModelSliceBuilder
     /// <summary>The aggregate whose stream this slice starts, by name, before its type exists.</summary>
     public EventModelSliceBuilder StartsStream(string name) => startStream(Declared(name));
 
+    /// <summary>
+    /// This slice deliberately decides against no aggregate — legitimate only for a slice that purely
+    /// starts a stream or decides against nothing at all (jasperfx#994). Overrides the
+    /// <see cref="EventModelBuilder.ForAggregate{TAggregate}"/> default, and tells downstream tools
+    /// (Wolverine's scaffold) not to warn about a missing aggregate.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The slice already declares an aggregate.</exception>
+    public EventModelSliceBuilder NoAggregate()
+    {
+        if (_aggregateTypes.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' already declares an aggregate ({string.Join(", ", _aggregateTypes.Select(x => x.Name))}), so it cannot also declare NoAggregate()");
+        }
+
+        _noAggregate = true;
+        return this;
+    }
+
+    /// <summary>
+    /// This slice decides through the Dynamic Consistency Boundary decider model <typeparamref name="T"/>
+    /// rather than single-stream aggregates (jasperfx#994). Overrides the
+    /// <see cref="EventModelBuilder.ForAggregate{TAggregate}"/> default.
+    /// </summary>
+    /// <remarks>
+    /// A placeholder for now: it records the decider type on
+    /// <see cref="EventModelSliceDescriptor.DeciderModel"/> and nothing more. How the decider's events
+    /// are selected — tags, queries — waits on the DCB design discussion, and on the specifications.
+    /// </remarks>
+    public EventModelSliceBuilder DeciderModel<T>() => deciderModel(TypeDescriptor.For(typeof(T)));
+
+    /// <summary>The DCB decider model, by name, before its type exists.</summary>
+    public EventModelSliceBuilder DeciderModel(string name) => deciderModel(Declared(name));
+
     /// <summary>An event the slice emits. Call once per event.</summary>
     public EventModelSliceBuilder Emits<T>() => add(_emittedEvents, TypeDescriptor.For(typeof(T)));
 
@@ -244,6 +287,29 @@ public class EventModelSliceBuilder
         _specifications.Add(new SpecificationDescriptor(specificationIdentity));
         return this;
     }
+
+    /// <summary>
+    /// Link a specification by its class and scenario method — a link the IDE navigates and a rename keeps
+    /// in sync (jasperfx#995). The identity is derived as Bobcat derives it
+    /// (<see cref="SpecificationIdentity.For"/>), so it equals the string the
+    /// <see cref="LinksToSpecification(string)"/> overload would take.
+    /// </summary>
+    /// <remarks>
+    /// Only for a definition that can reference its specs, which the usual layout — definitions in the app,
+    /// specs in a test project — rules out. There, let the specifications supply the links instead: a spec
+    /// manifest joined by command type (<see cref="EventModelSpecifications.Link"/>) needs no link here at all.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// model.Command&lt;ApplyToVolunteer&gt;()
+    ///     .LinksToSpecification&lt;apply_to_volunteer&gt;(nameof(apply_to_volunteer.volunteer_application_submitted));
+    /// </code>
+    /// </example>
+    /// <param name="scenarioMethod">The scenario method's name — write it with <c>nameof</c>.</param>
+    /// <typeparam name="TSpecification">The specification class.</typeparam>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelSliceBuilder LinksToSpecification<TSpecification>(string scenarioMethod)
+        => LinksToSpecification(SpecificationIdentity.For(typeof(TSpecification), scenarioMethod));
 
     /// <summary>
     /// Mark an open question on this slice in plain prose — the modelling conversation's
@@ -312,7 +378,40 @@ public class EventModelSliceBuilder
         return addAggregate(type);
     }
 
-    private EventModelSliceBuilder addAggregate(TypeDescriptor type) => add(_aggregateTypes, type);
+    private EventModelSliceBuilder deciderModel(TypeDescriptor type)
+    {
+        _deciderModel = type;
+        return this;
+    }
+
+    private EventModelSliceBuilder addAggregate(TypeDescriptor type)
+    {
+        if (_noAggregate)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' declares NoAggregate(), so it cannot also decide against {type.Name}");
+        }
+
+        return add(_aggregateTypes, type);
+    }
+
+    /// <summary>
+    /// The slice's aggregates and why it has them (jasperfx#994). An explicit declaration wins, then
+    /// NoAggregate, then a decider model; only a command slice that said none of those takes the default.
+    /// </summary>
+    private (IReadOnlyList<TypeDescriptor> aggregates, AggregateDeclaration? declaration) resolveAggregates()
+    {
+        if (_aggregateTypes.Count > 0) return (_aggregateTypes.ToList(), AggregateDeclaration.Explicit);
+        if (_noAggregate) return (Array.Empty<TypeDescriptor>(), AggregateDeclaration.None);
+        if (_deciderModel is not null) return (Array.Empty<TypeDescriptor>(), AggregateDeclaration.DeciderModel);
+
+        if (_pattern == SlicePattern.Command && DefaultAggregate is not null)
+        {
+            return ([DefaultAggregate], AggregateDeclaration.Default);
+        }
+
+        return (Array.Empty<TypeDescriptor>(), null);
+    }
 
     private EventModelSliceBuilder add(List<TypeDescriptor> list, TypeDescriptor type)
     {
@@ -322,6 +421,8 @@ public class EventModelSliceBuilder
 
     internal EventModelSliceDescriptor Build()
     {
+        var (aggregates, aggregateDeclaration) = resolveAggregates();
+
         var slice = EventModelSliceDescriptor.Named(_sliceName) with
         {
             TriggerLabel = _triggerLabel,
@@ -335,7 +436,9 @@ public class EventModelSliceBuilder
             Pattern = _pattern,
             TriggerKind = _triggerKind,
             StartsStream = _startsStream,
-            AggregateTypes = _aggregateTypes.ToList(),
+            AggregateTypes = aggregates,
+            AggregateDeclaration = aggregateDeclaration,
+            DeciderModel = _deciderModel,
             EmittedEvents = _emittedEvents.ToList(),
             PublishedMessages = _publishedMessages.ToList(),
             ConsumedEvents = _consumedEvents.ToList(),

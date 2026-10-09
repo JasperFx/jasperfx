@@ -17,7 +17,8 @@ namespace JasperFx.Events.EventModeling;
 /// restored role declarations on top of the ladder.
 /// </para>
 /// <para>
-/// Register a definition with <c>services.AddEventModel&lt;TDefinition&gt;()</c> (or an inline
+/// Register a definition with <c>services.AddEventModel&lt;TDefinition&gt;()</c>, every definition in an
+/// assembly with <c>services.AddDiscoveredEventModels(assembly)</c> (jasperfx#993), or an inline
 /// lambda via <c>services.AddEventModel(name, configure)</c>); it is surfaced as an
 /// <see cref="IEventModelDefinitionSource"/>, enumerated by <see cref="EventModelDiscovery"/>, and its
 /// slices carry the definition as their <see cref="EventModelSliceDescriptor.Origin"/> (jasperfx#959).
@@ -26,10 +27,20 @@ namespace JasperFx.Events.EventModeling;
 public abstract class EventModelDefinition
 {
     /// <summary>
-    /// Name of the model this overlay contributes to. Defaults to the defining type's name;
-    /// override to contribute to a named model (the merge assembles all sources by model).
+    /// Name of the model this definition contributes to. Null — the default — means <em>the
+    /// application's model</em>, resolved at discovery by
+    /// <see cref="EventModelDiscovery.ApplicationModelName"/>: the service name, which is what Wolverine
+    /// and the stores name their code-derived models. Override only for an app that genuinely hosts
+    /// several models; the merge assembles sources by model name.
     /// </summary>
-    public virtual string Name => GetType().Name;
+    /// <remarks>
+    /// Before jasperfx#992 this defaulted to the defining type's name, so a definition merged with the
+    /// code only when its class happened to be named for the service. One definition per chapter — a
+    /// <c>BookingAppointmentsModel</c> — became a separate model, and none of its declarations met the
+    /// slices Wolverine derived. Which definition declared a slice is still recorded, per definition, on
+    /// <see cref="EventModelSliceDescriptor.Origin"/> (jasperfx#959).
+    /// </remarks>
+    public virtual string? Name => null;
 
     /// <summary>
     /// Populate <paramref name="builder"/> with the overlay — slice names, domains, trigger

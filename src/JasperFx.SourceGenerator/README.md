@@ -1,6 +1,6 @@
 # JasperFx.SourceGenerator
 
-Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-free for fast cold start and trim/AOT-friendly builds. This single analyzer package bundles five generators:
+Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-free for fast cold start and trim/AOT-friendly builds. This single analyzer package bundles six generators:
 
 | Generator | What it does |
 |---|---|
@@ -8,6 +8,7 @@ Roslyn source generators for [JasperFx](https://jasperfx.net), all reflection-fr
 | `CommandDiscoveryGenerator` | Emits a compile-time manifest of `IJasperFxCommand` types so `dotnet run -- <command>` lookups skip runtime assembly scanning. |
 | `InputParserGenerator` | Emits `IGeneratedInputParser` implementations for command input models, parsing CLI arguments/flags without runtime reflection. |
 | `ExtensionDiscoveryGenerator` | Emits a compile-time `JasperFx.Generated.DiscoveredExtensions` type list of `IJasperFxExtension` / `[JasperFxAssembly]`-declared extension types so framework extension loaders skip assembly scanning. |
+| `EventModelDiscoveryGenerator` | Emits a compile-time `JasperFx.Generated.DiscoveredEventModels` list of the assembly's `EventModelDefinition` subclasses, with their public constructors rooted for the trimmer, so `AddDiscoveredEventModels(assembly)` registers them without an assembly scan. |
 | `ServiceRegistrationGenerator` | Emits actual `IServiceCollection` registrations (`JasperFx.Generated.GeneratedServiceRegistrations.Register`) for `[JasperFxService]`-annotated types — see below. |
 
 > **Renamed from `JasperFx.SourceGeneration`.** The command-discovery and input-parser generators previously shipped in the `JasperFx.SourceGeneration` (noun) package, which is now retired. Reference `JasperFx.SourceGenerator` (singular) instead — its version tracks the `JasperFx` package.

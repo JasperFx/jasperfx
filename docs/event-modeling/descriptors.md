@@ -31,6 +31,8 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `Domain` | **Declared** | Bounded context -- in a modular monolith, the module |
 | `Chapter` | **Declared** | A named span of slices — the navigation unit above `Domain` |
 | `StartsStream` | Either | The aggregate whose stream the slice *starts*, as against appends to |
+| `AggregateDeclaration` | **Declared** | *Why* the slice has its aggregate: `Default` (from `ForAggregate`), `Explicit`, `None` or `DeciderModel` |
+| `DeciderModel` | **Declared** | The Dynamic Consistency Boundary decider model the slice decides through |
 | `Origin` | Any source | *Which* source contributed the slice — a file path, a suite or assembly name, a store URI. Stamp it and a [source disagreement](/event-modeling/hotspots#a-rung-is-not-an-identity) names a party rather than a rung |
 
 ### What a slice reads
@@ -177,13 +179,18 @@ foreach (var hotspot in helpdesk.Hotspots)
 
 ### Provenance decides the merge
 
-Four producers feed one descriptor — Gherkin specs, the C# overlay and code-first specs, Wolverine's chains, and runtime observation from CritterWatch — so something has to arbitrate when two of them describe the same slice. That something is a three-rung ladder of authority, `EventModelProvenance`:
+Four producers feed one descriptor — Gherkin specs, the C# overlay and code-first specs, Wolverine's chains, and runtime observation from CritterWatch — so something has to arbitrate when two of them describe the same slice. That something is a ladder of authority, `EventModelProvenance`:
 
 | Rung | Who | Beats |
 | --- | --- | --- |
 | `Declared` | A Gherkin spec, a code-first spec, the `EventModelDefinition` overlay | — |
-| `Derived` | Wolverine's handler / HTTP / gRPC chains, the source generator | `Declared` |
-| `Observed` | CritterWatch watching a running system | `Derived`, `Declared` |
+| `Specified` | Links read off the specifications by [`EventModelSpecifications.Link`](#links-from-the-specifications) | `Declared` |
+| `Derived` | Wolverine's handler / HTTP / gRPC chains, the source generator | `Specified`, `Declared` |
+| `Observed` | CritterWatch watching a running system | `Derived`, `Specified`, `Declared` |
+
+::: warning Compare rungs by rank
+`Specified` was added after the others, so its wire value is `3` although it ranks second. Compare rungs with `Rank()` / `Outranks()`, never with `>` on the enum.
+:::
 
 Production beats what the code implies, and the code beats what somebody wrote down. A source declares its rung once, on `IEventModelDefinitionSource.Provenance`; `EventModelDiscovery.DiscoverAsync` stamps it onto every slice the source returns.
 
@@ -213,6 +220,24 @@ slice.ProvenanceFor(EventModelRole.HandlerType);    // null — nothing claims i
 Every rendered `EventModelElement` carries the same answer on its own `Provenance`, so a viewer can shade "production has seen this happen" differently from "somebody wrote it down" without re-deriving anything.
 
 Merging two slices with different names throws — slices merge by name, and a mismatch means a bug in whoever assembled the list.
+
+### Links from the specifications
+
+A specification already says which command it exercises, so it can say which slice it specifies without anyone typing a link. A spec manifest is a list of `SpecificationBindingDescriptor`s: the spec's `{Feature}/{Scenario}` identity, the `CommandType` it sends, and optionally a `Domain`, a `Namespace` or an explicit `SliceName`. Bobcat emits it. The contract lives in JasperFx, so neither Bobcat nor Wolverine depends on the other.
+
+`EventModelSpecifications.Link(model, manifest)` joins it onto an assembled model:
+
+```cs
+var linked = EventModelSpecifications.Link(model, manifest);
+```
+
+- **The join key is the command type.** A spec links to the one slice whose `CommandType` is its command.
+- **Several slices handling one command** -- one per module -- are narrowed by the spec's `Domain`, then by its `Namespace` (a prefix of the slice's handler namespace). If that leaves exactly one, the spec links there. Otherwise it links nowhere, and an `UnresolvedSpecification` hotspot on the model names the candidates rather than guessing.
+- **An explicit `SliceName`** replaces the inference. One naming a slice the model doesn't have is reported the same way.
+- **A spec whose command no slice handles** is not linked and not reported: it specifies code that doesn't exist yet.
+- **Derived links sit on the `Specified` rung.** A hand-typed `LinksToSpecification` that agrees records nothing. One that the specifications don't include loses, and is recorded as a `SourceDisagreement`.
+
+The join runs over an *assembled* model, not as one more source, because it has to see every source's slices to find the one handling a command. The specifications also live in a test assembly the application host never loads, so where the join runs -- a monitor that receives the runner's manifest, or a model command handed the spec assembly -- is up to the caller.
 
 ## Serialization
 

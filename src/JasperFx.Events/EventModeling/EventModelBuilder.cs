@@ -22,10 +22,12 @@ public class EventModelBuilder
     private readonly List<DomainAssignmentDescriptor> _domainAssignments = new();
     private string? _defaultDomain;
     private string? _defaultChapter;
+    private TypeDescriptor? _defaultAggregate;
 
     /// <summary>
-    /// Optional friendly name of the event model. When unset, the discovery layer falls back to
-    /// the defining type's name.
+    /// Optional name of the event model. When unset, the definition's own
+    /// <see cref="EventModelDefinition.Name"/> applies, and when that is unset too the model is the
+    /// application's (jasperfx#992).
     /// </summary>
     public string? Name { get; set; }
 
@@ -67,7 +69,10 @@ public class EventModelBuilder
     /// <param name="sliceName">Display name of the slice.</param>
     public EventModelSliceBuilder Slice(string sliceName)
     {
-        var slice = new EventModelSliceBuilder(sliceName, _defaultDomain, _defaultChapter);
+        var slice = new EventModelSliceBuilder(sliceName, _defaultDomain, _defaultChapter)
+        {
+            DefaultAggregate = _defaultAggregate
+        };
         _slices.Add(slice);
         return slice;
     }
@@ -100,6 +105,46 @@ public class EventModelBuilder
     {
         _defaultChapter = chapter;
         return this;
+    }
+
+    /// <summary>
+    /// The aggregate every <see cref="SlicePattern.Command"/> slice opened after this call decides
+    /// against, unless it declares its own with <see cref="EventModelSliceBuilder.Against{T}"/>,
+    /// <see cref="EventModelSliceBuilder.StartsStream{T}"/>, <see cref="EventModelSliceBuilder.NoAggregate"/>
+    /// or <see cref="EventModelSliceBuilder.DeciderModel{T}"/> (jasperfx#994). Also declares the aggregate
+    /// on the model, as <see cref="Aggregate{TAggregate}"/> does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The companion to <see cref="InChapter"/>: the last call wins, and applies to the command slices
+    /// that follow it, never to earlier ones. Views, automations and translations are untouched. Like
+    /// every default here it stays inside the one definition — each definition gets a fresh builder.
+    /// </para>
+    /// <para>
+    /// The applied aggregate is a <see cref="EventModelProvenance.Declared"/> claim, marked
+    /// <see cref="AggregateDeclaration.Default"/>; code that decides against something else wins, and the
+    /// difference becomes a hotspot. <see cref="Aggregate{TAggregate}"/> is deliberately unchanged and sets
+    /// no default — giving it this meaning would silently assign the last-declared aggregate to every
+    /// existing definition's commands.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="TAggregate">The aggregate the following commands decide against.</typeparam>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelBuilder ForAggregate<TAggregate>()
+        => forAggregate(TypeDescriptor.For(typeof(TAggregate)));
+
+    /// <summary>
+    /// <see cref="ForAggregate{TAggregate}"/> for an aggregate that has no type yet.
+    /// </summary>
+    /// <param name="aggregateName">The aggregate's name.</param>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelBuilder ForAggregate(string aggregateName)
+        => forAggregate(EventModelSliceBuilder.Declared(aggregateName));
+
+    private EventModelBuilder forAggregate(TypeDescriptor type)
+    {
+        _defaultAggregate = type;
+        return addAggregate(type, AggregateKind.WriteAggregate);
     }
 
     /// <summary>

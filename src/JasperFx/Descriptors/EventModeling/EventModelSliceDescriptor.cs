@@ -189,6 +189,30 @@ public sealed record EventModelSliceDescriptor(
     public TypeDescriptor? StartsStream { get; init; }
 
     /// <summary>
+    /// <em>Why</em> the slice has the aggregate it has, when a declaration said (jasperfx#994): applied
+    /// from the definition's <c>ForAggregate</c> default, declared on the slice, deliberately none, or a
+    /// DCB decider model instead. Null when nobody said — the code-derived sources never do, since the
+    /// code simply has the aggregate it has.
+    /// </summary>
+    /// <remarks>
+    /// Tooling reads this to explain itself: Wolverine's scaffold stops warning about a missing aggregate
+    /// on a slice declared <see cref="EventModeling.AggregateDeclaration.None"/>, and writes a TODO for a
+    /// <see cref="EventModeling.AggregateDeclaration.DeciderModel"/>. A default-applied aggregate is still
+    /// a declared claim on <see cref="AggregateTypes"/>, so code that decides against something else wins
+    /// and the difference becomes a hotspot as usual.
+    /// </remarks>
+    public AggregateDeclaration? AggregateDeclaration { get; init; }
+
+    /// <summary>
+    /// The Dynamic Consistency Boundary decider model the slice decides through, rather than single-stream
+    /// aggregates (jasperfx#994). Null when the slice has none.
+    /// </summary>
+    /// <remarks>
+    /// Recorded only: how the decider's events are selected — tags, queries — is not modelled yet.
+    /// </remarks>
+    public TypeDescriptor? DeciderModel { get; init; }
+
+    /// <summary>
     /// <em>Which</em> source produced this slice, as against <see cref="Provenance"/>'s <em>what rung
     /// it sits on</em> (jasperfx#836). The contributing source's <c>IEventModelDefinitionSource.Subject</c>,
     /// or for the store-derived rung the store's own <c>EventStoreUsage.SubjectUri</c>. Null when the
@@ -283,6 +307,8 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.Chapter => Chapter is not null,
         EventModelRole.Origin => Origin is not null,
         EventModelRole.StartsStream => StartsStream is not null,
+        EventModelRole.AggregateDeclaration => AggregateDeclaration is not null,
+        EventModelRole.DeciderModel => DeciderModel is not null,
         _ => false,
     };
 
@@ -381,7 +407,7 @@ public sealed record EventModelSliceDescriptor(
             var mine = ProvenanceFor(role);
             var theirs = other.ProvenanceFor(role);
 
-            var takeTheirs = theirs is not null && (mine is null || theirs > mine);
+            var takeTheirs = theirs is not null && (mine is null || theirs.Value.Outranks(mine.Value));
 
             if ((takeTheirs ? theirs : mine) is { } rung) claimedBy[role] = rung;
 
@@ -534,6 +560,12 @@ public sealed record EventModelSliceDescriptor(
         // jasperfx#957. Compared by type identity, like every other type scalar.
         var startsStream = mergeType(EventModelRole.StartsStream, StartsStream, other.StartsStream);
 
+        // jasperfx#994. Only declarations claim these, so in practice they pass straight through a merge
+        // with the code; two definitions disagreeing still leave a hotspot like any other scalar.
+        var aggregateDeclaration = mergeValue(EventModelRole.AggregateDeclaration, AggregateDeclaration,
+            other.AggregateDeclaration);
+        var deciderModel = mergeType(EventModelRole.DeciderModel, DeciderModel, other.DeciderModel);
+
         // jasperfx#836. Origin merges as any other scalar does, which gives the store dimension the
         // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
         // now leave a SourceDisagreement naming both stores, instead of the survivor carrying nothing
@@ -577,6 +609,8 @@ public sealed record EventModelSliceDescriptor(
             ReadsFrom = readsFrom,
             Chapter = chapter,
             StartsStream = startsStream,
+            AggregateDeclaration = aggregateDeclaration,
+            DeciderModel = deciderModel,
             Origin = origin,
             Provenance = higher(Provenance, other.Provenance),
             ClaimedBy = claimedBy,
@@ -627,7 +661,7 @@ public sealed record EventModelSliceDescriptor(
             (null, null) => null,
             (null, not null) => second,
             (not null, null) => first,
-            _ => second > first ? second : first,
+            _ => second!.Value.Outranks(first!.Value) ? second : first,
         };
 
     private static IReadOnlyList<T> union<T>(IReadOnlyList<T> first, IReadOnlyList<T> second, Func<T, string> key)

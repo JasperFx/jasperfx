@@ -25,9 +25,12 @@ public sealed class EventModelDefinitionSource : IEventModelDefinitionSource
         Subject = new Uri($"{Scheme}://{Uri.EscapeDataString(name)}");
     }
 
-    /// <summary>Wrap a ready definition instance.</summary>
+    /// <summary>
+    /// Wrap a ready definition instance. Its subject is its <see cref="EventModelDefinition.Name"/> when
+    /// it names one, otherwise its class name.
+    /// </summary>
     public static EventModelDefinitionSource For(EventModelDefinition definition)
-        => new(definition.Name, _ => definition);
+        => new(definition.Name ?? definition.GetType().Name, _ => definition);
 
     /// <summary>
     /// Wrap a definition type. Resolved from the service provider if registered there, otherwise
@@ -70,7 +73,10 @@ public sealed class EventModelDefinitionSource : IEventModelDefinitionSource
 
         var builder = new EventModelBuilder();
         definition.Configure(builder);
-        var descriptor = builder.Build(definition.Name);
+
+        // jasperfx#992. No name on the definition or its builder means the application's model, so
+        // every per-chapter definition lands in the one model the code-derived sources describe.
+        var descriptor = builder.Build(definition.Name ?? EventModelDiscovery.ApplicationModelName(services));
 
         // jasperfx#959. Name the definition on its slices, so a disagreement against one of them says
         // WHICH model declared the losing claim instead of "Declared claims …". A declared origin is

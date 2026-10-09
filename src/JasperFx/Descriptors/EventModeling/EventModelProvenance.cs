@@ -1,7 +1,7 @@
 namespace JasperFx.Events.EventModeling;
 
 /// <summary>
-/// How much authority a source's claim about an Event Model carries — the three-rung ladder that
+/// How much authority a source's claim about an Event Model carries — the ladder that
 /// decides precedence when several sources describe the same slice (jasperfx#703).
 /// </summary>
 /// <remarks>
@@ -38,8 +38,8 @@ public enum EventModelProvenance
 {
     /// <summary>
     /// Somebody wrote it down — a Gherkin spec, a code-first specification, or the C# overlay's
-    /// <c>EventModelDefinition</c>. The lowest rung, and the only source of slice names, domains and
-    /// specification links.
+    /// <c>EventModelDefinition</c>. The lowest rung, and the only source of slice names and domains;
+    /// specification links can also come from <see cref="Specified"/> (jasperfx#995).
     /// </summary>
     Declared = 0,
 
@@ -55,6 +55,42 @@ public enum EventModelProvenance
     /// missed, and it cannot be argued with.
     /// </summary>
     Observed = 2,
+
+    /// <summary>
+    /// Read off the specifications — a spec manifest saying which command each specification exercises,
+    /// joined onto the model's slices by command type (jasperfx#995). Ranks <em>between</em>
+    /// <see cref="Declared"/> and <see cref="Derived"/>: a specification is evidence that something was
+    /// written against the slice, which beats a hand-typed link, while the code still beats both.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <b>Numbered 3, ranked second.</b> This enum goes over the wire, so a new rung is appended rather
+    /// than slotted in, and its integer no longer says where it sits. Compare rungs with
+    /// <see cref="EventModelProvenanceRanking.Rank"/> / <see cref="EventModelProvenanceRanking.Outranks"/>,
+    /// never with <c>&gt;</c> on the enum.
+    /// </remarks>
+    Specified = 3,
+}
+
+/// <summary>
+/// The order of the <see cref="EventModelProvenance"/> ladder. The enum's integers are wire values, not
+/// ranks, since <see cref="EventModelProvenance.Specified"/> was appended above the top rung's number
+/// while ranking below it (jasperfx#995).
+/// </summary>
+public static class EventModelProvenanceRanking
+{
+    /// <summary>Position on the ladder, lowest first: Declared, Specified, Derived, Observed.</summary>
+    public static int Rank(this EventModelProvenance provenance) => provenance switch
+    {
+        EventModelProvenance.Declared => 0,
+        EventModelProvenance.Specified => 1,
+        EventModelProvenance.Derived => 2,
+        EventModelProvenance.Observed => 3,
+        _ => -1,
+    };
+
+    /// <summary>Whether <paramref name="provenance"/> sits on a higher rung than <paramref name="other"/>.</summary>
+    public static bool Outranks(this EventModelProvenance provenance, EventModelProvenance other)
+        => provenance.Rank() > other.Rank();
 }
 
 /// <summary>
@@ -142,4 +178,16 @@ public enum EventModelRole
     /// starts (jasperfx#957). Appended for the same wire reason as <see cref="Origin"/>.
     /// </summary>
     StartsStream,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.AggregateDeclaration"/> — why the slice has the aggregate it
+    /// has (jasperfx#994). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    AggregateDeclaration,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.DeciderModel"/> — the DCB decider model the slice decides
+    /// through (jasperfx#994). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    DeciderModel,
 }
