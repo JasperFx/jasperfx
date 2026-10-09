@@ -24,7 +24,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
 
         // Pipeline 2: aggregate types referenced by IRefersToAggregate parameters
         var refCandidates = context.SyntaxProvider.CreateSyntaxProvider(
-            predicate: static (node, _) => IsMethodWithPossibleAggregateAttribute(node),
+            predicate: static (node, _) => IsMethodWithAttributedParameter(node),
             transform: static (ctx, ct) => AnalyzeRefersToAggregateParameter(ctx, ct))
             .Where(static info => info != null)
             .Collect();
@@ -63,7 +63,33 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             if (!available) return;
             spc.AddSource("JasperFxSourceGeneratorApplied.g.cs", MarkerSource);
         });
+
+        // Pipeline 4: the events each handler method appends, inferred from its body and recorded as
+        // an assembly-level manifest so Wolverine can stop asking users to write [Emits]
+        // (jasperfx#990). Each method reduces to a value-equatable EmittedEventsInfo, so an edit to one
+        // method leaves every other method's analysis cached. Gated on the manifest attribute existing,
+        // for the same reason as the marker above: an older JasperFx.Events must not turn into CS0246.
+        var emittedEvents = context.SyntaxProvider.CreateSyntaxProvider(
+                predicate: static (node, _) => EmittedEventsAnalyzer.IsPossibleCandidate(node),
+                transform: static (ctx, ct) => EmittedEventsAnalyzer.Analyze(ctx, ct))
+            .Where(static info => info != null)
+            .WithTrackingName(EmittedEventsTrackingName)
+            .Collect();
+
+        var manifestAvailable = context.CompilationProvider.Select(static (compilation, _) =>
+            compilation.GetTypeByMetadataName(EmittedEventsAnalyzer.ManifestAttributeMetadataName) != null);
+
+        context.RegisterSourceOutput(emittedEvents.Combine(manifestAvailable), static (spc, pair) =>
+        {
+            if (!pair.Right || pair.Left.IsDefaultOrEmpty) return;
+            spc.AddSource(EmittedEventsFileName, EmittedEventsAnalyzer.EmitManifest(pair.Left));
+        });
     }
+
+    /// <summary>Tracking name of the per-method emitted-events step, for incrementality tests.</summary>
+    internal const string EmittedEventsTrackingName = "JasperFxEmittedEvents";
+
+    internal const string EmittedEventsFileName = "JasperFxEmittedEvents.g.cs";
 
     /// <summary>
     /// Mirrors <c>JasperFx.Events.Aggregation.JasperFxSourceGeneratorAppliedAttribute</c>, which this
@@ -161,23 +187,18 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// Lightweight syntax check for methods with parameters that have attributes
-    /// containing "Aggregate" in the name (catches ReadAggregate, WriteAggregate, etc.)
+    /// Lightweight syntax check: a method with at least one attributed parameter. Deliberately
+    /// name-blind — <see cref="AnalyzeRefersToAggregateParameter"/> gates on the
+    /// <c>IRefersToAggregate</c> marker, and filtering here on "Aggregate" in the attribute name hid
+    /// Wolverine's [WriteModel] / [ReadModel] / [DcbModel] and any user alias from it. See jasperfx#990.
     /// </summary>
-    private static bool IsMethodWithPossibleAggregateAttribute(SyntaxNode node)
+    private static bool IsMethodWithAttributedParameter(SyntaxNode node)
     {
         if (node is not MethodDeclarationSyntax method) return false;
 
         foreach (var param in method.ParameterList.Parameters)
         {
-            foreach (var attrList in param.AttributeLists)
-            {
-                foreach (var attr in attrList.Attributes)
-                {
-                    var name = attr.Name.ToString();
-                    if (name.Contains("Aggregate")) return true;
-                }
-            }
+            if (param.AttributeLists.Count > 0) return true;
         }
 
         return false;

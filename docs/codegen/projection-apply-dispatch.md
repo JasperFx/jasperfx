@@ -261,3 +261,34 @@ attached to that project. It is opt-in because nothing in MSBuild can tell a pro
 suppressed" is not by itself evidence of a mistake: Marten's own build suppresses the
 analyzer package's assets deliberately, bundling the dll instead. That is the finding that
 argued #894 out of being a default warning.
+
+## Inferring a handler's emitted events (#990)
+
+Since [#990](https://github.com/JasperFx/jasperfx/issues/990) the generator also records which
+events each handler method appends, read from its body, as an assembly-level manifest:
+
+```csharp
+[assembly: JasperFx.Events.EmittedEvents(typeof(AcceptHomeCheckAssignmentHandler), "Handle",
+    typeof(HomeCheckAssignmentAccepted))]
+```
+
+It keys off JasperFx.Events types only, so the generator needs nothing from Wolverine:
+
+- A method is a candidate when a parameter is an `IEventStream<T>`, a parameter carries an
+  `IRefersToAggregate` attribute, or the return type (or a tuple element, through
+  `Task<T>` / `ValueTask<T>`) implements the `ICarriesEvents` marker.
+- Events are read from `AppendOne` / `AppendMany` on an `IEventStream<T>`, from the arguments
+  of a constructor or factory returning an `ICarriesEvents` type, and from `Add` (or a
+  collection initializer) on one. Only `object`-typed parameter slots count as events, so a
+  `Guid` or `string` stream id beside them is never mistaken for one.
+- An event whose static type is `object` can't be inferred and is skipped silently. The
+  manifest is a lower bound, and an explicit `[Emits]` remains the override.
+
+Reading the manifest belongs to the consumer (Wolverine). Like the marker above, it is emitted
+only when the compilation can see `EmittedEventsAttribute`, and the attribute allows
+multiple applications for the double-load case.
+
+The same issue fixed pass 2's syntax filter, which let a method through only when a parameter
+attribute had "Aggregate" in its name. Wolverine's `[WriteModel]` / `[ReadModel]` /
+`[DcbModel]` implement `IRefersToAggregate` but never reached the semantic check. The filter
+now admits any attributed parameter, and the marker check decides.
