@@ -92,8 +92,9 @@ public static class InMemoryStoreRegistration
     /// store holds survives a restart.
     /// </para>
     /// <para>
-    /// The store is registered as a singleton <see cref="InMemoryDocumentStore"/> and as the
-    /// <see cref="IDocumentSessionFactory"/> the rest of the Critter Stack resolves.
+    /// The store is registered as a singleton <see cref="InMemoryDocumentStore"/>, and as the
+    /// <see cref="IDocumentSessionFactory"/> and <see cref="IEventStore"/> the rest of the Critter Stack
+    /// resolves (jasperfx#985).
     /// </para>
     /// </remarks>
     public static IServiceCollection AddInMemoryStoreForPrototyping(this IServiceCollection services,
@@ -105,6 +106,7 @@ public static class InMemoryStoreRegistration
         services.AddSingleton(options);
         services.TryAddSingleton(_ => options.BuildStore());
         services.TryAddSingleton<IDocumentSessionFactory>(s => s.GetRequiredService<InMemoryDocumentStore>());
+        services.TryAddSingleton<IEventStore>(s => s.GetRequiredService<InMemoryDocumentStore>());
 
         // A hosted service, so the guard runs as the host starts -- before anything has written to a
         // store that is about to vanish -- and a refusal stops the host rather than logging past it.

@@ -106,9 +106,10 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
 
     public override bool SupportsFlatTableProjections => false;
 
-    // ---- out of scope for a prototyping store ----
+    // jasperfx#985: the store is an IEventStore
+    public override IEventStore EventStore => Store;
 
-    public override IEventStore EventStore => throw notSupported(nameof(EventStore));
+    // ---- out of scope for a prototyping store ----
 
     public override IComplianceBatch CreateBatch(IInMemoryQuerySession session) => throw notSupported("Batched queries");
 

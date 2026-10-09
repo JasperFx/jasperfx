@@ -12,7 +12,7 @@ namespace JasperFx.Events.InMemory;
 /// Out of scope for a prototyping store, and refused with a <see cref="NotSupportedException"/> that says
 /// so: archiving, compaction, rewriting events, and the tag (DCB) queries.
 /// </remarks>
-public partial class InMemoryEventOperations : IEventStoreOperations
+public partial class InMemoryEventOperations : IEventStoreOperations, IReadOnlyEventStore
 {
     private readonly InMemoryDocumentSession _session;
     private readonly Dictionary<object, StreamAction> _streams = new();
@@ -253,6 +253,20 @@ public partial class InMemoryEventOperations : IEventStoreOperations
     /// <inheritdoc />
     public Task<IEvent?> LoadAsync(Guid id, CancellationToken token = default)
         => Task.FromResult(Store.EventById(id));
+
+    /// <summary>
+    /// The cross-stream query (jasperfx#985). Every filter but the tag (DCB) ones, which are refused rather than
+    /// ignored.
+    /// </summary>
+    public Task<PagedEvents> QueryEventsAsync(EventQuery query, CancellationToken token = default)
+        => Task.FromResult(Store.QueryEvents(query));
+
+    /// <summary>
+    /// Every stream, queried with LINQ-to-objects over a snapshot (jasperfx#985). Nothing is ever archived or
+    /// compacted on the prototyping store.
+    /// </summary>
+    public IQueryable<StreamState> QueryStreamStates(string? tenantId = null)
+        => InMemoryDocumentQueryable<StreamState>.Wrap(Store.StreamStates(tenantId).AsQueryable());
 
     // ---- Out of scope for the prototyping store ----
 
