@@ -86,8 +86,11 @@ internal class CompositeReplayExecutor : IReplayExecutor
 
             if (page.Count == 0)
             {
-                // No more matching events below the ceiling; advance progression to the ceiling and finish.
-                await controller.MarkSuccessAsync(ceiling).ConfigureAwait(false);
+                // No more matching events below the ceiling. Commit the empty range anyway so the stored
+                // progression moves to the ceiling with the in-memory one; MarkSuccessAsync alone leaves
+                // the row missing or behind, and the next continuous page then fails to update it.
+                var emptyRange = new EventRange(agent, page.Floor, ceiling) { Events = page };
+                await _execution.ProcessRangeAsync(emptyRange).ConfigureAwait(false);
                 break;
             }
 

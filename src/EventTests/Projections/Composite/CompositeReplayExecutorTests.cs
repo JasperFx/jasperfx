@@ -89,7 +89,7 @@ public class CompositeReplayExecutorTests
     }
 
     [Fact]
-    public async Task advances_to_ceiling_when_no_events_match_below_high_water()
+    public async Task commits_an_empty_range_to_the_ceiling_when_no_events_match_below_high_water()
     {
         theAgent.Status.Returns(AgentStatus.Running);
         theDatabase.FetchHighestEventSequenceNumber(Arg.Any<CancellationToken>()).Returns(Task.FromResult(25L));
@@ -99,8 +99,10 @@ public class CompositeReplayExecutorTests
         await theExecutor().StartAsync(rebuildRequest(), theAgent, CancellationToken.None);
 
         await theLoader.Received(1).LoadAsync(Arg.Any<EventRequest>(), Arg.Any<CancellationToken>());
-        await theExecution.DidNotReceive().ProcessRangeAsync(Arg.Any<EventRange>());
-        await theAgent.Received(1).MarkSuccessAsync(25);
+
+        // The empty range still goes through the execution, which persists progression and marks success
+        await theExecution.Received(1).ProcessRangeAsync(Arg.Is<EventRange>(r =>
+            r.SequenceFloor == 0 && r.SequenceCeiling == 25 && r.Events.Count == 0));
     }
 
     [Fact]
