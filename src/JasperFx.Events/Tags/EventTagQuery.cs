@@ -67,15 +67,14 @@ public class EventTagQuery
     public IReadOnlyList<Type> TagTypes => _conditions.Select(c => c.TagType).Distinct().ToList();
 
     /// <summary>
-    /// Start building a query for a specific tag value. Use AndEventsOfType to filter by event types.
+    /// Start building a query for a specific tag value: any event tagged with it, until AndEventsOfType
+    /// narrows it to particular event types. <c>For(a).Or(b)</c> selects events tagged with either.
     /// </summary>
     public static EventTagQuery For<TTag>(TTag tagValue) where TTag : notnull
-    {
-        var query = new EventTagQuery();
-        query._currentTagValue = tagValue;
-        query._currentTagType = typeof(TTag);
-        return query;
-    }
+        // The same tag-only condition Or(tag) adds, which AndEventsOfType then replaces with one per event
+        // type. Without it For(a) alone selected nothing and For(a).Or(b) silently dropped a
+        // (JasperFx/wolverine#4865).
+        => new EventTagQuery().Or(tagValue);
 
     /// <summary>
     /// Add event type conditions for the current tag. Each type becomes a separate Or condition

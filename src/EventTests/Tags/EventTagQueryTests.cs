@@ -86,6 +86,30 @@ public class EventTagQueryTests
     }
 
     [Fact]
+    public void for_alone_selects_every_event_with_the_tag()
+    {
+        var studentId = new StudentId("student-1");
+        var query = EventTagQuery.For(studentId);
+
+        query.Conditions.ShouldHaveSingleItem().ShouldBe(new EventTagQueryCondition(null, typeof(StudentId), studentId));
+    }
+
+    [Fact]
+    public void for_then_or_selects_events_with_either_tag()
+    {
+        // JasperFx/wolverine#4865: For(a).Or(b) used to drop a
+        var studentId = new StudentId("student-1");
+        var courseId = new CourseId("course-1");
+
+        var query = EventTagQuery.For(studentId).Or(courseId);
+
+        query.Conditions.ShouldBe([
+            new EventTagQueryCondition(null, typeof(StudentId), studentId),
+            new EventTagQueryCondition(null, typeof(CourseId), courseId)
+        ]);
+    }
+
+    [Fact]
     public void for_with_multiple_event_types()
     {
         var courseId = new CourseId("course-1");
