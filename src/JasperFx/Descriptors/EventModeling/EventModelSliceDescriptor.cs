@@ -213,6 +213,12 @@ public sealed record EventModelSliceDescriptor(
     public TypeDescriptor? DeciderModel { get; init; }
 
     /// <summary>
+    /// How a view slice's read model is projected — single-stream, multi-stream or over a DCB tag query
+    /// (JasperFx/wolverine#4865). Null when nothing declared it, which tooling reads as single-stream.
+    /// </summary>
+    public ViewProjection? ViewProjection { get; init; }
+
+    /// <summary>
     /// <em>Which</em> source produced this slice, as against <see cref="Provenance"/>'s <em>what rung
     /// it sits on</em> (jasperfx#836). The contributing source's <c>IEventModelDefinitionSource.Subject</c>,
     /// or for the store-derived rung the store's own <c>EventStoreUsage.SubjectUri</c>. Null when the
@@ -309,6 +315,7 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.StartsStream => StartsStream is not null,
         EventModelRole.AggregateDeclaration => AggregateDeclaration is not null,
         EventModelRole.DeciderModel => DeciderModel is not null,
+        EventModelRole.ViewProjection => ViewProjection is not null,
         _ => false,
     };
 
@@ -565,6 +572,7 @@ public sealed record EventModelSliceDescriptor(
         var aggregateDeclaration = mergeValue(EventModelRole.AggregateDeclaration, AggregateDeclaration,
             other.AggregateDeclaration);
         var deciderModel = mergeType(EventModelRole.DeciderModel, DeciderModel, other.DeciderModel);
+        var viewProjection = mergeValue(EventModelRole.ViewProjection, ViewProjection, other.ViewProjection);
 
         // jasperfx#836. Origin merges as any other scalar does, which gives the store dimension the
         // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
@@ -611,6 +619,7 @@ public sealed record EventModelSliceDescriptor(
             StartsStream = startsStream,
             AggregateDeclaration = aggregateDeclaration,
             DeciderModel = deciderModel,
+            ViewProjection = viewProjection,
             Origin = origin,
             Provenance = higher(Provenance, other.Provenance),
             ClaimedBy = claimedBy,

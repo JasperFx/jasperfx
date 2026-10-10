@@ -41,6 +41,7 @@ public class EventModelSliceBuilder
     private TypeDescriptor? _startsStream;
     private bool _noAggregate;
     private TypeDescriptor? _deciderModel;
+    private ViewProjection? _viewProjection;
     private readonly List<TypeDescriptor> _aggregateTypes = new();
     private readonly List<TypeDescriptor> _emittedEvents = new();
     private readonly List<TypeDescriptor> _publishedMessages = new();
@@ -213,14 +214,42 @@ public class EventModelSliceBuilder
     /// <see cref="EventModelBuilder.ForAggregate{TAggregate}"/> default.
     /// </summary>
     /// <remarks>
-    /// A placeholder for now: it records the decider type on
-    /// <see cref="EventModelSliceDescriptor.DeciderModel"/> and nothing more. How the decider's events
-    /// are selected — tags, queries — waits on the DCB design discussion, and on the specifications.
+    /// It records the decider type on <see cref="EventModelSliceDescriptor.DeciderModel"/>. A decider model
+    /// is a self-aggregate by default (JasperFx/wolverine#4865): Wolverine's scaffold folds what the slice
+    /// emits into <typeparamref name="T"/>, and fetches it by the tags the command's strong-typed ids name.
     /// </remarks>
     public EventModelSliceBuilder DeciderModel<T>() => deciderModel(TypeDescriptor.For(typeof(T)));
 
     /// <summary>The DCB decider model, by name, before its type exists.</summary>
     public EventModelSliceBuilder DeciderModel(string name) => deciderModel(Declared(name));
+
+    /// <summary>
+    /// A synonym for <see cref="DeciderModel{T}"/>, in the vocabulary of Wolverine's <c>[DcbModel]</c>: this
+    /// slice decides through the Dynamic Consistency Boundary model <typeparamref name="T"/>.
+    /// </summary>
+    public EventModelSliceBuilder DcbModel<T>() => DeciderModel<T>();
+
+    /// <summary>A synonym for <see cref="DeciderModel(string)"/>: the DCB model, by name, before its type exists.</summary>
+    public EventModelSliceBuilder DcbModel(string name) => DeciderModel(name);
+
+    /// <summary>
+    /// How this view's read model is projected (JasperFx/wolverine#4865) — what code generation needs to
+    /// know, not Event Modeling proper. A view that says nothing is single-stream.
+    /// </summary>
+    public EventModelSliceBuilder ProjectedAs(ViewProjection projection)
+    {
+        _viewProjection = projection;
+        return this;
+    }
+
+    /// <summary>The view is one read model per stream, folded from that stream's events: the default.</summary>
+    public EventModelSliceBuilder AsSingleStream() => ProjectedAs(ViewProjection.SingleStream);
+
+    /// <summary>The view is one read model per identity that events from many streams are grouped into.</summary>
+    public EventModelSliceBuilder AsMultiStream() => ProjectedAs(ViewProjection.MultiStream);
+
+    /// <summary>The view is folded over the events a Dynamic Consistency Boundary tag query selects.</summary>
+    public EventModelSliceBuilder AsDcbModel() => ProjectedAs(ViewProjection.DcbModel);
 
     /// <summary>An event the slice emits. Call once per event.</summary>
     public EventModelSliceBuilder Emits<T>() => add(_emittedEvents, TypeDescriptor.For(typeof(T)));
@@ -439,6 +468,7 @@ public class EventModelSliceBuilder
             AggregateTypes = aggregates,
             AggregateDeclaration = aggregateDeclaration,
             DeciderModel = _deciderModel,
+            ViewProjection = _viewProjection,
             EmittedEvents = _emittedEvents.ToList(),
             PublishedMessages = _publishedMessages.ToList(),
             ConsumedEvents = _consumedEvents.ToList(),

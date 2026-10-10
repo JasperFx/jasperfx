@@ -239,7 +239,10 @@ namespace EventTests.EventModeling
             // jasperfx#994 appended two more after it, the same way.
             ((int)EventModelRole.AggregateDeclaration).ShouldBe((int)EventModelRole.StartsStream + 1);
             ((int)EventModelRole.DeciderModel).ShouldBe((int)EventModelRole.StartsStream + 2);
-            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.DeciderModel);
+
+            // JasperFx/wolverine#4865 appended one more
+            ((int)EventModelRole.ViewProjection).ShouldBe((int)EventModelRole.DeciderModel + 1);
+            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.ViewProjection);
         }
 
         [Fact]
