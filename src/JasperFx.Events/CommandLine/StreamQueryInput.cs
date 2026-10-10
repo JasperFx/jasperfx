@@ -1,6 +1,8 @@
 using System.Reflection;
 using JasperFx.CommandLine;
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.Core;
+using JasperFx.Linq;
 
 namespace JasperFx.Events.CommandLine;
 
@@ -44,6 +46,14 @@ public class StreamQueryInput: NetCoreInput
     [Description("Inclusive upper bound on the stream's last-append time")]
     [FlagAlias("updated-to", longAliasOnly: true)]
     public string? UpdatedToFlag { get; set; }
+
+    [Description("Predicate over the stream state in the Dynamic LINQ dialect, ANDed with the other filters, e.g. \"Version > 100 and not IsArchived\". Members: Id, Key, Version, CompactedVersion, IsArchived, Created, LastTimestamp. Dates are read as UTC")]
+    [FlagAlias("where", longAliasOnly: true)]
+    public string? WhereFlag { get; set; }
+
+    [Description("Ordering over the stream state, e.g. \"Version desc\". Ties are broken by stream identity. Default is creation order")]
+    [FlagAlias("order-by", longAliasOnly: true)]
+    public string? OrderByFlag { get; set; }
 
     [Description("Tenant partition to scope the query to. Omit for a store-global read")]
     [FlagAlias("tenant", longAliasOnly: true)]
@@ -188,6 +198,35 @@ public class StreamQueryInput: NetCoreInput
 
         return queryable;
     }
+
+    /// <summary>
+    /// Compose <see cref="WhereFlag"/> onto the stream-state queryable (jasperfx#869). Like
+    /// <see cref="ApplyFilters"/>, composition only — a provider that cannot translate the predicate refuses
+    /// when the query runs.
+    /// </summary>
+    /// <exception cref="DynamicQueryException">The predicate does not parse or is refused.</exception>
+    [RequiresDynamicCode(DynamicQueryAotMessage)]
+    [RequiresUnreferencedCode(DynamicQueryAotMessage)]
+    public IQueryable<StreamState> ApplyPredicate(IQueryable<StreamState> queryable)
+        => string.IsNullOrWhiteSpace(WhereFlag)
+            ? queryable
+            : DynamicQuery.Apply(queryable, new DynamicQueryText(WhereFlag));
+
+    /// <summary>
+    /// <see cref="OrderByFlag"/> with stream identity as the tie-breaker, or <see cref="ApplyOrdering"/>'s
+    /// creation order when no ordering was given.
+    /// </summary>
+    /// <exception cref="DynamicQueryException">The ordering does not parse or is refused.</exception>
+    [RequiresDynamicCode(DynamicQueryAotMessage)]
+    [RequiresUnreferencedCode(DynamicQueryAotMessage)]
+    public IQueryable<StreamState> ApplyPageOrdering(IQueryable<StreamState> queryable)
+        => string.IsNullOrWhiteSpace(OrderByFlag)
+            ? ApplyOrdering(queryable)
+            : DynamicQuery.Apply(queryable,
+                new DynamicQueryText(null, $"{OrderByFlag}, {nameof(StreamState.Id)}, {nameof(StreamState.Key)}"));
+
+    private const string DynamicQueryAotMessage =
+        "--where and --order-by translate text to LINQ over StreamState at runtime with System.Linq.Dynamic.Core, which is not supported under Native AOT.";
 
     /// <summary>
     /// The command's stated ordering contract: creation order (oldest stream first), ties broken by

@@ -67,6 +67,9 @@
     <PackageVersion Include="Npgsql" Version="9.0.2" />
     <PackageVersion Include="Polly.Core" Version="8.6.5" />
     <PackageVersion Include="Spectre.Console" Version="0.55.0" />
+    <!-- jasperfx#869: string predicate / ordering to IQueryable over a runtime type. 1.6.0 is the floor
+         (CVE-2023-32571 fixed in 1.3.0, CVE-2024-51417 in 1.6.0); no dependencies of its own on net8+. -->
+    <PackageVersion Include="System.Linq.Dynamic.Core" Version="1.7.4" />
   </ItemGroup>
 
   <!--
