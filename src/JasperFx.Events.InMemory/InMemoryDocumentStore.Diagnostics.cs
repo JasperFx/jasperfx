@@ -20,10 +20,11 @@ namespace JasperFx.Events.InMemory;
 /// the documents rather than on them, which is the shape every real store has — columns next to the JSON.
 /// </para>
 /// <para>
-/// <b>Criteria are refused.</b> There is no Dynamic LINQ here (that is jasperfx#869), so
-/// <see cref="DocumentQueryOptions.Where" /> and <see cref="DocumentQueryOptions.OrderBy" /> throw
-/// <see cref="DocumentCriteriaNotSupportedException" /> — which is itself the contract for a store without
-/// predicate support, and what the suite's refusal fact runs against.
+/// <b>Criteria are applied with LINQ to objects (jasperfx#869).</b> <see cref="DocumentQueryOptions.Where" />
+/// and <see cref="DocumentQueryOptions.OrderBy" /> go through
+/// <see cref="DocumentQueryCriteria.ApplyCriteriaTo{T}" /> exactly as a real store's do; the only difference
+/// is that the "provider" is <see cref="EnumerableQuery{T}" />, so the reference implementation of the
+/// criteria facts runs here, ahead of Marten, Polecat and Fisher.
 /// </para>
 /// </remarks>
 public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumentStoreDiagnosticsWriter,
@@ -107,18 +108,6 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
     Task<DocumentQueryResult> IDocumentStoreDiagnostics.QueryDocumentsAsync(string documentTypeName,
         DocumentQueryOptions options, CancellationToken token)
     {
-        if (options.Where is not null)
-        {
-            throw new DocumentCriteriaNotSupportedException(nameof(DocumentQueryOptions.Where),
-                "the in-memory reference store has no predicate translation (jasperfx#869).");
-        }
-
-        if (options.OrderBy is not null)
-        {
-            throw new DocumentCriteriaNotSupportedException(nameof(DocumentQueryOptions.OrderBy),
-                "the in-memory reference store has no ordering translation (jasperfx#869).");
-        }
-
         options.AssertValidTenantScope();
 
         var pageNumber = Math.Max(1, options.PageNumber);
@@ -138,11 +127,12 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             rows = rows.Where(x => Equals(x.RawId, id));
         }
 
-        // Tenant first, so a page never repeats a row from another tenant's page (jasperfx#928).
-        var all = rows
-            .OrderBy(x => x.Document.TenantId, StringComparer.Ordinal)
-            .ThenBy(x => x.Document.Id, StringComparer.Ordinal)
-            .ToList();
+        // Tenant first, so a page never repeats a row from another tenant's page (jasperfx#928). With an
+        // ordering, the query's own order comes second; without one, the id does.
+        var all = options.HasCriteria()
+            ? ApplyCriteria(requested, rows.ToList(), options)
+            : rows.OrderBy(x => x.Document.TenantId, StringComparer.Ordinal)
+                .ThenBy(x => x.Document.Id, StringComparer.Ordinal).ToList();
         var page = all.Skip((pageNumber - 1) * pageSize).Take(pageSize).Select(x => x.Document).ToList();
 
         return Task.FromResult(new DocumentQueryResult(page, all.Count, pageNumber, pageSize));
@@ -157,7 +147,54 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             .FirstOrDefault(x => string.Equals(x.FullNameInCode(), documentTypeName, StringComparison.OrdinalIgnoreCase)
                                  || string.Equals(x.Name, documentTypeName, StringComparison.OrdinalIgnoreCase));
 
-    private sealed record Row(object RawId, bool IsDeleted, StoredDocument Document);
+    private sealed record Row(object RawId, bool IsDeleted, StoredDocument Document, object Instance);
+
+    private static readonly MethodInfo _applyCriteria = typeof(InMemoryDocumentStore)
+        .GetMethod(nameof(ApplyCriteriaFor), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+    private static List<Row> ApplyCriteria(Type requested, List<Row> rows, DocumentQueryOptions options)
+    {
+        try
+        {
+            return (List<Row>)_applyCriteria.MakeGenericMethod(requested).Invoke(null, [rows, options])!;
+        }
+        catch (TargetInvocationException e) when (e.InnerException is not null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The rows the criteria select, in tenant order and then the criteria's own order (or the id, without
+    /// one).
+    /// </summary>
+    private static List<Row> ApplyCriteriaFor<T>(List<Row> rows, DocumentQueryOptions options)
+    {
+        var tieBreaker = DocumentIdentity.FindIdMember(typeof(T))?.Name;
+        var composed = options.ApplyCriteriaTo(rows.Select(x => (T)x.Instance).AsQueryable(), tieBreaker);
+
+        List<T> selected;
+        try
+        {
+            selected = composed.ToList();
+        }
+        catch (Exception e) when (DocumentQueryCriteria.IsTranslationFailure(e) || e is NullReferenceException)
+        {
+            // LINQ to objects has no null propagation, so ShipTo.City over a null ShipTo throws here where a
+            // database would compare against null. Still a refusal, never an unfiltered page.
+            throw options.Untranslatable(e);
+        }
+
+        var position = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
+        for (var i = 0; i < selected.Count; i++) position[selected[i]!] = i;
+
+        var kept = rows.Where(x => position.ContainsKey(x.Instance))
+            .OrderBy(x => x.Document.TenantId, StringComparer.Ordinal);
+        return string.IsNullOrWhiteSpace(options.OrderBy)
+            ? kept.ThenBy(x => x.Document.Id, StringComparer.Ordinal).ToList()
+            : kept.ThenBy(x => position[x.Instance]).ToList();
+    }
 
     /// <summary>
     /// Every row, deleted or not, that is a <paramref name="requested" /> — soft deletes are the caller's
@@ -200,7 +237,7 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
                 IsDeleted = meta.IsDeleted,
                 DeletedAt = meta.DeletedAt,
                 DocumentType = meta.DocumentType.FullNameInCode()
-            });
+            }, document);
         }
     }
 

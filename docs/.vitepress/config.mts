@@ -91,6 +91,13 @@ export default withMermaid(
           ]
         },
         {
+          text: 'LINQ',
+          collapsed: false,
+          items: [
+            { text: 'Dynamic LINQ Queries', link: '/linq/dynamic-query' }
+          ]
+        },
+        {
           text: 'Similarity Search',
           collapsed: false,
           items: [

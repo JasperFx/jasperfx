@@ -792,6 +792,201 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.Where));
     }
 
+    // ---------------------------------------------------------------- criteria in depth (jasperfx#869)
+
+    [Fact]
+    public async Task member_names_in_criteria_are_case_insensitive()
+    {
+        // Marten serializes PascalCase by default, Polecat and Fisher camelCase: the text is written against
+        // the C# type, and neither spelling of the JSON may decide whether it matches.
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        var widgets = await PersistWidgetsAsync(3);
+
+        var result = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10) { Where = "weight >= @0 and NAME != @1", Arguments = [2, "w3"] });
+
+        IdsOf(result).ShouldHaveSingleItem().ShouldBe(widgets[1].Id);
+    }
+
+    [Fact]
+    public async Task where_with_string_methods_and_an_in_list()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        var widgets = await PersistWidgetsAsync(4);
+
+        var startsWith = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10) { Where = "Name.StartsWith(@0) and Weight < @1", Arguments = ["w", 3] });
+        IdsOf(startsWith).OrderBy(x => x).ShouldBe(new[] { widgets[0].Id, widgets[1].Id }.OrderBy(x => x));
+
+        var inList = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10) { Where = "Name in @0", Arguments = [new[] { "w1", "w4" }] });
+        IdsOf(inList).OrderBy(x => x).ShouldBe(new[] { widgets[0].Id, widgets[3].Id }.OrderBy(x => x));
+    }
+
+    [Fact]
+    public async Task arguments_that_crossed_a_wire_as_json_still_bind()
+    {
+        // A console sends Arguments as JSON; each object arrives at the store as a JsonElement.
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        var widgets = await PersistWidgetsAsync(3);
+        var arguments = System.Text.Json.JsonSerializer.Deserialize<object?[]>("[2, \"w3\"]")!;
+
+        var result = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10) { Where = "Weight > @0 and Name = @1", Arguments = arguments });
+
+        IdsOf(result).ShouldHaveSingleItem().ShouldBe(widgets[2].Id);
+    }
+
+    [Fact]
+    public async Task where_combines_with_id_equals()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        var widgets = await PersistWidgetsAsync(3);
+
+        var matching = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10, widgets[2].Id.ToString()) { Where = "Weight > @0", Arguments = [1] });
+        IdsOf(matching).ShouldHaveSingleItem().ShouldBe(widgets[2].Id);
+
+        var excluded = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10, widgets[0].Id.ToString()) { Where = "Weight > @0", Arguments = [1] });
+        excluded.TotalCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task an_ordering_with_ties_still_pages_deterministically()
+    {
+        // Every widget weighs the same, so the ordering alone cannot place them: a store must break the tie
+        // (by id) or two pages can repeat a row and lose another.
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        var widgets = Enumerable.Range(1, 6).Select(i => Widget($"w{i}", 5)).ToArray();
+        await PersistAsync(widgets);
+
+        var options = new DocumentQueryOptions(1, 3) { OrderBy = "Weight desc" };
+        var first = await QueryAsync(WidgetType, options);
+        var second = await QueryAsync(WidgetType, options with { PageNumber = 2 });
+        var firstAgain = await QueryAsync(WidgetType, options);
+
+        first.TotalCount.ShouldBe(6);
+        IdsOf(first).Concat(IdsOf(second)).OrderBy(x => x).ShouldBe(widgets.Select(x => x.Id).OrderBy(x => x));
+        IdsOf(firstAgain).ShouldBe(IdsOf(first));
+    }
+
+    [Fact]
+    public async Task where_on_a_sub_class_reads_its_own_members()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        SkipUnlessHierarchies();
+        var small = new ComplianceTruck { Id = Guid.NewGuid(), Make = "Volvo", Axles = 2 };
+        var big = new ComplianceTruck { Id = Guid.NewGuid(), Make = "Volvo", Axles = 5 };
+        var bus = new ComplianceBus { Id = Guid.NewGuid(), Make = "Volvo", Seats = 40 };
+        await using (var session = LightweightSession())
+        {
+            session.Store(small);
+            session.Store(big);
+            session.Store(bus);
+            await session.SaveChangesAsync(Cancellation);
+        }
+
+        var trucks = await QueryAsync(TruckType,
+            new DocumentQueryOptions(1, 10) { Where = "Axles > @0", Arguments = [3] });
+        IdsOf(trucks).ShouldHaveSingleItem().ShouldBe(big.Id);
+
+        // On the root, a member every row has.
+        var all = await QueryAsync(VehicleType,
+            new DocumentQueryOptions(1, 10) { Where = "Make = @0", Arguments = ["Volvo"] });
+        all.TotalCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task where_reads_only_the_named_tenant()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        SkipUnlessConjoined();
+        await PersistForAsync(TenantA, new ComplianceGadget { Id = "a1", Kind = "cog", Weight = 5 },
+            new ComplianceGadget { Id = "a2", Kind = "cog", Weight = 1 });
+        await PersistForAsync(TenantB, new ComplianceGadget { Id = "b1", Kind = "cog", Weight = 9 });
+
+        var result = await QueryAsync(GadgetType,
+            new DocumentQueryOptions(1, 10) { TenantId = TenantA, Where = "Kind = @0", Arguments = ["cog"] });
+
+        result.Documents.Select(x => x.Id).ShouldBe(["a1", "a2"], ignoreOrder: true);
+        result.Documents.ShouldAllBe(x => x.TenantId == TenantA);
+    }
+
+    [Fact]
+    public async Task all_tenants_with_criteria_orders_by_tenant_then_the_ordering()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        SkipUnlessConjoined();
+        SkipUnlessAllTenants();
+        await PersistForAsync(TenantA, new ComplianceGadget { Id = "a1", Kind = "cog", Weight = 1 },
+            new ComplianceGadget { Id = "a2", Kind = "cog", Weight = 7 },
+            new ComplianceGadget { Id = "a3", Kind = "gear", Weight = 9 });
+        await PersistForAsync(TenantB, new ComplianceGadget { Id = "b1", Kind = "cog", Weight = 3 });
+
+        var result = await QueryAsync(GadgetType,
+            new DocumentQueryOptions(1, 10)
+            {
+                AllTenants = true, Where = "Kind = @0", Arguments = ["cog"], OrderBy = "Weight desc"
+            });
+
+        // acme < globex, then heaviest first inside each tenant.
+        result.Documents.Select(x => x.Id).ShouldBe(["a2", "a1", "b1"]);
+    }
+
+    [Fact]
+    public async Task an_unknown_member_is_a_refusal_that_says_where()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        await PersistWidgetsAsync(1);
+
+        var ex = await Should.ThrowAsync<DocumentCriteriaNotSupportedException>(
+            () => QueryAsync(WidgetType, new DocumentQueryOptions(1, 10) { Where = "Weight > 1 and Heft > 2" }));
+
+        ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.Where));
+        ex.Message.ShouldContain("Heft");
+        ex.Position.ShouldBe(15);
+    }
+
+    [Fact]
+    public async Task an_unparsable_ordering_is_a_refusal_of_the_ordering()
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        await PersistWidgetsAsync(1);
+
+        var ex = await Should.ThrowAsync<DocumentCriteriaNotSupportedException>(
+            () => QueryAsync(WidgetType, new DocumentQueryOptions(1, 10) { OrderBy = "Heft desc" }));
+
+        ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.OrderBy));
+    }
+
+    [Theory]
+    [InlineData("Name = \"x\".PadLeft(2000000000)")]
+    [InlineData("System.IO.File.Exists(\"/etc/passwd\")")]
+    [InlineData("DateTime.UtcNow > DateTime.MinValue")]
+    [InlineData("np(Name) = null")]
+    public async Task a_hostile_predicate_is_refused_before_it_reaches_the_store(string where)
+    {
+        _ = Diagnostics;
+        SkipUnlessCriteria();
+        await PersistWidgetsAsync(1);
+
+        var ex = await Should.ThrowAsync<DocumentCriteriaNotSupportedException>(
+            () => QueryAsync(WidgetType, new DocumentQueryOptions(1, 10) { Where = where }));
+
+        ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.Where));
+    }
+
     // ---------------------------------------------------------------- writes (§6)
 
     [Fact]

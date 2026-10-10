@@ -124,6 +124,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsDocumentDiagnosticAllTenants => true;
 
+    public override bool SupportsDocumentDiagnosticCriteria => true;
+
     /// <summary>
     /// True since jasperfx#903. See <see cref="in_memory_guid_optimistic_concurrency_compliance" /> for
     /// why this is worth implementing in a test double.
@@ -222,9 +224,9 @@ public class in_memory_guid_optimistic_concurrency_compliance
 /// The document diagnostics surface and its write-side sibling (jasperfx#870), enrolled to <em>run</em>.
 /// </summary>
 /// <remarks>
-/// Everything but the criteria facts runs. <c>SupportsDocumentDiagnosticCriteria</c> stays false because
-/// Dynamic LINQ is jasperfx#869, not this double's to fake — so the refusal fact runs instead, which is
-/// the half of §1 a store without predicate support is held to.
+/// Every fact runs, the criteria facts included: the in-memory store applies
+/// <see cref="JasperFx.Documents.DocumentQueryOptions.Where" /> / <c>OrderBy</c> through the jasperfx#869
+/// helper with LINQ to objects as its provider, so it is the reference implementation of §1.
 /// </remarks>
 public class in_memory_document_store_diagnostics_compliance
     : DocumentStoreDiagnosticsCompliance<InMemoryDocumentComplianceFixture>;

@@ -274,4 +274,66 @@ public class StreamQueryInputTests
 
         attribute.Name.ShouldBe("stream-query");
     }
+
+    // ---------------------------------------------------------------- --where / --order-by (jasperfx#869)
+
+    [Fact]
+    public void where_flag_filters_on_stream_state_members()
+    {
+        var big = state(version: 500);
+        var archived = state(version: 900, archived: true);
+        var small = state(version: 3);
+
+        var input = new StreamQueryInput { WhereFlag = "Version > 100 and not IsArchived" };
+
+        input.ApplyPredicate(new[] { big, archived, small }.AsQueryable()).ShouldBe([big]);
+    }
+
+    [Fact]
+    public void where_flag_reads_a_date_as_utc()
+    {
+        var early = state(created: new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+        var late = state(created: new DateTimeOffset(2026, 9, 3, 0, 0, 0, TimeSpan.Zero));
+
+        var input = new StreamQueryInput { WhereFlag = "Created >= \"2026-09-03\"" };
+
+        input.ApplyPredicate(new[] { early, late }.AsQueryable()).ShouldBe([late]);
+    }
+
+    [Fact]
+    public void no_where_flag_leaves_the_source_alone()
+    {
+        var source = new[] { state() }.AsQueryable();
+        new StreamQueryInput().ApplyPredicate(source).ShouldBeSameAs(source);
+    }
+
+    [Fact]
+    public void a_bad_where_flag_is_refused_with_a_position()
+    {
+        var ex = Should.Throw<JasperFx.Linq.DynamicQueryException>(() =>
+            new StreamQueryInput { WhereFlag = "Version > 1 and Heft > 2" }.ApplyPredicate(new[] { state() }.AsQueryable()));
+
+        ex.Position.ShouldBe(16);
+    }
+
+    [Fact]
+    public void order_by_flag_orders_with_identity_as_the_tie_breaker()
+    {
+        var lowId = state(version: 5, id: new Guid("00000001-0000-0000-0000-000000000000"));
+        var highId = state(version: 5, id: new Guid("00000002-0000-0000-0000-000000000000"));
+        var biggest = state(version: 9);
+
+        var input = new StreamQueryInput { OrderByFlag = "Version desc" };
+
+        input.ApplyPageOrdering(new[] { highId, biggest, lowId }.AsQueryable()).ShouldBe([biggest, lowId, highId]);
+    }
+
+    [Fact]
+    public void no_order_by_flag_keeps_creation_order()
+    {
+        var older = state(created: new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+        var newer = state(created: new DateTimeOffset(2026, 9, 2, 0, 0, 0, TimeSpan.Zero));
+
+        new StreamQueryInput().ApplyPageOrdering(new[] { newer, older }.AsQueryable()).ShouldBe([older, newer]);
+    }
 }

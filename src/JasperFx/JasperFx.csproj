@@ -25,6 +25,7 @@
         <PackageReference Include="ImTools"/>
         <PackageReference Include="Spectre.Console" />
         <PackageReference Include="Polly.Core" />
+        <PackageReference Include="System.Linq.Dynamic.Core" />
     </ItemGroup>
 
     <ItemGroup>

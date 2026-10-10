@@ -1,4 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using JasperFx.CommandLine;
+using JasperFx.Linq;
 using JasperFx.Events.Documents;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -29,6 +31,10 @@ public class StreamQueryCommand: JasperFxAsyncCommand<StreamQueryInput>
         Usage("Query the event streams of the application's event store");
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "--where / --order-by (jasperfx#869) are opt-in flags on a diagnostic command that runs on a JIT host; under Native AOT they are the only part of the command that cannot work.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "See the trimming justification above.")]
     public override async Task<bool> Execute(StreamQueryInput input)
     {
         // Console logging has to go: in the default JSON mode a single stray log line makes the
@@ -79,16 +85,24 @@ public class StreamQueryCommand: JasperFxAsyncCommand<StreamQueryInput>
             // store-global session narrows nothing — but on a store whose default tenant is disabled
             // the default session is refused before any filter is applied, and this is the only way
             // to reach the streams table at all.
-            var filtered = input.ApplyFilters(
+            var filtered = input.ApplyPredicate(input.ApplyFilters(
                 store.OpenReadOnlyEventStoreOrGlobal(input.TenantFlag).QueryStreamStates(input.TenantFlag),
-                aggregateType);
+                aggregateType));
 
             totalCount = await filtered.CountAsync(CancellationToken.None).ConfigureAwait(false);
 
-            page = await StreamQueryInput.ApplyOrdering(filtered)
+            page = await input.ApplyPageOrdering(filtered)
                 .Skip((input.PageFlag - 1) * input.PageSizeFlag)
                 .Take(input.PageSizeFlag)
                 .ToListAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (DynamicQueryException e)
+        {
+            // jasperfx#869: the --where / --order-by text itself — a parse failure (with where it stopped)
+            // or a refused shape. An input error, never an empty result.
+            var flag = e.Clause == DynamicQueryClause.Where ? "--where" : "--order-by";
+            return fail(input, aggregateType, store.Subject,
+                e.Position is { } at ? $"{flag} at position {at}: {e.Reason}" : $"{flag}: {e.Reason}");
         }
         catch (NotSupportedException e)
         {

@@ -403,4 +403,11 @@ public class DocumentCriteriaNotSupportedException : NotSupportedException
 
     /// <summary>The <see cref="DocumentQueryOptions"/> member that could not be applied.</summary>
     public string Criterion { get; }
+
+    /// <summary>
+    /// The zero-based character offset into the criterion's text where parsing stopped, when the refusal is
+    /// a parse failure (jasperfx#869) — so a console can point at the place rather than repeat the message.
+    /// Null for a refusal that is about a shape or a capability rather than a place.
+    /// </summary>
+    public int? Position { get; init; }
 }

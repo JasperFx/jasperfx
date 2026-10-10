@@ -1,3 +1,9 @@
+// jasperfx#869: these documents compile inside the CONSUMER's test project (they ship as content files), and the
+// criteria facts' SqlNullSemantics rule reads nullable-reference annotations to decide which members can be null.
+// Without this directive a consumer that does not enable nullable compiles every string member here as
+// unannotated — i.e. nullable — and the rule then refuses the shared facts' own `Name != @1`.
+#nullable enable
+
 using System;
 using JasperFx.Metadata;
 
