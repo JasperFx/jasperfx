@@ -213,14 +213,23 @@ public class EventModelSliceBuilder
     /// <see cref="EventModelBuilder.ForAggregate{TAggregate}"/> default.
     /// </summary>
     /// <remarks>
-    /// A placeholder for now: it records the decider type on
-    /// <see cref="EventModelSliceDescriptor.DeciderModel"/> and nothing more. How the decider's events
-    /// are selected — tags, queries — waits on the DCB design discussion, and on the specifications.
+    /// It records the decider type on <see cref="EventModelSliceDescriptor.DeciderModel"/>. A decider model
+    /// is a self-aggregate by default (JasperFx/wolverine#4865): Wolverine's scaffold folds what the slice
+    /// emits into <typeparamref name="T"/>, and fetches it by the tags the command's strong-typed ids name.
     /// </remarks>
     public EventModelSliceBuilder DeciderModel<T>() => deciderModel(TypeDescriptor.For(typeof(T)));
 
     /// <summary>The DCB decider model, by name, before its type exists.</summary>
     public EventModelSliceBuilder DeciderModel(string name) => deciderModel(Declared(name));
+
+    /// <summary>
+    /// A synonym for <see cref="DeciderModel{T}"/>, in the vocabulary of Wolverine's <c>[DcbModel]</c>: this
+    /// slice decides through the Dynamic Consistency Boundary model <typeparamref name="T"/>.
+    /// </summary>
+    public EventModelSliceBuilder DcbModel<T>() => DeciderModel<T>();
+
+    /// <summary>A synonym for <see cref="DeciderModel(string)"/>: the DCB model, by name, before its type exists.</summary>
+    public EventModelSliceBuilder DcbModel(string name) => DeciderModel(name);
 
     /// <summary>An event the slice emits. Call once per event.</summary>
     public EventModelSliceBuilder Emits<T>() => add(_emittedEvents, TypeDescriptor.For(typeof(T)));

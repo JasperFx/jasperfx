@@ -105,6 +105,20 @@ public class ForAggregateTests
     }
 
     [Fact]
+    public void dcb_model_is_a_synonym_for_decider_model()
+    {
+        var model = new EventModelBuilder();
+        model.Command<BookSlot>().DcbModel<SlotBooking>().Emits<SlotBooked>();
+        model.Command("WalkIn").DcbModel("SlotBooking");
+
+        var book = slice(model, nameof(BookSlot));
+        book.DeciderModel.ShouldBe(T<SlotBooking>());
+        book.AggregateDeclaration.ShouldBe(AggregateDeclaration.DeciderModel);
+
+        slice(model, "WalkIn").DeciderModel!.Name.ShouldBe("SlotBooking");
+    }
+
+    [Fact]
     public void a_decider_model_can_be_named_before_its_type_exists()
     {
         var model = new EventModelBuilder();
