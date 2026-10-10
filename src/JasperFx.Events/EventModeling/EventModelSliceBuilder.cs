@@ -41,6 +41,7 @@ public class EventModelSliceBuilder
     private TypeDescriptor? _startsStream;
     private bool _noAggregate;
     private TypeDescriptor? _deciderModel;
+    private ViewProjection? _viewProjection;
     private readonly List<TypeDescriptor> _aggregateTypes = new();
     private readonly List<TypeDescriptor> _emittedEvents = new();
     private readonly List<TypeDescriptor> _publishedMessages = new();
@@ -230,6 +231,25 @@ public class EventModelSliceBuilder
 
     /// <summary>A synonym for <see cref="DeciderModel(string)"/>: the DCB model, by name, before its type exists.</summary>
     public EventModelSliceBuilder DcbModel(string name) => DeciderModel(name);
+
+    /// <summary>
+    /// How this view's read model is projected (JasperFx/wolverine#4865) — what code generation needs to
+    /// know, not Event Modeling proper. A view that says nothing is single-stream.
+    /// </summary>
+    public EventModelSliceBuilder ProjectedAs(ViewProjection projection)
+    {
+        _viewProjection = projection;
+        return this;
+    }
+
+    /// <summary>The view is one read model per stream, folded from that stream's events: the default.</summary>
+    public EventModelSliceBuilder AsSingleStream() => ProjectedAs(ViewProjection.SingleStream);
+
+    /// <summary>The view is one read model per identity that events from many streams are grouped into.</summary>
+    public EventModelSliceBuilder AsMultiStream() => ProjectedAs(ViewProjection.MultiStream);
+
+    /// <summary>The view is folded over the events a Dynamic Consistency Boundary tag query selects.</summary>
+    public EventModelSliceBuilder AsDcbModel() => ProjectedAs(ViewProjection.DcbModel);
 
     /// <summary>An event the slice emits. Call once per event.</summary>
     public EventModelSliceBuilder Emits<T>() => add(_emittedEvents, TypeDescriptor.For(typeof(T)));
@@ -448,6 +468,7 @@ public class EventModelSliceBuilder
             AggregateTypes = aggregates,
             AggregateDeclaration = aggregateDeclaration,
             DeciderModel = _deciderModel,
+            ViewProjection = _viewProjection,
             EmittedEvents = _emittedEvents.ToList(),
             PublishedMessages = _publishedMessages.ToList(),
             ConsumedEvents = _consumedEvents.ToList(),

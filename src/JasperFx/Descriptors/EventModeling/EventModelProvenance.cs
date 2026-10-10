@@ -190,4 +190,10 @@ public enum EventModelRole
     /// through (jasperfx#994). Appended for the same wire reason as <see cref="Origin"/>.
     /// </summary>
     DeciderModel,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.ViewProjection"/> — how a view's read model is projected
+    /// (JasperFx/wolverine#4865). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    ViewProjection,
 }
