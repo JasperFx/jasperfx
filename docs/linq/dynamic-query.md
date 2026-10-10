@@ -77,6 +77,21 @@ var policy = DynamicQueryPolicy.Default.WithRules(
     DynamicQueryShapeRules.NoCollectionSizeProperty("use Any() instead of Count."));
 ```
 
+### SQL null semantics
+
+Every SQL-backed store compares with three-valued logic: `NULL <> 'x'` is *unknown*, so
+`Notes != "fragile"` leaves out every row whose `Notes` is null, where the same text read as C# keeps them.
+Measured on Marten, Polecat and Fisher alike. `DynamicQueryShapeRules.SqlNullSemantics()` refuses `<>`, or
+`not` over a comparison or string method, on a member that can be null (by `Nullable<T>` or nullable reference
+annotations; an unannotated reference counts as nullable) unless the text settles the null case itself:
+
+```text
+Notes != "fragile" or Notes = null        -- keeps the rows with no notes
+Notes != null and Notes != "fragile"      -- drops them
+```
+
+Every SQL-backed store should add it; an in-memory store has no reason to.
+
 ## Document diagnostics
 
 Stores apply `DocumentQueryOptions.Where` / `OrderBy` with `ApplyCriteriaTo`, which maps every failure

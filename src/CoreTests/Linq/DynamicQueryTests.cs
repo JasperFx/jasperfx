@@ -39,6 +39,8 @@ public class DynamicQueryTests
         public DateTime ShippedOn { get; set; }
         public string? Notes { get; set; }
         public Address ShipTo { get; set; } = new();
+        public Address? BillTo { get; set; }
+        public int? Discount { get; set; }
         public List<string> Tags { get; set; } = [];
         public List<LineItem> Items { get; set; } = [];
     }
@@ -352,6 +354,60 @@ public class DynamicQueryTests
         Should.Throw<DynamicQueryException>(() =>
             DynamicQuery.Apply(Source, new DynamicQueryText("Items.Any(Quantity > 1)"), policy)).Reason.ShouldBe("no Any here.");
     }
+
+    // ---------------------------------------------------------------- SQL null semantics
+
+    private static readonly DynamicQueryPolicy SqlStore =
+        DynamicQueryPolicy.Default.WithRules(DynamicQueryShapeRules.SqlNullSemantics());
+
+    private static void refusedOnSql(string where)
+        => Should.Throw<DynamicQueryException>(() => DynamicQuery.Validate(typeof(Order), new DynamicQueryText(where), SqlStore))
+            .Reason.ShouldContain("can be null");
+
+    private static void allowedOnSql(string where)
+        => DynamicQuery.Validate(typeof(Order), new DynamicQueryText(where), SqlStore);
+
+    [Theory]
+    [InlineData("Notes != \"fragile\"")]
+    [InlineData("Notes <> \"fragile\"")]
+    [InlineData("not (Notes = \"fragile\")")]
+    [InlineData("not Notes.Contains(\"frag\")")]
+    [InlineData("Discount != 5")]
+    [InlineData("not (Discount > 5)")]
+    [InlineData("BillTo.City != \"Austin\"")]
+    [InlineData("Quantity > 1 and Notes != \"x\"")]
+    public void an_unguarded_inequality_on_a_nullable_member_is_refused_on_a_sql_store(string where)
+        => refusedOnSql(where);
+
+    [Theory]
+    [InlineData("Notes != \"fragile\" or Notes = null")]
+    [InlineData("Notes = null or Notes != \"fragile\"")]
+    [InlineData("Notes != null and Notes != \"fragile\"")]
+    [InlineData("not (Notes = \"fragile\") or Notes = null")]
+    [InlineData("Discount != 5 or Discount = null")]
+    [InlineData("BillTo.City != \"Austin\" or BillTo.City = null")]
+    [InlineData("Notes != null")] // an IS NOT NULL, not a comparison
+    [InlineData("CustomerName != \"Acme\"")] // declared non-nullable
+    [InlineData("Quantity != 3")] // a non-nullable value type
+    [InlineData("not IsRush")]
+    [InlineData("not Items.Any(Quantity > 5)")] // EXISTS is never unknown
+    [InlineData("Items.Any(Sku != \"A-1\")")] // Sku is declared non-nullable
+    [InlineData("Notes = \"fragile\"")] // equality drops nulls on both readings
+    public void a_guarded_or_null_free_inequality_is_allowed_on_a_sql_store(string where)
+        => allowedOnSql(where);
+
+    [Fact]
+    public void the_rule_is_opt_in_so_an_in_memory_store_keeps_the_csharp_reading()
+    {
+        // LINQ to objects keeps the null rows, exactly as the text reads.
+        Apply("Notes != \"fragile\"").ShouldBe([1, 3, 4]);
+    }
+
+    [Fact]
+    public void the_refusal_says_how_to_settle_the_null_case()
+        => Should.Throw<DynamicQueryException>(() =>
+                DynamicQuery.Validate(typeof(Order), new DynamicQueryText("Notes != \"x\""), SqlStore))
+            .Reason.ShouldContain("or Notes = null");
 
     // ---------------------------------------------------------------- validation without a source
 

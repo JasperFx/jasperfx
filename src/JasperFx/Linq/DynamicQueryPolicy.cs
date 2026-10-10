@@ -93,6 +93,20 @@ public static class DynamicQueryShapeRules
             ? reason
             : null);
 
+    /// <summary>
+    /// Refuse <c>&lt;&gt;</c>, or <c>not</c> over a comparison or string method, on a member that can be null —
+    /// unless the text says what a null should do (<c>Notes != "x" or Notes = null</c>, or
+    /// <c>Notes != null and Notes != "x"</c>).
+    /// </summary>
+    /// <remarks>
+    /// SQL compares with three-valued logic: <c>NULL &lt;&gt; 'x'</c> is unknown, so a SQL-backed store leaves out
+    /// every row whose member is null, where the text read as C# keeps them. Measured on Marten, Polecat and Fisher
+    /// alike (jasperfx#869). Whether a member can be null comes from <see cref="Nullable{T}" /> and nullable
+    /// reference annotations; an unannotated reference member counts as nullable. Every SQL-backed store should
+    /// add this rule; an in-memory store should not, because it has no null problem to protect against.
+    /// </remarks>
+    public static IDynamicQueryShapeRule SqlNullSemantics() => new SqlNullSemanticsRule();
+
     private sealed class DelegateRule(Func<Expression, string?> refuse) : IDynamicQueryShapeRule
     {
         public string? Refuse(Expression node) => refuse(node);
