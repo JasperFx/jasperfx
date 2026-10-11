@@ -142,6 +142,39 @@ public class SubscriptionAgentBackfillTests
         await theAgent.DisposeAsync();
     }
 
+    [Fact]
+    public async Task a_forced_catch_up_hands_the_backfill_over_at_the_shards_position_before_projecting()
+    {
+        theBackfill.CatchUp.SetResult(true);
+        theBackfill.HandOver.SetResult();
+
+        await theAgent.CatchUpAsync(20, new ShardState(new ShardName("Projection1"), 10), CancellationToken.None);
+
+        theBackfill.HandedOverAt.ShouldBe(10);
+        loaded(10).ShouldBeTrue();
+        theExecution.Received().ResetAggregateCaches();
+    }
+
+    [Fact]
+    public async Task a_forced_catch_up_of_a_shard_already_at_the_high_water_mark_still_backfills()
+    {
+        theBackfill.CatchUp.SetResult(true);
+        theBackfill.HandOver.SetResult();
+
+        await theAgent.CatchUpAsync(20, new ShardState(new ShardName("Projection1"), 20), CancellationToken.None);
+
+        theBackfill.HandedOverAt.ShouldBe(20);
+    }
+
+    [Fact]
+    public async Task a_forced_catch_up_from_nothing_settles_the_backfill()
+    {
+        await theAgent.CatchUpAsync(20, new ShardState(new ShardName("Projection1"), 0), CancellationToken.None);
+
+        theBackfill.Settled.Task.IsCompleted.ShouldBeTrue();
+        theBackfill.CatchUpStarted.Task.IsCompleted.ShouldBeFalse();
+    }
+
     private sealed class FakeBackfill: IBackfillExecutor
     {
         public readonly TaskCompletionSource Settled = new(TaskCreationOptions.RunContinuationsAsynchronously);

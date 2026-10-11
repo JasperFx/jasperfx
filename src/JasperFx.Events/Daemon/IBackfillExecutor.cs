@@ -39,6 +39,8 @@ public interface IBackfillExecutor
 public interface IProjectionBackfillSource<TOperations, TQuerySession>
     where TOperations : TQuerySession, IStorageOperations
 {
+    bool HasBackfills { get; }
+
     bool TryBuildBackfillExecutor(IEventStore<TOperations, TQuerySession> store, IEventDatabase database,
         ShardName shardName, ILogger logger, [NotNullWhen(true)] out IBackfillExecutor? executor);
 }
