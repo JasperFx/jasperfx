@@ -18,6 +18,7 @@
 
 using JasperFx;
 using JasperFx.Events;
+using JasperFx.Events.Tags;
 using Microsoft.Extensions.DependencyInjection;
 
 // --- JasperFx.Events.Event.For<T> ---------------------------------------
@@ -28,6 +29,20 @@ IEvent<SampleEvent> tenantEvt = Event.For("tenant-a", new SampleEvent("hello"));
 if (evt.Data.Message != tenantEvt.Data.Message)
 {
     Console.Error.WriteLine("Event.For<T> regression.");
+    return 1;
+}
+
+// --- TagTypeRegistration.FromUnwrapper<TTag, TInner> -------------------------
+// The DCB tag registration an AOT consumer uses. Create<TTag>() discovers the
+// inner type with ValueTypeInfo and closes TagTypeRegistration<,> with
+// MakeGenericType, which has no native code to run; naming TInner and passing
+// the unwrapper closes the generic at compile time instead.
+
+var tag = TagTypeRegistration.FromUnwrapper<SampleTag, Guid>(x => x.Value, "sample");
+var tagValue = Guid.NewGuid();
+if (tag.SimpleType != typeof(Guid) || !tagValue.Equals(tag.ExtractValue(new SampleTag(tagValue))))
+{
+    Console.Error.WriteLine("TagTypeRegistration.FromUnwrapper<TTag, TInner> regression.");
     return 1;
 }
 
@@ -55,3 +70,4 @@ Console.WriteLine("JasperFx AOT smoke OK.");
 return 0;
 
 internal readonly record struct SampleEvent(string Message);
+internal readonly record struct SampleTag(Guid Value);

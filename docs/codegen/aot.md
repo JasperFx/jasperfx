@@ -206,6 +206,7 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 - `JasperFx.Events.Event.For<T>(T)` — generic event factory.
 - `JasperFx.Core.Reflection.GenericFactoryCache.BuildAs<T>(…)` **when you supply your own delegate factory** that avoids `MakeGenericType` + `Activator.CreateInstance`. The default factory does use those and carries `[RequiresDynamicCode]`; consumers source-generate the per-type factory and stay clean.
 - Pure utility surface in `JasperFx.Core` (string helpers, `LightweightCache`, etc.).
+- `JasperFx.Events.Tags.TagTypeRegistration.FromUnwrapper<TTag, TInner>(unwrapper, tableSuffix)` (JasperFx.Events 2.88.0+) — a DCB tag type registered with an explicit unwrapper. `Create<TTag>()` discovers the inner type through `ValueTypeInfo` and closes `TagTypeRegistration<,>` with `MakeGenericType`, which has no native code when the image lacks that instantiation; naming `TInner` closes it at compile time.
 
 ### Annotated (RUC / RDC; available in dev, warns at AOT publish)
 

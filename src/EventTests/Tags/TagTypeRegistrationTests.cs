@@ -1,3 +1,4 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Tags;
 using Shouldly;
 
@@ -77,7 +78,83 @@ public class TagTypeRegistrationTests
         var result = reg.ForAggregate<Student>();
         result.ShouldBeSameAs(reg);
     }
+
+    [Fact]
+    public void explicit_unwrapper_registration_matches_the_reflective_one()
+    {
+        var reflective = TagTypeRegistration.Create<InvoiceId>();
+        var explicitly = TagTypeRegistration.FromUnwrapper<InvoiceId, Guid>(x => x.Value);
+
+        explicitly.ShouldBeOfType<TagTypeRegistration<InvoiceId, Guid>>();
+        explicitly.TagType.ShouldBe(reflective.TagType);
+        explicitly.SimpleType.ShouldBe(reflective.SimpleType);
+        explicitly.TableSuffix.ShouldBe(reflective.TableSuffix);
+    }
+
+    [Fact]
+    public void explicit_unwrapper_registration_with_custom_table_suffix()
+    {
+        var reg = TagTypeRegistration.FromUnwrapper<StudentId, string>(x => x.Value, "custom_student");
+
+        reg.TableSuffix.ShouldBe("custom_student");
+    }
+
+    [Fact]
+    public void explicit_unwrapper_extracts_the_value()
+    {
+        var reg = TagTypeRegistration.FromUnwrapper<StudentId, string>(x => x.Value);
+
+        reg.ExtractValue(new StudentId("test-value")).ShouldBe("test-value");
+    }
+
+    [Fact]
+    public void explicit_unwrapper_does_not_need_a_value_type_shape()
+    {
+        // ValueTypeInfo.ForType refuses a type with more than one public property, so the
+        // reflective factory cannot register this. The explicit unwrapper never inspects it.
+        Should.Throw<InvalidValueTypeException>(() => TagTypeRegistration.Create<TwoPropertyId>());
+
+        var reg = TagTypeRegistration.FromUnwrapper<TwoPropertyId, Guid>(x => x.Value);
+
+        var guid = Guid.NewGuid();
+        reg.ExtractValue(new TwoPropertyId(guid, "label")).ShouldBe(guid);
+    }
+
+    [Fact]
+    public void create_stays_resolvable_by_name()
+    {
+        // Marten looks Create<TTag> up by name, in its event graph's type initializer. A second
+        // method called Create would throw AmbiguousMatchException there, in every Marten version
+        // that uses that lookup.
+        typeof(TagTypeRegistration).GetMethod(nameof(TagTypeRegistration.Create)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void explicit_unwrapper_is_required()
+    {
+        Should.Throw<ArgumentNullException>(() => new TagTypeRegistration<StudentId, string>((Func<StudentId, string>)null!, "student"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void explicit_unwrapper_table_suffix_is_required(string? tableSuffix)
+    {
+        // An empty suffix would name the table mt_event_tag_; FromUnwrapper's own default never reaches this
+        Should.Throw<ArgumentException>(() => new TagTypeRegistration<StudentId, string>(x => x.Value, tableSuffix!));
+    }
+
+    [Fact]
+    public void explicit_unwrapper_registration_for_aggregate()
+    {
+        var reg = TagTypeRegistration.FromUnwrapper<StudentId, string>(x => x.Value);
+
+        reg.ForAggregate<Student>().ShouldBeSameAs(reg);
+        reg.AggregateType.ShouldBe(typeof(Student));
+    }
 }
+
+public record TwoPropertyId(Guid Value, string Label);
 
 // Test aggregate type
 public class Student
