@@ -23,7 +23,7 @@ public class EnumerableArgument : Argument
         Justification = "Same as IL2026 — the CloseAndBuildAs call closes List<elementType> via MakeGenericType, which AOT consumers see through the annotated entry points.")]
     public override bool Handle(object input, Queue<string> tokens)
     {
-        var elementType = _member.GetMemberType()!.GetGenericArguments().First();
+        var elementType = _member.GetMemberType()!.DetermineElementType()!;
         var list = typeof(List<>).CloseAndBuildAs<IList>(elementType);
 
         var wasHandled = false;
@@ -37,7 +37,7 @@ public class EnumerableArgument : Argument
 
         if (wasHandled)
         {
-            setValue(input, list);
+            setEnumerableValue(input, list);
         }
 
         return wasHandled;
