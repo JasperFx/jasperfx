@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Collections;
+using System.Reflection;
 using JasperFx.Core.Reflection;
 
 namespace JasperFx.CommandLine.Parsing;
@@ -44,6 +45,23 @@ public abstract class TokenHandlerBase : ITokenHandler
     {
         (Member as PropertyInfo)?.SetValue(target, value);
         (Member as FieldInfo)?.SetValue(target, value);
+    }
+
+    // An enumerable flag or argument collects its values into a List<T>, which can't be assigned to a
+    // T[] member, so an array member is handed them as an array (the source-generated parser's ToArray())
+    protected void setEnumerableValue(object target, IList values)
+    {
+        var memberType = Member!.GetMemberType()!;
+        if (memberType.IsArray)
+        {
+            var array = Array.CreateInstanceFromArrayType(memberType, values.Count);
+            values.CopyTo(array, 0);
+            setValue(target, array);
+        }
+        else
+        {
+            setValue(target, values);
+        }
     }
 
     protected object? getValue(object target)

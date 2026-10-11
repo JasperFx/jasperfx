@@ -43,7 +43,7 @@ public class EnumerableFlag : Flag
                 throw new InvalidUsageException($"No values specified for flag {flag}.");
             }
 
-            setValue(input, list);
+            setEnumerableValue(input, list);
         }
 
         return wasHandled;
