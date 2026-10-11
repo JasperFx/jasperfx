@@ -38,6 +38,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     private bool _holdingForBackfill;
     private TaskCompletionSource<long>? _backfillHold;
 
+    // Replaced, never mutated: stamp() reads it from the heartbeat timer and other threads
+    private volatile IReadOnlyList<BackfillProgress>? _backfillProgress;
+
     // jasperfx#598/#610: blue/green side-effect gate state. _sideEffectGateMark is the highest PRIOR
     // version's persisted progression (0 = no gate); while committed progression sits below it this
     // agent runs normally but suppresses side effects, and clamps its loading ceiling to the mark so
@@ -366,6 +369,8 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             state.SideEffectGateMark = mark;
         }
 
+        state.Backfills = _backfillProgress;
+
         return state;
     }
 
@@ -641,7 +646,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     }
 
                     // The shard keeps projecting; the backfill only holds it for the hand-over
-                    var backfillRequest = new BackfillRequest(ErrorOptions, _runtime);
+                    var backfillRequest = new BackfillRequest(ErrorOptions, _runtime, Options.BatchSize) { Report = publishBackfillAsync };
                     _backfillTask = Task.Run(() => runBackfillsAsync(backfills, backfillRequest));
                 }
 
@@ -924,6 +929,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
                 await executor.HandOverAsync(ceiling, request, _cancellation.Token).ConfigureAwait(false);
             }
+
+            // Published once as completed by the executor; nothing is owed any more
+            _backfillProgress = null;
         }
         catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
         {
@@ -935,6 +943,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             // The live projection does not depend on the backfill, so it keeps running; the backfill resumes
             // from its recorded position on the next start
             _logger.LogError(e, "Error trying to backfill projection {ShardName}", Name.Identity);
+
+            // Kept on every state until the next start, so an observer sees the backfill is stuck
+            var failure = ShardFailure.For(e, _timeProvider.GetUtcNow());
+            _backfillProgress = (_backfillProgress ?? [])
+                .Select(x => x.Completed ? x : x with { Failure = failure })
+                .ToList();
+            await publishBackfillStateAsync().ConfigureAwait(false);
         }
 
         try
@@ -944,6 +959,31 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         catch (Exception e)
         {
             _logger.LogDebug(e, "Could not release the backfill hold of {Name}", ProjectionShardIdentity);
+        }
+    }
+
+    // Called from the backfill's own task only, so the read-replace of _backfillProgress does not race
+    private Task publishBackfillAsync(BackfillProgress progress)
+    {
+        _backfillProgress = (_backfillProgress ?? [])
+            .Where(x => x.Name != progress.Name)
+            .Append(progress)
+            .OrderBy(x => x.Name)
+            .ToList();
+
+        return publishBackfillStateAsync();
+    }
+
+    private async Task publishBackfillStateAsync()
+    {
+        try
+        {
+            await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted) { Action = ShardAction.Updated }))
+                .ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _logger.LogDebug(e, "Error publishing the backfill progress of {Name}", ProjectionShardIdentity);
         }
     }
 

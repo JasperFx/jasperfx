@@ -4,7 +4,29 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public record BackfillRequest(ErrorHandlingOptions ErrorHandling, IDaemonRuntime Runtime);
+/// <param name="BatchSize">The shard's own batch size, which for a composite member is the composite's.</param>
+public record BackfillRequest(ErrorHandlingOptions ErrorHandling, IDaemonRuntime Runtime, int BatchSize)
+{
+    /// <summary>
+    ///     Receives the backfill's progress, which the agent publishes on its <see cref="ShardState" />.
+    /// </summary>
+    public Func<BackfillProgress, Task>? Report { get; init; }
+
+    public Task ReportAsync(BackfillProgress progress) => Report?.Invoke(progress) ?? Task.CompletedTask;
+}
+
+/// <summary>
+///     Where one backfill of a shard stands. <see cref="Ceiling" /> is the live position it is following.
+/// </summary>
+public record BackfillProgress(string Name, long Position, long Ceiling)
+{
+    public bool Completed { get; init; }
+
+    /// <summary>
+    ///     Why the backfill stopped. The shard keeps running and the backfill resumes on its next start.
+    /// </summary>
+    public ShardFailure? Failure { get; init; }
+}
 
 /// <summary>
 ///     Fills members that were added to a projected document without a version bump, while the shard keeps

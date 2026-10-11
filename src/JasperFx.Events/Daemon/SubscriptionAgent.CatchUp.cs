@@ -22,7 +22,7 @@ public partial class SubscriptionAgent
             }
             else
             {
-                var request = new BackfillRequest(ErrorOptions, _runtime);
+                var request = new BackfillRequest(ErrorOptions, _runtime, Options.BatchSize);
                 if (await backfills.CatchUpAsync(() => state.Sequence, request, cancellation).ConfigureAwait(false))
                 {
                     await backfills.HandOverAsync(state.Sequence, request, cancellation).ConfigureAwait(false);

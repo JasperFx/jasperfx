@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using JasperFx;
 using JasperFx.Core;
 using JasperFx.Events;
@@ -15,6 +16,8 @@ public class SubscriptionAgentBackfillTests
     private readonly IEventLoader theLoader = Substitute.For<IEventLoader>();
     private readonly FakeBackfill theBackfill = new();
     private readonly List<long> theLoadedFloors = new();
+    private readonly ShardStateTracker theTracker = new(NullLogger.Instance);
+    private readonly ConcurrentQueue<ShardState> thePublishedStates = new();
     private readonly SubscriptionAgent theAgent;
 
     public SubscriptionAgentBackfillTests()
@@ -37,9 +40,11 @@ public class SubscriptionAgentBackfillTests
                 return page;
             });
 
-        theAgent = new SubscriptionAgent(new ShardName("Projection1"), new AsyncOptions(), TimeProvider.System,
-            theLoader, theExecution, new ShardStateTracker(NullLogger.Instance), Substitute.For<ISubscriptionMetrics>(),
+        theAgent = new SubscriptionAgent(new ShardName("Projection1"), new AsyncOptions { BatchSize = 300 }, TimeProvider.System,
+            theLoader, theExecution, theTracker, Substitute.For<ISubscriptionMetrics>(),
             NullLogger.Instance);
+
+        theTracker.Subscribe(new Recorder(thePublishedStates));
     }
 
     private Task startAsync(long floor, long highWater) =>
@@ -175,6 +180,92 @@ public class SubscriptionAgentBackfillTests
         theBackfill.CatchUpStarted.Task.IsCompleted.ShouldBeFalse();
     }
 
+    private async Task<ShardState> publishedAsync(Func<ShardState, bool> matches)
+    {
+        ShardState? found = null;
+        await waitForAsync(() => (found = thePublishedStates.LastOrDefault(matches)) != null);
+        return found!;
+    }
+
+    [Fact]
+    public async Task the_backfill_pages_by_the_shards_own_batch_size()
+    {
+        await startAsync(10, 20);
+        await theBackfill.CatchUpStarted.Task.WaitAsync(5.Seconds());
+
+        theBackfill.Request!.BatchSize.ShouldBe(300);
+
+        await theAgent.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task the_backfill_progress_rides_on_the_shards_published_state()
+    {
+        theBackfill.Progress = new BackfillProgress("Projection1:All:year", 5, 20);
+        await startAsync(10, 20);
+
+        var state = await publishedAsync(x => x.Backfills != null);
+
+        state.Sequence.ShouldBe(10);
+        state.Mode.ShouldBe(ShardMode.continuous);
+        state.Backfills.ShouldHaveSingleItem().ShouldBe(theBackfill.Progress);
+
+        await theAgent.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task a_failing_backfill_stays_visible_on_the_shards_state()
+    {
+        theBackfill.Progress = new BackfillProgress("Projection1:All:year", 5, 20);
+        await startAsync(10, 20);
+        await publishedAsync(x => x.Backfills != null);
+
+        theBackfill.CatchUp.SetException(new DivideByZeroException());
+
+        var failed = (await publishedAsync(x => x.Backfills?.Any(b => b.Failure != null) == true)).Backfills!.Single();
+        failed.Failure!.ExceptionType.ShouldContain(nameof(DivideByZeroException));
+
+        thePublishedStates.Clear();
+        await theAgent.MarkSuccessAsync(20);
+        (await publishedAsync(x => x.Sequence == 20)).Backfills.ShouldNotBeNull();
+
+        await theAgent.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task a_handed_over_backfill_is_no_longer_published()
+    {
+        theBackfill.Progress = new BackfillProgress("Projection1:All:year", 5, 20);
+        await startAsync(10, 20);
+        await waitForAsync(() => loaded(10));
+        theBackfill.CatchUp.SetResult(true);
+        theBackfill.HandOver.SetResult();
+        await theAgent.MarkSuccessAsync(20);
+        await theBackfill.HandOverStarted.Task.WaitAsync(5.Seconds());
+
+        theAgent.MarkHighWater(30);
+        await waitForAsync(() => loaded(20));
+        thePublishedStates.Clear();
+        await theAgent.MarkSuccessAsync(30);
+
+        (await publishedAsync(x => x.Sequence == 30)).Backfills.ShouldBeNull();
+
+        await theAgent.DisposeAsync();
+    }
+
+    private sealed class Recorder(ConcurrentQueue<ShardState> states): IObserver<ShardState>
+    {
+        public void OnNext(ShardState value) => states.Enqueue(value);
+
+        public void OnError(Exception error)
+        {
+        }
+
+        public void OnCompleted()
+        {
+        }
+    }
+
     private sealed class FakeBackfill: IBackfillExecutor
     {
         public readonly TaskCompletionSource Settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -185,16 +276,22 @@ public class SubscriptionAgentBackfillTests
 
         public long? HandedOverAt { get; private set; }
 
+        public BackfillProgress? Progress { get; set; }
+
+        public BackfillRequest? Request { get; private set; }
+
         public Task SettleAsync(CancellationToken token)
         {
             Settled.TrySetResult();
             return Task.CompletedTask;
         }
 
-        public Task<bool> CatchUpAsync(Func<long> liveProgression, BackfillRequest request, CancellationToken token)
+        public async Task<bool> CatchUpAsync(Func<long> liveProgression, BackfillRequest request, CancellationToken token)
         {
+            Request = request;
+            if (Progress != null) await request.ReportAsync(Progress);
             CatchUpStarted.TrySetResult();
-            return CatchUp.Task;
+            return await CatchUp.Task;
         }
 
         public Task HandOverAsync(long ceiling, BackfillRequest request, CancellationToken token)
