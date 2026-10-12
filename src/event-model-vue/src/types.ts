@@ -28,8 +28,16 @@ export type EventModelElementKind =
 /** The four lanes of a standard Event Modeling canvas, top to bottom. */
 export type EventModelLane = 'Wireframe' | 'Command' | 'EventStream' | 'ReadModel'
 
-/** The four canonical Event Modeling slice patterns. */
-export type SlicePattern = 'Command' | 'View' | 'Automation' | 'Translation'
+/**
+ * The four canonical Event Modeling slice patterns, plus `Query` (jasperfx#1003).
+ *
+ * `Query` extends classic Event Modeling: a read with no state change — trigger → read of a read
+ * model, aggregate or document → response. Classic Event Modeling folds the read into the View
+ * slice; the Critter Stack draws the endpoint that reads as its own slice, linked to the View that
+ * produces what it reads by a `ReadModelRead` link. Absent from any producer below the JasperFx.Events
+ * release that added it.
+ */
+export type SlicePattern = 'Command' | 'View' | 'Automation' | 'Translation' | 'Query'
 
 /** What starts a slice. Finer-grained than textbook Event Modeling's human/external split. */
 export type TriggerKind =
@@ -53,6 +61,10 @@ export type TriggerKind =
  * `SliceCollision` (jasperfx#954) is one source describing two different slices under one name —
  * two different handlers. The merge kept the first and refused to fold the second into it; the two
  * handlers ride on `winningClaim` / `losingClaim`, as a disagreement's claims do.
+ *
+ * `PatternViolation` (jasperfx#1003) is a slice carrying a role its pattern rules out — a `Query`
+ * that appends events, starts a stream or sends a command. Computed upstream from the merged roles
+ * and carried on the slice's `patternViolations`, not its `hotspots`; `role` names the offending role.
  */
 export type HotspotOrigin =
   | 'PendingSpecification'
@@ -61,6 +73,7 @@ export type HotspotOrigin =
   | 'ModelCollapse'
   | 'SliceCollision'
   | 'UnresolvedSpecification'
+  | 'PatternViolation'
 
 /**
  * How much authority a source's claim carries — the ladder that decides precedence
@@ -104,6 +117,7 @@ export type EventModelRole =
   | 'StartsStream'
   | 'AggregateDeclaration'
   | 'DeciderModel'
+  | 'ViewProjection'
 
 /** One source's claim about one role, as it stood before a merge resolved the disagreement. */
 export interface EventModelClaim {
@@ -238,6 +252,12 @@ export interface EventModelSliceDescriptor {
   edges?: EventModelEdge[]
   specifications?: SpecificationDescriptor[]
   hotspots?: HotspotDescriptor[]
+  /**
+   * Roles the slice carries that its pattern rules out, as `PatternViolation` hotspots
+   * (jasperfx#1003). Computed upstream on every read, like `elements`, and each one is also a
+   * `Hotspot` element. Absent from any producer below the JasperFx.Events release that added it.
+   */
+  patternViolations?: HotspotDescriptor[]
   externalSystems?: ExternalSystemDescriptor[]
 }
 
@@ -272,9 +292,9 @@ export interface AggregateDescriptor {
  * Kind of a cross-slice link (jasperfx#823). One member per join rule, so a viewer can draw a
  * consumed event differently from a triggering one without re-deriving why they differ.
  *
- * `EventConsumed` and `ReadModelRead` are reserved upstream — the roles they need do not exist
- * yet (jasperfx#824) — so a producer emits nothing for them today. They are mirrored here anyway
- * for the same reason upstream declares them: the wire enum should not move twice.
+ * `EventConsumed` and `ReadModelRead` need the roles jasperfx#824 added (`consumedEvents`,
+ * `readsFrom`). `ReadModelRead` is also the link from a View slice to a `Query` slice that reads the
+ * read model it produces (jasperfx#1003).
  */
 export type EventModelLinkKind =
   | 'EventTriggers'

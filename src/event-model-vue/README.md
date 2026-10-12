@@ -180,6 +180,28 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## Query slices (0.14.0, jasperfx#1003)
+
+JasperFx.Events added a fifth slice pattern, `Query`: a read with no state change — trigger → read of
+a read model, aggregate or document → response. Classic Event Modeling folds the read into the View
+slice; the Critter Stack draws the endpoint that reads as its own slice, so its trigger, specs and
+drilldown have somewhere to live.
+
+- **Every slice column carries `data-pattern`.** A `Query` column gets a dotted read-model-green rule
+  and a faint green wash, and spells its pattern out at every level of detail. Card fills are
+  untouched: fill colour still means the element kind.
+- **The read is the existing `ReadModelRead` link** (dashed), from the View slice's read model to the
+  query's. Nothing new to route; the producer computes the link from the query's `readsFrom`.
+- **A query that writes is a finding.** JasperFx.Events computes `patternViolations` on the slice — a
+  `PatternViolation` hotspot per offending role — and draws each as a Hotspot card. The card joins it
+  the same way it joins a stored hotspot, labels it *Pattern violation*, and gives it a dashed outline.
+- **`SliceFilter.patterns`** narrows the canvas by pattern (`new Set(['Query'])` is every read
+  endpoint), `patternsOf()` lists a model's patterns in first-appearance order, and `hotspotsOnly`
+  counts pattern violations.
+
+The mirror also gains `PatternViolation` on `HotspotOrigin` and `ViewProjection` on `EventModelRole`,
+which had been missing.
+
 ## Chapters: the band above the slices (0.12.0, bobcat#298)
 
 Every Event Modeling tool surveyed uses **chapters** as the answer to "zoom into a part":

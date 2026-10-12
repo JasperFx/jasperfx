@@ -147,7 +147,7 @@ public class EventModelSliceBuilder
         return this;
     }
 
-    /// <summary>Which of the four canonical patterns the slice is.</summary>
+    /// <summary>Which pattern the slice is: one of the four canonical patterns, or a Query.</summary>
     /// <param name="pattern">The slice pattern.</param>
     /// <returns>This builder for chaining.</returns>
     public EventModelSliceBuilder Pattern(SlicePattern pattern)
@@ -278,7 +278,10 @@ public class EventModelSliceBuilder
     /// <summary>Same as <see cref="On(string)"/>.</summary>
     public EventModelSliceBuilder From(string name) => On(name);
 
-    /// <summary>A read model the slice reads from — the "given the screen shows this" of a decision.</summary>
+    /// <summary>
+    /// A read model the slice reads from — the "given the screen shows this" of a decision, or what a
+    /// <see cref="SlicePattern.Query"/> slice reads and returns (jasperfx#1003).
+    /// </summary>
     public EventModelSliceBuilder Reads<T>() => add(_readsFrom, TypeDescriptor.For(typeof(T)));
 
     /// <summary>A read model the slice reads from, by name, before its type exists.</summary>

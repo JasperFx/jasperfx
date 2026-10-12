@@ -170,6 +170,14 @@ The two handlers ride on `WinningClaim` and `LosingClaim` with `Role = HandlerTy
 It's only a collision when the **same** source (the same `Origin`) did it. Two *different* sources describing one slice with different handlers is normal -- Wolverine.HTTP deliberately names an endpoint's slice for its request type so the endpoint and the message handler for that command become one slice -- and that's handled as an ordinary disagreement.
 :::
 
+## A query that writes is a hotspot
+
+A `Query` slice reads and changes no state. If one emits events, starts a stream or publishes a message, the slice carries a `PatternViolation` hotspot naming the offending role:
+
+> ⚠ `EmittedEvents: a Query slice changes no state, but this one claims IncidentViewed`
+
+You never write this one either. It's computed from the slice's roles on every read and exposed on `EventModelSliceDescriptor.PatternViolations`, not stored in `Hotspots`, so it disappears once the code or the model is fixed. `hotspot.Role` says which role broke the rule.
+
 ## Prefer the pending spec
 
 ::: tip

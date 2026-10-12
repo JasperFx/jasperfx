@@ -11,7 +11,7 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | Slot | Filled by | Holds |
 |------|-----------|-------|
 | `Name` | Both | Display name; also the merge key across sources |
-| `Pattern` | Derived | `Command`, `View`, `Automation` or `Translation` |
+| `Pattern` | Derived | `Command`, `View`, `Automation`, `Translation` or `Query` |
 | `TriggerKind` | Derived | `Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External` |
 | `TriggerOrigin` | Derived | HTTP verb + route, gRPC service + method, or a label |
 | `TriggerType` | Derived | CLR type of the trigger, e.g. an inbound request DTO |
@@ -24,7 +24,7 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `ProjectionTypes` | Derived | Projections consuming the slice's events |
 | `ReadModelTypes` | Derived | Read models the slice produces |
 | `ConsumedEvents` | Derived | Events the slice's projection / read model / automation **applies** |
-| `ReadsFrom` | Derived | Read models the slice **reads before deciding** |
+| `ReadsFrom` | Derived | Read models the slice **reads before deciding**, or what a `Query` slice reads and returns |
 | `ExternalSystems` | Derived | Systems on either end of a translation |
 | `Specifications` | Derived (mostly) | Bound specs by `{Feature}/{Scenario}` plus resolved types |
 | `Hotspots` | Both | Pending specs (derived) and prose (overlay) |
@@ -92,6 +92,12 @@ A type declared by name -- a `TypeDescriptor` with no namespace and no assembly 
 
 Each element carries a deterministic id — `{slice}/{kind}/{type full name or label}` — a kind, a lane, a label, and the CLR type identity when it has one. Edges reference elements by that id.
 
+### `PatternViolations`
+
+`PatternViolations` is computed the same way: a `PatternViolation` hotspot for each role the slice's pattern rules out. Today that's a `Query` slice carrying `EmittedEvents`, `StartsStream` or `PublishedMessages`; `Role` on the hotspot names which. `ConsumedEvents` on a query is fine, since reading an aggregate by live aggregation consumes its events without changing anything.
+
+It's evaluated over the merged roles, so a declared Query that the code turns out to make a Command is a `SourceDisagreement` on `Pattern`, not a violation. A violation isn't stored in `Hotspots`; it renders as a `Hotspot` element in the slice's wireframe lane and goes away when the slice is fixed.
+
 ### `Links` — the relationships *between* slices
 
 `Elements` and `Edges` are slice-local: element ids are scoped to a slice, so the same event type in two slices is two ids, and neither says how the slices relate. `EventModelDescriptor.Links` is that missing axis — one entry per cause→effect relationship, with both ends given as element ids so a viewer that has laid out the elements can draw a link with no further resolution.
@@ -101,7 +107,7 @@ Each element carries a deterministic id — `{slice}/{kind}/{type full name or l
 | `EventTriggers` | A emits `E`; B's `CommandType` or `TriggerType` **is** `E` |
 | `MessageTriggers` | A publishes `M`; B handles `M` — the cascading-message arrow |
 | `EventConsumed` | A emits `E`; B's `ConsumedEvents` contains `E` — the State View arrow |
-| `ReadModelRead` | A produces `R`; B's `ReadsFrom` contains `R` — the Automation input |
+| `ReadModelRead` | A produces `R`; B's `ReadsFrom` contains `R` — the Automation input, and the View → Query arrow |
 
 Three rules are worth knowing:
 
@@ -257,7 +263,7 @@ var json = JsonSerializer.Serialize(model, options);
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L144-L154' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_serializing_an_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Because `Elements`, `Edges` and `Links` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
+Because `Elements`, `Edges`, `Links` and `PatternViolations` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
 
 ## Where the slices come from
 

@@ -106,7 +106,22 @@ graph LR
     E --> R
 ```
 
-Every slice is also one of four **patterns** — `Command`, `View`, `Automation` or `Translation` — which the source derives from the shape of the code, not from anything you declare.
+Every slice is also one of the four canonical Event Modeling **patterns** — `Command`, `View`, `Automation` or `Translation` — or a `Query`. The source derives the pattern from the shape of the code; you can also [declare it](/event-modeling/declaring) before the code exists.
+
+## Query extends classic Event Modeling
+
+Classic Event Modeling folds a read into the View slice: events, a projection, a read model, and a screen that shows it. The Critter Stack adds a fifth pattern, `Query`, and draws the read as its own slice:
+
+| Pattern | Shape |
+|---------|-------|
+| `View` | events → projection → read model |
+| `Query` | trigger → read of a read model, aggregate or document → response; changes no state |
+
+We separate them because an HTTP `GET` or a gRPC read in a Critter Stack system is real code. It has its own trigger, its own specifications and its own drilldown, and it might read an aggregate or a document instead of a projected view. Folded into a View, a query that reads `Incident` documents shows up as a projection "consuming" whatever events its specification arranged, and the canvas can't show both the projection and who reads it.
+
+A Query slice names what it reads in `ReadsFrom`. When another slice produces that read model, the model links them with a `ReadModelRead` [link](/event-modeling/descriptors#links-the-relationships-between-slices), so the canvas draws projection → read model → query. A Query emits no events and sends no command; one that does is a [hotspot](/event-modeling/hotspots#a-query-that-writes-is-a-hotspot).
+
+<!-- JEREMY -->
 
 ## What you actually write
 

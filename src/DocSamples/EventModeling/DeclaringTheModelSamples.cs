@@ -124,6 +124,31 @@ public class IncidentRetentionHandler
 
 #endregion
 
+#region sample_declaring_query_slices
+
+public class HelpdeskQueries : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        // The projection: events -> read model
+        model.View<EscalationQueue>()
+            .From<IncidentEscalated>();
+
+        // The endpoint that reads it, as its own slice. Named the way Wolverine.HTTP names
+        // a GET endpoint's slice, so the declaration and the code merge
+        model.Query<EscalationQueue>("GET /api/incidents/escalated")
+            .TriggeredBy("Agent opens the escalation queue", TriggerKind.Http);
+
+        // A query can read an aggregate or a document as well as a projected view
+        model.Query<Incident>("GET /api/incidents/{id}")
+            .TriggeredBy("Agent opens the incident detail screen", TriggerKind.Http);
+    }
+}
+
+#endregion
+
 public static class DeclaringTheModelUsage
 {
     public static void Register(IServiceCollection services)

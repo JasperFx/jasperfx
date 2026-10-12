@@ -83,6 +83,19 @@ public enum HotspotOrigin
     /// slice the model does not have. Appended for the same wire reason as <see cref="SliceCollision"/>.
     /// </summary>
     UnresolvedSpecification,
+
+    /// <summary>
+    /// A slice carries a role its <see cref="SlicePattern"/> rules out — a
+    /// <see cref="SlicePattern.Query"/> that appends events, starts a stream or sends a command
+    /// (jasperfx#1003). <see cref="HotspotDescriptor.Role"/> names the offending role.
+    /// </summary>
+    /// <remarks>
+    /// Computed from the slice's roles on every read, like <see cref="EventModelSliceDescriptor.Elements"/>,
+    /// and exposed on <see cref="EventModelSliceDescriptor.PatternViolations"/> rather than stored in
+    /// <see cref="EventModelSliceDescriptor.Hotspots"/>, so it disappears the moment the code or the model
+    /// is fixed. Appended for the same wire reason as <see cref="SliceCollision"/>.
+    /// </remarks>
+    PatternViolation,
 }
 
 /// <summary>
@@ -256,6 +269,19 @@ public sealed record HotspotDescriptor(
     public static HotspotDescriptor UnresolvedSpecification(string specificationIdentity, string reason)
         => new(HotspotOrigin.UnresolvedSpecification, $"Specification '{specificationIdentity}' {reason}",
             specificationIdentity);
+
+    /// <summary>
+    /// A slice carrying <paramref name="role"/>, which its <paramref name="pattern"/> rules out — see
+    /// <see cref="HotspotOrigin.PatternViolation"/> (jasperfx#1003).
+    /// </summary>
+    /// <param name="pattern">The slice's pattern.</param>
+    /// <param name="role">The role the pattern rules out.</param>
+    /// <param name="value">Display rendering of what the slice claims for that role.</param>
+    public static HotspotDescriptor PatternViolation(SlicePattern pattern, EventModelRole role, string value)
+        => new(HotspotOrigin.PatternViolation, $"{role}: a {pattern} slice changes no state, but this one claims {value}")
+        {
+            Role = role,
+        };
 
     /// <summary>A free-text prose hotspot — see <see cref="HotspotOrigin.Prose"/> (jasperfx#690).</summary>
     public static HotspotDescriptor Prose(string text)

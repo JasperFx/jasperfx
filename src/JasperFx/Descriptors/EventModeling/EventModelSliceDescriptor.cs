@@ -339,6 +339,56 @@ public sealed record EventModelSliceDescriptor(
     public IReadOnlyList<EventModelEdge> Edges => buildGraph().edges;
 
     /// <summary>
+    /// Roles this slice carries that its <see cref="Pattern"/> rules out, as
+    /// <see cref="HotspotOrigin.PatternViolation"/> hotspots (jasperfx#1003). Computed from the roles on
+    /// every read, like <see cref="Elements"/>, so a deserializer ignores it and recomputes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Today the one rule is <see cref="SlicePattern.Query"/>: a query changes no state, so a Query slice
+    /// that emits events (<see cref="EmittedEvents"/>), starts a stream (<see cref="StartsStream"/>) or
+    /// sends a command (<see cref="PublishedMessages"/>) gets one hotspot per offending role.
+    /// <see cref="ConsumedEvents"/> is not a violation: reading an aggregate by live aggregation consumes
+    /// its events without changing anything.
+    /// </para>
+    /// <para>
+    /// Kept apart from <see cref="Hotspots"/>, which is stored and unioned by <see cref="Merge"/>: a
+    /// violation is a fact about the merged roles, so it is evaluated after the merge and retires itself
+    /// when the slice is fixed. Each one also renders as a <see cref="EventModelElementKind.Hotspot"/>
+    /// element in the wireframe lane.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<HotspotDescriptor> PatternViolations
+    {
+        get
+        {
+            if (Pattern != SlicePattern.Query) return Array.Empty<HotspotDescriptor>();
+
+            var violations = new List<HotspotDescriptor>();
+
+            if (EmittedEvents.Count > 0)
+            {
+                violations.Add(HotspotDescriptor.PatternViolation(SlicePattern.Query, EventModelRole.EmittedEvents,
+                    render(EmittedEvents, x => x.Name)));
+            }
+
+            if (StartsStream is not null)
+            {
+                violations.Add(HotspotDescriptor.PatternViolation(SlicePattern.Query, EventModelRole.StartsStream,
+                    StartsStream.Name));
+            }
+
+            if (PublishedMessages.Count > 0)
+            {
+                violations.Add(HotspotDescriptor.PatternViolation(SlicePattern.Query, EventModelRole.PublishedMessages,
+                    render(PublishedMessages, x => x.Name)));
+            }
+
+            return violations;
+        }
+    }
+
+    /// <summary>
     /// Fold another source's view of the <em>same</em> slice into this one, role by role, with the
     /// higher rung of <see cref="EventModelProvenance"/> winning (jasperfx#703).
     /// </summary>
@@ -741,6 +791,16 @@ public sealed record EventModelSliceDescriptor(
         foreach (var hotspot in Hotspots)
         {
             add(EventModelElement.ForLabel(Name, EventModelElementKind.Hotspot, hotspot.Text));
+        }
+
+        // jasperfx#1003. A pattern violation renders like any other hotspot, attributed to the rung that
+        // claimed the offending role. Skipped when a stored hotspot already carries the same text, so a
+        // descriptor that was round-tripped through a tool which copied it into Hotspots draws one sticky.
+        foreach (var violation in PatternViolations)
+        {
+            if (Hotspots.Any(x => string.Equals(x.Text, violation.Text, StringComparison.Ordinal))) continue;
+
+            add(EventModelElement.ForLabel(Name, EventModelElementKind.Hotspot, violation.Text), violation.Role);
         }
 
         // Command lane: command, handler, aggregates

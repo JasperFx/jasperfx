@@ -400,3 +400,67 @@ export function chapteredModel(): EventModelDescriptor {
     ]
   }
 }
+
+/**
+ * jasperfx#1003 — a View slice and the Query slice that reads it, as JasperFx.Events computes them:
+ * the query's `readsFrom` is a ReadModel card pointing at its trigger, and a `ReadModelRead` link
+ * joins the view's read model to the query's. The third slice is a query that writes — a
+ * `PatternViolation` carried on `patternViolations` and drawn as a Hotspot card.
+ */
+export function queryModel(): EventModelDescriptor {
+  return {
+    name: 'Banking',
+    slices: [
+      {
+        name: 'AccountSummary',
+        pattern: 'View',
+        elements: [
+          { id: 'AccountSummary/Event/Bank.AccountOpened', kind: 'Event', lane: 'EventStream', label: 'AccountOpened', type: { name: 'AccountOpened', fullName: 'Bank.AccountOpened' } },
+          { id: 'AccountSummary/ReadModel/Bank.AccountSummary', kind: 'ReadModel', lane: 'ReadModel', label: 'AccountSummary', type: { name: 'AccountSummary', fullName: 'Bank.AccountSummary' } }
+        ],
+        edges: [
+          { fromId: 'AccountSummary/Event/Bank.AccountOpened', toId: 'AccountSummary/ReadModel/Bank.AccountSummary' }
+        ]
+      },
+      {
+        name: 'GET /api/accounts/{id}',
+        pattern: 'Query',
+        triggerKind: 'Http',
+        triggerOrigin: 'GET /api/accounts/{id}',
+        elements: [
+          { id: 'GET /api/accounts/{id}/Trigger/GET /api/accounts/{id}', kind: 'Trigger', lane: 'Wireframe', label: 'GET /api/accounts/{id}' },
+          { id: 'GET /api/accounts/{id}/ReadModel/Bank.AccountSummary', kind: 'ReadModel', lane: 'ReadModel', label: 'AccountSummary', type: { name: 'AccountSummary', fullName: 'Bank.AccountSummary' } }
+        ],
+        edges: [
+          { fromId: 'GET /api/accounts/{id}/ReadModel/Bank.AccountSummary', toId: 'GET /api/accounts/{id}/Trigger/GET /api/accounts/{id}' }
+        ]
+      },
+      {
+        name: 'GetStatement',
+        pattern: 'Query',
+        triggerKind: 'MessageHandler',
+        elements: [
+          { id: 'GetStatement/Hotspot/EmittedEvents: a Query slice changes no state, but this one claims StatementViewed', kind: 'Hotspot', lane: 'Wireframe', label: 'EmittedEvents: a Query slice changes no state, but this one claims StatementViewed' },
+          { id: 'GetStatement/Command/Bank.GetStatement', kind: 'Command', lane: 'Command', label: 'GetStatement', type: { name: 'GetStatement', fullName: 'Bank.GetStatement' } },
+          { id: 'GetStatement/Event/Bank.StatementViewed', kind: 'Event', lane: 'EventStream', label: 'StatementViewed', type: { name: 'StatementViewed', fullName: 'Bank.StatementViewed' } }
+        ],
+        edges: [
+          { fromId: 'GetStatement/Command/Bank.GetStatement', toId: 'GetStatement/Event/Bank.StatementViewed' }
+        ],
+        patternViolations: [
+          { origin: 'PatternViolation', text: 'EmittedEvents: a Query slice changes no state, but this one claims StatementViewed', role: 'EmittedEvents' }
+        ]
+      }
+    ],
+    links: [
+      {
+        fromSlice: 'AccountSummary',
+        fromElementId: 'AccountSummary/ReadModel/Bank.AccountSummary',
+        toSlice: 'GET /api/accounts/{id}',
+        toElementId: 'GET /api/accounts/{id}/ReadModel/Bank.AccountSummary',
+        kind: 'ReadModelRead',
+        via: { name: 'AccountSummary', fullName: 'Bank.AccountSummary' }
+      }
+    ]
+  }
+}
