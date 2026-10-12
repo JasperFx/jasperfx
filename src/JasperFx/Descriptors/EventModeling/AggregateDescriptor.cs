@@ -66,4 +66,36 @@ public sealed record AggregateDescriptor(
     /// the member would otherwise hand back a null list from a non-nullable slot (jasperfx#807).
     /// </summary>
     public IReadOnlyList<TypeDescriptor> AppliedEvents { get; init; } = AppliedEvents ?? Array.Empty<TypeDescriptor>();
+
+    /// <summary>
+    /// The aggregate's identity type — the type of its stream id, e.g. <c>OrderId</c>, <see cref="Guid"/> or
+    /// <see cref="string"/> (jasperfx#1004). Null when no source has said.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Derived from the aggregate's single-stream projection by <c>ProjectionEventModelSource</c> (the
+    /// <c>TId</c> of <c>SingleStreamProjection&lt;TDoc, TId&gt;</c>), so a running system needs no
+    /// declaration. Declared with <c>EventModelBuilder.Aggregate&lt;T&gt;().IdentifiedBy&lt;TId&gt;()</c> for
+    /// design-first work before the code exists.
+    /// </para>
+    /// <para>
+    /// Read by Wolverine's scaffold to write strong-typed ids, by Bobcat's generated specifications, and by
+    /// consoles that display the aggregate. When two sources claim different identity types,
+    /// <see cref="EventModelDescriptor.Merge"/> keeps the higher rung's and records a model-level
+    /// <see cref="HotspotOrigin.SourceDisagreement"/> on <see cref="EventModelRole.AggregateIdentity"/>.
+    /// </para>
+    /// </remarks>
+    public TypeDescriptor? IdentityType { get; init; }
+
+    /// <summary>
+    /// Which rung of the provenance ladder the source that described this aggregate sits on (jasperfx#1004).
+    /// Null means unattributed, read as <see cref="EventModelProvenance.Declared"/>.
+    /// </summary>
+    /// <remarks>
+    /// Stamped by <see cref="EventModelDescriptor.WithProvenance"/> alongside the slices. Used to decide
+    /// <see cref="IdentityType"/> when two sources disagree; which descriptor <em>entry</em> survives a merge is
+    /// unchanged (first wins, and a real type replaces a declaration). On a merged aggregate it is the higher
+    /// of the two rungs.
+    /// </remarks>
+    public EventModelProvenance? Provenance { get; init; }
 }

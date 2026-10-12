@@ -82,9 +82,19 @@ var derived = new EventModelSliceDescriptor(
 
 ## `EventModelDescriptor`
 
-The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind and applied events), model-level `Hotspots`, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
+The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind, applied events and identity type), model-level `Hotspots`, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
 
 A type declared by name -- a `TypeDescriptor` with no namespace and no assembly -- is the same type as the real one once it exists. `EventModelSliceDescriptor.SameType()` is that rule: full names when both sides are real types, simple names when either side is a declaration. The merge, the links, the rendered elements and the model's aggregates all use it, so a declaration and its real type are one element, never two.
+
+### An aggregate's identity type
+
+`AggregateDescriptor.IdentityType` is the type of the aggregate's stream id: `IncidentId`, `Guid` or `string`. `ProjectionEventModelSource` derives it from the aggregate's single-stream projection, so a running system needs no declaration; `Aggregate<T>().IdentifiedBy<TId>()` [declares](/event-modeling/declaring#identity-types) it before the code exists.
+
+`AggregateDescriptor.Provenance` records the rung of the source that described the aggregate, and `WithProvenance` stamps it along with the slices. The merge uses it for the identity type only: the higher rung wins, a tie keeps the first, and two different identity types leave a model-level `SourceDisagreement` hotspot with `Role = AggregateIdentity`:
+
+> ⚠ `AggregateIdentity of Incident: Derived claims Guid; Declared claims IncidentId`
+
+Which aggregate entry survives a merge hasn't changed: the first one, unless a real type replaces a declaration.
 
 ## The rendering contract
 
@@ -275,7 +285,7 @@ Four rungs write into this vocabulary, and a slice is usually assembled from mor
 | Derived | Wolverine's chains; the event store's projection registry | Commands, handlers, emitted events, projections, consumed events |
 | Observed | CritterWatch watching a running system | What actually happened |
 
-The store rung is `ProjectionEventModelSource`, which reads the registered projections straight out of `IEventStore` — one `View` slice per projection, carrying the projection type, the document it produces and every event it applies. It is registered by the store's own `AddMarten` / `AddPolecat` / `AddFisher`, or directly:
+The store rung is `ProjectionEventModelSource`, which reads the registered projections straight out of `IEventStore` — one `View` slice per projection, carrying the projection type, the document it produces and every event it applies, plus one aggregate per single-stream projection carrying its identity type. It is registered by the store's own `AddMarten` / `AddPolecat` / `AddFisher`, or directly:
 
 ```cs
 services.AddProjectionEventModelSource();

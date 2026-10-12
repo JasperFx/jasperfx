@@ -196,4 +196,12 @@ public enum EventModelRole
     /// (JasperFx/wolverine#4865). Appended for the same wire reason as <see cref="Origin"/>.
     /// </summary>
     ViewProjection,
+
+    /// <summary>
+    /// <see cref="AggregateDescriptor.IdentityType"/> — an aggregate's identity type (jasperfx#1004). A
+    /// model-level role: it lives on the aggregate, not on a slice, so a slice never claims it and it appears
+    /// only on the <see cref="HotspotDescriptor.Role"/> of a model-level disagreement hotspot. Appended for
+    /// the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    AggregateIdentity,
 }

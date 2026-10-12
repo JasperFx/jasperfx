@@ -7,7 +7,7 @@ using Shouldly;
 
 namespace EventTests.EventModeling.Queries
 {
-    #region sample_declaring_a_query_slice
+    #region sample_query_slice_test_types
 
     public record AccountOpened;
     public record FundsDeposited;

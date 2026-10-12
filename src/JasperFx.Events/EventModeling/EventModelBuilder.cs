@@ -23,6 +23,7 @@ public class EventModelBuilder
     private string? _defaultDomain;
     private string? _defaultChapter;
     private TypeDescriptor? _defaultAggregate;
+    private TypeDescriptor? _lastAggregate;
 
     /// <summary>
     /// Optional name of the event model. When unset, the definition's own
@@ -251,6 +252,53 @@ public class EventModelBuilder
             _aggregates.Add(new AggregateDescriptor(type, kind, Array.Empty<TypeDescriptor>()));
         }
 
+        _lastAggregate = type;
+        return this;
+    }
+
+    /// <summary>
+    /// Declare the identity type of the aggregate declared just before — by <see cref="Aggregate{TAggregate}"/>
+    /// or <see cref="ForAggregate{TAggregate}"/> — such as a strong-typed <c>OrderId</c>, <see cref="Guid"/> or
+    /// <see cref="string"/> (jasperfx#1004).
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Aggregate&lt;Order&gt;().IdentifiedBy&lt;OrderId&gt;();
+    /// </code>
+    /// </example>
+    /// <remarks>
+    /// A <see cref="EventModelProvenance.Declared"/> claim on <see cref="AggregateDescriptor.IdentityType"/>. Once
+    /// the aggregate's single-stream projection is registered, the store-derived identity wins, and a different
+    /// one becomes a model-level <see cref="HotspotOrigin.SourceDisagreement"/>.
+    /// </remarks>
+    /// <typeparam name="TIdentity">The aggregate's identity type.</typeparam>
+    /// <returns>This builder for chaining.</returns>
+    /// <exception cref="InvalidOperationException">No aggregate has been declared yet.</exception>
+    public EventModelBuilder IdentifiedBy<TIdentity>()
+        => identifiedBy(TypeDescriptor.For(typeof(TIdentity)));
+
+    /// <summary>
+    /// <see cref="IdentifiedBy{TIdentity}"/> for an identity type that has no type yet.
+    /// </summary>
+    /// <param name="identityName">The identity type's name.</param>
+    /// <returns>This builder for chaining.</returns>
+    /// <exception cref="InvalidOperationException">No aggregate has been declared yet.</exception>
+    public EventModelBuilder IdentifiedBy(string identityName)
+        => identifiedBy(EventModelSliceBuilder.Declared(identityName));
+
+    private EventModelBuilder identifiedBy(TypeDescriptor identity)
+    {
+        var index = _lastAggregate is null
+            ? -1
+            : _aggregates.FindIndex(x => EventModelSliceDescriptor.SameType(x.Type, _lastAggregate));
+
+        if (index < 0)
+        {
+            throw new InvalidOperationException(
+                $"IdentifiedBy({identity.Name}) needs an aggregate: call Aggregate<T>() or ForAggregate<T>() first");
+        }
+
+        _aggregates[index] = _aggregates[index] with { IdentityType = identity };
         return this;
     }
 

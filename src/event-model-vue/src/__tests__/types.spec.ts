@@ -108,10 +108,10 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         EmittedEvents: true, PublishedMessages: true, ProjectionTypes: true, ReadModelTypes: true,
         ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true,
         ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true,
-        AggregateDeclaration: true, DeciderModel: true, ViewProjection: true
+        AggregateDeclaration: true, DeciderModel: true, ViewProjection: true, AggregateIdentity: true
       })
     ).toEqual([
-      'AggregateDeclaration', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
+      'AggregateDeclaration', 'AggregateIdentity', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
       'Domain', 'EmittedEvents',
       'ExternalSystems', 'HandlerType', 'Hotspots', 'Origin', 'Pattern', 'ProjectionTypes',
       'PublishedMessages', 'ReadModelTypes', 'ReadsFrom', 'Specifications', 'StartsStream',

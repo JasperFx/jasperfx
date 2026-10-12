@@ -200,7 +200,8 @@ drilldown have somewhere to live.
   counts pattern violations.
 
 The mirror also gains `PatternViolation` on `HotspotOrigin` and `ViewProjection` on `EventModelRole`,
-which had been missing.
+which had been missing, and — for jasperfx#1004 — `identityType` and `provenance` on
+`AggregateDescriptor` plus the model-level `AggregateIdentity` role a disagreement about it names.
 
 ## Chapters: the band above the slices (0.12.0, bobcat#298)
 

@@ -976,8 +976,16 @@ public sealed record EventModelDescriptor(
     /// Stamp every unattributed slice with <paramref name="provenance"/> — the rung of the source
     /// that produced this descriptor (jasperfx#703). Slices a source attributed itself are left alone.
     /// </summary>
+    /// <remarks>
+    /// Unattributed aggregates are stamped too (jasperfx#1004), so the merge can rank two sources' claims on
+    /// an aggregate's <see cref="AggregateDescriptor.IdentityType"/>.
+    /// </remarks>
     public EventModelDescriptor WithProvenance(EventModelProvenance provenance)
-        => this with { Slices = Slices.Select(x => x.WithProvenance(provenance)).ToList() };
+        => this with
+        {
+            Slices = Slices.Select(x => x.WithProvenance(provenance)).ToList(),
+            Aggregates = Aggregates.Select(x => x.Provenance is null ? x with { Provenance = provenance } : x).ToList(),
+        };
 
     /// <summary>
     /// Assemble one model from several sources' descriptors. Slices with the same name are folded
@@ -1033,12 +1041,20 @@ public sealed record EventModelDescriptor(
                 if (existing < 0)
                 {
                     aggregates.Add(aggregate);
+                    continue;
                 }
-                else if (string.IsNullOrEmpty(aggregates[existing].Type.AssemblyName)
-                         && !string.IsNullOrEmpty(aggregate.Type.AssemblyName))
+
+                var kept = aggregates[existing];
+                var entry = string.IsNullOrEmpty(kept.Type.AssemblyName) && !string.IsNullOrEmpty(aggregate.Type.AssemblyName)
+                    ? aggregate
+                    : kept;
+
+                // jasperfx#1004. The identity type is a claim, ranked like a slice role: the higher rung wins,
+                // a tie keeps the first, and a dropped claim becomes a model-level hotspot.
+                aggregates[existing] = mergeIdentity(entry, kept, aggregate, hotspot =>
                 {
-                    aggregates[existing] = aggregate;
-                }
+                    if (hotspotKeys.Add($"{hotspot.Origin}:{hotspot.Text}")) hotspots.Add(hotspot);
+                });
             }
 
             foreach (var hotspot in descriptor.Hotspots)
@@ -1055,6 +1071,47 @@ public sealed record EventModelDescriptor(
         {
             Aggregates = aggregates, Hotspots = hotspots, DomainAssignments = domainAssignments,
         };
+    }
+
+    private static AggregateDescriptor mergeIdentity(AggregateDescriptor entry, AggregateDescriptor first,
+        AggregateDescriptor second, Action<HotspotDescriptor> disagreement)
+    {
+        var firstRung = first.Provenance ?? EventModelProvenance.Declared;
+        var secondRung = second.Provenance ?? EventModelProvenance.Declared;
+        var provenance = secondRung.Outranks(firstRung) ? second.Provenance : first.Provenance ?? second.Provenance;
+
+        TypeDescriptor? identity;
+        if (first.IdentityType is null || second.IdentityType is null)
+        {
+            identity = first.IdentityType ?? second.IdentityType;
+        }
+        else
+        {
+            var takeSecond = secondRung.Outranks(firstRung);
+            identity = takeSecond ? second.IdentityType : first.IdentityType;
+
+            if (!EventModelSliceDescriptor.SameType(first.IdentityType, second.IdentityType))
+            {
+                var sameName = string.Equals(first.IdentityType.Name, second.IdentityType.Name, StringComparison.Ordinal);
+                string display(TypeDescriptor type) => sameName ? type.FullName : type.Name;
+
+                var firstClaim = new EventModelClaim(firstRung, display(first.IdentityType));
+                var secondClaim = new EventModelClaim(secondRung, display(second.IdentityType));
+
+                var hotspot = takeSecond
+                    ? HotspotDescriptor.SourceDisagreement(EventModelRole.AggregateIdentity, secondClaim, firstClaim)
+                    : HotspotDescriptor.SourceDisagreement(EventModelRole.AggregateIdentity, firstClaim, secondClaim);
+
+                // The role alone does not say which aggregate; a model-level hotspot has no slice to sit on
+                var prefix = $"{EventModelRole.AggregateIdentity}:";
+                disagreement(hotspot with
+                {
+                    Text = $"{EventModelRole.AggregateIdentity} of {entry.Type.Name}:{hotspot.Text.Substring(prefix.Length)}",
+                });
+            }
+        }
+
+        return entry with { IdentityType = identity, Provenance = provenance };
     }
 
     /// <summary>

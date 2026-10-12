@@ -124,6 +124,26 @@ public class IncidentRetentionHandler
 
 #endregion
 
+#region sample_declaring_an_aggregate_identity
+
+public record IncidentId(Guid Value);
+
+public class HelpdeskIdentities : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        // The aggregate's stream is identified by a strong-typed id
+        model.Aggregate<Incident>().IdentifiedBy<IncidentId>();
+
+        // Before the types exist, by name
+        model.Aggregate("Customer").IdentifiedBy("CustomerNumber");
+    }
+}
+
+#endregion
+
 #region sample_declaring_query_slices
 
 public class HelpdeskQueries : EventModelDefinition

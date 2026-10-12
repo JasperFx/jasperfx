@@ -118,6 +118,7 @@ export type EventModelRole =
   | 'AggregateDeclaration'
   | 'DeciderModel'
   | 'ViewProjection'
+  | 'AggregateIdentity'
 
 /** One source's claim about one role, as it stood before a merge resolved the disagreement. */
 export interface EventModelClaim {
@@ -286,6 +287,15 @@ export interface AggregateDescriptor {
    * it (#299 falls back to the slice's first aggregate).
    */
   appliedEvents?: TypeDescriptor[]
+  /**
+   * The aggregate's identity type — its stream id, e.g. `OrderId`, `Guid` or `string` (jasperfx#1004).
+   * Derived from the aggregate's single-stream projection, or declared with `IdentifiedBy<T>()`. A
+   * disagreement between the two is a model-level `SourceDisagreement` with role `AggregateIdentity`.
+   * Absent from any producer below the JasperFx.Events release that added it.
+   */
+  identityType?: TypeDescriptor | null
+  /** The rung of the source that described this aggregate (jasperfx#1004). */
+  provenance?: EventModelProvenance | null
 }
 
 /**

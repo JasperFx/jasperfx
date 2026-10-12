@@ -141,7 +141,7 @@ public class HelpdeskQueries : EventModelDefinition
     }
 }
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L127-L150' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_query_slices' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L147-L170' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_query_slices' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
 `Query<T>()` records `T` in the slice's `ReadsFrom`, and that's what links the query to the `View` slice producing `T`. A query can also read an aggregate or a document that no view produces, in which case it simply has no link.
@@ -247,6 +247,36 @@ public class HelpdeskAggregates : EventModelDefinition
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L76-L89' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_aggregates' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
+### Identity types
+
+Say what identifies an aggregate's stream with `IdentifiedBy<T>()`, right after declaring the aggregate with `Aggregate<T>()` or `ForAggregate<T>()`:
+
+<!-- snippet: sample_declaring_an_aggregate_identity -->
+<a id='snippet-sample_declaring_an_aggregate_identity'></a>
+```cs
+public record IncidentId(Guid Value);
+
+public class HelpdeskIdentities : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        // The aggregate's stream is identified by a strong-typed id
+        model.Aggregate<Incident>().IdentifiedBy<IncidentId>();
+
+        // Before the types exist, by name
+        model.Aggregate("Customer").IdentifiedBy("CustomerNumber");
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L127-L145' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_an_aggregate_identity' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+That lands on `AggregateDescriptor.IdentityType`. Wolverine's scaffold reads it to write strong-typed ids, and Bobcat's generated specifications use it to mint one (`new IncidentId(Guid.NewGuid())`).
+
+You don't need it once the code exists. The store reads the identity type off the aggregate's single-stream projection (the `TId` of `SingleStreamProjection<TDoc, TId>`), and that derived claim wins. If it differs from what you declared, the model carries a `SourceDisagreement` hotspot on the `AggregateIdentity` role. `IdentifiedBy` with no aggregate declared before it throws.
+
 ## Modules are Domains
 
 In a modular monolith, a module is a `Domain`. Membership is **declared, never inferred** -- nothing in the Critter Stack is going to guess a module from your namespace or assembly names on its own. You declare it with policies in the model:
@@ -345,5 +375,5 @@ Register each definition with the container, the same way as an overlay -- or al
 services.AddEventModel<EscalationModel>();
 services.AddEventModel<HelpdeskModules>();
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L156-L161' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_registering_declared_models' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L176-L181' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_registering_declared_models' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
