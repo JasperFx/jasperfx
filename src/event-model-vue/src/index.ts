@@ -93,6 +93,7 @@ export type {
   ExternalSystemDirection,
   HotspotDescriptor,
   HotspotOrigin,
+  PublisherOrigin,
   SlicePattern,
   SpecificationDescriptor,
   TriggerKind,

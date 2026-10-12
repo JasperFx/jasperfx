@@ -204,4 +204,11 @@ public enum EventModelRole
     /// the same wire reason as <see cref="Origin"/>.
     /// </summary>
     AggregateIdentity,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.TriggeredBy"/> — <em>who</em> triggers the slice, kept apart
+    /// from <em>how</em> the code receives it when a declared <see cref="TriggerKind.Human"/> meets a
+    /// compatible derived kind. Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    TriggeredBy,
 }

@@ -180,6 +180,20 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## Who and how, handler identity, typed origins (0.15.0, jasperfx#1007)
+
+- **`triggeredBy`.** `Human` answers *who* triggers a slice; the other trigger kinds answer *how* the
+  code receives it. When a declared `Human` meets a derived `Http`, `Grpc` or `MessageHandler`,
+  JasperFx keeps the derived kind on `triggerKind` and the `Human` on `triggeredBy` instead of raising
+  a source disagreement. The trigger glyph's tooltip adds *by Human action*.
+- **`handlerType` / `handlerMethod`** on the slice: the user's handler or endpoint class and method,
+  never Wolverine's generated handler, so a host can navigate to the code.
+- **`PublisherOrigin`** is exported, with `httpRouteName`, and `triggerOrigin` is typed as the object
+  the wire actually carries (a string is still accepted). The tooltip reads the origin's label rather
+  than printing `[object Object]`.
+- **`readsFrom`** is declared on the slice type.
+- `EventModelRole` gains `TriggeredBy`.
+
 ## Query slices (0.14.0, jasperfx#1003)
 
 JasperFx.Events added a fifth slice pattern, `Query`: a read with no state change — trigger → read of

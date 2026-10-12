@@ -10,7 +10,9 @@ import {
   type EventModelRole,
   type HotspotOrigin,
   type SlicePattern,
-  type TriggerKind
+  type TriggerKind,
+  type PublisherOrigin,
+  type EventModelSliceDescriptor
 } from '../types'
 
 /**
@@ -108,14 +110,41 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         EmittedEvents: true, PublishedMessages: true, ProjectionTypes: true, ReadModelTypes: true,
         ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true,
         ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true,
-        AggregateDeclaration: true, DeciderModel: true, ViewProjection: true, AggregateIdentity: true
+        AggregateDeclaration: true, DeciderModel: true, ViewProjection: true, AggregateIdentity: true,
+        TriggeredBy: true
       })
     ).toEqual([
       'AggregateDeclaration', 'AggregateIdentity', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
       'Domain', 'EmittedEvents',
       'ExternalSystems', 'HandlerType', 'Hotspots', 'Origin', 'Pattern', 'ProjectionTypes',
       'PublishedMessages', 'ReadModelTypes', 'ReadsFrom', 'Specifications', 'StartsStream',
-      'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType', 'ViewProjection'
+      'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType', 'TriggeredBy', 'ViewProjection'
     ])
+  })
+
+  it('declares the slice and origin members consumers read (jasperfx#1007)', () => {
+    // A compile-time check as much as a runtime one: each member below has to exist on the exported
+    // types, or vue-tsc fails the build.
+    const origin: PublisherOrigin = {
+      httpMethod: 'GET',
+      httpRoute: '/api/orders/{id}',
+      httpRouteName: 'GetOrder',
+      label: 'GET /api/orders/{id}'
+    }
+    const slice: EventModelSliceDescriptor = {
+      name: 'GetOrder',
+      pattern: 'Query',
+      triggerKind: 'Http',
+      triggeredBy: 'Human',
+      triggerOrigin: origin,
+      handlerType: { name: 'GetOrderEndpoint', fullName: 'Orders.GetOrderEndpoint' },
+      handlerMethod: 'Get',
+      readsFrom: [{ name: 'OrderSummary' }]
+    }
+
+    expect((slice.triggerOrigin as PublisherOrigin).httpRouteName).toBe('GetOrder')
+    expect(slice.readsFrom!.map((x) => x.name)).toEqual(['OrderSummary'])
+    expect(slice.triggeredBy).toBe('Human')
+    expect(slice.handlerMethod).toBe('Get')
   })
 })

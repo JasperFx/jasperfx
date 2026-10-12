@@ -31,7 +31,11 @@ namespace JasperFx.Events.EventModeling;
 /// <param name="TriggerLabel">Free-form trigger label, when one was supplied.</param>
 /// <param name="TriggerType">CLR trigger type, when one was supplied (e.g. an inbound HTTP request DTO).</param>
 /// <param name="CommandType">The inbound message type — the command — when one was derived.</param>
-/// <param name="HandlerType">The handler / endpoint type that processes the command. Distinct from the aggregate(s).</param>
+/// <param name="HandlerType">
+///     The handler / endpoint type that processes the command. Distinct from the aggregate(s). The
+///     <em>user's</em> class — never a type the framework generated around it, such as Wolverine's
+///     <c>MessageHandler</c> or <c>HttpHandler</c> subclasses. See <see cref="HandlerMethod"/>.
+/// </param>
 /// <param name="EmittedEvents">Event types emitted by the slice, in declaration order.</param>
 /// <param name="ProjectionTypes">Projection types that consume the slice's events.</param>
 /// <param name="ReadModelTypes">Read-model types the slice reads from or produces.</param>
@@ -73,8 +77,61 @@ public sealed record EventModelSliceDescriptor(
     /// </summary>
     public SlicePattern? Pattern { get; init; }
 
-    /// <summary>What starts the slice. Null until a source derives it.</summary>
+    /// <summary>
+    /// What starts the slice — on a merged slice, <em>how</em> the code receives it. Null until a source
+    /// claims it.
+    /// </summary>
+    /// <remarks>
+    /// A declaration's <see cref="EventModeling.TriggerKind.Human"/> stays here until code is merged in.
+    /// When the code receives the slice through a kind a person can reach
+    /// (<see cref="TriggerKindCompatibility.CanBeHumanTriggered"/>), the merge keeps the derived kind here
+    /// and moves the <see cref="EventModeling.TriggerKind.Human"/> to <see cref="TriggeredBy"/>, so
+    /// viewers that label a trigger by this member keep labelling it by the route or handler.
+    /// </remarks>
     public TriggerKind? TriggerKind { get; init; }
+
+    /// <summary>
+    /// <em>Who</em> triggers the slice, when that differs from <em>how</em> the code receives it — in
+    /// practice <see cref="EventModeling.TriggerKind.Human"/> on a slice whose
+    /// <see cref="TriggerKind"/> is <see cref="EventModeling.TriggerKind.Http"/>,
+    /// <see cref="EventModeling.TriggerKind.Grpc"/> or <see cref="EventModeling.TriggerKind.MessageHandler"/>.
+    /// Null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Stamped by <see cref="Merge"/> when a declared <see cref="EventModeling.TriggerKind.Human"/> meets a
+    /// compatible derived kind, which is not a disagreement: the two answer different questions. A slice
+    /// that has met no code still carries the <see cref="EventModeling.TriggerKind.Human"/> on
+    /// <see cref="TriggerKind"/>; <see cref="IsTriggeredByHuman"/> asks the question either way.
+    /// </remarks>
+    public TriggerKind? TriggeredBy { get; init; }
+
+    /// <summary>
+    /// Whether a person triggers this slice: <see cref="TriggerKind"/> or <see cref="TriggeredBy"/> is
+    /// <see cref="EventModeling.TriggerKind.Human"/>.
+    /// </summary>
+    public bool IsTriggeredByHuman()
+        => TriggerKind == EventModeling.TriggerKind.Human || TriggeredBy == EventModeling.TriggerKind.Human;
+
+    /// <summary>
+    /// The name of the method on <see cref="HandlerType"/> that handles the command — the user's
+    /// <c>Handle</c> / <c>Consume</c> / endpoint method, so a viewer can navigate to the code. Null when no
+    /// source knows it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Like <see cref="HandlerType"/>, this names the code the user wrote, never generated code: a
+    /// Wolverine source stamps <c>chain.Handlers[0].HandlerType</c> / <c>.Method.Name</c> for a message
+    /// handler and <c>HttpChain.Method.HandlerType</c> / <c>.Method.Name</c> for an endpoint, not the
+    /// generated <c>MessageHandler</c> / <c>HttpHandler</c> subclass and its <c>Handle</c> override.
+    /// </para>
+    /// <para>
+    /// Detail of <see cref="HandlerType"/> for merging, the way a route name is detail of the trigger
+    /// origin: it travels with the winning handler, a known method fills in an unknown one when both sides
+    /// name the same handler type, and two different methods on the same type leave a
+    /// <see cref="HotspotOrigin.SourceDisagreement"/> on <see cref="EventModelRole.HandlerType"/>.
+    /// </para>
+    /// </remarks>
+    public string? HandlerMethod { get; init; }
 
     /// <summary>
     /// Structured detail of the trigger for the kinds that have it — HTTP route + verb, gRPC
@@ -296,6 +353,7 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.TriggerType => TriggerType is not null,
         EventModelRole.TriggerKind => TriggerKind is not null,
         EventModelRole.TriggerOrigin => TriggerOrigin is not null,
+        EventModelRole.TriggeredBy => TriggeredBy is not null,
         EventModelRole.Pattern => Pattern is not null,
         EventModelRole.CommandType => CommandType is not null,
         EventModelRole.HandlerType => HandlerType is not null,
@@ -592,11 +650,70 @@ public sealed record EventModelSliceDescriptor(
         var triggerType = mergeType(EventModelRole.TriggerType, TriggerType, other.TriggerType);
         var commandType = mergeType(EventModelRole.CommandType, CommandType, other.CommandType);
         var handlerType = mergeType(EventModelRole.HandlerType, HandlerType, other.HandlerType);
+        var handlerMethod = mergeHandlerMethod();
+
+        // The method is detail of the handler type, as a route name is of the origin: it travels with the
+        // winning handler, a known method fills in an unknown one when both sides name the same type, and
+        // two different methods on the same type disagree. A different type already disagreed above.
+        string? mergeHandlerMethod()
+        {
+            // The same rule mergeType applied: theirs wins only by outranking ours, or when we claim none.
+            var winnerIsMine = other.HandlerType is null
+                               || (HandlerType is not null
+                                   && !other.ProvenanceFor(EventModelRole.HandlerType)!.Value
+                                       .Outranks(ProvenanceFor(EventModelRole.HandlerType)!.Value));
+            var winning = winnerIsMine ? HandlerMethod : other.HandlerMethod;
+            var losing = winnerIsMine ? other.HandlerMethod : HandlerMethod;
+
+            if (HandlerType is null || other.HandlerType is null || !SameType(HandlerType, other.HandlerType))
+            {
+                return winning;
+            }
+
+            if (winning is null) return losing;
+
+            if (losing is not null && !string.Equals(winning, losing, StringComparison.Ordinal))
+            {
+                disagree(EventModelRole.HandlerType, !winnerIsMine,
+                    $"{HandlerType.Name}.{HandlerMethod}", $"{other.HandlerType.Name}.{other.HandlerMethod}");
+            }
+
+            return winning;
+        }
         var emittedEvents = mergeTypes(EventModelRole.EmittedEvents, EmittedEvents, other.EmittedEvents);
         var projectionTypes = mergeTypes(EventModelRole.ProjectionTypes, ProjectionTypes, other.ProjectionTypes);
         var readModelTypes = mergeTypes(EventModelRole.ReadModelTypes, ReadModelTypes, other.ReadModelTypes);
         var pattern = mergeValue(EventModelRole.Pattern, Pattern, other.Pattern);
-        var triggerKind = mergeValue(EventModelRole.TriggerKind, TriggerKind, other.TriggerKind);
+        var (triggerKind, triggeredBy) = mergeTrigger();
+
+        // Who versus how. A declared Human met by a kind a person can reach code through (Http, Grpc,
+        // MessageHandler) is not a disagreement: Human answers who triggers the slice, the derived kind
+        // how the code receives it. Keep both -- the how on TriggerKind, so viewers that label a trigger by
+        // it keep working, and the who on TriggeredBy. Each role is attributed to the side that claimed it.
+        (TriggerKind?, TriggerKind?) mergeTrigger()
+        {
+            if (TriggerKind is not { } mine || other.TriggerKind is not { } theirs
+                || !TriggerKindCompatibility.SplitsWhoFromHow(mine, theirs))
+            {
+                return (mergeValue(EventModelRole.TriggerKind, TriggerKind, other.TriggerKind),
+                    mergeValue(EventModelRole.TriggeredBy, TriggeredBy, other.TriggeredBy));
+            }
+
+            var mineIsWho = mine == EventModeling.TriggerKind.Human;
+            claimedBy[EventModelRole.TriggerKind] =
+                (mineIsWho ? other.ProvenanceFor(EventModelRole.TriggerKind) : ProvenanceFor(EventModelRole.TriggerKind))!.Value;
+
+            // A side that already split who from how in an earlier merge brings its TriggeredBy along.
+            var who = mergeValue(EventModelRole.TriggeredBy, TriggeredBy, other.TriggeredBy);
+            if (who is null)
+            {
+                who = EventModeling.TriggerKind.Human;
+                claimedBy[EventModelRole.TriggeredBy] =
+                    (mineIsWho ? ProvenanceFor(EventModelRole.TriggerKind) : other.ProvenanceFor(EventModelRole.TriggerKind))!.Value;
+            }
+
+            return (mineIsWho ? theirs : mine, who);
+        }
         var triggerOrigin = mergeScalar(EventModelRole.TriggerOrigin, TriggerOrigin, other.TriggerOrigin,
             x => x.Label ?? x.ToString());
 
@@ -679,7 +796,9 @@ public sealed record EventModelSliceDescriptor(
         {
             Pattern = pattern,
             TriggerKind = triggerKind,
+            TriggeredBy = triggeredBy,
             TriggerOrigin = triggerOrigin,
+            HandlerMethod = handlerMethod,
             AggregateTypes = aggregateTypes,
             PublishedMessages = publishedMessages,
             ExternalSystems = externalSystems,

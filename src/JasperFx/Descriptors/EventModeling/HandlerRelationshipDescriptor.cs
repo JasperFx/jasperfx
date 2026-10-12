@@ -27,7 +27,11 @@ namespace JasperFx.Events.EventModeling;
 /// produces the unified <see cref="EventModelDescriptor"/> the swim-lane
 /// consumes.
 /// </remarks>
-/// <param name="HandlerType">CLR type of the handler class.</param>
+/// <param name="HandlerType">
+///     CLR type of the user's handler class — the class the user wrote, never the
+///     <c>MessageHandler</c> / <c>HttpHandler</c> subclass Wolverine generates around it. See
+///     <see cref="HandlerMethod"/>.
+/// </param>
 /// <param name="MessageType">CLR type of the message the handler accepts.</param>
 /// <param name="EmittedEvents">
 ///     Event types the handler's body emits (cascading message return,
@@ -79,6 +83,13 @@ public sealed record HandlerRelationshipDescriptor(
     public PublisherOrigin? Origin { get; init; }
 
     /// <summary>
+    /// The name of the method on <see cref="HandlerType"/> that handles <see cref="MessageType"/> — the
+    /// user's method, never the generated handler's <c>Handle</c> override. Null when not known. Folds
+    /// into <see cref="EventModelSliceDescriptor.HandlerMethod"/>.
+    /// </summary>
+    public string? HandlerMethod { get; init; }
+
+    /// <summary>
     /// Fold this relationship into the one slice vocabulary (jasperfx#687). The slice is named
     /// after the message type's short name — the drift-comparison key CritterWatch already uses —
     /// unless <paramref name="sliceName"/> says otherwise.
@@ -111,6 +122,7 @@ public sealed record HandlerRelationshipDescriptor(
             Pattern = pattern,
             TriggerKind = triggerKind,
             TriggerOrigin = Origin,
+            HandlerMethod = HandlerMethod,
             AggregateTypes = TargetAggregate is null ? Array.Empty<TypeDescriptor>() : new[] { TargetAggregate },
         };
     }

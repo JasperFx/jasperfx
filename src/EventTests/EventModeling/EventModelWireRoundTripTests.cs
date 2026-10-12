@@ -34,6 +34,9 @@ public class EventModelWireRoundTripTests
         {
             Pattern = SlicePattern.Command,
             TriggerKind = TriggerKind.Http,
+            // who versus how: a declared Human kept beside the derived Http, and the user's handler method
+            TriggeredBy = TriggerKind.Human,
+            HandlerMethod = "Handle",
             TriggerOrigin = new PublisherOrigin { HttpMethod = "POST", HttpRoute = "/orders", Label = "POST /orders" },
             AggregateTypes = new[] { T<Order>() },
             // jasperfx#957: the aggregate whose stream the slice starts
@@ -158,6 +161,8 @@ public class EventModelWireRoundTripTests
             actual.Name.ShouldBe(expected.Name);
             actual.Pattern.ShouldBe(expected.Pattern);
             actual.TriggerKind.ShouldBe(expected.TriggerKind);
+            actual.TriggeredBy.ShouldBe(expected.TriggeredBy);
+            actual.HandlerMethod.ShouldBe(expected.HandlerMethod);
             actual.TriggerLabel.ShouldBe(expected.TriggerLabel);
             actual.TriggerType.ShouldBe(expected.TriggerType);
             actual.TriggerOrigin.ShouldBe(expected.TriggerOrigin);

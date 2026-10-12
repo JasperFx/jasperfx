@@ -76,7 +76,7 @@ builder.Slice("ArchiveIncident").InDomain("Retention");  // Retention
 
 ### `TriggeredBy(string)`
 
-A human-readable label for what starts the slice — "Agent clicks Close", "Customer submits the incident form". This is the one thing about a trigger that code genuinely cannot express. The trigger's *kind* (`Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External`) and its CLR type are derived; only the sentence is yours.
+A human-readable label for what starts the slice — "Agent clicks Close", "Customer submits the incident form". This is the one thing about a trigger that code genuinely cannot express. The trigger's *kind* (`Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External`) and its CLR type are derived; only the sentence is yours. If you declare `Human` anyway, it's kept as *who* triggers the slice beside the derived *how*, not reported as a disagreement (see [who and how](/event-modeling/descriptors#who-triggers-a-slice-and-how-the-code-receives-it)).
 
 ### `LinksToSpecification(string)` and `LinksToSpecification<TSpec>(scenario)`
 

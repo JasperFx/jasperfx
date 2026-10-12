@@ -245,7 +245,10 @@ namespace EventTests.EventModeling
 
             // jasperfx#1004 appended the model-level aggregate identity role
             ((int)EventModelRole.AggregateIdentity).ShouldBe((int)EventModelRole.ViewProjection + 1);
-            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.AggregateIdentity);
+
+            // and the who-versus-how trigger role after that
+            ((int)EventModelRole.TriggeredBy).ShouldBe((int)EventModelRole.AggregateIdentity + 1);
+            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.TriggeredBy);
         }
 
         [Fact]
