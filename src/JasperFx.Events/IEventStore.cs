@@ -104,6 +104,38 @@ public interface IEventStore
         => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>([]);
 
     /// <summary>
+    ///     jasperfx#1005 — the event database holding <paramref name="tenantId" />'s events, store-agnostically:
+    ///     the counterpart to Marten's <c>Storage.FindOrCreateDatabase(tenantId)</c>, which Polecat and Fisher have
+    ///     no equivalent of. Lets tooling (Bobcat waiting on one tenant's async daemons, the correlation query
+    ///     behind JasperFx/wolverine#4939) reach one tenant's database instead of every database.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///     Returns null when the store cannot say, and callers fall back to <see cref="AllDatabases" />. The
+    ///     default answers only the case it can answer safely: a store whose <see cref="DatabaseCardinality" /> is
+    ///     <see cref="DatabaseCardinality.Single" /> keeps every tenant in its one database, so the
+    ///     default returns that database when <see cref="AllDatabases" /> reports exactly one. Everything else gets
+    ///     null.
+    ///     </para>
+    ///     <para>
+    ///     Marten, Polecat and Fisher should override this to resolve the tenant through their own tenancy,
+    ///     including database-per-tenant stores. A lookup, not a provisioning call: an override should not create
+    ///     a database for an unknown tenant, and should return null for one rather than throw.
+    ///     </para>
+    /// </remarks>
+    /// <param name="tenantId">The tenant whose database to find.</param>
+    /// <param name="token">Cancellation token.</param>
+    async ValueTask<IEventDatabase?> FindDatabaseForTenantAsync(string tenantId, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(tenantId);
+
+        if (DatabaseCardinality != DatabaseCardinality.Single) return null;
+
+        var databases = await AllDatabases().ConfigureAwait(false);
+        return databases.Count == 1 ? databases[0] : null;
+    }
+
+    /// <summary>
     ///     jasperfx#815 — the names of every projection/subscription shard registered with this store,
     ///     store-agnostically. This is the non-generic counterpart to
     ///     <see cref="IEventStore{TOperations,TQuerySession}.AllShards" />, which can only be reached by

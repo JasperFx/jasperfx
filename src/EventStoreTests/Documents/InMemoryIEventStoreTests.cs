@@ -53,6 +53,17 @@ public class InMemoryIEventStoreTests
     }
 
     [Fact]
+    public async Task every_tenant_finds_the_one_database()
+    {
+        // jasperfx#1005: the store-agnostic tenant -> database lookup
+        IEventStore store = new InMemoryDocumentStore();
+        var database = (await store.AllDatabases()).Single();
+
+        (await store.FindDatabaseForTenantAsync("tenant1", Token)).ShouldBeSameAs(database);
+        (await store.FindDatabaseForTenantAsync("tenant2", Token)).ShouldBeSameAs(database);
+    }
+
+    [Fact]
     public async Task arrange_then_read_back_through_the_contract()
     {
         IEventStore store = new InMemoryDocumentStore();
