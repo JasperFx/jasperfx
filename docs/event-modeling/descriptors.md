@@ -13,7 +13,7 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `Name` | Both | Display name; also the merge key across sources |
 | `Pattern` | Derived | `Command`, `View`, `Automation`, `Translation` or `Query` |
 | `TriggerKind` | Derived | `Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External` |
-| `TriggerOrigin` | Derived | HTTP verb + route, gRPC service + method, or a label |
+| `TriggerOrigin` | Derived | HTTP verb + route (and the route name, `HttpRouteName`, when there is one), gRPC service + method, or a label |
 | `TriggerType` | Derived | CLR type of the trigger, e.g. an inbound request DTO |
 | `TriggerLabel` | **Overlay** | "Agent clicks Close" |
 | `CommandType` | Derived | The inbound message type |
@@ -43,6 +43,8 @@ The first three roles above record what a slice *produces*. `ConsumedEvents` and
 - **Automation input** — Event → Read Model (todo list) → ⚙ Command. `ReadModelTypes` meant "reads from *or* produces", so nothing linked a read model *to* a processor.
 
 Each `ConsumedEvents` entry becomes an `Event` element in the consuming slice's own event-stream lane — the "repeat the sticky where it is consumed" convention — and each `ReadsFrom` entry a `ReadModel` element pointing at the processor. An event a slice both emits and consumes is **one** element, and the same for a read model it both reads and produces.
+
+`TriggerOrigin` merges as one value, except for `HttpRouteName`: a known route name beats an unknown one even when the other source's origin wins, and two different known names for the same origin leave a `SourceDisagreement` on `TriggerOrigin`.
 
 `Chapter` merges like `Domain`: first non-null wins, and a genuine disagreement between two sources becomes a `SourceDisagreement` hotspot rather than a silent drop.
 

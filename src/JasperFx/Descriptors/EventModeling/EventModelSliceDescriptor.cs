@@ -599,6 +599,29 @@ public sealed record EventModelSliceDescriptor(
         var triggerKind = mergeValue(EventModelRole.TriggerKind, TriggerKind, other.TriggerKind);
         var triggerOrigin = mergeScalar(EventModelRole.TriggerOrigin, TriggerOrigin, other.TriggerOrigin,
             x => x.Label ?? x.ToString());
+
+        // A route name is optional detail on the origin, so it merges like a value of its own: a known name
+        // beats an unknown one whichever origin won, and two known names that differ disagree -- unless the
+        // origins already disagreed above, which recorded the loser whole.
+        if (TriggerOrigin is not null && other.TriggerOrigin is not null && triggerOrigin is not null)
+        {
+            var loser = ReferenceEquals(triggerOrigin, TriggerOrigin) ? other.TriggerOrigin : TriggerOrigin;
+            var originsAgree = string.Equals(TriggerOrigin.Label ?? TriggerOrigin.ToString(),
+                other.TriggerOrigin.Label ?? other.TriggerOrigin.ToString(), StringComparison.Ordinal);
+
+            if (triggerOrigin.HttpRouteName is null && loser.HttpRouteName is not null
+                && (triggerOrigin.HttpRoute is null || loser.HttpRoute is null
+                    || string.Equals(triggerOrigin.HttpRoute, loser.HttpRoute, StringComparison.Ordinal)))
+            {
+                triggerOrigin = triggerOrigin with { HttpRouteName = loser.HttpRouteName };
+            }
+            else if (originsAgree && triggerOrigin.HttpRouteName is not null && loser.HttpRouteName is not null
+                     && !string.Equals(triggerOrigin.HttpRouteName, loser.HttpRouteName, StringComparison.Ordinal))
+            {
+                disagree(EventModelRole.TriggerOrigin, !ReferenceEquals(triggerOrigin, TriggerOrigin),
+                    $"route name {TriggerOrigin.HttpRouteName}", $"route name {other.TriggerOrigin.HttpRouteName}");
+            }
+        }
         var aggregateTypes = mergeTypes(EventModelRole.AggregateTypes, AggregateTypes, other.AggregateTypes);
         var publishedMessages = mergeTypes(EventModelRole.PublishedMessages, PublishedMessages, other.PublishedMessages);
         var externalSystems = mergeList(EventModelRole.ExternalSystems, ExternalSystems, other.ExternalSystems,
