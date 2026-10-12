@@ -339,6 +339,56 @@ public sealed record EventModelSliceDescriptor(
     public IReadOnlyList<EventModelEdge> Edges => buildGraph().edges;
 
     /// <summary>
+    /// Roles this slice carries that its <see cref="Pattern"/> rules out, as
+    /// <see cref="HotspotOrigin.PatternViolation"/> hotspots (jasperfx#1003). Computed from the roles on
+    /// every read, like <see cref="Elements"/>, so a deserializer ignores it and recomputes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Today the one rule is <see cref="SlicePattern.Query"/>: a query changes no state, so a Query slice
+    /// that emits events (<see cref="EmittedEvents"/>), starts a stream (<see cref="StartsStream"/>) or
+    /// sends a command (<see cref="PublishedMessages"/>) gets one hotspot per offending role.
+    /// <see cref="ConsumedEvents"/> is not a violation: reading an aggregate by live aggregation consumes
+    /// its events without changing anything.
+    /// </para>
+    /// <para>
+    /// Kept apart from <see cref="Hotspots"/>, which is stored and unioned by <see cref="Merge"/>: a
+    /// violation is a fact about the merged roles, so it is evaluated after the merge and retires itself
+    /// when the slice is fixed. Each one also renders as a <see cref="EventModelElementKind.Hotspot"/>
+    /// element in the wireframe lane.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<HotspotDescriptor> PatternViolations
+    {
+        get
+        {
+            if (Pattern != SlicePattern.Query) return Array.Empty<HotspotDescriptor>();
+
+            var violations = new List<HotspotDescriptor>();
+
+            if (EmittedEvents.Count > 0)
+            {
+                violations.Add(HotspotDescriptor.PatternViolation(SlicePattern.Query, EventModelRole.EmittedEvents,
+                    render(EmittedEvents, x => x.Name)));
+            }
+
+            if (StartsStream is not null)
+            {
+                violations.Add(HotspotDescriptor.PatternViolation(SlicePattern.Query, EventModelRole.StartsStream,
+                    StartsStream.Name));
+            }
+
+            if (PublishedMessages.Count > 0)
+            {
+                violations.Add(HotspotDescriptor.PatternViolation(SlicePattern.Query, EventModelRole.PublishedMessages,
+                    render(PublishedMessages, x => x.Name)));
+            }
+
+            return violations;
+        }
+    }
+
+    /// <summary>
     /// Fold another source's view of the <em>same</em> slice into this one, role by role, with the
     /// higher rung of <see cref="EventModelProvenance"/> winning (jasperfx#703).
     /// </summary>
@@ -549,6 +599,29 @@ public sealed record EventModelSliceDescriptor(
         var triggerKind = mergeValue(EventModelRole.TriggerKind, TriggerKind, other.TriggerKind);
         var triggerOrigin = mergeScalar(EventModelRole.TriggerOrigin, TriggerOrigin, other.TriggerOrigin,
             x => x.Label ?? x.ToString());
+
+        // A route name is optional detail on the origin, so it merges like a value of its own: a known name
+        // beats an unknown one whichever origin won, and two known names that differ disagree -- unless the
+        // origins already disagreed above, which recorded the loser whole.
+        if (TriggerOrigin is not null && other.TriggerOrigin is not null && triggerOrigin is not null)
+        {
+            var loser = ReferenceEquals(triggerOrigin, TriggerOrigin) ? other.TriggerOrigin : TriggerOrigin;
+            var originsAgree = string.Equals(TriggerOrigin.Label ?? TriggerOrigin.ToString(),
+                other.TriggerOrigin.Label ?? other.TriggerOrigin.ToString(), StringComparison.Ordinal);
+
+            if (triggerOrigin.HttpRouteName is null && loser.HttpRouteName is not null
+                && (triggerOrigin.HttpRoute is null || loser.HttpRoute is null
+                    || string.Equals(triggerOrigin.HttpRoute, loser.HttpRoute, StringComparison.Ordinal)))
+            {
+                triggerOrigin = triggerOrigin with { HttpRouteName = loser.HttpRouteName };
+            }
+            else if (originsAgree && triggerOrigin.HttpRouteName is not null && loser.HttpRouteName is not null
+                     && !string.Equals(triggerOrigin.HttpRouteName, loser.HttpRouteName, StringComparison.Ordinal))
+            {
+                disagree(EventModelRole.TriggerOrigin, !ReferenceEquals(triggerOrigin, TriggerOrigin),
+                    $"route name {TriggerOrigin.HttpRouteName}", $"route name {other.TriggerOrigin.HttpRouteName}");
+            }
+        }
         var aggregateTypes = mergeTypes(EventModelRole.AggregateTypes, AggregateTypes, other.AggregateTypes);
         var publishedMessages = mergeTypes(EventModelRole.PublishedMessages, PublishedMessages, other.PublishedMessages);
         var externalSystems = mergeList(EventModelRole.ExternalSystems, ExternalSystems, other.ExternalSystems,
@@ -743,6 +816,16 @@ public sealed record EventModelSliceDescriptor(
             add(EventModelElement.ForLabel(Name, EventModelElementKind.Hotspot, hotspot.Text));
         }
 
+        // jasperfx#1003. A pattern violation renders like any other hotspot, attributed to the rung that
+        // claimed the offending role. Skipped when a stored hotspot already carries the same text, so a
+        // descriptor that was round-tripped through a tool which copied it into Hotspots draws one sticky.
+        foreach (var violation in PatternViolations)
+        {
+            if (Hotspots.Any(x => string.Equals(x.Text, violation.Text, StringComparison.Ordinal))) continue;
+
+            add(EventModelElement.ForLabel(Name, EventModelElementKind.Hotspot, violation.Text), violation.Role);
+        }
+
         // Command lane: command, handler, aggregates
         var command = CommandType is null ? null : add(EventModelElement.ForType(Name, EventModelElementKind.Command, CommandType));
         var handler = HandlerType is null ? null : add(EventModelElement.ForType(Name, EventModelElementKind.Handler, HandlerType));
@@ -916,8 +999,16 @@ public sealed record EventModelDescriptor(
     /// Stamp every unattributed slice with <paramref name="provenance"/> — the rung of the source
     /// that produced this descriptor (jasperfx#703). Slices a source attributed itself are left alone.
     /// </summary>
+    /// <remarks>
+    /// Unattributed aggregates are stamped too (jasperfx#1004), so the merge can rank two sources' claims on
+    /// an aggregate's <see cref="AggregateDescriptor.IdentityType"/>.
+    /// </remarks>
     public EventModelDescriptor WithProvenance(EventModelProvenance provenance)
-        => this with { Slices = Slices.Select(x => x.WithProvenance(provenance)).ToList() };
+        => this with
+        {
+            Slices = Slices.Select(x => x.WithProvenance(provenance)).ToList(),
+            Aggregates = Aggregates.Select(x => x.Provenance is null ? x with { Provenance = provenance } : x).ToList(),
+        };
 
     /// <summary>
     /// Assemble one model from several sources' descriptors. Slices with the same name are folded
@@ -973,12 +1064,20 @@ public sealed record EventModelDescriptor(
                 if (existing < 0)
                 {
                     aggregates.Add(aggregate);
+                    continue;
                 }
-                else if (string.IsNullOrEmpty(aggregates[existing].Type.AssemblyName)
-                         && !string.IsNullOrEmpty(aggregate.Type.AssemblyName))
+
+                var kept = aggregates[existing];
+                var entry = string.IsNullOrEmpty(kept.Type.AssemblyName) && !string.IsNullOrEmpty(aggregate.Type.AssemblyName)
+                    ? aggregate
+                    : kept;
+
+                // jasperfx#1004. The identity type is a claim, ranked like a slice role: the higher rung wins,
+                // a tie keeps the first, and a dropped claim becomes a model-level hotspot.
+                aggregates[existing] = mergeIdentity(entry, kept, aggregate, hotspot =>
                 {
-                    aggregates[existing] = aggregate;
-                }
+                    if (hotspotKeys.Add($"{hotspot.Origin}:{hotspot.Text}")) hotspots.Add(hotspot);
+                });
             }
 
             foreach (var hotspot in descriptor.Hotspots)
@@ -995,6 +1094,47 @@ public sealed record EventModelDescriptor(
         {
             Aggregates = aggregates, Hotspots = hotspots, DomainAssignments = domainAssignments,
         };
+    }
+
+    private static AggregateDescriptor mergeIdentity(AggregateDescriptor entry, AggregateDescriptor first,
+        AggregateDescriptor second, Action<HotspotDescriptor> disagreement)
+    {
+        var firstRung = first.Provenance ?? EventModelProvenance.Declared;
+        var secondRung = second.Provenance ?? EventModelProvenance.Declared;
+        var provenance = secondRung.Outranks(firstRung) ? second.Provenance : first.Provenance ?? second.Provenance;
+
+        TypeDescriptor? identity;
+        if (first.IdentityType is null || second.IdentityType is null)
+        {
+            identity = first.IdentityType ?? second.IdentityType;
+        }
+        else
+        {
+            var takeSecond = secondRung.Outranks(firstRung);
+            identity = takeSecond ? second.IdentityType : first.IdentityType;
+
+            if (!EventModelSliceDescriptor.SameType(first.IdentityType, second.IdentityType))
+            {
+                var sameName = string.Equals(first.IdentityType.Name, second.IdentityType.Name, StringComparison.Ordinal);
+                string display(TypeDescriptor type) => sameName ? type.FullName : type.Name;
+
+                var firstClaim = new EventModelClaim(firstRung, display(first.IdentityType));
+                var secondClaim = new EventModelClaim(secondRung, display(second.IdentityType));
+
+                var hotspot = takeSecond
+                    ? HotspotDescriptor.SourceDisagreement(EventModelRole.AggregateIdentity, secondClaim, firstClaim)
+                    : HotspotDescriptor.SourceDisagreement(EventModelRole.AggregateIdentity, firstClaim, secondClaim);
+
+                // The role alone does not say which aggregate; a model-level hotspot has no slice to sit on
+                var prefix = $"{EventModelRole.AggregateIdentity}:";
+                disagreement(hotspot with
+                {
+                    Text = $"{EventModelRole.AggregateIdentity} of {entry.Type.Name}:{hotspot.Text.Substring(prefix.Length)}",
+                });
+            }
+        }
+
+        return entry with { IdentityType = identity, Provenance = provenance };
     }
 
     /// <summary>

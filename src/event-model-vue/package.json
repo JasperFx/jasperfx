@@ -1,6 +1,6 @@
 {
   "name": "@jasperfx/event-model-vue",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Vue renderer for a JasperFx.Events EventModelDescriptor. Lives beside the descriptor it draws, so every viewer \u2014 Stoat's design-time canvas, CritterWatch's runtime canvas \u2014 renders one descriptor the same way.",
   "license": "MIT",
   "type": "module",

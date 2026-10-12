@@ -61,8 +61,8 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
 
   it('pins SlicePattern and TriggerKind', () => {
     expect(
-      members<SlicePattern>({ Command: true, View: true, Automation: true, Translation: true })
-    ).toEqual(['Automation', 'Command', 'Translation', 'View'])
+      members<SlicePattern>({ Command: true, View: true, Automation: true, Translation: true, Query: true })
+    ).toEqual(['Automation', 'Command', 'Query', 'Translation', 'View'])
 
     expect(
       members<TriggerKind>({
@@ -71,7 +71,7 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
     ).toEqual(['External', 'Grpc', 'Http', 'Human', 'JobScheduler', 'MessageHandler'])
   })
 
-  it('pins HotspotOrigin including the jasperfx#704, #837, #954 and #995 additions', () => {
+  it('pins HotspotOrigin including the jasperfx#704, #837, #954, #995 and #1003 additions', () => {
     expect(
       members<HotspotOrigin>({
         PendingSpecification: true,
@@ -79,11 +79,12 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         SourceDisagreement: true,
         ModelCollapse: true,
         SliceCollision: true,
-        UnresolvedSpecification: true
+        UnresolvedSpecification: true,
+        PatternViolation: true
       })
     ).toEqual([
-      'ModelCollapse', 'PendingSpecification', 'Prose', 'SliceCollision', 'SourceDisagreement',
-      'UnresolvedSpecification'
+      'ModelCollapse', 'PatternViolation', 'PendingSpecification', 'Prose', 'SliceCollision',
+      'SourceDisagreement', 'UnresolvedSpecification'
     ])
   })
 
@@ -107,14 +108,14 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         EmittedEvents: true, PublishedMessages: true, ProjectionTypes: true, ReadModelTypes: true,
         ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true,
         ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true,
-        AggregateDeclaration: true, DeciderModel: true
+        AggregateDeclaration: true, DeciderModel: true, ViewProjection: true, AggregateIdentity: true
       })
     ).toEqual([
-      'AggregateDeclaration', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
+      'AggregateDeclaration', 'AggregateIdentity', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
       'Domain', 'EmittedEvents',
       'ExternalSystems', 'HandlerType', 'Hotspots', 'Origin', 'Pattern', 'ProjectionTypes',
       'PublishedMessages', 'ReadModelTypes', 'ReadsFrom', 'Specifications', 'StartsStream',
-      'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType'
+      'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType', 'ViewProjection'
     ])
   })
 })

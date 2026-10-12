@@ -6,7 +6,9 @@ namespace JasperFx.Events.EventModeling;
 
 /// <summary>
 /// The store-derived rung: one <see cref="SlicePattern.View"/> slice per registered projection,
-/// read straight out of the event store's own registry (jasperfx#825).
+/// read straight out of the event store's own registry (jasperfx#825), plus one
+/// <see cref="AggregateDescriptor"/> per single-stream projection carrying the aggregate's identity type
+/// (jasperfx#1004).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -109,6 +111,7 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
     {
         var slices = new List<EventModelSliceDescriptor>();
         var indexByName = new Dictionary<string, int>(StringComparer.Ordinal);
+        var aggregates = new List<AggregateDescriptor>();
 
         foreach (var store in _stores(services))
         {
@@ -128,6 +131,14 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
 
             foreach (var subscription in usage.Subscriptions)
             {
+                // jasperfx#1004. One aggregate per single-stream projection, carrying its identity type. The
+                // first store to project a type wins, as the model-level merge does.
+                if (ToAggregate(subscription) is { } aggregate
+                    && !aggregates.Any(x => EventModelSliceDescriptor.SameType(x.Type, aggregate.Type)))
+                {
+                    aggregates.Add(aggregate);
+                }
+
                 if (ToSlice(subscription) is not { } slice) continue;
 
                 slice = slice with { Origin = origin };
@@ -160,7 +171,38 @@ public sealed class ProjectionEventModelSource : IEventModelDefinitionSource
             }
         }
 
-        return slices.Count == 0 ? null : new EventModelDescriptor(ModelName, slices);
+        return slices.Count == 0 && aggregates.Count == 0
+            ? null
+            : new EventModelDescriptor(ModelName, slices) { Aggregates = aggregates };
+    }
+
+    /// <summary>
+    /// The aggregate a single-stream projection folds, with its identity type (jasperfx#1004) — the
+    /// <c>TId</c> of <c>SingleStreamProjection&lt;TDoc, TId&gt;</c>. Null for any other registration.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A single-stream projection is one document per stream, so its document is what the Critter Stack loads
+    /// with <c>FetchForWriting</c> and its <c>TId</c> is the stream's identity. That is the observed answer to
+    /// "what identifies an <c>Order</c>", and it needs no declaration.
+    /// </para>
+    /// <para>
+    /// Reported as <see cref="AggregateKind.WriteAggregate"/>, the builder's default too; the store cannot see
+    /// the Wolverine attribute that would say otherwise. <see cref="AggregateDescriptor.AppliedEvents"/> is the
+    /// full apply set, stream lifecycle events included, as everywhere else it is reported.
+    /// </para>
+    /// </remarks>
+    public static AggregateDescriptor? ToAggregate(SubscriptionDescriptor subscription)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+
+        if (subscription.SubscriptionType != SubscriptionType.SingleStreamProjection) return null;
+        if (subscription.AggregateType is not { } document) return null;
+
+        return new AggregateDescriptor(document, AggregateKind.WriteAggregate, subscription.AppliedEvents)
+        {
+            IdentityType = subscription.IdentityType,
+        };
     }
 
     /// <summary>

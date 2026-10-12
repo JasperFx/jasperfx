@@ -11,9 +11,9 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | Slot | Filled by | Holds |
 |------|-----------|-------|
 | `Name` | Both | Display name; also the merge key across sources |
-| `Pattern` | Derived | `Command`, `View`, `Automation` or `Translation` |
+| `Pattern` | Derived | `Command`, `View`, `Automation`, `Translation` or `Query` |
 | `TriggerKind` | Derived | `Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External` |
-| `TriggerOrigin` | Derived | HTTP verb + route, gRPC service + method, or a label |
+| `TriggerOrigin` | Derived | HTTP verb + route (and the route name, `HttpRouteName`, when there is one), gRPC service + method, or a label |
 | `TriggerType` | Derived | CLR type of the trigger, e.g. an inbound request DTO |
 | `TriggerLabel` | **Overlay** | "Agent clicks Close" |
 | `CommandType` | Derived | The inbound message type |
@@ -24,7 +24,7 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `ProjectionTypes` | Derived | Projections consuming the slice's events |
 | `ReadModelTypes` | Derived | Read models the slice produces |
 | `ConsumedEvents` | Derived | Events the slice's projection / read model / automation **applies** |
-| `ReadsFrom` | Derived | Read models the slice **reads before deciding** |
+| `ReadsFrom` | Derived | Read models the slice **reads before deciding**, or what a `Query` slice reads and returns |
 | `ExternalSystems` | Derived | Systems on either end of a translation |
 | `Specifications` | Derived (mostly) | Bound specs by `{Feature}/{Scenario}` plus resolved types |
 | `Hotspots` | Both | Pending specs (derived) and prose (overlay) |
@@ -43,6 +43,8 @@ The first three roles above record what a slice *produces*. `ConsumedEvents` and
 - **Automation input** — Event → Read Model (todo list) → ⚙ Command. `ReadModelTypes` meant "reads from *or* produces", so nothing linked a read model *to* a processor.
 
 Each `ConsumedEvents` entry becomes an `Event` element in the consuming slice's own event-stream lane — the "repeat the sticky where it is consumed" convention — and each `ReadsFrom` entry a `ReadModel` element pointing at the processor. An event a slice both emits and consumes is **one** element, and the same for a read model it both reads and produces.
+
+`TriggerOrigin` merges as one value, except for `HttpRouteName`: a known route name beats an unknown one even when the other source's origin wins, and two different known names for the same origin leave a `SourceDisagreement` on `TriggerOrigin`.
 
 `Chapter` merges like `Domain`: first non-null wins, and a genuine disagreement between two sources becomes a `SourceDisagreement` hotspot rather than a silent drop.
 
@@ -82,15 +84,31 @@ var derived = new EventModelSliceDescriptor(
 
 ## `EventModelDescriptor`
 
-The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind and applied events), model-level `Hotspots`, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
+The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind, applied events and identity type), model-level `Hotspots`, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
 
 A type declared by name -- a `TypeDescriptor` with no namespace and no assembly -- is the same type as the real one once it exists. `EventModelSliceDescriptor.SameType()` is that rule: full names when both sides are real types, simple names when either side is a declaration. The merge, the links, the rendered elements and the model's aggregates all use it, so a declaration and its real type are one element, never two.
+
+### An aggregate's identity type
+
+`AggregateDescriptor.IdentityType` is the type of the aggregate's stream id: `IncidentId`, `Guid` or `string`. `ProjectionEventModelSource` derives it from the aggregate's single-stream projection, so a running system needs no declaration; `Aggregate<T>().IdentifiedBy<TId>()` [declares](/event-modeling/declaring#identity-types) it before the code exists.
+
+`AggregateDescriptor.Provenance` records the rung of the source that described the aggregate, and `WithProvenance` stamps it along with the slices. The merge uses it for the identity type only: the higher rung wins, a tie keeps the first, and two different identity types leave a model-level `SourceDisagreement` hotspot with `Role = AggregateIdentity`:
+
+> ⚠ `AggregateIdentity of Incident: Derived claims Guid; Declared claims IncidentId`
+
+Which aggregate entry survives a merge hasn't changed: the first one, unless a real type replaces a declaration.
 
 ## The rendering contract
 
 `Elements`, `Edges` and `Links` are **computed from the typed roles on every read**. They are not stored and cannot disagree with the roles underneath them; a deserializer simply ignores whatever arrived and recomputes.
 
 Each element carries a deterministic id — `{slice}/{kind}/{type full name or label}` — a kind, a lane, a label, and the CLR type identity when it has one. Edges reference elements by that id.
+
+### `PatternViolations`
+
+`PatternViolations` is computed the same way: a `PatternViolation` hotspot for each role the slice's pattern rules out. Today that's a `Query` slice carrying `EmittedEvents`, `StartsStream` or `PublishedMessages`; `Role` on the hotspot names which. `ConsumedEvents` on a query is fine, since reading an aggregate by live aggregation consumes its events without changing anything.
+
+It's evaluated over the merged roles, so a declared Query that the code turns out to make a Command is a `SourceDisagreement` on `Pattern`, not a violation. A violation isn't stored in `Hotspots`; it renders as a `Hotspot` element in the slice's wireframe lane and goes away when the slice is fixed.
 
 ### `Links` — the relationships *between* slices
 
@@ -101,7 +119,7 @@ Each element carries a deterministic id — `{slice}/{kind}/{type full name or l
 | `EventTriggers` | A emits `E`; B's `CommandType` or `TriggerType` **is** `E` |
 | `MessageTriggers` | A publishes `M`; B handles `M` — the cascading-message arrow |
 | `EventConsumed` | A emits `E`; B's `ConsumedEvents` contains `E` — the State View arrow |
-| `ReadModelRead` | A produces `R`; B's `ReadsFrom` contains `R` — the Automation input |
+| `ReadModelRead` | A produces `R`; B's `ReadsFrom` contains `R` — the Automation input, and the View → Query arrow |
 
 Three rules are worth knowing:
 
@@ -257,7 +275,7 @@ var json = JsonSerializer.Serialize(model, options);
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L144-L154' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_serializing_an_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Because `Elements`, `Edges` and `Links` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
+Because `Elements`, `Edges`, `Links` and `PatternViolations` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
 
 ## Where the slices come from
 
@@ -269,7 +287,7 @@ Four rungs write into this vocabulary, and a slice is usually assembled from mor
 | Derived | Wolverine's chains; the event store's projection registry | Commands, handlers, emitted events, projections, consumed events |
 | Observed | CritterWatch watching a running system | What actually happened |
 
-The store rung is `ProjectionEventModelSource`, which reads the registered projections straight out of `IEventStore` — one `View` slice per projection, carrying the projection type, the document it produces and every event it applies. It is registered by the store's own `AddMarten` / `AddPolecat` / `AddFisher`, or directly:
+The store rung is `ProjectionEventModelSource`, which reads the registered projections straight out of `IEventStore` — one `View` slice per projection, carrying the projection type, the document it produces and every event it applies, plus one aggregate per single-stream projection carrying its identity type. It is registered by the store's own `AddMarten` / `AddPolecat` / `AddFisher`, or directly:
 
 ```cs
 services.AddProjectionEventModelSource();

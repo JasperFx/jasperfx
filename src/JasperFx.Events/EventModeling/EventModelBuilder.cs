@@ -7,7 +7,7 @@ namespace JasperFx.Events.EventModeling;
 /// Fluent root used by an <see cref="EventModelDefinition"/> (or an inline
 /// <c>services.AddEventModel(name, configure)</c> lambda) to declare an Event Model: open slices with
 /// <see cref="Slice"/> or a pattern verb (<see cref="Command{TCommand}"/>, <see cref="Automation(string)"/>,
-/// <see cref="View{TView}"/>, <see cref="Translation"/>), declare their roles by type or by name, group
+/// <see cref="View{TView}"/>, <see cref="Query{TReadModel}()"/>, <see cref="Translation"/>), declare their roles by type or by name, group
 /// them by domain and chapter, declare aggregates, link specifications and flag open questions.
 /// </summary>
 /// <remarks>
@@ -23,6 +23,7 @@ public class EventModelBuilder
     private string? _defaultDomain;
     private string? _defaultChapter;
     private TypeDescriptor? _defaultAggregate;
+    private TypeDescriptor? _lastAggregate;
 
     /// <summary>
     /// Optional name of the event model. When unset, the definition's own
@@ -190,6 +191,39 @@ public class EventModelBuilder
     public EventModelSliceBuilder View(string viewName)
         => Slice(viewName).Pattern(SlicePattern.View).Produces(viewName);
 
+    /// <summary>
+    /// Open a <see cref="SlicePattern.Query"/> slice — a read that changes no state (jasperfx#1003). Say what
+    /// it reads with <see cref="EventModelSliceBuilder.Reads{T}"/>, and what starts it with
+    /// <see cref="EventModelSliceBuilder.TriggeredBy(TriggerKind)"/>.
+    /// </summary>
+    /// <remarks>
+    /// Slices merge by name, so to meet the slice Wolverine derives from an HTTP endpoint, use the name
+    /// Wolverine gives it: the request type's name, else the verb and route (<c>"GET /api/accounts/{id}"</c>).
+    /// </remarks>
+    /// <param name="sliceName">Display name of the slice.</param>
+    public EventModelSliceBuilder Query(string sliceName)
+        => Slice(sliceName).Pattern(SlicePattern.Query);
+
+    /// <summary>
+    /// Open a <see cref="SlicePattern.Query"/> slice named <paramref name="sliceName"/> that reads
+    /// <typeparamref name="TReadModel"/> — a read model, aggregate or document. The read links the query to
+    /// the View slice producing <typeparamref name="TReadModel"/>.
+    /// </summary>
+    /// <param name="sliceName">Display name of the slice.</param>
+    /// <typeparam name="TReadModel">What the query reads and returns.</typeparam>
+    public EventModelSliceBuilder Query<TReadModel>(string sliceName)
+        => Query(sliceName).Reads<TReadModel>();
+
+    /// <summary>
+    /// Open a <see cref="SlicePattern.Query"/> slice that reads <typeparamref name="TReadModel"/>, named
+    /// <c>Get{TReadModel}</c> — <c>Query&lt;Account&gt;()</c> is the slice <c>GetAccount</c>. The name
+    /// differs from the <see cref="View{TView}"/> slice for the same type on purpose: a view and the query
+    /// reading it are two slices. Use <see cref="Query{TReadModel}(string)"/> to choose the name.
+    /// </summary>
+    /// <typeparam name="TReadModel">What the query reads and returns.</typeparam>
+    public EventModelSliceBuilder Query<TReadModel>()
+        => Query<TReadModel>("Get" + SliceNameFor(typeof(TReadModel)));
+
     /// <summary>Open a <see cref="SlicePattern.Translation"/> slice — something outside, translated in.</summary>
     /// <param name="sliceName">Display name of the slice.</param>
     public EventModelSliceBuilder Translation(string sliceName)
@@ -218,6 +252,53 @@ public class EventModelBuilder
             _aggregates.Add(new AggregateDescriptor(type, kind, Array.Empty<TypeDescriptor>()));
         }
 
+        _lastAggregate = type;
+        return this;
+    }
+
+    /// <summary>
+    /// Declare the identity type of the aggregate declared just before — by <see cref="Aggregate{TAggregate}"/>
+    /// or <see cref="ForAggregate{TAggregate}"/> — such as a strong-typed <c>OrderId</c>, <see cref="Guid"/> or
+    /// <see cref="string"/> (jasperfx#1004).
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Aggregate&lt;Order&gt;().IdentifiedBy&lt;OrderId&gt;();
+    /// </code>
+    /// </example>
+    /// <remarks>
+    /// A <see cref="EventModelProvenance.Declared"/> claim on <see cref="AggregateDescriptor.IdentityType"/>. Once
+    /// the aggregate's single-stream projection is registered, the store-derived identity wins, and a different
+    /// one becomes a model-level <see cref="HotspotOrigin.SourceDisagreement"/>.
+    /// </remarks>
+    /// <typeparam name="TIdentity">The aggregate's identity type.</typeparam>
+    /// <returns>This builder for chaining.</returns>
+    /// <exception cref="InvalidOperationException">No aggregate has been declared yet.</exception>
+    public EventModelBuilder IdentifiedBy<TIdentity>()
+        => identifiedBy(TypeDescriptor.For(typeof(TIdentity)));
+
+    /// <summary>
+    /// <see cref="IdentifiedBy{TIdentity}"/> for an identity type that has no type yet.
+    /// </summary>
+    /// <param name="identityName">The identity type's name.</param>
+    /// <returns>This builder for chaining.</returns>
+    /// <exception cref="InvalidOperationException">No aggregate has been declared yet.</exception>
+    public EventModelBuilder IdentifiedBy(string identityName)
+        => identifiedBy(EventModelSliceBuilder.Declared(identityName));
+
+    private EventModelBuilder identifiedBy(TypeDescriptor identity)
+    {
+        var index = _lastAggregate is null
+            ? -1
+            : _aggregates.FindIndex(x => EventModelSliceDescriptor.SameType(x.Type, _lastAggregate));
+
+        if (index < 0)
+        {
+            throw new InvalidOperationException(
+                $"IdentifiedBy({identity.Name}) needs an aggregate: call Aggregate<T>() or ForAggregate<T>() first");
+        }
+
+        _aggregates[index] = _aggregates[index] with { IdentityType = identity };
         return this;
     }
 

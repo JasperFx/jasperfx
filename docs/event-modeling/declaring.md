@@ -78,6 +78,8 @@ The verbs are:
 | `Automation(name)` | An `Automation` slice -- say what it reacts to with `On<T>()` | Whatever you call it |
 | `Automation<TCommand>()` | An `Automation` slice for a command fired by Wolverine's scheduled messages | The command |
 | `View<TView>()` / `View(name)` | A `View` slice producing the read model | The read model |
+| `Query<TReadModel>(name)` / `Query(name)` | A `Query` slice reading the read model, aggregate or document -- see [Queries](#queries) | Whatever you call it |
+| `Query<TReadModel>()` | A `Query` slice reading `TReadModel` | `Get{TReadModel}` |
 | `Translation(name)` | A `Translation` slice | Whatever you call it |
 | `Slice(name)` | A slice with no pattern yet | Whatever you call it |
 
@@ -104,12 +106,49 @@ Every role takes either a type or a name:
 | `Emits<T>()` | An event the slice writes |
 | `Publishes<T>()` | A non-event message the slice sends out |
 | `On<T>()` (or `From<T>()`) | An event the slice reacts to or folds |
-| `Reads<T>()` | A read model the slice reads before deciding |
+| `Reads<T>()` | A read model the slice reads before deciding, or what a `Query` slice reads |
 | `Produces<T>()` | A read model the slice produces |
 | `Projects<T>()` | A projection that consumes the slice's events |
 | `ExternalSystem(name, direction)` | A system outside on one end of the slice |
 
 Calling any of these twice with the same type is harmless.
+
+## Queries
+
+A read-only endpoint is a `Query` slice, not a `View`. The view is the projection; the query is the code that reads it:
+
+<!-- snippet: sample_declaring_query_slices -->
+<a id='snippet-sample_declaring_query_slices'></a>
+```cs
+public class HelpdeskQueries : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        // The projection: events -> read model
+        model.View<EscalationQueue>()
+            .From<IncidentEscalated>();
+
+        // The endpoint that reads it, as its own slice. Named the way Wolverine.HTTP names
+        // a GET endpoint's slice, so the declaration and the code merge
+        model.Query<EscalationQueue>("GET /api/incidents/escalated")
+            .TriggeredBy("Agent opens the escalation queue", TriggerKind.Http);
+
+        // A query can read an aggregate or a document as well as a projected view
+        model.Query<Incident>("GET /api/incidents/{id}")
+            .TriggeredBy("Agent opens the incident detail screen", TriggerKind.Http);
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L147-L170' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_query_slices' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+`Query<T>()` records `T` in the slice's `ReadsFrom`, and that's what links the query to the `View` slice producing `T`. A query can also read an aggregate or a document that no view produces, in which case it simply has no link.
+
+Slices merge by name, and Wolverine names a GET endpoint's slice for its request type when it has one, otherwise for the verb and route (`GET /api/incidents/{id}`). Name your declared query the same way so it lines up with the code. The parameterless `Query<T>()` names the slice `Get{T}`, which matches a Wolverine query message called `GetIncident` and deliberately differs from the `View<T>()` slice for the same type.
+
+A `Query` takes no [default aggregate](#a-default-aggregate). Declaring `Emits<T>()`, `StartsStream<T>()` or `Publishes<T>()` on one is legal, but the model flags it as a [hotspot](/event-modeling/hotspots#a-query-that-writes-is-a-hotspot): a query changes no state.
 
 ## Types or Names
 
@@ -207,6 +246,36 @@ public class HelpdeskAggregates : EventModelDefinition
 ```
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L76-L89' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_aggregates' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
+
+### Identity types
+
+Say what identifies an aggregate's stream with `IdentifiedBy<T>()`, right after declaring the aggregate with `Aggregate<T>()` or `ForAggregate<T>()`:
+
+<!-- snippet: sample_declaring_an_aggregate_identity -->
+<a id='snippet-sample_declaring_an_aggregate_identity'></a>
+```cs
+public record IncidentId(Guid Value);
+
+public class HelpdeskIdentities : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        // The aggregate's stream is identified by a strong-typed id
+        model.Aggregate<Incident>().IdentifiedBy<IncidentId>();
+
+        // Before the types exist, by name
+        model.Aggregate("Customer").IdentifiedBy("CustomerNumber");
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L127-L145' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_an_aggregate_identity' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+That lands on `AggregateDescriptor.IdentityType`. Wolverine's scaffold reads it to write strong-typed ids, and Bobcat's generated specifications use it to mint one (`new IncidentId(Guid.NewGuid())`).
+
+You don't need it once the code exists. The store reads the identity type off the aggregate's single-stream projection (the `TId` of `SingleStreamProjection<TDoc, TId>`), and that derived claim wins. If it differs from what you declared, the model carries a `SourceDisagreement` hotspot on the `AggregateIdentity` role. `IdentifiedBy` with no aggregate declared before it throws.
 
 ## Modules are Domains
 
@@ -306,5 +375,5 @@ Register each definition with the container, the same way as an overlay -- or al
 services.AddEventModel<EscalationModel>();
 services.AddEventModel<HelpdeskModules>();
 ```
-<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L131-L136' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_registering_declared_models' title='Start of snippet'>anchor</a></sup>
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/DeclaringTheModelSamples.cs#L176-L181' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_registering_declared_models' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->

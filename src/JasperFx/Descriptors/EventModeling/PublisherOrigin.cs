@@ -27,6 +27,18 @@ public sealed record PublisherOrigin
     /// <summary>The HTTP verb (e.g. <c>POST</c>) for <see cref="PublisherKind.HttpEndpoint"/>.</summary>
     public string? HttpMethod { get; init; }
 
+    /// <summary>
+    /// The HTTP endpoint's route name, when it has one (e.g. <c>GetOrder</c>) — what ASP.NET Core link
+    /// generation and Wolverine's <c>HttpChain.RouteName</c> call it. Optional; null when the endpoint is
+    /// unnamed or the source cannot see the name.
+    /// </summary>
+    /// <remarks>
+    /// Merges like the route: a known name beats an unknown one, so a source that knows the name fills it in
+    /// even when another source's origin wins, and two different known names leave a
+    /// <see cref="HotspotOrigin.SourceDisagreement"/> on <see cref="EventModelRole.TriggerOrigin"/>.
+    /// </remarks>
+    public string? HttpRouteName { get; init; }
+
     /// <summary>The gRPC service name for <see cref="PublisherKind.GrpcEndpoint"/>.</summary>
     public string? GrpcService { get; init; }
 

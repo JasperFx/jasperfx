@@ -67,6 +67,15 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
         => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>([Database]);
 
     /// <summary>
+    /// The one database: every tenant's events live in it (jasperfx#1005).
+    /// </summary>
+    public ValueTask<IEventDatabase?> FindDatabaseForTenantAsync(string tenantId, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(tenantId);
+        return ValueTask.FromResult<IEventDatabase?>(Database);
+    }
+
+    /// <summary>
     /// The read-only event store: a query session's <see cref="InMemoryEventOperations"/>, which is also the
     /// session's <see cref="IQueryEventStore"/>, so a caller can aggregate through it as on Marten.
     /// </summary>

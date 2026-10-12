@@ -1,4 +1,4 @@
-import type { EventModelDescriptor, EventModelSliceDescriptor } from './types'
+import type { EventModelDescriptor, EventModelSliceDescriptor, SlicePattern } from './types'
 
 /**
  * Which slices a reader wants to see. Every field is a narrowing; an empty or omitted field
@@ -36,7 +36,16 @@ export interface SliceFilter {
    */
   specs?: 'any' | 'bound' | 'unbound'
 
-  /** Keep only slices carrying at least one hotspot — the findings view. */
+  /**
+   * Slice patterns to keep (jasperfx#1003). Empty means every pattern, including slices whose
+   * pattern no source has derived yet. `new Set(['Query'])` is "every read endpoint".
+   */
+  patterns?: ReadonlySet<SlicePattern>
+
+  /**
+   * Keep only slices carrying at least one hotspot — the findings view. A pattern violation
+   * (jasperfx#1003) counts, though it rides on `patternViolations` rather than `hotspots`.
+   */
   hotspotsOnly?: boolean
 
   /**
@@ -64,6 +73,20 @@ export function chaptersOf(descriptor: EventModelDescriptor | null | undefined):
   return chapters
 }
 
+/** The patterns a model's slices carry, in first-appearance order (jasperfx#1003). */
+export function patternsOf(descriptor: EventModelDescriptor | null | undefined): SlicePattern[] {
+  const patterns: SlicePattern[] = []
+  for (const slice of descriptor?.slices ?? []) {
+    if (slice.pattern && !patterns.includes(slice.pattern)) patterns.push(slice.pattern)
+  }
+  return patterns
+}
+
+/** Every hotspot a slice carries: the stored ones, then its computed pattern violations. */
+export function hotspotsOf(slice: EventModelSliceDescriptor) {
+  return [...(slice.hotspots ?? []), ...(slice.patternViolations ?? [])]
+}
+
 /** Does this slice survive the filter? */
 export function matchesFilter(slice: EventModelSliceDescriptor, filter: SliceFilter): boolean {
   if (filter.domains && filter.domains.size > 0) {
@@ -79,7 +102,11 @@ export function matchesFilter(slice: EventModelSliceDescriptor, filter: SliceFil
   if (filter.specs === 'bound' && (slice.specifications ?? []).length === 0) return false
   if (filter.specs === 'unbound' && (slice.specifications ?? []).length > 0) return false
 
-  if (filter.hotspotsOnly && (slice.hotspots ?? []).length === 0) return false
+  if (filter.patterns && filter.patterns.size > 0) {
+    if (!slice.pattern || !filter.patterns.has(slice.pattern)) return false
+  }
+
+  if (filter.hotspotsOnly && hotspotsOf(slice).length === 0) return false
 
   if (filter.search && filter.search.trim().length > 0) {
     if (!slice.name.toLowerCase().includes(filter.search.trim().toLowerCase())) return false
@@ -112,6 +139,7 @@ export function isEmptyFilter(filter: SliceFilter): boolean {
   return (
     (!filter.domains || filter.domains.size === 0) &&
     (!filter.chapters || filter.chapters.size === 0) &&
+    (!filter.patterns || filter.patterns.size === 0) &&
     (filter.specs === undefined || filter.specs === 'any') &&
     !filter.hotspotsOnly &&
     (filter.search === undefined || filter.search.trim().length === 0)

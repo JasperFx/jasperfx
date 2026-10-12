@@ -18,8 +18,10 @@ export {
   chaptersOf,
   domainsOf,
   hiddenSliceNames,
+  hotspotsOf,
   isEmptyFilter,
-  matchesFilter
+  matchesFilter,
+  patternsOf
 } from './filters'
 export type { SliceFilter } from './filters'
 // issue #296 — navigation. The decisions are pure functions so a host can round-trip a viewport

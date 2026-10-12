@@ -40,9 +40,15 @@ public class SubscriptionDescriptor : OptionsDescription
             ImplementationType = TypeDescriptor.For(implementationType);
         }
 
-        if (subject is IAggregateProjection { AggregateType: { } aggregateType })
+        if (subject is IAggregateProjection { AggregateType: { } aggregateType } aggregation)
         {
             AggregateType = TypeDescriptor.For(aggregateType);
+
+            // jasperfx#1004: the TId of SingleStreamProjection<TDoc, TId> and friends
+            if (aggregation.IdentityType is { } identityType)
+            {
+                IdentityType = TypeDescriptor.For(identityType);
+            }
         }
 
         AppliedEvents = appliedEventsFor(subject);
@@ -110,6 +116,18 @@ public class SubscriptionDescriptor : OptionsDescription
     /// aggregate/document type T. Null for non-aggregating subscriptions/projections.
     /// </summary>
     public TypeDescriptor? AggregateType { get; set; }
+
+    /// <summary>
+    /// For an aggregation projection, the identity type of its document — the <c>TId</c> of
+    /// <c>SingleStreamProjection&lt;TDoc, TId&gt;</c> or <c>MultiStreamProjection&lt;TDoc, TId&gt;</c>, e.g. a
+    /// strong-typed <c>OrderId</c>, <see cref="Guid"/> or <see cref="string"/> (jasperfx#1004). Null for
+    /// anything else.
+    /// </summary>
+    /// <remarks>
+    /// For a single-stream projection this is the aggregate's stream identity, which
+    /// <c>ProjectionEventModelSource</c> stamps on the Event Model's <c>AggregateDescriptor.IdentityType</c>.
+    /// </remarks>
+    public TypeDescriptor? IdentityType { get; set; }
 
     /// <summary>
     /// The event types this projection applies — what its <c>Apply</c> / <c>Create</c> /

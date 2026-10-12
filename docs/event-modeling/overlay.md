@@ -54,6 +54,8 @@ Each slice still records which definition declared it, on `Origin` (`event-model
 
 Get the name wrong and nothing breaks loudly — you simply get two slices on the canvas, one derived and one bare. That is usually how you notice.
 
+A read endpoint is the exception to the convention. It usually has no command, so Wolverine names its slice for the request type when there is one and otherwise for the verb and route — `GET /api/incidents/{id}`. Declare a query under that name, with `Query(name)` or `Query<TReadModel>(name)`, and the overlay merges onto it like any other slice. See [Queries](/event-modeling/declaring#queries).
+
 ## The builder methods
 
 ### `InDomain(string)`
@@ -67,6 +69,10 @@ builder.Slice("LogIncident");                       // Incidents
 builder.Slice("CategoriseIncident");                // Incidents
 builder.Slice("ArchiveIncident").InDomain("Retention");  // Retention
 ```
+
+### `Query(name)` and the other pattern verbs
+
+`Command<T>()`, `Automation(name)`, `View<T>()`, `Query(name)` and `Translation(name)` open a slice and set its pattern in one call. The pattern is a declared claim like any other role: if the code derives a different one, the code wins and the difference becomes a [source disagreement](/event-modeling/hotspots#a-source-disagreement-is-a-hotspot). A declared `Query` meeting a Wolverine GET endpoint that is still derived as a `View` shows up that way until the two agree.
 
 ### `TriggeredBy(string)`
 
@@ -107,8 +113,6 @@ services.AddEventModel<IncidentServiceHotspots>();
 // ...or every EventModelDefinition in an assembly
 services.AddEventModelsFromAssembly(typeof(IncidentServiceModel).Assembly);
 ```
-
-`AddDiscoveredEventModels(assembly)` does the same from a compile-time manifest: `JasperFx.SourceGenerator` emits `JasperFx.Generated.DiscoveredEventModels` into every assembly that references JasperFx.Events, listing each public, concrete, non-generic `EventModelDefinition` subclass with a public constructor and rooting those constructors for the trimmer. No type is enumerated at runtime.
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L13-L22' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_registering_an_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 

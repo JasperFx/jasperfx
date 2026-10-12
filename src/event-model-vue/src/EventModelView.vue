@@ -44,7 +44,7 @@ import {
 import { segmentLabel } from './text'
 import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
-import { chaptersOf, domainsOf, hiddenSliceNames, isEmptyFilter, type SliceFilter } from './filters'
+import { chaptersOf, domainsOf, hiddenSliceNames, hotspotsOf, isEmptyFilter, type SliceFilter } from './filters'
 import {
   LANE_LABEL,
   PROVENANCE_LABEL,
@@ -671,7 +671,9 @@ function styleFor(element: EventModelElement) {
 function hotspotFor(node: { element: EventModelElement; sliceName: string }): HotspotDescriptor | null {
   if (node.element.kind !== 'Hotspot') return null
   const slice = graph.value.slices.find((s) => s.name === node.sliceName)
-  return (slice?.descriptor.hotspots ?? []).find((h) => h.text === node.element.label) ?? null
+  // jasperfx#1003 — a pattern violation rides on `patternViolations`, not `hotspots`, but its card
+  // joins the same way.
+  return (slice ? hotspotsOf(slice.descriptor) : []).find((h) => h.text === node.element.label) ?? null
 }
 
 /**
@@ -740,7 +742,8 @@ const HOTSPOT_ORIGIN_LABEL: Record<string, string> = {
   SliceCollision: 'Slice name collision',
   ModelCollapse: 'Models collapsed',
   PendingSpecification: 'Pending spec',
-  Prose: 'Note'
+  Prose: 'Note',
+  PatternViolation: 'Pattern violation'
 }
 
 function originLabelFor(hotspot: HotspotDescriptor): string {
@@ -1108,6 +1111,7 @@ function outcomeFor(sliceName: string): string | null {
               :key="`slice-${slice.name}`"
               class="em-slice"
               :data-slice="slice.name"
+              :data-pattern="slice.descriptor.pattern ?? undefined"
               :data-outcome="outcomeFor(slice.name) ?? undefined"
               :data-dimmed="dimmed(slice.name) ? 'true' : undefined"
               :data-selected="selection?.kind === 'slice' && selection.name === slice.name ? 'true' : undefined"
@@ -1981,6 +1985,27 @@ function outcomeFor(sliceName: string): string | null {
   flex: 0 0 auto;
   font-size: 11px;
   opacity: 0.6;
+}
+
+/* jasperfx#1003 — a Query slice is a read with no state change, drawn as its own column rather than
+   folded into the View it reads. It is told apart by a channel the cards do not use: a faint
+   read-model-green wash over the column and a dotted rule, with the pattern spelled out at every
+   level of detail. Fill colour stays the element kind's. */
+.em-slice[data-pattern='Query'] {
+  border-left-style: dotted;
+  border-left-color: #7ed321;
+  background: rgba(126, 211, 33, 0.06);
+}
+.em-slice[data-pattern='Query'] .em-slice-pattern {
+  display: inline;
+}
+
+/* A pattern violation (jasperfx#1003) is a finding about the slice itself: a query that writes. A
+   dashed outline in the hotspot colour sets it apart from a disagreement's double outline. */
+.em-card[data-hotspot-origin='PatternViolation'] {
+  outline: 2px dashed #e91e63;
+  outline-offset: 2px;
+  font-weight: 600;
 }
 
 /* --- Level of detail -----------------------------------------------------------------------

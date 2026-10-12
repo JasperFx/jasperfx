@@ -242,7 +242,10 @@ namespace EventTests.EventModeling
 
             // JasperFx/wolverine#4865 appended one more
             ((int)EventModelRole.ViewProjection).ShouldBe((int)EventModelRole.DeciderModel + 1);
-            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.ViewProjection);
+
+            // jasperfx#1004 appended the model-level aggregate identity role
+            ((int)EventModelRole.AggregateIdentity).ShouldBe((int)EventModelRole.ViewProjection + 1);
+            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.AggregateIdentity);
         }
 
         [Fact]
