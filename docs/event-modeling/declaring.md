@@ -96,7 +96,7 @@ Every role takes either a type or a name:
 | Method | Fills |
 |--------|-------|
 | `Pattern(SlicePattern)` | The slice pattern |
-| `TriggeredBy(label)` / `TriggeredBy(label, kind)` / `TriggeredBy(kind)` / `TriggeredBy<T>(kind)` | The trigger's label, kind and type |
+| `TriggeredBy(label)` / `TriggeredBy(label, kind)` / `TriggeredBy(kind)` / `TriggeredBy<T>(kind)` | The trigger's label, kind and type. Declaring `TriggerKind.Human` is fine for a slice the code receives over HTTP, gRPC or the bus: see [who and how](/event-modeling/descriptors#who-triggers-a-slice-and-how-the-code-receives-it) |
 | `Command<T>()` | The command or inbound message |
 | `HandledBy<T>()` | The handler or endpoint type |
 | `Against<T>()` (or `UsesAggregate<T>()`) | An aggregate the slice decides against |

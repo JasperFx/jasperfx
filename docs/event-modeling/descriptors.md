@@ -12,12 +12,14 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 |------|-----------|-------|
 | `Name` | Both | Display name; also the merge key across sources |
 | `Pattern` | Derived | `Command`, `View`, `Automation`, `Translation` or `Query` |
-| `TriggerKind` | Derived | `Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External` |
+| `TriggerKind` | Derived | `Http`, `Grpc`, `MessageHandler`, `JobScheduler`, `Human`, `External` — on a merged slice, *how* the code receives the trigger |
+| `TriggeredBy` | Merge | *Who* triggers the slice when that differs from how — `Human` beside a derived `Http`, `Grpc` or `MessageHandler`. See [Who and how](#who-triggers-a-slice-and-how-the-code-receives-it) |
 | `TriggerOrigin` | Derived | HTTP verb + route (and the route name, `HttpRouteName`, when there is one), gRPC service + method, or a label |
 | `TriggerType` | Derived | CLR type of the trigger, e.g. an inbound request DTO |
 | `TriggerLabel` | **Overlay** | "Agent clicks Close" |
 | `CommandType` | Derived | The inbound message type |
-| `HandlerType` | Derived | The handler or endpoint type — distinct from the aggregates |
+| `HandlerType` | Derived | The user's handler or endpoint class — distinct from the aggregates, and never generated code. See [Handler identity](#handler-identity) |
+| `HandlerMethod` | Derived | The name of the user's handler or endpoint method on `HandlerType` |
 | `AggregateTypes` | Derived | Projected write models the handler decides against |
 | `EmittedEvents` | Derived | Events the slice writes, in declaration order |
 | `PublishedMessages` | Derived | Non-event messages — cascaded commands, integration messages |
@@ -45,6 +47,43 @@ The first three roles above record what a slice *produces*. `ConsumedEvents` and
 Each `ConsumedEvents` entry becomes an `Event` element in the consuming slice's own event-stream lane — the "repeat the sticky where it is consumed" convention — and each `ReadsFrom` entry a `ReadModel` element pointing at the processor. An event a slice both emits and consumes is **one** element, and the same for a read model it both reads and produces.
 
 `TriggerOrigin` merges as one value, except for `HttpRouteName`: a known route name beats an unknown one even when the other source's origin wins, and two different known names for the same origin leave a `SourceDisagreement` on `TriggerOrigin`.
+
+### Who triggers a slice, and how the code receives it
+
+`Human` answers *who* triggers a slice. Every other `TriggerKind` answers *how* the code receives it. A board or a declaration usually says `Human`; Wolverine derives `MessageHandler`, `Http` or `Grpc`. Those two claims don't disagree, so the merge keeps both:
+
+- `TriggerKind` holds the derived *how*, with its `TriggerOrigin` (verb + route, or gRPC service + method) and the slice's `HandlerType` / `HandlerMethod`.
+- `TriggeredBy` holds the declared `Human`.
+- No hotspot is raised. `ProvenanceFor(EventModelRole.TriggerKind)` reads `Derived` and `ProvenanceFor(EventModelRole.TriggeredBy)` reads `Declared`.
+
+A slice that hasn't met any code keeps `Human` on `TriggerKind`, and `TriggeredBy` stays null. `IsTriggeredByHuman()` answers the question either way.
+
+| Declared | Derived | Result |
+|----------|---------|--------|
+| `Human` | `Http` | Compatible: `TriggerKind = Http`, `TriggeredBy = Human` |
+| `Human` | `Grpc` | Compatible: `TriggerKind = Grpc`, `TriggeredBy = Human` |
+| `Human` | `MessageHandler` | Compatible: `TriggerKind = MessageHandler`, `TriggeredBy = Human` |
+| `Human` | `Human` | Same claim; nothing to merge |
+| `Human` | `JobScheduler` | `SourceDisagreement` on `TriggerKind`: a schedule is not a person |
+| `Human` | `External` | `SourceDisagreement` on `TriggerKind`: another system is not a person |
+| any other pair of different kinds | | `SourceDisagreement` on `TriggerKind`, as before |
+
+The rule is symmetric and doesn't depend on the rungs. `TriggerKindCompatibility.IsCompatibleWith` and `CanBeHumanTriggered` are the table in code.
+
+<!-- JEREMY: why "who" and "how" are different questions, with the CritterCrush rehearsal as the example -->
+
+### Handler identity
+
+`HandlerType` and `HandlerMethod` name the code the user wrote, so a viewer like CritterWatch can navigate straight to it. They never name generated code. Wolverine wraps every handler in a generated `MessageHandler` subclass and every HTTP endpoint in a generated `HttpHandler` subclass, and neither of those belongs on a descriptor:
+
+| Source | `HandlerType` | `HandlerMethod` |
+|--------|---------------|-----------------|
+| A message handler | `chain.Handlers[0].HandlerType` | `chain.Handlers[0].Method.Name` |
+| An HTTP endpoint | `HttpChain.Method.HandlerType` | `HttpChain.Method.Method.Name` |
+
+`HandlerRelationshipDescriptor` has the same pair (`HandlerType` plus an optional `HandlerMethod`), and `ToSliceDescriptor()` carries both onto the slice.
+
+`HandlerMethod` merges as part of the handler. It goes with whichever `HandlerType` wins, and it's never taken from a different type. If both sides name the same type, a known method fills in an unknown one. Two different methods on the same type leave a `SourceDisagreement` on `HandlerType`, e.g. `Derived claims OrderHandler.Handle; Declared claims OrderHandler.Consume`.
 
 `Chapter` merges like `Domain`: first non-null wins, and a genuine disagreement between two sources becomes a `SourceDisagreement` hotspot rather than a silent drop.
 

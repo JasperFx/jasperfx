@@ -39,7 +39,13 @@ export type EventModelLane = 'Wireframe' | 'Command' | 'EventStream' | 'ReadMode
  */
 export type SlicePattern = 'Command' | 'View' | 'Automation' | 'Translation' | 'Query'
 
-/** What starts a slice. Finer-grained than textbook Event Modeling's human/external split. */
+/**
+ * What starts a slice. Finer-grained than textbook Event Modeling's human/external split.
+ *
+ * `Human` answers WHO triggers a slice; every other member answers HOW the code receives it. A
+ * declared `Human` merged with a derived `Http`, `Grpc` or `MessageHandler` is not a disagreement:
+ * the slice keeps the derived kind on `triggerKind` and the `Human` on `triggeredBy`.
+ */
 export type TriggerKind =
   | 'Http'
   | 'Grpc'
@@ -119,6 +125,7 @@ export type EventModelRole =
   | 'DeciderModel'
   | 'ViewProjection'
   | 'AggregateIdentity'
+  | 'TriggeredBy'
 
 /** One source's claim about one role, as it stood before a merge resolved the disagreement. */
 export interface EventModelClaim {
@@ -146,6 +153,28 @@ export interface TypeDescriptor {
   /** Optional on the wire — synthesize from `name` rather than assuming it. */
   fullName?: string
   assemblyName?: string
+}
+
+/**
+ * Structured detail of a slice's trigger: HTTP verb + route (+ route name), gRPC service + method, the
+ * projection raising a side effect, or a display label. Only the fields for the trigger's kind are set.
+ *
+ * The wire has always carried this as an object; earlier releases of this package typed it as a
+ * string, which is why `triggerOrigin` still accepts one.
+ */
+export interface PublisherOrigin {
+  httpRoute?: string | null
+  httpMethod?: string | null
+  /**
+   * The HTTP endpoint's route name, when it has one (e.g. `GetOrder`), as ASP.NET Core link generation
+   * and Wolverine's `HttpChain.RouteName` call it. JasperFx 2.85.0+ (jasperfx#1007).
+   */
+  httpRouteName?: string | null
+  grpcService?: string | null
+  grpcMethod?: string | null
+  projectionType?: TypeDescriptor | null
+  /** A pre-rendered display string such as `POST /orders`, or a cron expression. */
+  label?: string | null
 }
 
 /** One rendered element of a slice. */
@@ -246,9 +275,30 @@ export interface EventModelSliceDescriptor {
    * the `Aggregate` elements.
    */
   aggregateTypes?: TypeDescriptor[]
+  /** On a merged slice, HOW the code receives the trigger. */
   triggerKind?: TriggerKind | null
+  /**
+   * WHO triggers the slice when that differs from how the code receives it: `Human` beside a derived
+   * `Http`, `Grpc` or `MessageHandler`. Null otherwise; a slice that has met no code carries `Human`
+   * on `triggerKind` instead. Absent below the JasperFx release that added it.
+   */
+  triggeredBy?: TriggerKind | null
   triggerLabel?: string | null
-  triggerOrigin?: string | null
+  /** An object on the wire; a plain string is accepted for hosts that pre-render it. */
+  triggerOrigin?: PublisherOrigin | string | null
+  /**
+   * The user's handler or endpoint class (never Wolverine's generated `MessageHandler` / `HttpHandler`
+   * subclass), so a host can navigate to the code.
+   */
+  handlerType?: TypeDescriptor | null
+  /** The name of the user's handler or endpoint method on `handlerType`. */
+  handlerMethod?: string | null
+  /**
+   * Read models the slice reads BEFORE deciding, or what a `Query` slice reads and returns
+   * (jasperfx#824, jasperfx#1007). Each is a `ReadModel` element and the `To` end of a
+   * `ReadModelRead` link.
+   */
+  readsFrom?: TypeDescriptor[]
   elements?: EventModelElement[]
   edges?: EventModelEdge[]
   specifications?: SpecificationDescriptor[]

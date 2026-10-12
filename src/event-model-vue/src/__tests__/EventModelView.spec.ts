@@ -150,6 +150,21 @@ describe('EventModelView', () => {
     )
   })
 
+  it('reads the route off a structured trigger origin, and says who beside how', () => {
+    const model = withdrawFundsModel()
+    model.slices![0].triggerOrigin = {
+      httpMethod: 'POST',
+      httpRoute: '/api/accounts/{accountId}/withdrawals',
+      httpRouteName: 'WithdrawFunds',
+      label: 'POST /api/accounts/{accountId}/withdrawals'
+    }
+    model.slices![0].triggeredBy = 'Human'
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    expect(wrapper.find('.em-trigger-icon title').text()).toBe(
+      'HTTP endpoint · POST /api/accounts/{accountId}/withdrawals · by Human action'
+    )
+  })
+
   it('renders a route trigger label as a method badge plus the path', () => {
     const model = withdrawFundsModel()
     model.slices![0].elements![0].label = 'POST /api/accounts/{accountId}/withdrawals'

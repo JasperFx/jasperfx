@@ -794,8 +794,26 @@ function triggerIconFor(slice: EventModelSliceDescriptor): string | null {
 function triggerTitleFor(slice: EventModelSliceDescriptor): string {
   const kind = slice.triggerKind
   const parts = [kind ? (TRIGGER_KIND_LABEL[kind] ?? kind) : 'Trigger']
-  if (slice.triggerOrigin) parts.push(slice.triggerOrigin)
+  const origin = triggerOriginTextFor(slice.triggerOrigin)
+  if (origin) parts.push(origin)
+  // Who, beside how: a declared Human the merge kept next to the derived kind.
+  if (slice.triggeredBy && slice.triggeredBy !== kind) {
+    parts.push(`by ${TRIGGER_KIND_LABEL[slice.triggeredBy] ?? slice.triggeredBy}`)
+  }
   return parts.join(' · ')
+}
+
+/**
+ * The trigger origin as display text. It is an object on the wire; the label is pre-rendered by the
+ * producer, so prefer it and fall back to the structured fields.
+ */
+function triggerOriginTextFor(origin: EventModelSliceDescriptor['triggerOrigin']): string | null {
+  if (!origin) return null
+  if (typeof origin === 'string') return origin
+  if (origin.label) return origin.label
+  if (origin.httpRoute) return [origin.httpMethod, origin.httpRoute].filter(Boolean).join(' ')
+  if (origin.grpcService) return [origin.grpcService, origin.grpcMethod].filter(Boolean).join('/')
+  return null
 }
 
 /**
