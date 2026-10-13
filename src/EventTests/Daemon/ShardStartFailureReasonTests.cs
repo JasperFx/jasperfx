@@ -88,6 +88,7 @@ public class ShardStartFailureReasonTests
     [Theory]
     [InlineData(ShardStartFailureReason.HighWaterNotRunning)]
     [InlineData(ShardStartFailureReason.StartRace)]
+    [InlineData(ShardStartFailureReason.Rebuilding)] // jasperfx#1009
     public void the_two_races_are_transient(ShardStartFailureReason reason)
     {
         new ShardStartException("Trips:All", "whatever", reason).IsTransient.ShouldBeTrue();
