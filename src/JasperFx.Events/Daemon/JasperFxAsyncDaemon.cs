@@ -28,6 +28,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // tryStartAgentAsync swallows a faulted start into a bool; stashing the cause here lets
     // StartAgentAsync(ShardName) attach it as the inner exception instead of throwing a causeless one.
     private ImHashMap<string, Exception> _lastStartFailures = ImHashMap<string, Exception>.Empty;
+
+    // jasperfx#1009: the rebuilds in flight on this daemon, as (projection name, tenant) with a null tenant
+    // meaning every tenant. A rebuild's replay agent is not registered in _agents while it replays, so this
+    // is the only record that the shard is busy. Guarded by its own lock, not _semaphore: rebuilds claim
+    // it before stopping agents and release it in a finally, and neither should wait on the registry lock.
+    private readonly List<(string ProjectionName, string? TenantId)> _rebuilding = new();
     private CancellationTokenSource _cancellation = new();
     private readonly HighWaterAgent _highWater;
     private readonly IDisposable _breakSubscription;
@@ -364,6 +370,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             if (_agents.TryFind(agent.Name.Identity, out running) && running.Status == AgentStatus.Running)
             {
                 Logger.LogDebug("Start of agent {ShardName} skipped: an agent is already running for this shard",
+                    agent.Name.Identity);
+                return false;
+            }
+
+            // jasperfx#1009: the rebuild's replay agent owns this shard's progression row and is not in
+            // _agents while it replays, so the check above can't see it. Callers that restart stopped or
+            // missing shards (Wolverine's node agent, the projection coordinator) retry later.
+            if (mode == ShardExecutionMode.Continuous && IsRebuilding(agent.Name))
+            {
+                Logger.LogInformation("Start of agent {ShardName} refused: its projection is being rebuilt",
                     agent.Name.Identity);
                 return false;
             }
@@ -725,7 +741,17 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     public async Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token)
     {
         await StartAgentAsync(name.Identity, token);
-        if (_agents.TryFind(name.Identity, out var agent)) return agent;
+        if (_agents.TryFind(name.Identity, out var agent) && agent.Status == AgentStatus.Running) return agent;
+
+        // jasperfx#1009: checked before any stashed start failure, which may be older than this rebuild.
+        if (IsRebuilding(name))
+        {
+            throw new ShardStartException(name.Identity,
+                "Its projection is being rebuilt on this daemon right now. Retry once the rebuild finishes.",
+                ShardStartFailureReason.Rebuilding);
+        }
+
+        if (agent != null) return agent;
 
         // wolverine#3519 / jasperfx#534: the string-overload start returned without throwing, yet nothing
         // is registered under this identity. Callers (e.g. Wolverine's EventSubscriptionAgent) previously
@@ -1610,12 +1636,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         TimeSpan shardTimeout,
         CancellationToken token)
     {
+        // jasperfx#1009: one claim on every tenant covers the whole fan-out, so the per-tenant cells below
+        // call the unclaimed cores rather than claiming (and colliding with) a tenant each.
+        using var claim = claimRebuild(source.Name, null);
+
         var tenants = await crossTenantSource
             .FindRebuildTenantsAsync(source.Name, token).ConfigureAwait(false);
 
         if (tenants.Count == 0)
         {
-            await RebuildProjectionAsync(source.Name, shardTimeout, token).ConfigureAwait(false);
+            await rebuildProjectionCore(source, shardTimeout, token).ConfigureAwait(false);
             return;
         }
 
@@ -1626,7 +1656,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             await Parallel.ForEachAsync(tenants,
                     new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = maxConcurrent.Value },
                     async (tenantId, ct) =>
-                        await rebuildProjectionForTenant(source, tenantId, shardTimeout, ct).ConfigureAwait(false))
+                        await rebuildProjectionForTenantCore(source, tenantId, shardTimeout, ct).ConfigureAwait(false))
                 .ConfigureAwait(false);
 
             return;
@@ -1635,7 +1665,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         foreach (var tenantId in tenants)
         {
             if (token.IsCancellationRequested) return;
-            await rebuildProjectionForTenant(source, tenantId, shardTimeout, token).ConfigureAwait(false);
+            await rebuildProjectionForTenantCore(source, tenantId, shardTimeout, token).ConfigureAwait(false);
         }
     }
 
@@ -1673,6 +1703,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // responsibility after RebuildProjectionAsync returns — see Wolverine's EventSubscriptionAgent.
     // RebuildAsync. Restarting here unconditionally would double-start against a store coordinator.
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
+    {
+        using var claim = claimRebuild(source.Name, null);
+        await rebuildProjectionCore(source, shardTimeout, token).ConfigureAwait(false);
+    }
+
+    private async Task rebuildProjectionCore(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
 
@@ -1752,6 +1788,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // jasperfx#407 Phase 2b: rebuild a single tenant's shard(s) for one projection, in isolation. Reuses
     // the existing buildAgentForShard / rebuildAgent paths, scoped to ShardName.ForTenant(tenantId).
     private async Task rebuildProjectionForTenant(IProjectionSource<TOperations, TQuerySession> source,
+        string tenantId, TimeSpan shardTimeout, CancellationToken token)
+    {
+        using var claim = claimRebuild(source.Name, tenantId);
+        await rebuildProjectionForTenantCore(source, tenantId, shardTimeout, token).ConfigureAwait(false);
+    }
+
+    private async Task rebuildProjectionForTenantCore(IProjectionSource<TOperations, TQuerySession> source,
         string tenantId, TimeSpan shardTimeout, CancellationToken token)
     {
         await Database.EnsureStorageExistsAsync(typeof(IEvent), token).ConfigureAwait(false);
@@ -1860,6 +1903,48 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
 
         return agents;
+    }
+
+    // jasperfx#1009: record a rebuild as in flight from before it stops anything until it ends, however it
+    // ends. A rebuild that overlaps one already running (the same projection and tenant, or either one
+    // covering every tenant) fails fast here, before it can stop agents or tear down state under it.
+    private RebuildClaim claimRebuild(string projectionName, string? tenantId)
+    {
+        lock (_rebuilding)
+        {
+            if (_rebuilding.Any(x => x.ProjectionName == projectionName
+                                     && (x.TenantId == null || tenantId == null || x.TenantId == tenantId)))
+            {
+                throw new ProjectionAlreadyRebuildingException(projectionName, tenantId);
+            }
+
+            _rebuilding.Add((projectionName, tenantId));
+        }
+
+        return new RebuildClaim(this, projectionName, tenantId);
+    }
+
+    public bool IsRebuilding(ShardName shardName)
+    {
+        lock (_rebuilding)
+        {
+            return _rebuilding.Any(x => x.ProjectionName == shardName.Name
+                                        && (x.TenantId == null || x.TenantId == shardName.TenantId));
+        }
+    }
+
+    private sealed class RebuildClaim(
+        JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection> daemon,
+        string projectionName,
+        string? tenantId) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (daemon._rebuilding)
+            {
+                daemon._rebuilding.Remove((projectionName, tenantId));
+            }
+        }
     }
 
     private async Task stopRunningAgentsForTenant(string subscriptionName, string tenantId)

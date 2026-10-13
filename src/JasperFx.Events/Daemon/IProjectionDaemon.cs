@@ -264,6 +264,14 @@ public interface IProjectionDaemon: IDisposable
     AgentStatus StatusFor(string shardName);
 
     /// <summary>
+    /// jasperfx#1009: is this shard's projection being rebuilt by this daemon right now? True for a rebuild
+    /// of the shard's own tenant and for a rebuild of every tenant. While it is, the daemon refuses to start
+    /// the shard (<see cref="ShardStartFailureReason.Rebuilding" />), so a caller sweeping for stopped shards
+    /// to restart should skip it. Daemons that do not track rebuilds answer false.
+    /// </summary>
+    bool IsRebuilding(ShardName shardName) => false;
+
+    /// <summary>
     /// List of agents that are currently running or paused
     /// </summary>
     /// <returns></returns>

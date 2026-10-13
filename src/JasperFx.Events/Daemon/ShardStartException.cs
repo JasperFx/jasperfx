@@ -51,5 +51,6 @@ public class ShardStartException: Exception
     ///     and for anything unclassified.
     /// </summary>
     public bool IsTransient =>
-        Reason is ShardStartFailureReason.HighWaterNotRunning or ShardStartFailureReason.StartRace;
+        Reason is ShardStartFailureReason.HighWaterNotRunning or ShardStartFailureReason.StartRace
+            or ShardStartFailureReason.Rebuilding;
 }

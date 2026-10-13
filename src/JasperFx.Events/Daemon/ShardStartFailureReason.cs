@@ -60,5 +60,13 @@ public enum ShardStartFailureReason
     ///     <see cref="Exception.InnerException" />. Whether a retry helps depends on that inner exception, so
     ///     this is deliberately NOT reported as transient.
     /// </summary>
-    Faulted
+    Faulted,
+
+    /// <summary>
+    ///     The shard's projection is being rebuilt on this daemon right now (jasperfx#1009). The rebuild's
+    ///     replay agent is not registered while it replays, so without this a continuous start would run a
+    ///     second agent over the same progression row. Retry once the rebuild finishes; see
+    ///     <see cref="IProjectionDaemon.IsRebuilding" />.
+    /// </summary>
+    Rebuilding
 }

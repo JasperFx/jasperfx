@@ -212,7 +212,7 @@ public class CrossProductRebuildCapTests
     // way Marten/Polecat do under per-tenant event partitioning.
     // ---------------------------------------------------------------------------------------------
 
-    private sealed class RebuildHarness : IAsyncDisposable
+    internal sealed class RebuildHarness : IAsyncDisposable
     {
         public RebuildHarness(string[] tenants, string[] projectionNames,
             Action<DaemonSettings>? configureSettings = null, bool gated = true)
@@ -254,6 +254,10 @@ public class CrossProductRebuildCapTests
             };
             configureSettings?.Invoke(projections);
 
+            // A continuous start resolves its shard through AllShards() (RebuildInProgressGuardTests)
+            var shards = new List<AsyncShard<FakeOperations, FakeSession>>();
+            Store.AllShards().Returns(shards);
+
             foreach (var name in projectionNames)
             {
                 var factory = new CompletingSubscriptionFactory();
@@ -263,6 +267,7 @@ public class CrossProductRebuildCapTests
                 var source = Substitute.For<IProjectionSource<FakeOperations, FakeSession>>();
                 source.Name.Returns(name);
                 source.Shards().Returns([shard]);
+                shards.Add(shard);
 
                 projections.All.Add(source);
             }
@@ -285,7 +290,7 @@ public class CrossProductRebuildCapTests
 
     // Minimal concrete ProjectionGraph — the daemon consumes it as DaemonSettings plus the
     // registered projection sources in All.
-    private sealed class FakeProjectionGraph :
+    internal sealed class FakeProjectionGraph :
         ProjectionGraph<IJasperFxProjection<FakeOperations>, FakeOperations, FakeSession>
     {
         public FakeProjectionGraph() : base(Substitute.For<IEventRegistry>(), "tests")
@@ -303,7 +308,7 @@ public class CrossProductRebuildCapTests
     // only then returns an already-caught-up page. Cells therefore stay INSIDE the instrumented
     // region until the test releases them — an over-admitted cell deterministically raises the
     // observed concurrency while the gates are closed, no timing required.
-    private sealed class GatedInstrumentedLoader : IEventLoader
+    internal sealed class GatedInstrumentedLoader : IEventLoader
     {
         private readonly bool _gated;
         private readonly Channel<TaskCompletionSource> _entries = Channel.CreateUnbounded<TaskCompletionSource>();
@@ -355,7 +360,7 @@ public class CrossProductRebuildCapTests
         }
     }
 
-    private sealed class CompletingSubscriptionFactory : ISubscriptionFactory<FakeOperations, FakeSession>
+    internal sealed class CompletingSubscriptionFactory : ISubscriptionFactory<FakeOperations, FakeSession>
     {
         public ISubscriptionExecution BuildExecution(IEventStore<FakeOperations, FakeSession> store,
             IEventDatabase database, ILoggerFactory loggerFactory, ShardName shardName)
@@ -368,7 +373,7 @@ public class CrossProductRebuildCapTests
 
     // Acknowledges every enqueued page immediately, which posts RangeCompleted back to the agent and
     // completes the rebuild replay once the page ceiling reaches the cell's high-water ceiling.
-    private sealed class CompletingExecution : ISubscriptionExecution
+    internal sealed class CompletingExecution : ISubscriptionExecution
     {
         public CompletingExecution(ShardName shardName)
         {
@@ -487,7 +492,7 @@ public class CrossProductRebuildCapTests
     // A detector for a store WITH per-tenant event partitioning — the store-global Detect() stays
     // pinned at mark 0 so any nonzero rebuild ceiling can only come from the per-tenant coordinator.
     // (Same stub shape as PerTenantStartAgentAsyncTests.)
-    private sealed class StubPartitionedDetector : IHighWaterDetector
+    internal sealed class StubPartitionedDetector : IHighWaterDetector
     {
         private readonly Dictionary<string, long> _marks = new();
 
