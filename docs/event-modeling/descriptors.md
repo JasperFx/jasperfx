@@ -294,7 +294,21 @@ var linked = EventModelSpecifications.Link(model, manifest);
 - **A spec whose command no slice handles** is not linked and not reported: it specifies code that doesn't exist yet.
 - **Derived links sit on the `Specified` rung.** A hand-typed `LinksToSpecification` that agrees records nothing. One that the specifications don't include loses, and is recorded as a `SourceDisagreement`.
 
-The join runs over an *assembled* model, not as one more source, because it has to see every source's slices to find the one handling a command. The specifications also live in a test assembly the application host never loads, so where the join runs -- a monitor that receives the runner's manifest, or a model command handed the spec assembly -- is up to the caller.
+The join runs over an *assembled* model, not as one more source, because it has to see every source's slices to find the one handling a command. The specifications also live in a test assembly the application host never loads, so the join runs in a model command handed that assembly (Wolverine's `describe-event-model --specs`).
+
+A spec generator writes the manifest into the spec assembly as a type with a static `All`, marked `[assembly: SpecificationManifest(typeof(...))]`. `SpecificationManifest` reads it, with no reference to the tool that wrote it:
+
+```cs
+// From an assembly already loaded
+var manifest = SpecificationManifest.In(typeof(SomeSpec).Assembly);
+
+// From a path, as a --specs flag gets it. Its dependencies resolve from its own .deps.json.
+var manifest = SpecificationManifest.Load("tests/Specs/bin/Debug/net10.0/Specs.dll");
+
+var linked = EventModelSpecifications.Link(model, manifest);
+```
+
+It also reads `Bobcat.SpecificationManifestAttribute`, which Bobcat versions from before the attribute moved into JasperFx write.
 
 ## Serialization
 
