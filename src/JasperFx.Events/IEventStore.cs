@@ -104,6 +104,32 @@ public interface IEventStore
         => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>([]);
 
     /// <summary>
+    ///     JasperFx/wolverine#5002 — just the database half of <see cref="TryCreateUsage" />: the databases this
+    ///     store uses, with each one's server, database name and tenant ids, and nothing else.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///     <see cref="TryCreateUsage" /> also reads the event store's highest sequence and describes every
+    ///     projection, subscription, event type and tag type. Wolverine's agent assignment needs only the
+    ///     database topology, and it asks for it on every leader heartbeat for every store, so the rest is a
+    ///     database round trip per store per heartbeat for data that is thrown away.
+    ///     </para>
+    ///     <para>
+    ///     The default falls back to <see cref="TryCreateUsage" /> and returns its <see cref="EventStoreUsage.Database" />,
+    ///     so every existing store answers correctly with no change. Marten, Polecat and Fisher should override it to
+    ///     describe their tenancy directly (their tenancies already implement
+    ///     <see cref="IDatabaseUser.DescribeDatabasesAsync" />). Returns null when <see cref="TryCreateUsage" />
+    ///     would.
+    ///     </para>
+    /// </remarks>
+    /// <param name="token">Cancellation token.</param>
+    async Task<DatabaseUsage?> TryDescribeDatabasesAsync(CancellationToken token)
+    {
+        var usage = await TryCreateUsage(token).ConfigureAwait(false);
+        return usage?.Database;
+    }
+
+    /// <summary>
     ///     jasperfx#1005 — the event database holding <paramref name="tenantId" />'s events, store-agnostically:
     ///     the counterpart to Marten's <c>Storage.FindOrCreateDatabase(tenantId)</c>, which Polecat and Fisher have
     ///     no equivalent of. Lets tooling (Bobcat waiting on one tenant's async daemons, the correlation query
