@@ -344,7 +344,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
 
     private async Task<bool> tryStartAgentAsync(ISubscriptionAgent agent, ShardExecutionMode mode,
-        long sideEffectGateMark = 0)
+        long sideEffectGateMark = 0, bool followInRebuildMode = false)
     {
         // jasperfx#621: this daemon is about to own a running agent, so it owns that agent's telemetry.
         // Every continuous start path funnels through here; a daemon built only to read state does not.
@@ -377,7 +377,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // jasperfx#1009: the rebuild's replay agent owns this shard's progression row and is not in
             // _agents while it replays, so the check above can't see it. Callers that restart stopped or
             // missing shards (Wolverine's node agent, the projection coordinator) retry later.
-            if (mode == ShardExecutionMode.Continuous && IsRebuilding(agent.Name))
+            //
+            // wolverine#4569: a Rebuild-mode agent that follows the store owns that row just as much, so it waits too.
+            if ((mode == ShardExecutionMode.Continuous || followInRebuildMode) && IsRebuilding(agent.Name))
             {
                 Logger.LogInformation("Start of agent {ShardName} refused: its projection is being rebuilt",
                     agent.Name.Identity);
@@ -395,10 +397,16 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 highWaterMark = _tenantHighWater.CeilingFor(agent.Name.TenantId) ?? 0L;
             }
 
-            var position = await agent
-                .Options
-                .DetermineStartingPositionAsync(highWaterMark, agent.Name, mode, Database, _cancellation.Token)
-                .ConfigureAwait(false);
+            // wolverine#4569: a Rebuild-mode agent that follows the store resumes from its own progress. Every
+            // position strategy answers Rebuild with a floor to replay from -- the default CatchUp strategy with 0
+            // -- and asks for the progress row to be rewound to it first, which would delete the row and replay the
+            // shard's whole history over the documents it already built on every restart.
+            var position = followInRebuildMode
+                ? new Position(await Database.ProjectionProgressFor(agent.Name, _cancellation.Token).ConfigureAwait(false), false)
+                : await agent
+                    .Options
+                    .DetermineStartingPositionAsync(highWaterMark, agent.Name, mode, Database, _cancellation.Token)
+                    .ConfigureAwait(false);
 
             if (position.ShouldUpdateProgressFirst)
             {
@@ -545,6 +553,26 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // assigned until its start returns, it made the whole cluster's assignment table a progress bar for the
     // catch-up rather than for the distribution. Now the gate only RESOLVES the mark here (one read) and
     // hands it to the agent, which starts immediately and carries the suppressed catch-up itself.
+    private async Task<bool> startShardAsync(AsyncShard<TOperations, TQuerySession> shard, bool followInRebuildMode)
+    {
+        if (!followInRebuildMode)
+        {
+            return await startContinuousShardAsync(shard).ConfigureAwait(false);
+        }
+
+        // wolverine#4569: no side-effect gate to resolve -- Rebuild mode publishes no side effects at all
+        var agent = buildAgentForShard(shard);
+        var started = await tryStartAgentAsync(agent, ShardExecutionMode.Rebuild, followInRebuildMode: true)
+            .ConfigureAwait(false);
+
+        if (!started && agent is IAsyncDisposable d)
+        {
+            await d.DisposeAsync().ConfigureAwait(false);
+        }
+
+        return started;
+    }
+
     private async Task<bool> startContinuousShardAsync(AsyncShard<TOperations, TQuerySession> shard)
     {
         long gateMark;
@@ -638,7 +666,14 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     }
 
 
-    public async Task StartAgentAsync(string shardName, CancellationToken token)
+    public Task StartAgentAsync(string shardName, CancellationToken token)
+    {
+        return startAgentAsync(shardName, false, token);
+    }
+
+    // wolverine#4569: followInRebuildMode starts the shard through startShardAsync in Rebuild mode, resuming from
+    // its own progress -- see StartAgentInRebuildModeAsync. Every other start is continuous.
+    private async Task startAgentAsync(string shardName, bool followInRebuildMode, CancellationToken token)
     {
         // jasperfx#709: single-flight, so 25-way parallel agent starts prime the mark once and all of
         // them WAIT for it, instead of one priming while the other 24 skip ahead and seed from 0.
@@ -652,7 +687,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             {
                 foreach (var name in shardNames)
                 {
-                    await StartAgentAsync(name.Name.Identity, token).ConfigureAwait(false);
+                    await startAgentAsync(name.Name.Identity, followInRebuildMode, token).ConfigureAwait(false);
                 }
 
                 return;
@@ -665,7 +700,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         var shard = _store.AllShards().FirstOrDefault(x => x.Name.Identity == shardName);
         if (shard != null)
         {
-            await startContinuousShardAsync(shard).ConfigureAwait(false);
+            await startShardAsync(shard, followInRebuildMode).ConfigureAwait(false);
             return;
         }
 
@@ -717,7 +752,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 await pollTenantHighWaterAsync().ConfigureAwait(false);
 
                 var tenantShard = baseShard with { Name = baseShard.Name.ForTenant(requested.TenantId) };
-                tenantStarted = await startContinuousShardAsync(tenantShard).ConfigureAwait(false);
+                tenantStarted = await startShardAsync(tenantShard, followInRebuildMode).ConfigureAwait(false);
             }
             finally
             {
@@ -738,9 +773,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             $"Unknown shard name '{shardName}'. Value options are {_store.AllShards().Select(x => x.Name.Identity).Join(", ")}");
     }
     
-    public async Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token)
+    public Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token)
     {
-        await StartAgentAsync(name.Identity, token);
+        return startAgentAndConfirmAsync(name, false, token);
+    }
+
+    public Task<ISubscriptionAgent> StartAgentInRebuildModeAsync(ShardName name, CancellationToken token)
+    {
+        return startAgentAndConfirmAsync(name, true, token);
+    }
+
+    private async Task<ISubscriptionAgent> startAgentAndConfirmAsync(ShardName name, bool followInRebuildMode,
+        CancellationToken token)
+    {
+        await startAgentAsync(name.Identity, followInRebuildMode, token).ConfigureAwait(false);
         if (_agents.TryFind(name.Identity, out var agent) && agent.Status == AgentStatus.Running) return agent;
 
         // jasperfx#1009: checked before any stashed start failure, which may be older than this rebuild.

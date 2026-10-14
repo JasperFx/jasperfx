@@ -296,6 +296,74 @@ public class BlueGreenSideEffectGateTests
     // exactly as a real store would behave.
     // ---------------------------------------------------------------------------------------------
 
+    // wolverine#4569: a blue/green warm-up node runs a new projection version in Rebuild mode -- no side effects --
+    // that keeps following the store. Every position strategy answers Rebuild with a floor to replay from and a
+    // rewind of the progress row to it, so starting such a shard through the ordinary Rebuild path would delete its
+    // progress and replay its whole history over the documents it already built on every restart of the node.
+    [Fact]
+    public async Task a_rebuild_mode_start_resumes_from_the_shards_own_progress_without_rewinding_it()
+    {
+        await using var harness = new GateHarness(ShardName.Compose("Trips"));
+        harness.SetProgress("Trips:All", 1000);
+
+        var agent = await harness.Daemon.StartAgentInRebuildModeAsync(ShardName.Compose("Trips"),
+            TestContext.Current.CancellationToken).WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        agent.Mode.ShouldBe(ShardExecutionMode.Rebuild);
+        harness.Execution.Mode.ShouldBe(ShardExecutionMode.Rebuild);
+
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1000L, HighWater));
+
+        await harness.Store.DidNotReceiveWithAnyArgs()
+            .RewindSubscriptionProgressAsync(default!, default!, default, default);
+    }
+
+    [Fact]
+    public async Task a_rebuild_mode_start_of_a_shard_that_never_ran_starts_from_the_beginning()
+    {
+        await using var harness = new GateHarness(ShardName.Compose("Trips"));
+
+        await harness.Daemon.StartAgentInRebuildModeAsync(ShardName.Compose("Trips"),
+            TestContext.Current.CancellationToken).WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 0L, HighWater));
+    }
+
+    [Fact]
+    public async Task a_rebuild_mode_shard_keeps_running_at_the_high_water_mark()
+    {
+        // A bounded rebuild completes and disposes its agent at the high-water mark; this one has to stay up and
+        // keep following
+        await using var harness = new GateHarness(ShardName.Compose("Trips"));
+
+        await harness.Daemon.StartAgentInRebuildModeAsync(ShardName.Compose("Trips"),
+            TestContext.Current.CancellationToken).WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        (await harness.Execution.NextPageAsync()).Ceiling.ShouldBe(HighWater);
+        await Task.Delay(250, TestContext.Current.CancellationToken);
+
+        harness.Daemon.StatusFor("Trips:All").ShouldBe(AgentStatus.Running);
+    }
+
+    [Fact]
+    public async Task starting_the_shard_again_in_continuous_mode_continues_from_the_rebuild_mode_progress()
+    {
+        // The cut over: the node restarts as a serving node and starts the same shard the ordinary way
+        await using var harness = new GateHarness(ShardName.Compose("Trips"));
+
+        var token = TestContext.Current.CancellationToken;
+        await harness.Daemon.StartAgentInRebuildModeAsync(ShardName.Compose("Trips"), token).WaitAsync(TestTimeout, token);
+        (await harness.Execution.NextPageAsync()).Ceiling.ShouldBe(HighWater);
+
+        await harness.Daemon.StopAgentAsync(ShardName.Compose("Trips"));
+
+        var agent = await harness.Daemon.StartAgentAsync(ShardName.Compose("Trips"), token).WaitAsync(TestTimeout, token);
+
+        agent.Mode.ShouldBe(ShardExecutionMode.Continuous);
+        agent.Position.ShouldBe(HighWater);
+        harness.ProgressFor("Trips:All").ShouldBe(HighWater);
+    }
+
     private sealed class GateHarness : IAsyncDisposable
     {
         private readonly ConcurrentDictionary<string, long> _progress = new();
@@ -310,6 +378,7 @@ public class BlueGreenSideEffectGateTests
             var detector = new StubDetector { Mark = HighWater };
 
             var store = Substitute.For<IEventStore<FakeOperations, FakeSession>>();
+            Store = store;
             store.Meter.Returns(new Meter("tests"));
             store.TimeProvider.Returns(TimeProvider.System);
             store.AutoCreateSchemaObjects.Returns(AutoCreate.None);
@@ -353,6 +422,8 @@ public class BlueGreenSideEffectGateTests
             Daemon = new JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>>(
                 store, database, new NulloLogger(), detector, projections);
         }
+
+        public IEventStore<FakeOperations, FakeSession> Store { get; }
 
         public StubPageLoader Loader { get; }
         public RecordingExecution Execution { get; }

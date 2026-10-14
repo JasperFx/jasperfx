@@ -155,6 +155,25 @@ public interface IProjectionDaemon: IDisposable
     Task<ISubscriptionAgent> StartAgentAsync(ShardName name, CancellationToken token);
 
     /// <summary>
+    ///     Starts a single projection shard in <see cref="ShardExecutionMode.Rebuild" /> mode, following the event
+    ///     store as it grows instead of stopping at the high-water mark, and resuming from the shard's own persisted
+    ///     progress instead of rewinding it. Rebuild mode publishes no side effects and applies the rebuild error
+    ///     handling. Nothing is torn down: the shard picks up exactly where its last run left off, or starts from the
+    ///     beginning if it has never run.
+    ///
+    ///     Meant for warming up a new projection version on a node that is not serving yet -- a blue/green warm-up
+    ///     (wolverine#4569). Starting the shard again later with <see cref="StartAgentAsync(ShardName, CancellationToken)" />
+    ///     continues in continuous mode from the same progress.
+    /// </summary>
+    /// <param name="name">The shard to start, including its tenant if it has one</param>
+    /// <param name="token"></param>
+    /// <returns></returns>
+    Task<ISubscriptionAgent> StartAgentInRebuildModeAsync(ShardName name, CancellationToken token)
+    {
+        throw new NotSupportedException($"{GetType().FullName} does not support starting a shard in rebuild mode");
+    }
+
+    /// <summary>
     ///     Stops a single projection shard by name
     /// </summary>
     /// <param name="shardName">The full identity of the desired shard. Example 'Trip:All'</param>
