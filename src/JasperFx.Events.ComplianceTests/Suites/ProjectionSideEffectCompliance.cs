@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using Shouldly;
 using Xunit;
@@ -529,6 +530,117 @@ public abstract class ProjectionSideEffectCompliance<TFixture, TOperations, TQue
     /// The daemon fires its commit hooks after the batch commits, so the stream version this suite
     /// otherwise waits on can already be right while the publish is still in flight.
     /// </remarks>
+    // wolverine#4569: a blue/green warm-up node runs a new projection version in Rebuild mode, following the store
+    // without publishing side effects, until it is cut over to and started again in continuous mode.
+    private static readonly ShardName _watchtowerShard = new(ComplianceWatchtowerProjection.ProjectionName);
+
+    private async Task<IProjectionDaemon> anIdleDaemonAsync()
+    {
+        var daemon = await StartDaemonAsync();
+        await daemon.StopAllAsync();
+        return daemon;
+    }
+
+    private async Task<ComplianceWatchtower> waitForReliefsAsync(Guid streamId, int reliefs)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(_timeout);
+        ComplianceWatchtower? tower = null;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await using var session = OpenSession();
+            tower = await LoadDocumentAsync<ComplianceWatchtower>(session, streamId);
+            if (tower != null && tower.Reliefs >= reliefs) return tower;
+
+            await Task.Delay(100, Cancellation);
+        }
+
+        throw new TimeoutException(
+            $"Timed out after {_timeout} waiting for watchtower {streamId} to reach {reliefs} relief(s); it is at {tower?.Reliefs.ToString() ?? "no document"}.");
+    }
+
+    private async Task relieveAsync(Guid streamId, string watcher)
+    {
+        await using var session = OpenSession();
+        EventsFor(session).Append(streamId, new WatchtowerRelieved(watcher));
+        await SaveChangesAsync(session);
+    }
+
+    [Fact]
+    public async Task a_shard_started_in_rebuild_mode_follows_the_store_without_side_effects()
+    {
+        SkipUnlessDaemonIsSupported();
+
+        var daemon = await anIdleDaemonAsync();
+        var streamId = await aWatchtowerAsync(new WatchtowerManned("Amon Din"), new WatchtowerRelieved("Beregond"));
+
+        var agent = await daemon.StartAgentInRebuildModeAsync(_watchtowerShard, CancellationToken.None);
+        agent.Mode.ShouldBe(ShardExecutionMode.Rebuild);
+
+        await waitForReliefsAsync(streamId, 1);
+
+        // Appended after the start, so past the high-water mark it started against: a bounded rebuild would have
+        // stopped short of it
+        await relieveAsync(streamId, "Bergil");
+        (await waitForReliefsAsync(streamId, 2)).Reliefs.ShouldBe(2);
+
+        (await eventsForAsync(streamId)).ShouldNotContain(x => x.Data is WatchtowerAudited);
+    }
+
+    [Fact]
+    public async Task a_shard_restarted_in_rebuild_mode_resumes_from_its_own_progress()
+    {
+        SkipUnlessDaemonIsSupported();
+
+        var daemon = await anIdleDaemonAsync();
+        var streamId = await aWatchtowerAsync(new WatchtowerManned("Eilenach"), new WatchtowerRelieved("Beregond"));
+
+        await daemon.StartAgentInRebuildModeAsync(_watchtowerShard, CancellationToken.None);
+        await waitForReliefsAsync(streamId, 1);
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        await daemon.StopAgentAsync(_watchtowerShard);
+        await relieveAsync(streamId, "Bergil");
+
+        await daemon.StartAgentInRebuildModeAsync(_watchtowerShard, CancellationToken.None);
+        await waitForReliefsAsync(streamId, 2);
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        // Replaying from the floor over the document the first run built would have applied the first relief twice
+        await using var session = OpenSession();
+        var tower = await LoadDocumentAsync<ComplianceWatchtower>(session, streamId);
+        tower.ShouldNotBeNull();
+        tower.Reliefs.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task a_shard_started_again_in_continuous_mode_continues_from_the_rebuild_mode_progress()
+    {
+        SkipUnlessDaemonIsSupported();
+
+        var daemon = await anIdleDaemonAsync();
+        var streamId = await aWatchtowerAsync(new WatchtowerManned("Nardol"), new WatchtowerRelieved("Beregond"));
+
+        await daemon.StartAgentInRebuildModeAsync(_watchtowerShard, CancellationToken.None);
+        await waitForReliefsAsync(streamId, 1);
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        // The cut over
+        await daemon.StopAgentAsync(_watchtowerShard);
+        var agent = await daemon.StartAgentAsync(_watchtowerShard, CancellationToken.None);
+        agent.Mode.ShouldBe(ShardExecutionMode.Continuous);
+
+        await relieveAsync(streamId, "Bergil");
+
+        // Continuous again, so the projection raises its side effect for the event it sees after the cut over --
+        // and only folds that event, not the history the rebuild-mode run already covered
+        await WaitForStreamVersionAsync(streamId, 4);
+        var tower = await waitForReliefsAsync(streamId, 2);
+        tower.Reliefs.ShouldBe(2);
+
+        (await eventsForAsync(streamId)).Count(x => x.Data is WatchtowerAudited).ShouldBe(1);
+    }
+
     private async Task waitForPublishedAsync<T>()
     {
         var deadline = DateTimeOffset.UtcNow.Add(_timeout);
