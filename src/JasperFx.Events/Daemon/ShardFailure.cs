@@ -82,6 +82,22 @@ public record ShardFailure
     public Guid? DeadLetterEventId { get; init; }
 
     /// <summary>
+    /// wolverine#4986: whether the fault is one expected to clear on its own -- a connection pool exhausted during a
+    /// large rebuild, a timeout, a dropped connection, a deadlock -- so that restarting the shard after a while is
+    /// the right response, as opposed to a fault that needs an operator, like a missing column or a bug in a
+    /// projection. Classified from the exception by <see cref="TransientFailures.IsTransient" />.
+    ///
+    /// <para>
+    /// A flag next to <see cref="Category" /> rather than a category of its own, so nothing that switches on the
+    /// category changes: the category says what broke (one event, or the shard as a whole), this says whether
+    /// waiting will fix it, and the two are independent -- an <see cref="ShardFailureCategory.ApplyEvent" /> failure
+    /// can be a timeout in the projection's own lookup. A failure serialized before this property existed reads
+    /// back as false, the conservative answer: nothing restarts it automatically.
+    /// </para>
+    /// </summary>
+    public bool IsTransient { get; init; }
+
+    /// <summary>
     /// Classify a caught exception. The single place any of this is decided, so the daemon, the stores and
     /// an external supervisor never disagree about what a failure was.
     ///
@@ -110,7 +126,8 @@ public record ShardFailure
             Message = exception.Message,
             Detail = exception.ToString(),
             Event = context == null ? null : EventFailureDetails.From(context),
-            OccurredAt = occurredAt
+            OccurredAt = occurredAt,
+            IsTransient = TransientFailures.IsTransient(exception)
         };
     }
 
