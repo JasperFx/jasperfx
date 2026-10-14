@@ -596,6 +596,11 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return snapshot;
     }
 
+    /// <summary>
+    ///     The event types that delete the aggregate unconditionally.
+    /// </summary>
+    public IReadOnlyCollection<Type> DeleteEventTypes => (List<Type>)DeleteEvents;
+
     public bool MatchesAnyDeleteType(IReadOnlyList<IEvent> events)
     {
         return events.Select(x => x.EventType).Intersect(DeleteEvents).Any();
