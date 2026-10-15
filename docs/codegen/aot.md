@@ -206,7 +206,7 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 - `JasperFx.Events.Event.For<T>(T)` — generic event factory.
 - `JasperFx.Core.Reflection.GenericFactoryCache.BuildAs<T>(…)` **when you supply your own delegate factory** that avoids `MakeGenericType` + `Activator.CreateInstance`. The default factory does use those and carries `[RequiresDynamicCode]`; consumers source-generate the per-type factory and stay clean.
 - Pure utility surface in `JasperFx.Core` (string helpers, `LightweightCache`, etc.).
-- `JasperFx.Events.Tags.TagTypeRegistration.FromUnwrapper<TTag, TInner>(unwrapper, tableSuffix)` (JasperFx.Events 2.88.0+) — a DCB tag type registered with an explicit unwrapper. `Create<TTag>()` discovers the inner type through `ValueTypeInfo` and closes `TagTypeRegistration<,>` with `MakeGenericType`, which has no native code when the image lacks that instantiation; naming `TInner` closes it at compile time.
+- `JasperFx.Events.Tags.TagTypeRegistration.FromUnwrapper<TTag, TInner>(unwrapper, tableSuffix)` (JasperFx.Events 2.90.0+) — a DCB tag type registered with an explicit unwrapper. `TInner` must be a primitive your store's tag table can hold (`Guid`, `string`, `int`, `long`); it is not validated here, so a wrong choice fails when the store builds the tag table. `Create<TTag>()` discovers the inner type through `ValueTypeInfo` and closes `TagTypeRegistration<,>` with `MakeGenericType`, which has no native code when the image lacks that instantiation; naming `TInner` closes it at compile time.
 
 ### Annotated (RUC / RDC; available in dev, warns at AOT publish)
 
@@ -216,6 +216,7 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 - `JasperFx.Core.Reflection.LambdaBuilder` + `ValueTypeInfo` — expression-tree compilation via FastExpressionCompiler. AOT consumers source-generate accessor delegates.
 - `JasperFx.CodeGeneration.GeneratedType` / `GeneratedAssembly` / `MethodCall` — the codegen builder API. Reached only at codegen-write time, not at production startup in Static mode.
 - `OptionsDescription` — diagnostic reflection over runtime types for the `describe` command.
+- `JasperFx.Events.Tags.TagTypeRegistration.Create<TTag>()` (JasperFx.Events 2.90.0+; suppressed before) — discovers a DCB tag's inner type through `ValueTypeInfo` and closes `TagTypeRegistration<,>` with `MakeGenericType`. A store's `RegisterTagType<TTag>()` that calls it carries the warning to your call site; register with an explicit unwrapper through `FromUnwrapper<TTag, TInner>` instead.
 
 ### Source-generated command manifest
 

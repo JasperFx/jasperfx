@@ -14,14 +14,17 @@ namespace JasperFx.Events.Tags;
 public static class TagTypeRegistration
 {
     /// <summary>
-    /// Create a tag type registration for the given strong-typed identifier type.
+    /// Create a tag type registration for the given strong-typed identifier type, discovering its
+    /// inner primitive through <see cref="ValueTypeInfo"/>.
     /// </summary>
-    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
-        Justification = "Inference: ValueTypeInfo.ForType + Type.MakeGenericType(TagTypeRegistration<,>) for strong-typed-id discovery. Needs the tag type's members and the closed generic at runtime; under trimming or Native AOT use FromUnwrapper<TTag, TInner>.")]
-    [UnconditionalSuppressMessage("Trimming", "IL2087:DynamicallyAccessedMembers",
-        Justification = "Inference: TTag flows into ValueTypeInfo.ForType / MakeGenericType unannotated; under trimming or Native AOT use FromUnwrapper<TTag, TInner>.")]
-    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
-        Justification = "Type.MakeGenericType(TagTypeRegistration<,>) — runtime code generation. AOT consumers name the inner type and supply the unwrapper through FromUnwrapper<TTag, TInner>, which closes nothing at runtime.")]
+    /// <remarks>
+    /// Annotated rather than suppressed, so a trimmed or Native AOT build reports the call site and
+    /// points at <see cref="FromUnwrapper{TTag, TInner}"/>: the discovery reflects over the tag type's
+    /// members and closes <c>TagTypeRegistration&lt;TTag, TInner&gt;</c> with <c>MakeGenericType</c>,
+    /// and either can fail at runtime in such a build.
+    /// </remarks>
+    [RequiresUnreferencedCode("Discovers the tag type's inner value through ValueTypeInfo, which reflects over its members. Under trimming or Native AOT use TagTypeRegistration.FromUnwrapper<TTag, TInner>.")]
+    [RequiresDynamicCode("Closes TagTypeRegistration<TTag, TInner> with MakeGenericType. Under Native AOT use TagTypeRegistration.FromUnwrapper<TTag, TInner>, which closes nothing at runtime.")]
     public static ITagTypeRegistration Create<TTag>(string? tableSuffix = null) where TTag : notnull
     {
         var vti = ValueTypeInfo.ForType(typeof(TTag));
@@ -36,6 +39,13 @@ public static class TagTypeRegistration
     /// for lack of native code for TagTypeRegistration&lt;TTag, TInner&gt; or, when trimmed,
     /// of the tag type's members.
     /// </summary>
+    /// <typeparam name="TInner">
+    /// The primitive the tag table stores. Nothing here checks it, because which primitives a tag
+    /// column can hold is the store's decision; an unsupported one fails when the store builds the
+    /// tag table, not here. Use the type <see cref="Create{TTag}"/> would have discovered — the type
+    /// of the tag's single public value property, typically <see cref="Guid"/>, <see cref="string"/>,
+    /// <see cref="int"/> or <see cref="long"/>.
+    /// </typeparam>
     /// <param name="unwrapper">Reads the inner primitive out of the tag, e.g. <c>id => id.Value</c>.</param>
     /// <param name="tableSuffix">Defaults to the tag type's name as a table alias, as in <see cref="Create{TTag}"/>.</param>
     /// <remarks>
