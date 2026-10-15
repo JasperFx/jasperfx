@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Tags;
 using Shouldly;
@@ -127,6 +129,18 @@ public class TagTypeRegistrationTests
         // method called Create would throw AmbiguousMatchException there, in every Marten version
         // that uses that lookup.
         typeof(TagTypeRegistration).GetMethod(nameof(TagTypeRegistration.Create)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void create_is_annotated_so_aot_builds_report_it()
+    {
+        // Annotated rather than suppressed, so a trimmed or Native AOT consumer is pointed at FromUnwrapper
+        var create = typeof(TagTypeRegistration).GetMethod(nameof(TagTypeRegistration.Create))!;
+
+        create.GetCustomAttribute<RequiresDynamicCodeAttribute>().ShouldNotBeNull()
+            .Message.ShouldContain(nameof(TagTypeRegistration.FromUnwrapper));
+        create.GetCustomAttribute<RequiresUnreferencedCodeAttribute>().ShouldNotBeNull()
+            .Message.ShouldContain(nameof(TagTypeRegistration.FromUnwrapper));
     }
 
     [Fact]

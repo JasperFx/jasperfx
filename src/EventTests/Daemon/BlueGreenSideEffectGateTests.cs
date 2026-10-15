@@ -360,6 +360,17 @@ public class BlueGreenSideEffectGateTests
         var agent = await harness.Daemon.StartAgentAsync(ShardName.Compose("Trips"), token).WaitAsync(TestTimeout, token);
 
         agent.Mode.ShouldBe(ShardExecutionMode.Continuous);
+
+        // The agent takes its starting position from a command on its own queue, which can still be
+        // pending when StartAgentAsync returns, so wait for it rather than read it straight away
+        using (var timeout = new CancellationTokenSource(TestTimeout))
+        {
+            while (agent.Position != HighWater && !timeout.IsCancellationRequested)
+            {
+                await Task.Delay(20, CancellationToken.None);
+            }
+        }
+
         agent.Position.ShouldBe(HighWater);
         harness.ProgressFor("Trips:All").ShouldBe(HighWater);
     }
