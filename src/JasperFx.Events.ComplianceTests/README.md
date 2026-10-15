@@ -432,6 +432,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Live aggregation, including last-known | `LiveAggregationCompliance` |
 | `FetchLatest` / `ProjectLatest` across lifecycles | `FetchLatestCompliance` |
 | Archiving a stream and its consequences | `StreamArchivingCompliance` |
+| Hard-deleting a stream with `TombstoneStream` (opt-in, `SupportsTombstoneStream`) | `StreamTombstoningCompliance` |
 | The event store explorer surface | `EventStoreExplorerCompliance` |
 | Flat-table event projections | `FlatTableProjectionCompliance` |
 | String stream identity, read and write surface | `StringStreamIdentityCompliance` |
@@ -574,6 +575,11 @@ Marten equivalent, so it is not on `IEventStoreOperations` and cannot be. Note t
 owns the whole command, batched it contributes a fragment to someone else's — so every fact runs
 twice, and the version cap, the one parameter that has to survive into the batched fragment's own
 SQL, is where the two paths are most likely to drift.
+
+`StreamTombstoningCompliance` is opt-in through `SupportsTombstoneStream` for the declare-then-implement
+reason rather than a shared-type one: `TombstoneStream` *is* on `IEventStoreOperations` (jasperfx#1014),
+but as a default member that throws, so a store that has not implemented the hard delete stays
+source-compatible and skips the suite until it has.
 
 ### Identity-less boundary aggregates (jasperfx#718)
 
