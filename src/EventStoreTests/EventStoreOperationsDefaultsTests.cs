@@ -124,5 +124,28 @@ public class EventStoreOperationsDefaultsTests
         (await fetchMany(Array.Empty<string>())).ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData(typeof(Guid))]
+    [InlineData(typeof(string))]
+    public void tombstone_stream_is_refused_by_a_store_that_has_not_implemented_it(Type identityType)
+    {
+        // jasperfx#1014: a default member, so a store without a hard delete stays source-compatible
+        var method = typeof(IEventStoreOperations).GetMethod(nameof(IEventStoreOperations.TombstoneStream), [identityType])!;
+
+        var caller = new DynamicMethod("callDefault", typeof(void),
+            [typeof(IEventStoreOperations), identityType],
+            typeof(EventStoreOperationsDefaultsTests).Module, skipVisibility: true);
+        var il = caller.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, method);
+        il.Emit(OpCodes.Ret);
+
+        object identity = identityType == typeof(Guid) ? Guid.NewGuid() : "stream";
+
+        var ex = Should.Throw<TargetInvocationException>(() => caller.Invoke(null, [theOperations, identity]));
+        ex.InnerException.ShouldBeOfType<NotSupportedException>().Message.ShouldContain("TombstoneStream");
+    }
+
     public class Account;
 }

@@ -686,6 +686,18 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsUnarchiveStream => false;
 
     /// <summary>
+    /// True in a store whose session implements <see cref="IEventStoreOperations.TombstoneStream(Guid)"/>
+    /// and its string twin — a hard delete of a stream and its events. Gates every fact of
+    /// <see cref="StreamTombstoningCompliance{TFixture,TOperations,TQuerySession}"/>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>, the same declare-the-surface-then-implement ordering as
+    /// <see cref="SupportsUpcasting"/>: the members carry a throwing default on the shared contract
+    /// (jasperfx#1014), so a store enrolls the suite, implements them, then flips this.
+    /// </remarks>
+    public virtual bool SupportsTombstoneStream => false;
+
+    /// <summary>
     /// Queue an unarchive of the given stream on the session — <paramref name="streamIdentity"/> is
     /// a <see cref="Guid"/> or a <see cref="string"/>. Like <c>ArchiveStream</c>, this takes effect
     /// on SaveChanges rather than immediately.

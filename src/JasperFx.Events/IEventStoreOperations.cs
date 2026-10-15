@@ -96,6 +96,45 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     void ArchiveStream(string streamKey);
 
     /// <summary>
+    /// Permanently delete a stream and every event in it. Queued until <c>SaveChangesAsync</c>, like
+    /// <see cref="ArchiveStream(Guid)"/>.
+    /// </summary>
+    /// <param name="streamId">Identity of the stream to delete.</param>
+    /// <remarks>
+    /// <para>
+    /// Unlike <see cref="ArchiveStream(Guid)"/>, which only sets a flag, this destroys data: the
+    /// stream's events, their tag (DCB) rows and the stream itself are gone, and cannot be re-read or
+    /// re-projected. Archiving is what you want for a stream that is merely finished; this is for
+    /// purging, e.g. data retention or erasure.
+    /// </para>
+    /// <para>
+    /// The contract every implementation keeps, pinned by the <c>StreamTombstoningCompliance</c> suite:
+    /// only the stream in the session's tenant is deleted, deleting a stream that does not exist is not
+    /// an error, the identity can be used to start a new stream afterwards, and the deleted events'
+    /// sequence numbers are never reused, so a tombstoned stream cannot hide later events behind an
+    /// async projection's high-water mark. Documents already projected from the stream are left alone.
+    /// </para>
+    /// <para>
+    /// A default-implemented member for the reason <see cref="CompactStreamAsync{T}(Guid, Action{Protected.StreamCompactingRequest{T}})"/>
+    /// gives: a store that has not implemented it stays source-compatible and refuses at runtime
+    /// (jasperfx#1014).
+    /// </para>
+    /// </remarks>
+    void TombstoneStream(Guid streamId)
+        => throw new NotSupportedException(
+            "Deleting a stream is not implemented on this event store. Use ArchiveStream, or an event store that implements TombstoneStream.");
+
+    /// <summary>
+    /// Permanently delete a stream and every event in it. Queued until <c>SaveChangesAsync</c>, like
+    /// <see cref="ArchiveStream(string)"/>.
+    /// </summary>
+    /// <param name="streamKey">String identity of the stream to delete.</param>
+    /// <inheritdoc cref="TombstoneStream(Guid)" path="/remarks"/>
+    void TombstoneStream(string streamKey)
+        => throw new NotSupportedException(
+            "Deleting a stream is not implemented on this event store. Use ArchiveStream, or an event store that implements TombstoneStream.");
+
+    /// <summary>
     /// Compact a stream by replacing its earlier events with a single <c>Compacted&lt;T&gt;</c> event
     /// establishing the snapshot. Use when older stream data no longer matters but database size and
     /// replay cost do.
