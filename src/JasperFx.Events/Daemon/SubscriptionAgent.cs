@@ -131,15 +131,25 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // warm-up cannot starve the next one out of the throttle for the daemon's lifetime.
         releaseWarmupSlot();
 
-        if (_heartbeatTimer != null)
-        {
-            await _heartbeatTimer.DisposeAsync().ConfigureAwait(false);
-            _heartbeatTimer = null;
-        }
+        await stopHeartbeatAsync().ConfigureAwait(false);
 
         await _cancellation.CancelAsync().ConfigureAwait(false);
         _commandBlock.Complete();
         await _execution.DisposeAsync().ConfigureAwait(false);
+    }
+
+    // jasperfx#1022: the heartbeat is a recurring System.Threading.Timer, so the runtime's timer queue roots
+    // it, and its callback roots this agent and everything the agent holds (tracker, execution, loader, and
+    // through them the store). Every path that ends the agent has to come through here, not only
+    // DisposeAsync: a graceful stop that left it armed kept every stopped daemon's agents -- and their hosts
+    // -- alive for the life of the process.
+    private async ValueTask stopHeartbeatAsync()
+    {
+        var timer = Interlocked.Exchange(ref _heartbeatTimer, null);
+        if (timer != null)
+        {
+            await timer.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     public ShardName Name { get; }
@@ -240,10 +250,15 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }
         finally
         {
-            // jasperfx#598: a graceful stop does NOT dispose the agent (the daemon just drops it from its
-            // registry), so this is the only place a shard stopped mid warm-up can hand its throttle slot
-            // back. Without it, one stopped shard starves the warm-up throttle for the daemon's lifetime.
+            // jasperfx#598: a graceful stop does not dispose the agent (the daemon disposes what it drops,
+            // but a caller holding an agent of its own may not), so this is the only place a shard stopped
+            // mid warm-up is sure to hand its throttle slot back. Without it, one stopped shard starves the
+            // warm-up throttle for the daemon's lifetime.
             releaseWarmupSlot();
+
+            // jasperfx#1022: a drained agent cannot run again (its command block is complete), so nothing is
+            // lost by stopping its heartbeat here, whether or not anything disposes it afterward.
+            await stopHeartbeatAsync().ConfigureAwait(false);
 
             _logger.LogInformation("Stopped projection agent {Name}", ProjectionShardIdentity);
             Status = AgentStatus.Stopped;
@@ -807,6 +822,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
     private void startHeartbeatTimer()
     {
+        // A second start must not orphan the first timer, which nothing could dispose afterward
+        Interlocked.Exchange(ref _heartbeatTimer, null)?.Dispose();
+
         _heartbeatTimer = new Timer(_ =>
         {
             if (_cancellation.IsCancellationRequested) return;

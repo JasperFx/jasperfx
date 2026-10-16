@@ -310,6 +310,17 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         if (_disposed) return;
         _disposed = true;
 
+        // jasperfx#1022: a daemon disposed without StopAllAsync first still holds its agents. Each one's
+        // disposal is effectively synchronous (its timer, its cancellation, completing its blocks), so it is
+        // left to finish in the background like the progression writer below rather than blocking a sync
+        // Dispose.
+        var agents = _agents.Enumerate().Select(x => x.Value).ToArray();
+        _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
+        foreach (var agent in agents)
+        {
+            _ = disposeAgentAsync(agent);
+        }
+
         _cancellation?.Dispose();
         _highWater?.Dispose();
         _tenantHighWaterTimer?.Stop();
@@ -901,7 +912,26 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             {
                 _agents = _agents.Remove(shardIdentity);
                 syncTenantPolling();
+                await disposeAgentAsync(agent).ConfigureAwait(false);
             }
+        }
+    }
+
+    // jasperfx#1022: an agent the daemon drops is disposed, never just forgotten: a stopped SubscriptionAgent
+    // that nothing disposes keeps its execution and its loader, and until it stopped its own heartbeat on a
+    // drain, the runtime's timer queue rooted it with the whole store behind it. Idempotent on the agent's
+    // side, so an agent that already disposed itself (a critical failure, a hard stop) is a no-op here.
+    private async Task disposeAgentAsync(ISubscriptionAgent agent)
+    {
+        if (agent is not IAsyncDisposable disposable) return;
+
+        try
+        {
+            await disposable.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            Logger.LogError(e, "Error trying to dispose the subscription agent for '{Name}'", agent.Name.Identity);
         }
     }
 
@@ -928,6 +958,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 {
                     _agents = _agents.Remove(shardName);
                     syncTenantPolling();
+                    await disposeAgentAsync(agent).ConfigureAwait(false);
 
                     if (!_agents.Enumerate().Any() && _highWater.IsRunning)
                     {
@@ -1069,6 +1100,13 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             catch (Exception e)
             {
                 Logger.LogError(e, "Error trying to drain the extended progression writer");
+            }
+
+            // Every agent, not only the running ones drained above: a paused or stopped agent still in the
+            // registry is dropped here too, and nothing else will ever dispose it.
+            foreach (var agent in _agents.Enumerate().Select(x => x.Value).ToArray())
+            {
+                await disposeAgentAsync(agent).ConfigureAwait(false);
             }
 
             _agents = ImHashMap<string, ISubscriptionAgent>.Empty;
@@ -1822,6 +1860,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             {
                 Logger.LogError(e, "Error trying to stop and drain agent {Name} after rebuilding", agent.Name.Identity);
             }
+
+            await disposeAgentAsync(agent).ConfigureAwait(false);
         }
 
         if (source.Lifecycle == ProjectionLifecycle.Inline)
@@ -1932,6 +1972,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             {
                 Logger.LogError(e, "Error trying to stop and drain tenant rebuild agent {Name}", agent.Name.Identity);
             }
+
+            await disposeAgentAsync(agent).ConfigureAwait(false);
         }
     }
 
