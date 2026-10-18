@@ -2092,6 +2092,19 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     public async Task RewindSubscriptionAsync(string subscriptionName, CancellationToken token, long? sequenceFloor = 0,
         DateTimeOffset? timestamp = null)
     {
+        // Under per-tenant event partitioning every tenant runs its own agent ("{Name}:{ShardKey}:{tenant}")
+        // over its own sequence and progression row, so the store-global path below would stop every
+        // tenant's agent, rewind only the store-global row, and restart store-global agents that read every
+        // tenant's overlapping sequences. Rewind each tenant agent's own shards instead. While this daemon runs
+        // no tenant agent of the subscription -- no tenant registered yet, so StartAllAsync kept the
+        // store-global shard -- the store-global path still applies.
+        if (_tenantHighWater != null
+            && await rewindSubscriptionPerTenantAsync(subscriptionName, token, sequenceFloor, timestamp)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (timestamp.HasValue)
         {
             sequenceFloor = await Database.FindEventStoreFloorAtTimeAsync(timestamp.Value, token).ConfigureAwait(false);
@@ -2123,6 +2136,130 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // the same progression row. Under a store-owned coordinator this was masked; under
             // Wolverine-managed distribution (no coordinator) it left the shard effectively orphaned.
             await registerStartedAgentAsync(agent).ConfigureAwait(false);
+        }
+    }
+
+    // jasperfx#407 declared this overload with a default that throws for a tenant. A null tenant is the
+    // store-global rewind above; a tenant rewinds only that tenant's shards, which is what a
+    // node-distributed host rewinding one tenant agent (Wolverine's EventSubscriptionAgent) asks for.
+    public Task RewindSubscriptionAsync(string subscriptionName, string? tenantId, CancellationToken token,
+        long? sequenceFloor = 0, DateTimeOffset? timestamp = null)
+    {
+        if (tenantId == null)
+        {
+            return RewindSubscriptionAsync(subscriptionName, token, sequenceFloor, timestamp);
+        }
+
+        if (_tenantHighWater == null)
+        {
+            throw new NotSupportedException(
+                $"Per-tenant RewindSubscriptionAsync needs an event store that uses per-tenant event partitioning, which database {Database.Identifier} does not.");
+        }
+
+        return rewindSubscriptionForTenantAsync(subscriptionName, tenantId, token, sequenceFloor, timestamp);
+    }
+
+    // The tenants are the ones this daemon runs an agent of the subscription for, never the store's whole tenant
+    // list: under a node-distributed host another node runs the other tenants, and rewinding a row that node's
+    // agent is advancing would fail its next progress write, while restarting it here would run a duplicate.
+    // False when this daemon runs no tenant agent of the subscription, so the caller falls through to the
+    // store-global rewind.
+    private async Task<bool> rewindSubscriptionPerTenantAsync(string subscriptionName, CancellationToken token,
+        long? sequenceFloor, DateTimeOffset? timestamp)
+    {
+        // A sequence number is a position in ONE tenant's own sequence. Applied to every tenant it would skip
+        // events in a tenant that is behind it and replay the wrong ones in a tenant that is ahead of it.
+        // From the beginning (0) and from a point in time mean the same thing in every tenant.
+        if (!timestamp.HasValue && sequenceFloor is > 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sequenceFloor),
+                $"Cannot rewind subscription '{subscriptionName}' to sequence {sequenceFloor} in every tenant: under per-tenant event partitioning each tenant has its own event sequence, so a sequence number only identifies a position in one tenant's events. Use RewindSubscriptionAsync(subscriptionName, tenantId, token, sequenceFloor) for that tenant, or rewind every tenant to the beginning (sequenceFloor: 0) or to a point in time (timestamp).");
+        }
+
+        var tenants = CurrentAgents()
+            .Where(x => x.Name.Name.EqualsIgnoreCase(subscriptionName) && x.Name.TenantId != null)
+            .Select(x => x.Name.TenantId!)
+            .Distinct()
+            .ToArray();
+
+        if (tenants.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var tenantId in tenants)
+        {
+            if (_cancellation.IsCancellationRequested) break;
+
+            await rewindSubscriptionForTenantAsync(subscriptionName, tenantId, token, sequenceFloor ?? 0, timestamp)
+                .ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    // The store-global rewind, scoped to ShardName.ForTenant(tenantId): only this tenant's agents stop, only
+    // its progression rows are rewound -- through the tenant agent's own identity, exactly as
+    // tryStartAgentAsync seeds a tenant shard's row -- and its agents restart against its own high-water.
+    private async Task rewindSubscriptionForTenantAsync(string subscriptionName, string tenantId,
+        CancellationToken token, long? sequenceFloor, DateTimeOffset? timestamp)
+    {
+        var shards = _store.AllShards()
+            .Where(x => x.Name.Name.EqualsIgnoreCase(subscriptionName))
+            .Select(x => x with { Name = x.Name.ForTenant(tenantId) })
+            .ToArray();
+
+        if (shards.Length == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(subscriptionName),
+                $"Unknown subscription name '{subscriptionName}'. Available options are {_store.AllShards().Select(x => x.Name.Name).Distinct().Join(", ")}");
+        }
+
+        if (timestamp.HasValue)
+        {
+            sequenceFloor = await Database.FindEventStoreFloorAtTimeAsync(timestamp.Value, tenantId, token)
+                .ConfigureAwait(false);
+            if (sequenceFloor == null) return;
+        }
+
+        var floor = sequenceFloor ?? 0;
+
+        if (_cancellation.IsCancellationRequested) return;
+
+        await stopRunningAgentsForTenant(subscriptionName, tenantId).ConfigureAwait(false);
+
+        if (_cancellation.IsCancellationRequested) return;
+
+        foreach (var shard in shards)
+        {
+            await _store.RewindSubscriptionProgressAsync(Database, shard.Name.Identity, token, floor)
+                .ConfigureAwait(false);
+        }
+
+        // jasperfx#710: Pin, so a concurrent syncTenantPolling() cannot drop the tenant -- whose agents were
+        // just stopped -- before its ceiling is read
+        _tenantHighWater!.PolledTenants.Pin(tenantId);
+        try
+        {
+            await pollTenantHighWaterAsync().ConfigureAwait(false);
+
+            // marten#4717: a tenant agent advances against its own tenant's high-water, never the store-global mark
+            var ceiling = _tenantHighWater.CeilingFor(tenantId) ?? 0L;
+
+            foreach (var shard in shards)
+            {
+                var agent = buildAgentForShard(shard);
+                Tracker.MarkAsRestarted(agent.Name);
+                await agent.StartAsync(new SubscriptionExecutionRequest(floor, ShardExecutionMode.Continuous,
+                    _store.RebuildErrors, this) { StartingHighWater = ceiling }).ConfigureAwait(false);
+                agent.MarkHighWater(ceiling);
+
+                await registerStartedAgentAsync(agent).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _tenantHighWater.PolledTenants.Unpin(tenantId);
         }
     }
 

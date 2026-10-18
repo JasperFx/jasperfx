@@ -321,6 +321,13 @@ public interface IProjectionDaemon: IDisposable
     /// Rewinds a subscription (or projection, so be careful with this usage) to a certain point
     /// and allows it to restart at that point
     /// </summary>
+    /// <remarks>
+    /// Under per-tenant event partitioning this rewinds the subscription's own shards for each tenant whose
+    /// agent this daemon runs. Each tenant has its own event sequence there, so a non-zero
+    /// <paramref name="sequenceFloor" /> identifies a position in one tenant's events only and is refused with an
+    /// <see cref="ArgumentOutOfRangeException" />: rewind that tenant through
+    /// <see cref="RewindSubscriptionAsync(string, string?, CancellationToken, long?, DateTimeOffset?)" />.
+    /// </remarks>
     /// <param name="subscriptionName">Name of the subscription</param>
     /// <param name="token"></param>
     /// <param name="sequenceFloor">The point at which to rewind the subscription. The default is zero</param>
