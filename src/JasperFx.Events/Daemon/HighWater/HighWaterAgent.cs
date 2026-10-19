@@ -43,6 +43,12 @@ public class HighWaterAgent: IDisposable
     // can never run beside the fresh loop.
     private int _loopGeneration;
 
+    // jasperfx#1027: progress watchdog bookkeeping. The mark the watchdog last saw, when it first saw it, and
+    // when it last probed the committed ceiling. Only touched inside checkState under the _remediating guard.
+    private long _watchedMark = -1;
+    private DateTimeOffset _watchedMarkSince;
+    private DateTimeOffset _lastStallProbe;
+
     // ReSharper disable once ContextualLoggerProblem
     public HighWaterAgent(Meter meter, IHighWaterDetector detector, ShardStateTracker tracker,
         ILogger logger,
@@ -74,7 +80,15 @@ public class HighWaterAgent: IDisposable
 
     public async Task StartAsync()
     {
-        _current = await _detector.Detect(_token).ConfigureAwait(false);
+        var initial = await _detector.Detect(_token).ConfigureAwait(false);
+        await launchAsync(initial).ConfigureAwait(false);
+    }
+
+    // jasperfx#1027: everything StartAsync does once the mark has been detected. Split out so RestartAsync can
+    // detect first and only touch the running loop once it has a mark to hand over.
+    private async Task launchAsync(HighWaterStatistics initial)
+    {
+        _current = initial;
 
         // jasperfx#539: seed the liveness heartbeat so IsStale is meaningful from the first cycle and the
         // Started state carries a heartbeat for consumers that only watch the live Tracker.
@@ -163,6 +177,13 @@ public class HighWaterAgent: IDisposable
         }
     }
 
+    // jasperfx#1027: true while this loop is the one the agent is running. A loop retired by RestartAsync can
+    // still be parked inside a Detect that only returns minutes later, so it checks this after every await that
+    // could have outlived it, not only at the top of the cycle, and never writes _current or the tracker once
+    // it has been replaced.
+    private bool isCurrentLoop(int generation)
+        => IsRunning && Volatile.Read(ref _loopGeneration) == generation;
+
     private async Task detectChanges(int generation)
     {
         if (!IsRunning)
@@ -175,6 +196,12 @@ public class HighWaterAgent: IDisposable
         try
         {
             var next = await _detector.Detect(_token).ConfigureAwait(false);
+            if (!isCurrentLoop(generation))
+            {
+                logLoopExit(generation);
+                return;
+            }
+
             if (_current == null || next.CurrentMark > _current.CurrentMark)
             {
                 _current = next;
@@ -192,7 +219,7 @@ public class HighWaterAgent: IDisposable
         {
             // jasperfx#539: a superseded loop (RestartAsync bumped the generation) exits before doing any
             // work, so a wedged loop that later recovers can never run beside its replacement.
-            if (!IsRunning || Volatile.Read(ref _loopGeneration) != generation)
+            if (!isCurrentLoop(generation))
             {
                 break;
             }
@@ -234,16 +261,22 @@ public class HighWaterAgent: IDisposable
                 continue;
             }
 
+            // jasperfx#1027: this Detect may have been the hung one the watchdog restarted around.
+            if (!isCurrentLoop(generation))
+            {
+                break;
+            }
+
             var status = tagActivity(statistics, activity);
 
             switch (status)
             {
                 case HighWaterStatus.Changed:
-                    await markProgressAsync(statistics, _settings.FastPollingTime, status).ConfigureAwait(false);
+                    await markProgressAsync(statistics, _settings.FastPollingTime, status, generation).ConfigureAwait(false);
                     break;
 
                 case HighWaterStatus.CaughtUp:
-                    await markProgressAsync(statistics, _settings.SlowPollingTime, status).ConfigureAwait(false);
+                    await markProgressAsync(statistics, _settings.SlowPollingTime, status, generation).ConfigureAwait(false);
                     break;
 
                 case HighWaterStatus.Stale:
@@ -267,6 +300,11 @@ public class HighWaterAgent: IDisposable
                     var lastKnown = statistics.CurrentMark;
 
                     statistics = await _detector.DetectInSafeZone(_token).ConfigureAwait(false);
+                    if (!isCurrentLoop(generation))
+                    {
+                        // Back to the top of the loop, which exits.
+                        continue;
+                    }
 
                     status = tagActivity(statistics, activity);
                     activity?.SetTag("last.mark", lastKnown);
@@ -278,12 +316,31 @@ public class HighWaterAgent: IDisposable
                     
                     _skipping.Add(1);
 
-                    await markProgressAsync(statistics, _settings.FastPollingTime, status).ConfigureAwait(false);
+                    await markProgressAsync(statistics, _settings.FastPollingTime, status, generation).ConfigureAwait(false);
                     break;
             }
         }
 
-        _logger.LogInformation("HighWaterAgent has detected a cancellation and has stopped polling for database {Name}", _detector.DatabaseUri);
+        logLoopExit(generation);
+    }
+
+    // jasperfx#1027: this used to say "detected a cancellation" for every exit. In the field the loop had in
+    // fact been retired by a watchdog restart, which sent the reader looking for a cancellation that never
+    // happened in the middle of an incident.
+    private void logLoopExit(int generation)
+    {
+        if (_token.IsCancellationRequested)
+        {
+            _logger.LogInformation("HighWaterAgent has detected a cancellation and has stopped polling for database {Name}", _detector.DatabaseUri);
+        }
+        else if (Volatile.Read(ref _loopGeneration) != generation)
+        {
+            _logger.LogInformation("HighWaterAgent polling loop for database {Name} was replaced by a restart and has exited", _detector.DatabaseUri);
+        }
+        else
+        {
+            _logger.LogInformation("HighWaterAgent was stopped and has stopped polling for database {Name}", _detector.DatabaseUri);
+        }
     }
 
     private HighWaterStatus tagActivity(HighWaterStatistics statistics, Activity? activity)
@@ -296,9 +353,10 @@ public class HighWaterAgent: IDisposable
         return status;
     }
 
-    private async Task markProgressAsync(HighWaterStatistics statistics, TimeSpan delayTime, HighWaterStatus status)
+    private async Task markProgressAsync(HighWaterStatistics statistics, TimeSpan delayTime, HighWaterStatus status,
+        int generation)
     {
-        if (!IsRunning)
+        if (!isCurrentLoop(generation))
         {
             return;
         }
@@ -382,25 +440,58 @@ public class HighWaterAgent: IDisposable
     }
 
     /// <summary>
-    /// jasperfx#539: stop then start the poll loop. StartAsync re-reads the real mark via Detect, so this
+    /// jasperfx#539: replace the poll loop with a fresh one. The mark is re-read via Detect, so this
     /// re-establishes the loop WITHOUT ever advancing the high-water mark. Publishes a <see cref="ShardAction.Restarted"/>
     /// state so consumers can distinguish a remediation from an ordinary advance.
+    /// <para>
+    /// jasperfx#1027: if that Detect fails (the database is still down) this throws and leaves the agent exactly
+    /// as it found it: the existing loop keeps its place, <see cref="IsRunning"/> is unchanged and the watchdog
+    /// timer keeps running, so the next health check tries again. The Detect is bounded by
+    /// <see cref="DaemonSettings.HighWaterStalenessThreshold"/> so a hung connection cannot hold the watchdog.
+    /// </para>
     /// </summary>
-    public async Task RestartAsync()
+    public Task RestartAsync() => restartAsync(fromWatchdog: false);
+
+    private async Task restartAsync(bool fromWatchdog)
     {
         if (_token.IsCancellationRequested)
         {
             return;
         }
 
-        // Detach the current loop WITHOUT awaiting it. A stale loop is wedged by definition — a hung Detect
-        // or a wakeup that stopped firing — so awaiting it, as a graceful StopAsync would, hangs the very
-        // remediation meant to recover from that. StartAsync bumps _loopGeneration, so the abandoned loop
-        // becomes a no-op the instant it ever resumes and cannot double-run beside the fresh loop.
-        _timer.Stop();
-        IsRunning = false;
+        // jasperfx#1027: detect BEFORE touching the running loop. This used to stop the timer and clear IsRunning
+        // first and then call StartAsync, so a Detect that threw during an outage left the agent with no loop, no
+        // timer and IsRunning == false (which also turns IsStale off): nothing would ever try again, and the mark
+        // stayed frozen until the process restarted. Worse, the wedged loop it gave up on would have recovered by
+        // itself once the database came back; clearing IsRunning is what made it exit.
+        HighWaterStatistics initial;
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(_token))
+        {
+            timeout.CancelAfter(_settings.HighWaterStalenessThreshold);
+            try
+            {
+                initial = await _detector.Detect(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException e) when (!_token.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Timed out after {_settings.HighWaterStalenessThreshold} detecting the high water mark for database {_detector.DatabaseUri} while restarting the HighWaterAgent",
+                    e);
+            }
+        }
 
-        await StartAsync().ConfigureAwait(false);
+        // IsRunning stays true for the whole of a restart now, so if it is false here StopAsync ran while we were
+        // detecting. The watchdog must not bring back a loop (and the timer) that was just deliberately stopped.
+        if (fromWatchdog && !IsRunning)
+        {
+            return;
+        }
+
+        // Retire the current loop WITHOUT awaiting it. A stale loop is wedged by definition — a hung Detect or a
+        // wakeup that stopped firing — so awaiting it, as a graceful StopAsync would, hangs the very remediation
+        // meant to recover from that. launchAsync bumps _loopGeneration, so the abandoned loop becomes a no-op the
+        // instant it ever resumes and cannot double-run beside the fresh loop. The timer is left running throughout.
+        await launchAsync(initial).ConfigureAwait(false);
         await publishStatusAsync(ShardAction.Restarted, "Restarted").ConfigureAwait(false);
     }
 
@@ -432,9 +523,11 @@ public class HighWaterAgent: IDisposable
     }
 
     // jasperfx#539: the watchdog now restarts the loop when it has *faulted* OR gone *stale* (stopped
-    // completing cycles within HighWaterStalenessThreshold). Restarts are capped to once per threshold window
-    // and never overlap. Staleness is only meaningful for Path A — under partitioning the daemon governs the
-    // tenant high-water path instead, so this bails out early.
+    // completing cycles within HighWaterStalenessThreshold). jasperfx#1027 adds a third reason, *stalled*: the
+    // loop may be cycling, but the mark has not moved for HighWaterProgressStallThreshold while the database
+    // holds committed events above it. Restarts are capped to once per threshold window and never overlap.
+    // Staleness is only meaningful for Path A — under partitioning the daemon governs the tenant high-water
+    // path instead, so this bails out early.
     private async Task checkState()
     {
         if (_token.IsCancellationRequested || _detector.SupportsTenantPartitioning)
@@ -442,16 +535,7 @@ public class HighWaterAgent: IDisposable
             return;
         }
 
-        var faulted = Faulted;
-        var now = DateTimeOffset.UtcNow;
-        var stale = IsStale(_settings.HighWaterStalenessThreshold, now);
-
-        if (!faulted && !stale)
-        {
-            return;
-        }
-
-        // Don't let overlapping timer ticks pile up concurrent restarts.
+        // Don't let overlapping timer ticks pile up concurrent restarts, or concurrent stall probes.
         if (Interlocked.CompareExchange(ref _remediating, 1, 0) == 1)
         {
             return;
@@ -459,6 +543,19 @@ public class HighWaterAgent: IDisposable
 
         try
         {
+            var now = DateTimeOffset.UtcNow;
+            var faulted = Faulted;
+            var stale = !faulted && IsStale(_settings.HighWaterStalenessThreshold, now);
+
+            // Only probe the database when the loop otherwise looks healthy; a faulted or stale loop is
+            // restarted regardless.
+            var stall = faulted || stale ? null : await probeForStallAsync(now).ConfigureAwait(false);
+
+            if (!faulted && !stale && stall == null)
+            {
+                return;
+            }
+
             // Cap remediation to once per staleness window so a loop that fails to re-establish isn't
             // thrashed by the (much faster) health-check timer.
             if (_lastRemediation != default && now - _lastRemediation < _settings.HighWaterStalenessThreshold)
@@ -474,23 +571,87 @@ public class HighWaterAgent: IDisposable
                     "HighWaterAgent polling loop faulted for database {Name}; restarting", _detector.DatabaseUri);
                 await publishStatusAsync(ShardAction.Faulted, "Faulted").ConfigureAwait(false);
             }
-            else
+            else if (stale)
             {
                 _logger.LogWarning(
                     "HighWaterAgent polling loop for database {Name} has not completed a cycle within {Threshold}; restarting",
                     _detector.DatabaseUri, _settings.HighWaterStalenessThreshold);
             }
+            else
+            {
+                var (mark, ceiling) = stall!.Value;
+                _logger.LogWarning(
+                    "HighWaterAgent for database {Name} has held the high water mark at {CurrentMark} for over {Threshold} while events are committed up to {Ceiling}; restarting. A restart never advances the mark, so if this repeats the detector is holding it on purpose, most likely behind a sequence gap reserved by a transaction that is still open",
+                    _detector.DatabaseUri, mark, _settings.HighWaterProgressStallThreshold, ceiling);
+            }
 
-            await RestartAsync().ConfigureAwait(false);
+            await restartAsync(fromWatchdog: true).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error trying to restart the HighWaterAgent for database {Name}", _detector.DatabaseUri);
+            _logger.LogError(ex,
+                "Error trying to restart the HighWaterAgent for database {Name}; the next health check will try again",
+                _detector.DatabaseUri);
         }
         finally
         {
             Volatile.Write(ref _remediating, 0);
         }
+    }
+
+    // jasperfx#1027: the heartbeat behind IsStale proves the loop is cycling, not that it is getting anywhere,
+    // and it only exists while the loop is the thing doing the detecting. This asks the database directly, outside
+    // the loop: once the mark has sat still for HighWaterProgressStallThreshold, read the committed ceiling (at
+    // most once per window) and report a stall if events are committed above the mark. The ceiling is the
+    // committed height, not HighestSequence, so a rolled-back tail of reserved sequence numbers is not a stall.
+    // A probe that fails is not a stall: the database is unreachable, and the loop's own error handling and the
+    // staleness check already cover that. The probe runs under the _remediating guard, so it is bounded by the
+    // staleness threshold rather than the (longer) stall window: a hung probe must not keep the watchdog from
+    // noticing a wedged loop.
+    private async Task<(long Mark, long Ceiling)?> probeForStallAsync(DateTimeOffset now)
+    {
+        if (_settings.HighWaterProgressStallThreshold is not { } window || window <= TimeSpan.Zero || !IsRunning)
+        {
+            return null;
+        }
+
+        var mark = _tracker.HighWaterMark;
+        if (mark != _watchedMark)
+        {
+            _watchedMark = mark;
+            _watchedMarkSince = now;
+            return null;
+        }
+
+        if (now - _watchedMarkSince < window || now - _lastStallProbe < window)
+        {
+            return null;
+        }
+
+        _lastStallProbe = now;
+
+        long ceiling;
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(_token))
+        {
+            timeout.CancelAfter(_settings.HighWaterStalenessThreshold);
+            try
+            {
+                ceiling =await _detector.FetchCommittedHighWaterCeilingAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                if (!_token.IsCancellationRequested)
+                {
+                    _logger.LogDebug(e,
+                        "HighWaterAgent could not read the committed high water ceiling for database {Name} to check for a stalled mark",
+                        _detector.DatabaseUri);
+                }
+
+                return null;
+            }
+        }
+
+        return ceiling > mark ? (mark, ceiling) : null;
     }
 
     /// <summary>
