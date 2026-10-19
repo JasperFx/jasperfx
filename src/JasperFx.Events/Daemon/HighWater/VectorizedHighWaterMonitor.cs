@@ -24,7 +24,10 @@ public class VectorizedHighWaterMonitor
     // (on top of the pre-existing OnNext-driven and timer-driven poll paths), and an unguarded
     // Dictionary corrupts under concurrent writes. The detector round-trip stays outside the lock;
     // only the interpretation/bookkeeping section is serialized.
-    private readonly Dictionary<string, HighWaterStatistics> _current = new();
+    // Each reading is kept with the PolledTenantSet membership it was taken under: a tenant that left the
+    // polled set and came back may be a new incarnation of itself, so its mark is only monotonic within one
+    // membership.
+    private readonly Dictionary<string, (HighWaterStatistics Statistics, long Membership)> _current = new();
     private readonly object _lock = new();
 
     public VectorizedHighWaterMonitor(IHighWaterDetector detector, ILogger? logger = null)
@@ -58,18 +61,18 @@ public class VectorizedHighWaterMonitor
     private async Task<IReadOnlyList<TenantHighWaterReading>> pollAsync(
         Func<IReadOnlyCollection<string>, CancellationToken, Task<HighWaterVector>> detect, CancellationToken token)
     {
-        var tenants = PolledTenants.Snapshot();
+        var tenants = PolledTenants.SnapshotMemberships();
         if (tenants.Count == 0)
         {
             return [];
         }
 
-        var vector = await detect(tenants, token).ConfigureAwait(false);
+        var vector = await detect(tenants.Keys, token).ConfigureAwait(false);
 
         var readings = new List<TenantHighWaterReading>(tenants.Count);
         lock (_lock)
         {
-            foreach (var tenantId in tenants)
+            foreach (var (tenantId, membership) in tenants)
             {
                 if (!vector.TryGetStatistics(tenantId, out var statistics))
                 {
@@ -78,19 +81,32 @@ public class VectorizedHighWaterMonitor
                     continue;
                 }
 
-                // Independent gap detection: interpret against THIS tenant's previous reading only. On the
-                // first sighting we compare the reading against itself, which yields CaughtUp/Changed but
-                // never a spurious Stale driven by another tenant.
-                var previous = _current.TryGetValue(tenantId, out var prior) ? prior : statistics;
-                var status = statistics.InterpretStatus(previous);
-
-                // Advance the stored mark monotonically; a stale tenant keeps its last good mark.
-                if (!_current.TryGetValue(tenantId, out var existing) || statistics.CurrentMark >= existing.CurrentMark)
+                // The tenant left the polled set and came back while this poll was in flight, so the reading
+                // may describe the incarnation that left. Drop it; the next poll reads the one that is here.
+                if (PolledTenants.MembershipOf(tenantId) is { } now && now != membership)
                 {
-                    _current[tenantId] = statistics;
+                    continue;
                 }
 
-                readings.Add(new TenantHighWaterReading(tenantId, statistics, status));
+                // Independent gap detection: interpret against THIS tenant's previous reading only. On the
+                // first sighting we compare the reading against itself, which yields CaughtUp/Changed but
+                // never a spurious Stale driven by another tenant. The first reading since the tenant
+                // (re)joined the polled set is a first sighting too.
+                var sameMembership = _current.TryGetValue(tenantId, out var prior) && prior.Membership == membership;
+                var previous = sameMembership ? prior.Statistics : statistics;
+                var status = statistics.InterpretStatus(previous);
+
+                // Advance the stored mark monotonically; a stale tenant keeps its last good mark. Only within
+                // one membership, though: a tenant removed and re-added at runtime (Marten's
+                // RemoveTenantFromShardAsync, then AddTenantToShardAsync) leaves the polled set when its agents
+                // are reaped and comes back with a new event sequence that starts again at 1. Holding it at the
+                // old mark seeded its new agent above events that had not been read yet, and they were skipped.
+                if (!sameMembership || statistics.CurrentMark >= prior.Statistics.CurrentMark)
+                {
+                    _current[tenantId] = (statistics, membership);
+                }
+
+                readings.Add(new TenantHighWaterReading(tenantId, statistics, status) { Membership = membership });
             }
         }
 
@@ -102,11 +118,17 @@ public class VectorizedHighWaterMonitor
     /// that tenant. A per-tenant rebuild scans only that tenant's partition up to this ceiling. Returns
     /// null when the tenant has not yet been polled.
     /// </summary>
+    /// <remarks>
+    /// A tenant that has left the polled set is still answered from its last reading until it is polled
+    /// again: StartAllAsync primes every tenant in one poll and seeds each one's agents from that reading,
+    /// while the tenants whose agents have not started yet leave the polled set and rejoin it. The first
+    /// reading after a tenant rejoins replaces its mark, even with a lower one.
+    /// </remarks>
     public long? CeilingFor(string tenantId)
     {
         lock (_lock)
         {
-            return _current.TryGetValue(tenantId, out var statistics) ? statistics.CurrentMark : null;
+            return _current.TryGetValue(tenantId, out var current) ? current.Statistics.CurrentMark : null;
         }
     }
 
@@ -117,7 +139,14 @@ public class VectorizedHighWaterMonitor
     {
         lock (_lock)
         {
-            return _current.TryGetValue(tenantId, out statistics!);
+            if (_current.TryGetValue(tenantId, out var current))
+            {
+                statistics = current.Statistics;
+                return true;
+            }
+
+            statistics = null!;
+            return false;
         }
     }
 }

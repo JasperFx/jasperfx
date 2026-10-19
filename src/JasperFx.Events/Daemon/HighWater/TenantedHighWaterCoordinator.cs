@@ -43,9 +43,11 @@ public class TenantedHighWaterCoordinator
     // steady-state cycle skip tenants whose mark did not advance instead of re-routing (one queued command
     // per agent per cycle) and re-persisting (one database write per tenant per cycle) 2,000+ unchanged
     // tenants forever. A failed persist is NOT recorded, so it retries next cycle exactly like the old
-    // unconditional write did.
-    private readonly Dictionary<string, long> _lastRoutedMarks = new();
-    private readonly Dictionary<string, long> _lastPersistedMarks = new();
+    // unconditional write did. Each mark is kept with the PolledTenantSet membership of the reading it came
+    // from: a tenant that left the polled set and came back may be a new incarnation whose sequence
+    // restarted, so a mark is only compared with one recorded under the same membership.
+    private readonly Dictionary<string, (long Mark, long Membership)> _lastRoutedMarks = new();
+    private readonly Dictionary<string, (long Mark, long Membership)> _lastPersistedMarks = new();
     private readonly object _marksLock = new();
 
     public TenantedHighWaterCoordinator(IHighWaterDetector detector, ILogger? logger = null)
@@ -155,6 +157,16 @@ public class TenantedHighWaterCoordinator
 
             var mark = reading.Statistics.CurrentMark;
 
+            // The tenant left the polled set and came back since this reading was taken: a cycle can outlast
+            // a tenant's removal, the reap of its agents and its re-add. The reading may describe the
+            // incarnation that left, so it is neither routed nor persisted; the next cycle reads the one
+            // that is here.
+            if (reading.TenantId != null && PolledTenants.MembershipOf(reading.TenantId) is { } membership &&
+                membership != reading.Membership)
+            {
+                continue;
+            }
+
             // Route only to that tenant's shards. A tenant's stale mark never reaches another tenant.
             // jasperfx#644: and only when the mark actually advanced — agents drop a non-advancing mark
             // anyway (SubscriptionAgent.Apply ignores <= HighWaterMark) and a newly started tenant agent
@@ -166,8 +178,7 @@ public class TenantedHighWaterCoordinator
                 bool advanced;
                 lock (_marksLock)
                 {
-                    advanced = !_lastRoutedMarks.TryGetValue(reading.TenantId, out var lastRouted) ||
-                               mark > lastRouted;
+                    advanced = hasAdvanced(_lastRoutedMarks, reading.TenantId, mark, reading.Membership);
                 }
 
                 if (advanced)
@@ -179,7 +190,7 @@ public class TenantedHighWaterCoordinator
 
                     lock (_marksLock)
                     {
-                        _lastRoutedMarks[reading.TenantId] = mark;
+                        _lastRoutedMarks[reading.TenantId] = (mark, reading.Membership);
                     }
                 }
             }
@@ -196,8 +207,7 @@ public class TenantedHighWaterCoordinator
                 bool shouldPersist;
                 lock (_marksLock)
                 {
-                    shouldPersist = !_lastPersistedMarks.TryGetValue(reading.TenantId, out var lastPersisted) ||
-                                    mark > lastPersisted;
+                    shouldPersist = hasAdvanced(_lastPersistedMarks, reading.TenantId, mark, reading.Membership);
                 }
 
                 if (shouldPersist)
@@ -211,7 +221,7 @@ public class TenantedHighWaterCoordinator
 
                         lock (_marksLock)
                         {
-                            _lastPersistedMarks[reading.TenantId] = mark;
+                            _lastPersistedMarks[reading.TenantId] = (mark, reading.Membership);
                         }
                     }
                     catch (Exception e)
@@ -224,6 +234,15 @@ public class TenantedHighWaterCoordinator
         }
 
         return readings;
+    }
+
+    // Callers hold _marksLock. A mark recorded under another membership was recorded for an incarnation of
+    // the tenant that has since left the polled set: a tenant removed and re-added at runtime comes back with
+    // a new sequence, and its first marks are at or below the ones its removed incarnation reached.
+    private static bool hasAdvanced(Dictionary<string, (long Mark, long Membership)> marks, string tenantId,
+        long mark, long membership)
+    {
+        return !marks.TryGetValue(tenantId, out var last) || last.Membership != membership || mark > last.Mark;
     }
 
     /// <summary>

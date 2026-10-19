@@ -123,6 +123,91 @@ public class VectorizedHighWaterTests
         set.Count.ShouldBe(3);
         set.Snapshot().ShouldBe(["x", "y", "z"], ignoreOrder: true);
     }
+
+    [Fact]
+    public async Task a_tenant_that_leaves_and_rejoins_the_polled_set_is_read_afresh()
+    {
+        // A tenant that leaves this node's polled set and comes back may be a new incarnation of itself:
+        // removed and re-added at runtime (Marten's RemoveTenantFromShardAsync, then AddTenantToShardAsync),
+        // its event sequence starts again at 1. Its first reading after it rejoins replaces its mark.
+        var marks = new Dictionary<string, long> { ["a"] = 5 };
+        var detector = new FakeVectorDetector();
+        detector.EnqueueFactory(tenants => new HighWaterVector(tenants.Select(t => stat(t, marks[t], marks[t]))));
+        var monitor = new VectorizedHighWaterMonitor(detector);
+
+        monitor.PolledTenants.Activate("a");
+        await monitor.PollAsync(CancellationToken.None);
+
+        // While the tenant stays polled, a lower reading is still held at its mark.
+        marks["a"] = 3;
+        await monitor.PollAsync(CancellationToken.None);
+        monitor.CeilingFor("a").ShouldBe(5);
+
+        // Out of the polled set, its last reading still answers: StartAllAsync primes every tenant at once and
+        // then seeds each one's agents from that reading, while the tenants whose agents have not started yet
+        // are out of the polled set.
+        monitor.PolledTenants.Deactivate("a");
+        monitor.CeilingFor("a").ShouldBe(5);
+
+        monitor.PolledTenants.Activate("a");
+        marks["a"] = 1;
+        await monitor.PollAsync(CancellationToken.None);
+
+        monitor.CeilingFor("a").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task a_reading_taken_before_a_tenant_left_and_rejoined_the_polled_set_is_discarded()
+    {
+        // The detector round-trip runs outside the monitor's lock. A reading of a tenant that left the polled
+        // set and came back while it was in flight may describe the incarnation that was removed, and kept, it
+        // would hold the new incarnation's mark at that stale value.
+        var detector = new GatedVectorDetector();
+        var monitor = new VectorizedHighWaterMonitor(detector);
+        monitor.PolledTenants.Activate("a");
+
+        var inFlight = monitor.PollAsync(CancellationToken.None);
+        await detector.Entered.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        monitor.PolledTenants.Deactivate("a");
+        monitor.PolledTenants.Activate("a");
+        detector.Release(new HighWaterVector([stat("a", 9, 9)]));
+
+        (await inFlight).ShouldBeEmpty();
+        monitor.CeilingFor("a").ShouldBeNull();
+    }
+}
+
+// A vectorized detector whose poll blocks until released, so a test can change the polled set while a poll is
+// in flight.
+internal class GatedVectorDetector : IHighWaterDetector
+{
+    private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private readonly TaskCompletionSource<HighWaterVector> _release =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public Uri DatabaseUri { get; } = new("fake://db");
+
+    public bool SupportsTenantPartitioning => true;
+
+    public Task Entered => _entered.Task;
+
+    public void Release(HighWaterVector vector) => _release.TrySetResult(vector);
+
+    public Task<HighWaterStatistics> Detect(CancellationToken token) => Task.FromResult(new HighWaterStatistics());
+
+    public Task<HighWaterStatistics> DetectInSafeZone(CancellationToken token) => Detect(token);
+
+    public Task<HighWaterVector> DetectForTenantsAsync(IReadOnlyCollection<string> tenantIds, CancellationToken token)
+    {
+        _entered.TrySetResult();
+        return _release.Task;
+    }
+
+    public Task<HighWaterVector> DetectInSafeZoneForTenantsAsync(IReadOnlyCollection<string> tenantIds,
+        CancellationToken token)
+        => DetectForTenantsAsync(tenantIds, token);
 }
 
 internal class GlobalOnlyDetector : IHighWaterDetector

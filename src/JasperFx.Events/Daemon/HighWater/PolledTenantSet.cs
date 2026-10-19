@@ -10,7 +10,13 @@ namespace JasperFx.Events.Daemon.HighWater;
 public sealed class PolledTenantSet
 {
     private readonly object _lock = new();
-    private readonly HashSet<string> _tenants = new();
+
+    // Each polled tenant, with a stamp of its membership: a new one every time the tenant joins the set,
+    // kept for as long as it stays. A tenant that leaves and comes back may be a new incarnation of itself
+    // (a tenant removed and re-added at runtime starts its event sequence again at 1), and the stamp is what
+    // lets VectorizedHighWaterMonitor tell the two apart.
+    private readonly Dictionary<string, long> _tenants = new();
+    private long _lastMembership;
 
     // Tenants held in the set for the duration of an in-flight agent start, reference counted because
     // several shards of the same tenant can be starting at once. See Pin.
@@ -23,8 +29,17 @@ public sealed class PolledTenantSet
     {
         lock (_lock)
         {
-            return _tenants.Add(tenantId);
+            return join(tenantId);
         }
+    }
+
+    // Callers hold _lock.
+    private bool join(string tenantId)
+    {
+        if (_tenants.ContainsKey(tenantId)) return false;
+
+        _tenants[tenantId] = ++_lastMembership;
+        return true;
     }
 
     /// <summary>
@@ -60,7 +75,7 @@ public sealed class PolledTenantSet
         lock (_lock)
         {
             _pins[tenantId] = _pins.TryGetValue(tenantId, out var count) ? count + 1 : 1;
-            _tenants.Add(tenantId);
+            join(tenantId);
         }
     }
 
@@ -88,21 +103,26 @@ public sealed class PolledTenantSet
 
     /// <summary>
     /// Replace the polled set wholesale — convenient when the daemon receives a fresh assignment snapshot
-    /// from Wolverine rather than incremental activate/deactivate deltas. Pinned tenants survive.
+    /// from Wolverine rather than incremental activate/deactivate deltas. Pinned tenants survive. A tenant
+    /// in both the old and the new set never left it, so <see cref="VectorizedHighWaterMonitor" /> keeps
+    /// holding its mark monotonically.
     /// </summary>
     public void SetTenants(IEnumerable<string> tenantIds)
     {
         lock (_lock)
         {
-            _tenants.Clear();
-            foreach (var tenantId in tenantIds)
+            var assigned = new HashSet<string>(tenantIds);
+            assigned.UnionWith(_pins.Keys);
+
+            var departed = _tenants.Keys.Where(x => !assigned.Contains(x)).ToList();
+            foreach (var tenantId in departed)
             {
-                _tenants.Add(tenantId);
+                _tenants.Remove(tenantId);
             }
 
-            foreach (var pinned in _pins.Keys)
+            foreach (var tenantId in assigned)
             {
-                _tenants.Add(pinned);
+                join(tenantId);
             }
         }
     }
@@ -111,7 +131,7 @@ public sealed class PolledTenantSet
     {
         lock (_lock)
         {
-            return _tenants.Contains(tenantId);
+            return _tenants.ContainsKey(tenantId);
         }
     }
 
@@ -122,7 +142,26 @@ public sealed class PolledTenantSet
     {
         lock (_lock)
         {
-            return _tenants.ToList();
+            return _tenants.Keys.ToList();
+        }
+    }
+
+    // A point-in-time copy of the polled tenants with the stamp of each one's membership.
+    internal Dictionary<string, long> SnapshotMemberships()
+    {
+        lock (_lock)
+        {
+            return new Dictionary<string, long>(_tenants);
+        }
+    }
+
+    // The stamp of the tenant's current membership, or null when it is not polled. A tenant that leaves the
+    // set and joins it again gets a new one.
+    internal long? MembershipOf(string tenantId)
+    {
+        lock (_lock)
+        {
+            return _tenants.TryGetValue(tenantId, out var membership) ? membership : null;
         }
     }
 
