@@ -14,9 +14,18 @@ namespace JasperFx.Events;
 /// </para>
 /// <para>
 /// Only <c>typeof</c> tokens are used, so reading the manifest is AOT-safe: one attribute lookup per
-/// assembly. Overloads of one method name share entries keyed by that name. <c>AllowMultiple</c> is
-/// also what keeps a double-loaded analyzer (jasperfx#462) from failing the build with CS0579.
-/// See jasperfx#990.
+/// assembly. <c>AllowMultiple</c> is also what keeps a double-loaded analyzer (jasperfx#462) from
+/// failing the build with CS0579. See jasperfx#990.
+/// </para>
+/// <para>
+/// Overloads of one method name get one entry each, told apart by <see cref="ParameterTypes" />
+/// (jasperfx#1021). An overload whose parameter types cannot all be named by a <c>typeof</c> at
+/// assembly scope — a private nested type, a <c>file</c>-local type, a <c>ref</c> or <c>out</c>
+/// parameter — is recorded without <see cref="ParameterTypes" />, and such entries for one name are
+/// merged, as every overload was before. A consumer matching a method should use the entries whose
+/// <see cref="ParameterTypes" /> equal the method's parameter types and, only when there are none,
+/// the entries that have no <see cref="ParameterTypes" />. A consumer that ignores
+/// <see cref="ParameterTypes" /> sees the union of the overloads' events under the name.
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
@@ -37,4 +46,11 @@ public sealed class EmittedEventsAttribute : Attribute
 
     /// <summary>The event types inferred from the method body, in order of first appearance.</summary>
     public Type[] EventTypes { get; }
+
+    /// <summary>
+    /// The handler method's parameter types, in declaration order, so overloads of one name can be told
+    /// apart. Null when the generator could not name them all, and in manifests written before
+    /// jasperfx#1021.
+    /// </summary>
+    public Type[]? ParameterTypes { get; set; }
 }

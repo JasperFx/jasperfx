@@ -71,7 +71,7 @@ public static class ConfirmHandler
 }
 ";
         Manifest(body).ShouldContain(
-            "[assembly: global::JasperFx.Events.EmittedEvents(typeof(global::App.ConfirmHandler), \"Handle\", typeof(global::App.Confirmed))]");
+            "[assembly: global::JasperFx.Events.EmittedEvents(typeof(global::App.ConfirmHandler), \"Handle\", typeof(global::App.Confirmed), ParameterTypes = new global::System.Type[] { typeof(string), typeof(global::JasperFx.Events.IEventStream<global::App.Appointment>) })]");
         ShouldCompile(body);
     }
 
@@ -90,7 +90,7 @@ public static class BookHandler
 }
 ";
         Manifest(body).ShouldContain(
-            "typeof(global::App.BookHandler), \"Handle\", typeof(global::App.Booked), typeof(global::App.Confirmed), typeof(global::App.Cancelled))]");
+            "typeof(global::App.BookHandler), \"Handle\", typeof(global::App.Booked), typeof(global::App.Confirmed), typeof(global::App.Cancelled), ParameterTypes = new global::System.Type[] { typeof(string), typeof(global::JasperFx.Events.IEventStream<global::App.Appointment>) })]");
         ShouldCompile(body);
     }
 
@@ -108,7 +108,7 @@ public static class TransferHandler
 }
 ";
         Manifest(body).ShouldContain(
-            "typeof(global::App.TransferHandler), \"Handle\", typeof(global::App.Cancelled), typeof(global::App.PatientNotified))]");
+            "typeof(global::App.TransferHandler), \"Handle\", typeof(global::App.Cancelled), typeof(global::App.PatientNotified), ParameterTypes = new global::System.Type[] { typeof(string), typeof(global::JasperFx.Events.IEventStream<global::App.Appointment>), typeof(global::JasperFx.Events.IEventStream<global::App.Patient>) })]");
         ShouldCompile(body);
     }
 
@@ -133,9 +133,9 @@ public static class StartByConstructorHandler
 
         // The Guid stream id is not an event: only object-typed slots are read.
         manifest.ShouldContain(
-            "typeof(global::App.StartHandler), \"Handle\", typeof(global::App.Booked), typeof(global::App.Confirmed))]");
+            "typeof(global::App.StartHandler), \"Handle\", typeof(global::App.Booked), typeof(global::App.Confirmed), ParameterTypes = new global::System.Type[] { typeof(string) })]");
         manifest.ShouldContain(
-            "typeof(global::App.StartByConstructorHandler), \"Handle\", typeof(global::App.Booked))]");
+            "typeof(global::App.StartByConstructorHandler), \"Handle\", typeof(global::App.Booked), ParameterTypes = new global::System.Type[] { typeof(string) })]");
         manifest.ShouldNotContain("typeof(global::System.Guid)");
         ShouldCompile(body);
     }
@@ -153,7 +153,7 @@ public static class InitializerHandler
 }
 ";
         Manifest(body).ShouldContain(
-            "typeof(global::App.InitializerHandler), \"Handle\", typeof(global::App.Confirmed), typeof(global::App.PatientNotified))]");
+            "typeof(global::App.InitializerHandler), \"Handle\", typeof(global::App.Confirmed), typeof(global::App.PatientNotified), ParameterTypes = new global::System.Type[] { typeof(string), typeof(global::App.Appointment) })]");
         ShouldCompile(body);
     }
 
@@ -173,7 +173,7 @@ public static class AddHandler
 }
 ";
         Manifest(body).ShouldContain(
-            "typeof(global::App.AddHandler), \"Handle\", typeof(global::App.Booked), typeof(global::App.Cancelled))]");
+            "typeof(global::App.AddHandler), \"Handle\", typeof(global::App.Booked), typeof(global::App.Cancelled), ParameterTypes = new global::System.Type[] { typeof(string), typeof(bool) })]");
         ShouldCompile(body);
     }
 
@@ -191,7 +191,7 @@ public static class TupleHandler
 }
 ";
         Manifest(body).ShouldContain(
-            "typeof(global::App.TupleHandler), \"Handle\", typeof(global::App.Booked))]");
+            "typeof(global::App.TupleHandler), \"Handle\", typeof(global::App.Booked), ParameterTypes = new global::System.Type[] { typeof(string) })]");
         ShouldCompile(body);
     }
 
@@ -211,7 +211,7 @@ public static class ObjectHandler
 ";
         var manifest = Manifest(body);
 
-        manifest.ShouldContain("typeof(global::App.ObjectHandler), \"Handle\", typeof(global::App.Confirmed))]");
+        manifest.ShouldContain("typeof(global::App.ObjectHandler), \"Handle\", typeof(global::App.Confirmed), ParameterTypes = new global::System.Type[] { typeof(string), typeof(global::JasperFx.Events.IEventStream<global::App.Appointment>) })]");
         manifest.ShouldNotContain("typeof(object)");
         manifest.ShouldNotContain("global::App.Booked");
         ShouldCompile(body);

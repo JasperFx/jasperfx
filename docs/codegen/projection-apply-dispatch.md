@@ -269,8 +269,18 @@ events each handler method appends, read from its body, as an assembly-level man
 
 ```csharp
 [assembly: JasperFx.Events.EmittedEvents(typeof(AcceptHomeCheckAssignmentHandler), "Handle",
-    typeof(HomeCheckAssignmentAccepted))]
+    typeof(HomeCheckAssignmentAccepted),
+    ParameterTypes = new System.Type[] { typeof(AcceptHomeCheckAssignment), typeof(IEventStream<HomeCheck>) })]
 ```
+
+Each overload of a method name gets its own entry, told apart by `ParameterTypes`
+([#1021](https://github.com/JasperFx/jasperfx/issues/1021)), so one handler class with a `Handle`
+per command doesn't credit every command with every overload's events. An overload whose
+parameter types can't all be named by a `typeof` at assembly scope (a private nested type, a
+`file`-local type, a `ref` or `out` parameter) is recorded without `ParameterTypes`, and those
+entries merge by name as every overload did before. A consumer matches the entries whose
+`ParameterTypes` equal the method's parameter types and, only when there are none, the entries
+with no `ParameterTypes`.
 
 It keys off JasperFx.Events types only, so the generator needs nothing from Wolverine:
 
