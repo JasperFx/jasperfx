@@ -207,6 +207,63 @@ public class PerTenantStartAgentAsyncTests
         detector.LastPoll.ShouldBe(["t2"]);
     }
 
+    [Fact]
+    public async Task a_re_added_tenant_is_not_seeded_from_the_mark_its_removed_incarnation_reached()
+    {
+        // Marten's RemoveTenantFromShardAsync drops a tenant's events and its per-tenant sequence, and the
+        // coordinator's reconciliation reaps the tenant's agent. A later AddTenantToShardAsync gives the tenant
+        // a fresh sequence that starts again at 1, and the coordinator starts a new agent for it, possibly
+        // before its first append commits. That agent was seeded with the mark the removed incarnation had
+        // reached, so it consumed (0, 2] as an empty range and never projected the new events numbered 1 and
+        // 2 (Marten's dynamic_tenant_lifecycle_on_shard_during_daemon: "EventCount should be 3 but was 1").
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 2);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.SlowPollingTime = 50.Milliseconds(),
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        (await startedAgentAsync(harness)).HighWaterMark.ShouldBe(2);
+
+        // Removed: the store drops the tenant's events, and the tenant's agent is reaped.
+        detector.SetTenantMark("t1", 0);
+        await harness.Daemon.StopAgentAsync("Trip:All:t1");
+
+        // Re-added: the new agent starts before any of the tenant's new events commit...
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        // ...and then the first one commits.
+        detector.SetTenantMark("t1", 1);
+
+        (await startedAgentAsync(harness)).HighWaterMark.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task start_all_seeds_every_tenants_agents_from_its_primed_ceiling()
+    {
+        // StartAllAsync primes every registered tenant's ceiling in one poll, then starts the agents one at a
+        // time. Each start reconciles the polled set with the agents already registered, so a tenant whose
+        // agents have not started yet drops out of the set, and it rejoins when its first agent starts: here
+        // t2 has left and rejoined by the time Sub's t2 agent is seeded. The primed reading has to survive
+        // that, because a FromPresent subscription rewinds its progression row to the ceiling it is handed,
+        // and with no ceiling that is sequence 0, a replay of the tenant's whole history.
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 7);
+
+        await using var harness = new DaemonHarness(detector, ["t1", "t2"], null,
+            shardFor(new ShardName("Trip")),
+            shardFor(new ShardName("Sub"), new AsyncOptions().SubscribeFromPresent()));
+
+        await harness.Daemon.StartAllAsync();
+
+        await harness.Store.Received(1).RewindSubscriptionProgressAsync(
+            Arg.Any<IEventDatabase>(), "Sub:All:t1", Arg.Any<CancellationToken>(), 42L);
+        await harness.Store.Received(1).RewindSubscriptionProgressAsync(
+            Arg.Any<IEventDatabase>(), "Sub:All:t2", Arg.Any<CancellationToken>(), 7L);
+    }
+
     // The Start command is applied on the agent's own command loop, so both the seeding and any failure
     // land just after StartAgentAsync returns. Wait for whichever arrives first rather than sleeping.
     private static async Task<SubscriptionAgent> startedAgentAsync(DaemonHarness harness)
@@ -587,6 +644,14 @@ public class PerTenantStartAgentAsyncTests
 
         public DaemonHarness(IHighWaterDetector detector, Action<DaemonSettings>? configureSettings,
             params AsyncShard<FakeOperations, FakeSession>[] shards)
+            : this(detector, null, configureSettings, shards)
+        {
+        }
+
+        // registeredTenants: the database doubles as the store's tenant registry (ICrossTenantRebuildSource,
+        // as Marten's does), which is what StartAllAsync fans each shard out over.
+        public DaemonHarness(IHighWaterDetector detector, IReadOnlyList<string>? registeredTenants,
+            Action<DaemonSettings>? configureSettings, params AsyncShard<FakeOperations, FakeSession>[] shards)
         {
             Store = Substitute.For<IEventStore<FakeOperations, FakeSession>>();
             Store.Meter.Returns(new Meter("tests"));
@@ -614,7 +679,18 @@ public class PerTenantStartAgentAsyncTests
             Store.BuildEventLoader(Arg.Any<IEventDatabase>(), Arg.Any<ILogger>(), Arg.Any<EventFilterable>(),
                 Arg.Any<AsyncOptions>(), Arg.Any<ShardName>()).Returns(loader);
 
-            Database = Substitute.For<IEventDatabase>();
+            if (registeredTenants == null)
+            {
+                Database = Substitute.For<IEventDatabase>();
+            }
+            else
+            {
+                Database = Substitute.For<IEventDatabase, ICrossTenantRebuildSource>();
+                ((ICrossTenantRebuildSource)Database)
+                    .FindRebuildTenantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .Returns(Task.FromResult(registeredTenants));
+            }
+
             Database.Identifier.Returns("db1");
             Database.DatabaseUri.Returns(new Uri("fake://db1"));
             Database.Tracker.Returns(new ShardStateTracker(new NulloLogger()));

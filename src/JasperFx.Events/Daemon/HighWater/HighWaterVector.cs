@@ -71,4 +71,10 @@ public class HighWaterVector
 /// A single tenant's reading within a vectorized poll: its high-water statistics plus the
 /// independently-interpreted status (caught up / changed / stale) for that tenant alone.
 /// </summary>
-public record TenantHighWaterReading(string TenantId, HighWaterStatistics Statistics, HighWaterStatus Status);
+public record TenantHighWaterReading(string TenantId, HighWaterStatistics Statistics, HighWaterStatus Status)
+{
+    // The tenant's PolledTenantSet membership when the reading was taken. A tenant that left the polled set
+    // and came back may be a new incarnation of itself, so a reading of one membership is never applied to
+    // another.
+    internal long Membership { get; init; }
+}
