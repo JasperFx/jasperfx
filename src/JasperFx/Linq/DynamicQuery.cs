@@ -76,10 +76,12 @@ public static class DynamicQuery
         RestrictOrderByToPropertyOrField = true,
 
         // The literal traps the #869 spike measured: date text was read in the SERVER's time zone, and
-        // number text in its culture. DateTimeIsParsedAsUTC alone does not cover it — a string compared
-        // with a DateTimeOffset member, literal or @n argument, goes through a TypeConverter that reads
-        // local time — so both date types get a converter that assumes UTC.
-        DateTimeIsParsedAsUTC = true,
+        // number text in its culture. A string compared with a date member, literal or @n argument, goes
+        // through a TypeConverter, so both date types get one that assumes UTC. DateTimeIsParsedAsUTC must
+        // stay OFF for that to work: Dynamic LINQ checks it before TypeConverters, and when it is on it
+        // answers DateTime and DateTime? with its own converter, a DateTimeOffsetConverter that reads text
+        // with no offset in local time. The flag does nothing else.
+        DateTimeIsParsedAsUTC = false,
         NumberParseCulture = CultureInfo.InvariantCulture,
         TypeConverters = new Dictionary<Type, TypeConverter>
         {
@@ -357,11 +359,13 @@ public static class DynamicQuery
         public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType)
             => sourceType == typeof(string) || base.CanConvertFrom(context, sourceType);
 
+        // Each branch is boxed as its own type: typed as one conditional, the DateTime would be converted
+        // implicitly to a DateTimeOffset, which a DateTime member cannot be compared with.
         public override object? ConvertFrom(ITypeDescriptorContext? context, CultureInfo? culture, object value)
             => value is string text
                 ? target == typeof(DateTime)
                     ? DateTime.Parse(text, CultureInfo.InvariantCulture, Utc)
-                    : DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, Utc)
+                    : (object)DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, Utc)
                 : base.ConvertFrom(context, culture, value);
     }
 
