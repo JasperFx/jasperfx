@@ -18,11 +18,13 @@ namespace JasperFx.Events.SourceGenerator;
 /// </summary>
 internal sealed class EmittedEventsInfo : IEquatable<EmittedEventsInfo>
 {
-    public EmittedEventsInfo(string handlerType, string methodName, ImmutableArray<string> eventTypes)
+    public EmittedEventsInfo(string handlerType, string methodName, ImmutableArray<string> eventTypes,
+        string? parameterTypes = null)
     {
         HandlerType = handlerType;
         MethodName = methodName;
         EventTypes = eventTypes;
+        ParameterTypes = parameterTypes;
     }
 
     /// <summary>Fully qualified, <c>global::</c>-rooted.</summary>
@@ -33,11 +35,19 @@ internal sealed class EmittedEventsInfo : IEquatable<EmittedEventsInfo>
     /// <summary>Fully qualified, <c>global::</c>-rooted, deduplicated, in order of first appearance.</summary>
     public ImmutableArray<string> EventTypes { get; }
 
+    /// <summary>
+    /// The method's parameter types as the comma-separated <c>typeof</c> tokens of the manifest's
+    /// <c>ParameterTypes</c> array, empty for a method with no parameters. Null when one of them cannot
+    /// be named from assembly scope, and the entry falls back to being keyed by name alone.
+    /// </summary>
+    public string? ParameterTypes { get; }
+
     public bool Equals(EmittedEventsInfo? other)
     {
         if (other is null) return false;
         return HandlerType == other.HandlerType
                && MethodName == other.MethodName
+               && ParameterTypes == other.ParameterTypes
                && EventTypes.SequenceEqual(other.EventTypes);
     }
 
@@ -48,6 +58,7 @@ internal sealed class EmittedEventsInfo : IEquatable<EmittedEventsInfo>
         unchecked
         {
             var hash = HandlerType.GetHashCode() * 397 ^ MethodName.GetHashCode();
+            hash = hash * 31 + (ParameterTypes?.GetHashCode() ?? 0);
             foreach (var type in EventTypes) hash = hash * 31 + type.GetHashCode();
             return hash;
         }
@@ -122,7 +133,50 @@ internal static class EmittedEventsAnalyzer
         return new EmittedEventsInfo(
             method.ContainingType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
             method.Name,
-            collector.Events.ToImmutableArray());
+            collector.Events.ToImmutableArray(),
+            ParameterTypeTokens(method));
+    }
+
+    /// <summary>
+    /// The way a parameter type is written inside <c>typeof</c>: no nullable reference annotation
+    /// (<c>typeof(string?)</c> is CS8639) and tuples spelled as <c>ValueTuple&lt;...&gt;</c>, which drops
+    /// element names. Neither changes the runtime type a consumer compares with.
+    /// </summary>
+    private static readonly SymbolDisplayFormat TypeofFormat = SymbolDisplayFormat.FullyQualifiedFormat
+        .RemoveMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier)
+        .AddMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.ExpandValueTuple);
+
+    /// <summary>
+    /// jasperfx#1021: the parameter types that tell overloads of one name apart, or null when any of them
+    /// cannot be named by a <c>typeof</c> at assembly scope — the entry then falls back to the name alone.
+    /// </summary>
+    private static string? ParameterTypeTokens(IMethodSymbol method)
+    {
+        var tokens = new List<string>(method.Parameters.Length);
+        foreach (var parameter in method.Parameters)
+        {
+            // typeof cannot express a by-reference type, and the element type alone would not tell
+            // Handle(ref Foo) from Handle(Foo)
+            if (parameter.RefKind != RefKind.None) return null;
+            if (!IsNameableParameterType(parameter.Type)) return null;
+
+            tokens.Add($"typeof({parameter.Type.ToDisplayString(TypeofFormat)})");
+        }
+
+        return string.Join(", ", tokens);
+    }
+
+    private static bool IsNameableParameterType(ITypeSymbol type)
+    {
+        return type switch
+        {
+            IArrayTypeSymbol array => IsNameableParameterType(array.ElementType),
+            INamedTypeSymbol named => named.TypeKind != TypeKind.Error && !named.IsAnonymousType
+                                                                      && IsNameableFromAssemblyScope(named),
+
+            // Type parameters, pointers, function pointers, dynamic
+            _ => false
+        };
     }
 
     private static bool IsCandidate(IMethodSymbol method)
@@ -396,6 +450,9 @@ internal static class EmittedEventsAnalyzer
             {
                 return false;
             }
+
+            // A file-local type reports Internal, but only its own file can name it
+            if (current.IsFileLocal) return false;
         }
 
         return true;
@@ -409,13 +466,15 @@ internal static class EmittedEventsAnalyzer
         builder.AppendLine("// to append, read from its body. A lower bound — an event typed `object` is left out.");
         builder.AppendLine("// See jasperfx#990.");
 
-        // Overloads share a name, and the manifest keys on the name, so merge them into one entry.
-        var merged = new Dictionary<(string, string), List<string>>();
-        var order = new List<(string, string)>();
+        // jasperfx#1021: one entry per overload, keyed by its parameter types as well as its name. The
+        // overloads whose parameter types cannot all be named have none, so they still merge into one
+        // entry for the name.
+        var merged = new Dictionary<(string, string, string?), List<string>>();
+        var order = new List<(string, string, string?)>();
         foreach (var info in infos)
         {
             if (info is null) continue;
-            var key = (info.HandlerType, info.MethodName);
+            var key = (info.HandlerType, info.MethodName, info.ParameterTypes);
             if (!merged.TryGetValue(key, out var events))
             {
                 merged[key] = events = new List<string>();
@@ -430,10 +489,16 @@ internal static class EmittedEventsAnalyzer
 
         foreach (var key in order)
         {
-            var (handler, methodName) = key;
+            var (handler, methodName, parameterTypes) = key;
             var typeofs = string.Join(", ", merged[key].Select(t => $"typeof({t})"));
+            var parameters = parameterTypes switch
+            {
+                null => "",
+                "" => ", ParameterTypes = new global::System.Type[0]",
+                _ => $", ParameterTypes = new global::System.Type[] {{ {parameterTypes} }}"
+            };
             builder.AppendLine(
-                $"[assembly: global::JasperFx.Events.EmittedEvents(typeof({handler}), \"{methodName}\", {typeofs})]");
+                $"[assembly: global::JasperFx.Events.EmittedEvents(typeof({handler}), \"{methodName}\", {typeofs}{parameters})]");
         }
 
         return builder.ToString();
