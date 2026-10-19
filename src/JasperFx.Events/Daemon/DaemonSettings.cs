@@ -41,6 +41,15 @@ public interface IReadOnlyDaemonSettings
     TimeSpan HighWaterStalenessThreshold { get; }
 
     /// <summary>
+    ///     jasperfx#1027: how long the high-water mark may go without advancing, while the database holds
+    ///     committed events above it, before the health-check watchdog restarts the high-water agent. Unlike
+    ///     <see cref="HighWaterStalenessThreshold"/> this is measured against the mark itself, using a probe
+    ///     of the committed ceiling that is independent of the poll loop. Null or non-positive disables it.
+    ///     A default interface member so an implementation compiled before it existed keeps loading.
+    /// </summary>
+    TimeSpan? HighWaterProgressStallThreshold => null;
+
+    /// <summary>
     ///     jasperfx#622: cadence of the PERIODIC per-shard extended progression heartbeat write.
     ///     Null (the default) or any non-positive value means no periodic write at all — only agent
     ///     status transitions (Started/Paused/Stopped) are persisted, which is what the extended
@@ -152,6 +161,24 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     ///     <see cref="SlowPollingTime"/> × several cycles plus <see cref="StaleSequenceThreshold"/>.
     /// </summary>
     public TimeSpan HighWaterStalenessThreshold { get; set; } = 30.Seconds();
+
+    /// <summary>
+    ///     jasperfx#1027: how long the high-water mark may go without advancing, while the database holds
+    ///     committed events above it, before the health-check watchdog restarts the high-water agent.
+    ///     <see cref="HighWaterStalenessThreshold"/> only proves the poll loop is cycling; this proves it is
+    ///     getting somewhere. Once the mark has been still for this long, the watchdog asks the detector for
+    ///     its committed ceiling (<see cref="IHighWaterDetector.FetchCommittedHighWaterCeilingAsync"/>,
+    ///     <c>max(seq_id)</c> in Marten) at most once per window, outside the poll loop, and restarts the
+    ///     agent if events are committed above the mark. A quiet store costs one such query per window.
+    ///     <para>
+    ///     A restart re-reads the mark and never advances it, so this can never skip an event. It also
+    ///     cannot release a mark that the detector is holding on purpose: a sequence gap reserved by a
+    ///     transaction that is still open keeps the mark where it is through any number of restarts, and
+    ///     the warning logged on each one is the signal to go and look for that transaction.
+    ///     </para>
+    ///     Null or any non-positive value disables the check. The default is 2 minutes.
+    /// </summary>
+    public TimeSpan? HighWaterProgressStallThreshold { get; set; } = 2.Minutes();
 
     /// <summary>
     /// If a subscription has been paused for any reason

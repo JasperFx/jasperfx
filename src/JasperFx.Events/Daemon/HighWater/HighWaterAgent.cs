@@ -43,6 +43,12 @@ public class HighWaterAgent: IDisposable
     // can never run beside the fresh loop.
     private int _loopGeneration;
 
+    // jasperfx#1027: progress watchdog bookkeeping. The mark the watchdog last saw, when it first saw it, and
+    // when it last probed the committed ceiling. Only touched inside checkState under the _remediating guard.
+    private long _watchedMark = -1;
+    private DateTimeOffset _watchedMarkSince;
+    private DateTimeOffset _lastStallProbe;
+
     // ReSharper disable once ContextualLoggerProblem
     public HighWaterAgent(Meter meter, IHighWaterDetector detector, ShardStateTracker tracker,
         ILogger logger,
@@ -517,9 +523,11 @@ public class HighWaterAgent: IDisposable
     }
 
     // jasperfx#539: the watchdog now restarts the loop when it has *faulted* OR gone *stale* (stopped
-    // completing cycles within HighWaterStalenessThreshold). Restarts are capped to once per threshold window
-    // and never overlap. Staleness is only meaningful for Path A — under partitioning the daemon governs the
-    // tenant high-water path instead, so this bails out early.
+    // completing cycles within HighWaterStalenessThreshold). jasperfx#1027 adds a third reason, *stalled*: the
+    // loop may be cycling, but the mark has not moved for HighWaterProgressStallThreshold while the database
+    // holds committed events above it. Restarts are capped to once per threshold window and never overlap.
+    // Staleness is only meaningful for Path A — under partitioning the daemon governs the tenant high-water
+    // path instead, so this bails out early.
     private async Task checkState()
     {
         if (_token.IsCancellationRequested || _detector.SupportsTenantPartitioning)
@@ -527,16 +535,7 @@ public class HighWaterAgent: IDisposable
             return;
         }
 
-        var faulted = Faulted;
-        var now = DateTimeOffset.UtcNow;
-        var stale = IsStale(_settings.HighWaterStalenessThreshold, now);
-
-        if (!faulted && !stale)
-        {
-            return;
-        }
-
-        // Don't let overlapping timer ticks pile up concurrent restarts.
+        // Don't let overlapping timer ticks pile up concurrent restarts, or concurrent stall probes.
         if (Interlocked.CompareExchange(ref _remediating, 1, 0) == 1)
         {
             return;
@@ -544,6 +543,19 @@ public class HighWaterAgent: IDisposable
 
         try
         {
+            var now = DateTimeOffset.UtcNow;
+            var faulted = Faulted;
+            var stale = !faulted && IsStale(_settings.HighWaterStalenessThreshold, now);
+
+            // Only probe the database when the loop otherwise looks healthy; a faulted or stale loop is
+            // restarted regardless.
+            var stall = faulted || stale ? null : await probeForStallAsync(now).ConfigureAwait(false);
+
+            if (!faulted && !stale && stall == null)
+            {
+                return;
+            }
+
             // Cap remediation to once per staleness window so a loop that fails to re-establish isn't
             // thrashed by the (much faster) health-check timer.
             if (_lastRemediation != default && now - _lastRemediation < _settings.HighWaterStalenessThreshold)
@@ -559,11 +571,18 @@ public class HighWaterAgent: IDisposable
                     "HighWaterAgent polling loop faulted for database {Name}; restarting", _detector.DatabaseUri);
                 await publishStatusAsync(ShardAction.Faulted, "Faulted").ConfigureAwait(false);
             }
-            else
+            else if (stale)
             {
                 _logger.LogWarning(
                     "HighWaterAgent polling loop for database {Name} has not completed a cycle within {Threshold}; restarting",
                     _detector.DatabaseUri, _settings.HighWaterStalenessThreshold);
+            }
+            else
+            {
+                var (mark, ceiling) = stall!.Value;
+                _logger.LogWarning(
+                    "HighWaterAgent for database {Name} has held the high water mark at {CurrentMark} for over {Threshold} while events are committed up to {Ceiling}; restarting. A restart never advances the mark, so if this repeats the detector is holding it on purpose, most likely behind a sequence gap reserved by a transaction that is still open",
+                    _detector.DatabaseUri, mark, _settings.HighWaterProgressStallThreshold, ceiling);
             }
 
             await restartAsync(fromWatchdog: true).ConfigureAwait(false);
@@ -578,6 +597,61 @@ public class HighWaterAgent: IDisposable
         {
             Volatile.Write(ref _remediating, 0);
         }
+    }
+
+    // jasperfx#1027: the heartbeat behind IsStale proves the loop is cycling, not that it is getting anywhere,
+    // and it only exists while the loop is the thing doing the detecting. This asks the database directly, outside
+    // the loop: once the mark has sat still for HighWaterProgressStallThreshold, read the committed ceiling (at
+    // most once per window) and report a stall if events are committed above the mark. The ceiling is the
+    // committed height, not HighestSequence, so a rolled-back tail of reserved sequence numbers is not a stall.
+    // A probe that fails is not a stall: the database is unreachable, and the loop's own error handling and the
+    // staleness check already cover that. The probe runs under the _remediating guard, so it is bounded by the
+    // staleness threshold rather than the (longer) stall window: a hung probe must not keep the watchdog from
+    // noticing a wedged loop.
+    private async Task<(long Mark, long Ceiling)?> probeForStallAsync(DateTimeOffset now)
+    {
+        if (_settings.HighWaterProgressStallThreshold is not { } window || window <= TimeSpan.Zero || !IsRunning)
+        {
+            return null;
+        }
+
+        var mark = _tracker.HighWaterMark;
+        if (mark != _watchedMark)
+        {
+            _watchedMark = mark;
+            _watchedMarkSince = now;
+            return null;
+        }
+
+        if (now - _watchedMarkSince < window || now - _lastStallProbe < window)
+        {
+            return null;
+        }
+
+        _lastStallProbe = now;
+
+        long ceiling;
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(_token))
+        {
+            timeout.CancelAfter(_settings.HighWaterStalenessThreshold);
+            try
+            {
+                ceiling =await _detector.FetchCommittedHighWaterCeilingAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                if (!_token.IsCancellationRequested)
+                {
+                    _logger.LogDebug(e,
+                        "HighWaterAgent could not read the committed high water ceiling for database {Name} to check for a stalled mark",
+                        _detector.DatabaseUri);
+                }
+
+                return null;
+            }
+        }
+
+        return ceiling > mark ? (mark, ceiling) : null;
     }
 
     /// <summary>
