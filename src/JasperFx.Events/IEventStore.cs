@@ -208,6 +208,88 @@ public interface IEventStore
             "BuildHighWaterMonitorAsync is not implemented on this IEventStore. Use an event store (Marten or Polecat) that supports standing up a standalone display-only high-water detector.");
 
     /// <summary>
+    ///     jasperfx#1031 — read-only preview of advancing high water marks on <paramref name="database" /> to the
+    ///     latest committed event sequence: each mark's stored value, its committed ceiling, and how many sequence
+    ///     numbers in between have no committed event. Writes nothing. Pair it with
+    ///     <see cref="AdvanceHighWaterMarkToLatestAsync" />, passing a previewed
+    ///     <see cref="HighWaterMarkPreview.CurrentMark" /> as the expected mark so the advance refuses if the mark
+    ///     has moved since.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <b>Which marks.</b> <paramref name="tenantId" /> names the mark, and the answer depends on how the
+    ///         database tracks progress:
+    ///     </para>
+    ///     <list type="bullet">
+    ///         <item>
+    ///             A database that keeps ONE store-global mark (the common case, including conjoined tenancy without
+    ///             per-tenant event partitioning, and every database of a database-per-tenant store): a null tenant
+    ///             means that mark. A non-null tenant is refused with <see cref="ArgumentException" />, because the
+    ///             one mark is every tenant's, and advancing all of them when one was named is the surprise this
+    ///             contract exists to rule out.
+    ///         </item>
+    ///         <item>
+    ///             A database that keeps one mark PER TENANT (per-tenant event partitioning, where each tenant draws
+    ///             its own sequence and a store-global mark means nothing): a non-null tenant means that tenant's
+    ///             mark, and a null tenant means EVERY tenant's mark, one entry each.
+    ///         </item>
+    ///     </list>
+    ///     <para>
+    ///         The default throws <see cref="NotSupportedException" />; Marten, Polecat and Fisher override it.
+    ///     </para>
+    /// </remarks>
+    /// <param name="database">The database whose marks to preview. Never null.</param>
+    /// <param name="tenantId">The tenant whose own mark to preview; see the remarks for what null means.</param>
+    /// <param name="token">Cancellation token.</param>
+    Task<IReadOnlyList<HighWaterMarkPreview>> PreviewHighWaterAdvanceAsync(IEventDatabase database, string? tenantId,
+        CancellationToken token)
+        => throw highWaterAdvanceNotSupported(nameof(PreviewHighWaterAdvanceAsync));
+
+    /// <summary>
+    ///     jasperfx#1031 — advance high water marks on <paramref name="database" /> to the latest COMMITTED event
+    ///     sequence, the store-agnostic form of Marten's, Polecat's and Fisher's
+    ///     <c>Advanced.AdvanceHighWaterMarkToLatestAsync</c>. For an operator jump-starting an async daemon whose
+    ///     mark is held behind a gap that will never fill.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <b>Dangerous by design.</b> Every sequence number below the new mark that has no committed event is
+    ///         skipped for good by every async projection and subscription on that mark — including an append
+    ///         still in flight that commits afterwards. <see cref="PreviewHighWaterAdvanceAsync" /> reports how
+    ///         many there are; show it before calling this.
+    ///     </para>
+    ///     <para>
+    ///         Implementations MUST target the highest committed sequence, never a reserved sequence or identity
+    ///         value (marten#4953); MUST NOT move a mark backwards; and MUST make the comparison against
+    ///         <paramref name="expectedCurrentMark" /> and the write one atomic step, because every running
+    ///         detector writes the same mark. A running daemon picks the new mark up on its next detection cycle.
+    ///     </para>
+    ///     <para>
+    ///         Which marks <paramref name="tenantId" /> selects is described on
+    ///         <see cref="PreviewHighWaterAdvanceAsync" />. <paramref name="expectedCurrentMark" /> is a
+    ///         compare-and-set guard on ONE mark, so it is refused with <see cref="ArgumentException" /> when the
+    ///         call selects several (a null tenant on a database that keeps one mark per tenant); name the tenant.
+    ///         When the stored mark no longer equals it, nothing is written and the entry reports
+    ///         <see cref="HighWaterAdvanceOutcome.RefusedStaleExpectation" />. A mark that has never been stored
+    ///         counts as zero.
+    ///     </para>
+    /// </remarks>
+    /// <param name="database">The database whose marks to advance. Never null.</param>
+    /// <param name="tenantId">The tenant whose own mark to advance; see <see cref="PreviewHighWaterAdvanceAsync" />.</param>
+    /// <param name="expectedCurrentMark">
+    ///     The mark the caller saw, typically <see cref="HighWaterMarkPreview.CurrentMark" />. Null skips the check.
+    /// </param>
+    /// <param name="token">Cancellation token.</param>
+    Task<IReadOnlyList<HighWaterMarkAdvance>> AdvanceHighWaterMarkToLatestAsync(IEventDatabase database,
+        string? tenantId, long? expectedCurrentMark, CancellationToken token)
+        => throw highWaterAdvanceNotSupported(nameof(AdvanceHighWaterMarkToLatestAsync));
+
+    private NotSupportedException highWaterAdvanceNotSupported(string member)
+        => new(
+            $"{member} is not implemented on this IEventStore. Use an event store version (Marten, Polecat or Fisher) " +
+            "that implements the store-agnostic high water advance (jasperfx#1031).");
+
+    /// <summary>
     /// Identifies the event store within an application
     /// </summary>
     EventStoreIdentity Identity { get; }

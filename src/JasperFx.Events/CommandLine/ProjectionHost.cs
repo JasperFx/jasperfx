@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.Loader;
 using ImTools;
 using JasperFx.Core;
+using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Descriptors;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -199,6 +200,54 @@ internal class ProjectionHost: IProjectionHost
 
     public async Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none)
     {
-        throw new NotImplementedException();
+        if (!_stores.TryFind(selection.Storage.SubjectUri, out var store))
+        {
+            store = _host.Services.GetServices<IEventStore>()
+                .FirstOrDefault(x => x.Subject == selection.Storage.SubjectUri);
+        }
+
+        if (store == null)
+        {
+            throw new ArgumentOutOfRangeException(nameof(selection),
+                $"No IEventStore in this application has the subject '{selection.Storage.SubjectUri}'");
+        }
+
+        await AdvanceHighWaterMarksAsync(store, selection, none).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     jasperfx#1031: advance every mark of every database the selection names, through the store-agnostic
+    ///     <see cref="IEventStore.AdvanceHighWaterMarkToLatestAsync" />. A null tenant, so a database that keeps
+    ///     one mark per tenant has every tenant's advanced — which is what selecting a whole database asks for.
+    /// </summary>
+    internal static async Task<IReadOnlyList<HighWaterMarkAdvance>> AdvanceHighWaterMarksAsync(IEventStore store,
+        ProjectionSelection selection, CancellationToken token)
+    {
+        var databases = await store.AllDatabases().ConfigureAwait(false);
+        var selected = databases
+            .Where(db => selection.DatabaseIdentifiers.Any(id => id.Equals(db.Identifier, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        // A selection that resolves to nothing must not read as done: AllDatabases() defaults to an empty list
+        // for a store that has not implemented it, and an operator action that silently did nothing is worse
+        // than one that refuses.
+        var missing = selection.DatabaseIdentifiers
+            .Where(id => !selected.Any(db => db.Identifier.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot advance the high water mark for database(s) {string.Join(", ", missing.Select(x => $"'{x}'"))}: " +
+                $"the event store '{store.Subject}' does not list them in IEventStore.AllDatabases()");
+        }
+
+        var results = new List<HighWaterMarkAdvance>();
+        foreach (var database in selected)
+        {
+            results.AddRange(await store.AdvanceHighWaterMarkToLatestAsync(database, null, null, token)
+                .ConfigureAwait(false));
+        }
+
+        return results;
     }
 }
