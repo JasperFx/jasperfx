@@ -58,6 +58,36 @@ public sealed class InMemoryEventDatabase : IEventDatabase
     public Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, CancellationToken token)
         => Task.FromResult(_store.EventSequenceFloorAt(timestamp));
 
+    // jasperfx#809: projection start floors, keyed by projection name (no version) and tenant
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Projection, string Tenant), long> _floors = new();
+
+    private static (string, string) floorKey(string projectionName, string? tenantId) => (projectionName, tenantId ?? "");
+
+    /// <inheritdoc />
+    public Task<long?> FetchProjectionFloorAsync(string projectionName, string? tenantId, CancellationToken token = default)
+        => Task.FromResult<long?>(_floors.TryGetValue(floorKey(projectionName, tenantId), out var floor) ? floor : null);
+
+    /// <inheritdoc />
+    public Task<long> TrySetProjectionFloorAsync(string projectionName, string? tenantId, long floor,
+        CancellationToken token = default)
+        => Task.FromResult(_floors.GetOrAdd(floorKey(projectionName, tenantId), floor));
+
+    /// <inheritdoc />
+    public Task SetProjectionFloorAsync(string projectionName, string? tenantId, long? floor,
+        CancellationToken token = default)
+    {
+        if (floor is { } value)
+        {
+            _floors[floorKey(projectionName, tenantId)] = value;
+        }
+        else
+        {
+            _floors.TryRemove(floorKey(projectionName, tenantId), out _);
+        }
+
+        return Task.CompletedTask;
+    }
+
     /// <inheritdoc />
     public Task StoreDeadLetterEventAsync(object storage, DeadLetterEvent deadLetterEvent, CancellationToken token)
         => throw InMemoryEventRegistry.NotSupported("Dead letter events");

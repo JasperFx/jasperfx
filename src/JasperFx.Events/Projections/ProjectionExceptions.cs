@@ -1,3 +1,4 @@
+using System.Data.Common;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
@@ -48,5 +49,47 @@ public static class ProjectionExceptions
         }
 
         return TransientFailures.IsTransient(exception);
+    }
+
+    /// <summary>
+    /// jasperfx#1029: whether <paramref name="exception" /> is a <b>systemic</b> database failure -- a
+    /// <see cref="DbException" /> anywhere in its graph that <see cref="TransientFailures" /> does not classify
+    /// as transient. A missing column or table, a permissions problem, a broken migration.
+    ///
+    /// <para>
+    /// Such a failure is not the fault of the event it surfaced on: the next event would fail the same way. So
+    /// the daemon never dead-letters it, even under <see cref="ErrorHandlingOptions.SkipApplyErrors" />. It
+    /// pauses the shard instead, with a <see cref="ShardFailure" /> whose <see cref="ShardFailure.IsTransient" />
+    /// is false and whose <see cref="ShardFailure.RootExceptionType" /> names the database's own exception.
+    /// Skipping would walk the projection past every event in turn and leave it silently empty.
+    /// </para>
+    ///
+    /// <para>
+    /// This is what makes it safe for a store to stop registering its driver's whole exception hierarchy with
+    /// <see cref="RegisterTransientExceptionType{T}" />: a permanent error then fails fast to a pause instead
+    /// of burning the resilience budget first, and still never reaches the dead-letter queue.
+    /// </para>
+    /// </summary>
+    public static bool IsSystemicDatabaseFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        return containsDbException(exception, 0) && !TransientFailures.IsTransient(exception);
+    }
+
+    // Same bound as TransientFailures: nothing real is 32 levels deep
+    private const int MaxDepth = 32;
+
+    private static bool containsDbException(Exception exception, int depth)
+    {
+        if (depth > MaxDepth) return false;
+
+        if (exception is DbException) return true;
+
+        if (exception is AggregateException aggregate)
+        {
+            return aggregate.InnerExceptions.Any(x => containsDbException(x, depth + 1));
+        }
+
+        return exception.InnerException != null && containsDbException(exception.InnerException, depth + 1);
     }
 }

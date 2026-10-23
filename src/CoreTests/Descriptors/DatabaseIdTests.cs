@@ -86,8 +86,8 @@ public class DatabaseIdTests
     public void round_trips_dotted_server_name()
     {
         var id = new DatabaseId(
-            "database-feature2.zorgdeclaraties-test.aws.topicus.healthcare",
-            "feature2_claims2");
+            "db-host2.test.example.com",
+            "tenant_db2");
 
         var roundTripped = DatabaseId.Parse(id.ToString());
 
@@ -98,10 +98,10 @@ public class DatabaseIdTests
     public void parse_legacy_dotted_server_name()
     {
         var id = DatabaseId.Parse(
-            "database-feature2.zorgdeclaraties-test.aws.topicus.healthcare.feature2_claims2");
+            "db-host2.test.example.com.tenant_db2");
 
-        id.Server.ShouldBe("database-feature2.zorgdeclaraties-test.aws.topicus.healthcare");
-        id.Name.ShouldBe("feature2_claims2");
+        id.Server.ShouldBe("db-host2.test.example.com");
+        id.Name.ShouldBe("tenant_db2");
     }
 
     [Fact]
@@ -129,7 +129,7 @@ public class DatabaseIdTests
     [Theory]
     [InlineData("localhost", "tenant1")]
     [InlineData("server.with.dots", "name.with.dots")]
-    [InlineData("database-feature2.zorgdeclaraties-test.aws.topicus.healthcare", "feature2_claims2")]
+    [InlineData("db-host2.test.example.com", "tenant_db2")]
     [InlineData("/some/host", "tom")]
     [InlineData("server%2Ename", "db%25name")]
     [InlineData("host!with!bangs", "name!too")]

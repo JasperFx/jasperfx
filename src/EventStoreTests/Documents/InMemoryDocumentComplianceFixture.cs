@@ -110,6 +110,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsSoftDeletedDocuments => true;
 
+    public override bool SupportsDocumentUndelete => true;
+
     public override bool SupportsDocumentHierarchies => true;
 
     public override Task CleanDocumentDataAsync()
@@ -125,6 +127,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
     public override bool SupportsDocumentDiagnosticAllTenants => true;
 
     public override bool SupportsDocumentDiagnosticCriteria => true;
+
+    public override bool SupportsDocumentMetadataOrdering => true;
 
     /// <summary>
     /// True since jasperfx#903. See <see cref="in_memory_guid_optimistic_concurrency_compliance" /> for

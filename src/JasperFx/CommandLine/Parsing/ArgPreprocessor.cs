@@ -14,7 +14,9 @@ public class ArgPreprocessor
             }
             else if (arg.StartsWith("--") && arg.Contains('='))
             {
-                var parts = arg.Split('=');
+                // Split at the first '=' only: the value may itself contain '='
+                // (a connection string passed by WebApplicationFactory, say)
+                var parts = arg.Split('=', 2);
                 newArgs.AddRange(parts);
             }
             else

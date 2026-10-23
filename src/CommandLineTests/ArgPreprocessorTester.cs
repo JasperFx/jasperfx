@@ -19,6 +19,19 @@ namespace CommandLineTests
         }
 
         [Fact]
+        public void compact_flag_value_keeps_its_own_equals_signs()
+        {
+            ArgPreprocessor.Process(["--key=a=b;c=d"]).ShouldBe(["--key", "a=b;c=d"]);
+        }
+
+        [Fact]
+        public void compact_flag_with_connection_string_value()
+        {
+            ArgPreprocessor.Process(["--ConnectionStrings:Db=Server=tcp:localhost,1433;User ID=sa;Encrypt=false"])
+                .ShouldBe(["--ConnectionStrings:Db", "Server=tcp:localhost,1433;User ID=sa;Encrypt=false"]);
+        }
+
+        [Fact]
         public void combined_short_flags_should_be_case_sensitive()
         {
             ArgPreprocessor.Process(new[] { "-aAbBcC" }).ShouldHaveTheSameElementsAs("-a","-A", "-b","-B", "-c","-C");
