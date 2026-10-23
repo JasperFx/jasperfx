@@ -381,7 +381,9 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             {
                 batch = await buildBatchAsync(range, cancellationToken).ConfigureAwait(false);
             }
-            catch (AggregateException a)
+            // jasperfx#1029: a systemic database failure is not any one event's fault, so it pauses the shard
+            // rather than being dead-lettered -- otherwise every following event would be skipped the same way
+            catch (AggregateException a) when (!a.InnerExceptions.Any(ProjectionExceptions.IsSystemicDatabaseFailure))
             {
                 var applyErrors = a.InnerExceptions.OfType<ApplyEventException>().ToArray();
                 foreach (var error in applyErrors)
@@ -392,7 +394,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
                         .ConfigureAwait(false);
                 }
             }
-            catch (ApplyEventException e)
+            catch (ApplyEventException e) when (!ProjectionExceptions.IsSystemicDatabaseFailure(e))
             {
                 await range.SkipEventSequence(e.Event.Sequence).ConfigureAwait(false);
                 await range.Agent.RecordDeadLetterEventAsync(new DeadLetterEvent(e.Event, range.ShardName, e))
