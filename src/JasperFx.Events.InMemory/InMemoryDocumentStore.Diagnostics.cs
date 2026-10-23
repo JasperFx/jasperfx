@@ -133,6 +133,11 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             ? ApplyCriteria(requested, rows.ToList(), options)
             : rows.OrderBy(x => x.Document.TenantId, StringComparer.Ordinal)
                 .ThenBy(x => x.Document.Id, StringComparer.Ordinal).ToList();
+        if (options.OrderByMetadata is { } metadataOrder)
+        {
+            all = OrderByMetadata(all, metadataOrder);
+        }
+
         var page = all.Skip((pageNumber - 1) * pageSize).Take(pageSize).Select(x => x.Document).ToList();
 
         return Task.FromResult(new DocumentQueryResult(page, all.Count, pageNumber, pageSize));
@@ -194,6 +199,24 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         return string.IsNullOrWhiteSpace(options.OrderBy)
             ? kept.ThenBy(x => x.Document.Id, StringComparer.Ordinal).ToList()
             : kept.ThenBy(x => position[x.Instance]).ToList();
+    }
+
+    /// <summary>
+    /// Tenant, then the metadata key, then the order the rows are already in — the text ordering's, or the id
+    /// — which a stable sort keeps for the ties (jasperfx#1058).
+    /// </summary>
+    private static List<Row> OrderByMetadata(List<Row> rows, DocumentMetadataOrder order)
+    {
+        Func<Row, DateTimeOffset?> key = order.Field switch
+        {
+            DocumentMetadataField.LastModified => x => x.Document.LastModified,
+            DocumentMetadataField.Created => x => x.Document.Created,
+            _ => throw new DocumentCriteriaNotSupportedException(nameof(DocumentQueryOptions.OrderByMetadata),
+                $"this store versions documents with a Guid, which has no meaningful order, so it cannot order by {order.Field}. Order by {nameof(DocumentMetadataField.LastModified)} instead.")
+        };
+
+        var byTenant = rows.OrderBy(x => x.Document.TenantId, StringComparer.Ordinal);
+        return (order.Descending ? byTenant.ThenByDescending(key) : byTenant.ThenBy(key)).ToList();
     }
 
     /// <summary>

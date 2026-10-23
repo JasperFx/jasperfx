@@ -318,6 +318,14 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     public virtual bool SupportsDocumentDiagnosticAllTenants => false;
 
     /// <summary>
+    /// Does this store's <see cref="IDocumentStoreDiagnostics" /> honour
+    /// <see cref="DocumentQueryOptions.OrderByMetadata" /> (jasperfx#1058)? Gates the metadata-ordering
+    /// facts, so a store that has not implemented it yet keeps a green suite when it moves to a JasperFx
+    /// that has the member. Flip it with the implementation.
+    /// </summary>
+    public virtual bool SupportsDocumentMetadataOrdering => false;
+
+    /// <summary>
     /// Does this store implement <see cref="IDocumentStoreDiagnosticsWriter" />? Gates the write facts
     /// of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />. Flip this and override
     /// <see cref="DocumentDiagnosticsWriter" /> together.

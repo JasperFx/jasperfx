@@ -135,6 +135,10 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         => Assert.SkipUnless(theFixture.SupportsDocumentDiagnosticCriteria,
             "This store does not apply Where / OrderBy; the refusal fact covers it instead.");
 
+    private void SkipUnlessMetadataOrdering()
+        => Assert.SkipUnless(theFixture.SupportsDocumentMetadataOrdering,
+            "This store does not honour DocumentQueryOptions.OrderByMetadata (jasperfx#1058).");
+
     private static ComplianceWidget Widget(string name, int weight = 1)
         => new() { Id = Guid.NewGuid(), Name = name, Color = "red", Weight = weight };
 
@@ -985,6 +989,145 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
             () => QueryAsync(WidgetType, new DocumentQueryOptions(1, 10) { Where = where }));
 
         ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.Where));
+    }
+
+    // ---------------------------------------------------------------- metadata ordering (jasperfx#1058)
+
+    /// <summary>
+    /// Widgets written one save apiece, oldest first, so each has its own last-modified and created time.
+    /// </summary>
+    private async Task<ComplianceWidget[]> WidgetsWrittenInTurnAsync(int count)
+    {
+        var widgets = Enumerable.Range(1, count).Select(i => Widget($"w{i}", i)).ToArray();
+        foreach (var widget in widgets)
+        {
+            await PersistAsync(widget);
+            await Task.Delay(15, Cancellation);
+        }
+
+        return widgets;
+    }
+
+    [Fact]
+    public async Task newest_first_orders_by_last_modified_descending()
+    {
+        _ = Diagnostics;
+        SkipUnlessMetadataOrdering();
+        var widgets = await WidgetsWrittenInTurnAsync(4);
+
+        // The oldest, edited last, is now the newest.
+        widgets[0].Name = "touched";
+        await PersistAsync(widgets[0]);
+
+        var result = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10) { OrderByMetadata = DocumentMetadataOrder.NewestFirst });
+
+        IdsOf(result).ShouldBe([widgets[0].Id, widgets[3].Id, widgets[2].Id, widgets[1].Id]);
+        result.Documents.Select(x => x.LastModified).ShouldBeInOrder(SortDirection.Descending);
+    }
+
+    [Fact]
+    public async Task last_modified_ascending_is_oldest_first()
+    {
+        _ = Diagnostics;
+        SkipUnlessMetadataOrdering();
+        var widgets = await WidgetsWrittenInTurnAsync(3);
+
+        var result = await QueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10)
+            {
+                OrderByMetadata = new DocumentMetadataOrder(DocumentMetadataField.LastModified)
+            });
+
+        IdsOf(result).ShouldBe(widgets.Select(x => x.Id));
+    }
+
+    [Fact]
+    public async Task metadata_ordering_composes_with_where_and_pages()
+    {
+        _ = Diagnostics;
+        SkipUnlessMetadataOrdering();
+        SkipUnlessCriteria();
+        var widgets = await WidgetsWrittenInTurnAsync(5);
+
+        var options = new DocumentQueryOptions(1, 2)
+        {
+            Where = "Weight > @0", Arguments = [1], OrderByMetadata = DocumentMetadataOrder.NewestFirst
+        };
+        var first = await QueryAsync(WidgetType, options);
+        var second = await QueryAsync(WidgetType, options with { PageNumber = 2 });
+
+        first.TotalCount.ShouldBe(4);
+        IdsOf(first).Concat(IdsOf(second)).ShouldBe([widgets[4].Id, widgets[3].Id, widgets[2].Id, widgets[1].Id]);
+    }
+
+    [Fact]
+    public async Task metadata_ordering_still_honors_soft_deletes()
+    {
+        _ = Diagnostics;
+        SkipUnlessMetadataOrdering();
+        SkipUnlessSoftDeletes();
+        var (live, _) = await LiveAndDeletedTicketsAsync();
+
+        var result = await QueryAsync(TicketType,
+            new DocumentQueryOptions(1, 10) { OrderByMetadata = DocumentMetadataOrder.NewestFirst });
+
+        IdsOf(result).ShouldBe([live.Id]);
+    }
+
+    [Fact]
+    public async Task metadata_ordering_with_ties_still_pages_deterministically()
+    {
+        // One save, so every widget may share a timestamp: the identity has to break the tie.
+        _ = Diagnostics;
+        SkipUnlessMetadataOrdering();
+        var widgets = await PersistWidgetsAsync(6);
+
+        var options = new DocumentQueryOptions(1, 3) { OrderByMetadata = DocumentMetadataOrder.NewestFirst };
+        var first = await QueryAsync(WidgetType, options);
+        var second = await QueryAsync(WidgetType, options with { PageNumber = 2 });
+        var firstAgain = await QueryAsync(WidgetType, options);
+
+        IdsOf(first).Concat(IdsOf(second)).OrderBy(x => x).ShouldBe(widgets.Select(x => x.Id).OrderBy(x => x));
+        IdsOf(firstAgain).ShouldBe(IdsOf(first));
+    }
+
+    [Theory]
+    [InlineData(DocumentMetadataField.Created)]
+    [InlineData(DocumentMetadataField.Version)]
+    public async Task an_optional_metadata_ordering_is_honored_or_refused(DocumentMetadataField field)
+    {
+        // Created is tracked only where a store tracks it, and a Guid version has no order: either may be
+        // refused, but never ignored.
+        _ = Diagnostics;
+        SkipUnlessMetadataOrdering();
+        var widgets = await WidgetsWrittenInTurnAsync(3);
+
+        // An edit moves the last-modified time and the version, never the created time.
+        widgets[0].Name = "touched";
+        await PersistAsync(widgets[0]);
+
+        DocumentQueryResult result;
+        try
+        {
+            result = await QueryAsync(WidgetType,
+                new DocumentQueryOptions(1, 10) { OrderByMetadata = new DocumentMetadataOrder(field) });
+        }
+        catch (DocumentCriteriaNotSupportedException e)
+        {
+            e.Criterion.ShouldBe(nameof(DocumentQueryOptions.OrderByMetadata));
+            return;
+        }
+
+        if (field == DocumentMetadataField.Created)
+        {
+            IdsOf(result).ShouldBe(widgets.Select(x => x.Id));
+        }
+        else
+        {
+            result.Documents.Select(x => long.Parse(x.Version!)).ShouldBeInOrder(SortDirection.Ascending);
+            IdsOf(result).Last().ShouldBe(widgets[0].Id);
+        }
     }
 
     // ---------------------------------------------------------------- writes (§6)
