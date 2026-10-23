@@ -1,0 +1,40 @@
+name: AOT roots gate
+
+# jasperfx#777: publishes src/JasperFx.AotRootsSmoke with PublishAot (rooted, and the unrooted negative
+# control) and runs the native binaries. Kept off the per-PR path: an ILC publish is slow and this surface
+# rarely changes.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  NUKE_TELEMETRY_OPTOUT: true
+
+jobs:
+  aot_roots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install .NET 9.0.x
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install .NET 10.0.x
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install the native AOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: smoke-test-aot-roots
+        run: ./build.sh smoke-test-aot-roots
+        shell: bash

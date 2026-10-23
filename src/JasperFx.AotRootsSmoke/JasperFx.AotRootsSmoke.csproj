@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks></TargetFrameworks>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+
+        <!--
+        jasperfx#777: proves the AOT roots companion (GeneratedAssembly.AddAotRoots, jasperfx#743) end to
+        end under a real ILC publish. Internal/Generated holds a "pre-generated" type that nothing
+        references statically, plus the companion AddAotRoots emits for it. Program.cs resolves the type
+        through TypeLoadMode.Static, the same StaticTypeLoader / FindPreGeneratedType path a Critter Stack
+        application uses, and exits non-zero when it is not found.
+
+        Run it with `./build.sh smoke-test-aot-roots`, which publishes twice with PublishAot=true:
+          - rooted: the companion is compiled in, and the native binary must find the type (exit 0);
+          - unrooted (the negative control): -p:AotRootsDisabled=true compiles the companion out, and
+            the native binary must NOT find it (exit 2). Without the control the gate could pass because
+            ILC happened to keep the type anyway.
+        CodegenTests' AotRootsSmokeCompanionDriftTests keeps the checked-in companion equal to what the
+        emitter produces today.
+        -->
+        <!-- In the project rather than on the command line: a global PublishAot reaches every referenced
+             project, including the netstandard2.0 source generator, which cannot be AOT-compiled. -->
+        <PublishAot>true</PublishAot>
+        <IsAotCompatible>true</IsAotCompatible>
+        <TrimMode>full</TrimMode>
+        <InvariantGlobalization>true</InvariantGlobalization>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(AotRootsDisabled)' == 'true'">
+        <DefineConstants>$(DefineConstants);AOT_ROOTS_DISABLED</DefineConstants>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+    </ItemGroup>
+
+</Project>

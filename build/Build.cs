@@ -226,6 +226,44 @@ partial class Build : NukeBuild
             DotNet("run --framework net10.0 --no-build", Solution.TestHarnesses.JasperFx_AotSmoke.Directory);
         });
 
+    /// <summary>
+    /// jasperfx#777: the AOT roots companion proven under a real ILC publish, which nothing else in the repo
+    /// runs (<see cref="SmokeTestAot" /> is the analyzer only). Publishes src/JasperFx.AotRootsSmoke twice
+    /// with PublishAot: rooted, the native binary must resolve its pre-generated type through
+    /// TypeLoadMode.Static (exit 0); unrooted, with the companion compiled out, it must NOT (exit 2). The
+    /// negative control is what stops the gate passing because ILC happened to keep the type anyway.
+    /// Deliberately not part of <see cref="Test" />: an ILC publish is slow, and the surface rarely changes,
+    /// so it runs from its own scheduled / manual workflow (aot-roots.yml).
+    /// </summary>
+    Target SmokeTestAotRoots => _ => _
+        .Executes(() =>
+        {
+            var project = RootDirectory / "src" / "JasperFx.AotRootsSmoke" / "JasperFx.AotRootsSmoke.csproj";
+            var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
+            var output = ArtifactsDirectory / "aot-roots";
+            var binary = OperatingSystem.IsWindows() ? "JasperFx.AotRootsSmoke.exe" : "JasperFx.AotRootsSmoke";
+
+            int publishAndRun(string variant, string extra)
+            {
+                DotNet($"publish \"{project}\" -c Release -r {rid} -o \"{output / variant}\" {extra}");
+
+                using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo((output / variant / binary).ToString())
+                {
+                    UseShellExecute = false
+                })!;
+                process.WaitForExit();
+                return process.ExitCode;
+            }
+
+            var rooted = publishAndRun("rooted", "");
+            Assert.True(rooted == 0,
+                $"The rooted native binary exited {rooted}: the AOT roots companion did not keep the pre-generated type resolvable through TypeLoadMode.Static under Native AOT.");
+
+            var unrooted = publishAndRun("unrooted", "-p:AotRootsDisabled=true");
+            Assert.True(unrooted == 2,
+                $"The unrooted native binary exited {unrooted}, expected 2 (type not found). Without the companion ILC should have trimmed the type; if it did not, the rooted pass proves nothing.");
+        });
+
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";
 
     AbsolutePath ShippedEventsTargets =>
