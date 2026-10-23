@@ -186,6 +186,59 @@ public interface IEventDatabase
             "DeleteProjectionProgressByShardNameAsync is not implemented on this IEventDatabase. Use an event store (Marten or Polecat) that supports deleting a projection-progression row by its raw shard identity.");
 
     /// <summary>
+    ///     jasperfx#809: the persisted <b>start floor</b> of a projection in this database, or null when none
+    ///     is stored. A floor is the sequence below which the projection has no meaningful history: a
+    ///     continuous start begins at <c>max(progress, floor)</c> and a rebuild replays from it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     Keyed by the projection's <see cref="ShardName.Name" /> without its version, so a version bump
+    ///     inherits the floor, plus the tenant under per-tenant partitioning (null for store-global). Not per
+    ///     shard key.
+    /// </para>
+    /// <para>
+    ///     A floor must <b>survive rebuild teardown</b>, so it cannot live on the progression row a rebuild
+    ///     deletes. A small table of its own is the expected shape, which also keeps "no progression row means
+    ///     a fresh shard" intact.
+    /// </para>
+    /// <para>
+    ///     The default implementation throws <see cref="NotSupportedException" />. The daemon treats that as
+    ///     "no stored floor" for every strategy except <see cref="AsyncOptions.SubscribeFromFirstRun" />, which
+    ///     cannot work without it.
+    /// </para>
+    /// </remarks>
+    Task<long?> FetchProjectionFloorAsync(string projectionName, string? tenantId, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(FetchProjectionFloorAsync)} (jasperfx#809), so it cannot persist a projection start floor.");
+
+    /// <summary>
+    ///     jasperfx#809: store <paramref name="floor" /> as the projection's start floor <b>only if none is
+    ///     stored yet</b>, and return the floor that is stored afterwards, which is the winner of any race.
+    ///     Several nodes starting the same projection for the first time must all use the one stored value,
+    ///     never their own locally captured high water.
+    /// </summary>
+    /// <remarks>See <see cref="FetchProjectionFloorAsync" /> for the key and the storage rule.</remarks>
+    Task<long> TrySetProjectionFloorAsync(string projectionName, string? tenantId, long floor,
+        CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(TrySetProjectionFloorAsync)} (jasperfx#809), so it cannot persist a projection start floor.");
+
+    /// <summary>
+    ///     jasperfx#809: the operator's override. Set the projection's start floor unconditionally, or clear it
+    ///     with a null <paramref name="floor" />. A stored floor wins over a code-configured
+    ///     <see cref="AsyncOptions.SubscribeFromSequence" /> or <see cref="AsyncOptions.SubscribeFromTime" /> for
+    ///     this database, which is what lets one database be fixed without a deploy.
+    /// </summary>
+    /// <remarks>
+    ///     Neither setting nor clearing reprocesses anything by itself. The next continuous start or rebuild
+    ///     honours the new value: after a clear, the next rebuild starts from 0 (or the code-configured floor).
+    /// </remarks>
+    Task SetProjectionFloorAsync(string projectionName, string? tenantId, long? floor,
+        CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(SetProjectionFloorAsync)} (jasperfx#809), so it cannot persist a projection start floor.");
+
+    /// <summary>
     ///     Persist the extended progression telemetry for a single projection/subscription shard —
     ///     heartbeat, agent status, pause reason, running node — onto the store's progression row for
     ///     <see cref="ShardState.ShardName" /> (the raw shard identity). This is the write half of the

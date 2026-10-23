@@ -419,6 +419,14 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                     .DetermineStartingPositionAsync(highWaterMark, agent.Name, mode, Database, _cancellation.Token)
                     .ConfigureAwait(false);
 
+            if (position.PinnedFloor is { } pinned)
+            {
+                // jasperfx#809: the intentional skip of history should be visible
+                Logger.LogInformation(
+                    "Pinned the start floor of projection {ProjectionName} at sequence {Floor} in database {DatabaseIdentifier}; events below it are not processed, including by a rebuild",
+                    agent.Name.Name, pinned, Database.Identifier);
+            }
+
             if (position.ShouldUpdateProgressFirst)
             {
                 await _store.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, position.Floor).ConfigureAwait(false);
@@ -533,7 +541,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             var errorOptions = _store.RebuildErrors;
 
-            var request = new SubscriptionExecutionRequest(0, ShardExecutionMode.Rebuild, errorOptions, this);
+            // jasperfx#809: replay from the configured or stored floor rather than 0. Teardown just deleted the
+            // progression row, and the first progress write is an INSERT only for a page starting at 0, so a
+            // non-zero floor seeds the row first or the first page's conditional UPDATE matches nothing.
+            var floor = await agent.Options.DetermineRebuildFloorAsync(agent.Name, Database, _cancellation.Token)
+                .ConfigureAwait(false);
+            if (floor > 0)
+            {
+                Logger.LogInformation("Rebuilding {ShardName} from its start floor at sequence {Floor}",
+                    agent.Name.Identity, floor);
+                await _store.RewindSubscriptionProgressAsync(Database, agent.Name.Identity, _cancellation.Token, floor)
+                    .ConfigureAwait(false);
+            }
+
+            var request = new SubscriptionExecutionRequest(floor, ShardExecutionMode.Rebuild, errorOptions, this);
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
 
             await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);

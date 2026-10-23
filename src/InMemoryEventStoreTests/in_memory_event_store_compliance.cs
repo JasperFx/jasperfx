@@ -60,3 +60,6 @@ public class multi_stream_projection_compliance
 
 public class strong_typed_identity_compliance
     : StrongTypedIdentityCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+public class projection_floor_compliance
+    : ProjectionFloorCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;

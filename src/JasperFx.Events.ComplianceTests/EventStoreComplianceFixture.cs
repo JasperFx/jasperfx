@@ -775,6 +775,19 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsProgressionLastUpdated => false;
 
     /// <summary>
+    /// True in a store whose <see cref="IEventDatabase" /> implements the projection start-floor seam —
+    /// <see cref="IEventDatabase.FetchProjectionFloorAsync" />, <see cref="IEventDatabase.TrySetProjectionFloorAsync" />
+    /// and <see cref="IEventDatabase.SetProjectionFloorAsync" /> (jasperfx#809). Gates
+    /// <see cref="ProjectionFloorCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>: the seam ships with throwing defaults, so a store that has not
+    /// implemented it keeps a green suite. Implement the three members over storage that survives rebuild
+    /// teardown, then flip this.
+    /// </remarks>
+    public virtual bool SupportsProjectionFloors => false;
+
+    /// <summary>
     /// True in a store whose registrar replays <see cref="ComplianceSubscription.IncludedEventTypes"/>
     /// onto its own subscription registration, so a declared allow list actually reaches the daemon.
     /// Gates the one event-filter fact of
