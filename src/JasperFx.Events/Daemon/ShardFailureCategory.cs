@@ -14,7 +14,8 @@ public enum ShardFailureCategory
     /// User projection/subscription code threw while applying an event — the classic "poison pill".
     /// Carries the failing event (see <see cref="ApplyEventException"/>). Turning on
     /// <see cref="ErrorHandlingOptions.SkipApplyErrors"/> converts this into a dead letter instead
-    /// of a pause.
+    /// of a pause, except for a systemic database failure (jasperfx#1029), which always pauses and is
+    /// reported with <see cref="ShardFailure.IsTransient"/> false.
     /// </summary>
     ApplyEvent,
 
