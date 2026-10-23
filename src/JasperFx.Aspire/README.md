@@ -101,5 +101,5 @@ api.WithJasperFxStartup(c =>
 
 ## Requirements
 
-- .NET Aspire 9.2+ (built and tested against Aspire 13.x).
+- .NET 10 and Aspire 13.4+ (the package targets `net10.0` only and references `Aspire.Hosting` 13.4.6; Aspire 9.x is not supported).
 - The target resource must be a project resource (`AddProject<T>`).

@@ -26,11 +26,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Install .NET Aspire workload
-        run: |
-          dotnet workload update
-          dotnet workload install aspire
-
       - name: Nuget Push
         run: ./build.sh NugetPush
         env:
