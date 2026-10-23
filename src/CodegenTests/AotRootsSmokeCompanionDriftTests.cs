@@ -25,7 +25,8 @@ public class AotRootsSmokeCompanionDriftTests
         return "#if !AOT_ROOTS_DISABLED\n" + assembly.GenerateCode() + "\n#endif\n";
     }
 
-    private static string companionPath([CallerFilePath] string thisFile = "")
+    /// <summary>Where the update mode writes: the source file, which only exists under a real path locally.</summary>
+    private static string sourceCompanionPath([CallerFilePath] string thisFile = "")
         => Path.Combine(Path.GetDirectoryName(thisFile)!, "..", "JasperFx.AotRootsSmoke", "Internal", "Generated",
             "AotRoots.cs");
 
@@ -36,11 +37,13 @@ public class AotRootsSmokeCompanionDriftTests
     {
         if (Environment.GetEnvironmentVariable("JASPERFX_UPDATE_AOT_ROOTS_SMOKE") == "true")
         {
-            File.WriteAllText(companionPath(), expected());
+            File.WriteAllText(sourceCompanionPath(), expected());
             return;
         }
 
-        normalize(File.ReadAllText(companionPath())).ShouldBe(normalize(expected()),
+        // Read from the copy in the output directory, so a CI path map cannot hide it
+        var copied = Path.Combine(AppContext.BaseDirectory, "AotRootsSmoke", "AotRoots.cs");
+        normalize(File.ReadAllText(copied)).ShouldBe(normalize(expected()),
             "src/JasperFx.AotRootsSmoke/Internal/Generated/AotRoots.cs has drifted from what AddAotRoots emits. Rerun with JASPERFX_UPDATE_AOT_ROOTS_SMOKE=true and commit the file.");
     }
 }

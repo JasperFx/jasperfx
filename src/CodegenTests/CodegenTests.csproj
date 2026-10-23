@@ -9,6 +9,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- jasperfx#777: read by AotRootsSmokeCompanionDriftTests from the output directory, so CI's
+             deterministic source path map cannot hide it -->
+        <None Include="..\JasperFx.AotRootsSmoke\Internal\Generated\AotRoots.cs" Link="AotRootsSmoke\AotRoots.cs" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
         <PackageReference Include="FSharp.Core" />
         <PackageReference Include="xunit.v3" />
