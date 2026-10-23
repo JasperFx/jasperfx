@@ -56,7 +56,17 @@ public partial class TenantSlicingTally
 /// enrolled deliberately, because the precondition it needs is unusual and a store should adopt it
 /// knowingly rather than discover it in a version bump.
 /// </para>
+/// <para>
+/// <b>Retiring in JasperFx 3.0 (jasperfx#727).</b> Measured against the SQL stores after it shipped, the suite
+/// cannot construct its own precondition on two of the three: Fisher normalizes appended tenant ids to one
+/// value, and Polecat refuses the second, differently-tenanted append with
+/// <c>ExistingStreamIdCollisionException</c>. Both skip, and the only store that can hold the rows is Marten,
+/// the store that already had the fix. The coverage moves to a Marten-local regression test
+/// (<see href="https://github.com/JasperFx/marten/issues/5305" />). Until 3.0 removes this class, enrolling it
+/// still works and still skips honestly where the precondition cannot be built.
+/// </para>
 /// </remarks>
+[Obsolete("SingleTenantedEventSlicingCompliance cannot build its precondition on Polecat or Fisher and will be removed in JasperFx 3.0 (jasperfx#727). Cover the behaviour with a store-local regression test instead; for Marten see marten#5305.")]
 public abstract class SingleTenantedEventSlicingCompliance<TFixture, TOperations, TQuerySession>
     : EventStoreComplianceSuite<TFixture, TOperations, TQuerySession>
     where TFixture : EventStoreComplianceFixture<TOperations, TQuerySession>, new()
