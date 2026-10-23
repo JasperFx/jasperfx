@@ -71,9 +71,14 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         if (SoftDeletedTypes.Contains(root))
         {
             var now = DateTimeOffset.UtcNow;
+
+            // An already-deleted row keeps its original deletion time, as on all three real stores
+            // (polecat#419, jasperfx#785): a delete that changes nothing must not restamp it.
             _metadata.AddOrUpdate((root, scope, id),
                 _ => new RowMetadata(Guid.NewGuid(), now, now, documentType, true, now),
-                (_, existing) => existing with { Version = Guid.NewGuid(), LastModified = now, IsDeleted = true, DeletedAt = now });
+                (_, existing) => existing.IsDeleted
+                    ? existing
+                    : existing with { Version = Guid.NewGuid(), LastModified = now, IsDeleted = true, DeletedAt = now });
             return;
         }
 
@@ -82,8 +87,9 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
     }
 
     /// <summary>
-    /// The inverse of a soft delete: the row is live again, with a new version. The document itself never
-    /// left its bucket, so only the metadata changes — as only the deleted flag columns do on a real store.
+    /// The inverse of a soft delete: the row is live again, with a new version and the deletion time cleared
+    /// rather than kept, so it cannot be found again by <c>DeletedSince</c> (jasperfx#785). The document itself
+    /// never left its bucket, so only the metadata changes — as only the deleted flag columns do on a real store.
     /// </summary>
     internal void Restore(Type documentType, string tenantId, object id)
     {

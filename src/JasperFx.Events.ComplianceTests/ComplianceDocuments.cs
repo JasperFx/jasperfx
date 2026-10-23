@@ -274,3 +274,29 @@ public class ComplianceDigest : ComplianceMemory
 {
     public string Period { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// A soft-deleted document that carries its deletion state on itself through
+/// <see cref="ISoftDeleted" /> — the marker lifted into <c>JasperFx.Metadata</c> by jasperfx#214 — for
+/// <see cref="SoftDeleteCompliance{TFixture}" /> (jasperfx#785).
+/// </summary>
+public class ComplianceArchivable : ISoftDeleted
+{
+    public Guid Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public bool Deleted { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+}
+
+/// <summary>
+/// A document that has the session's tracking metadata copied onto it through <see cref="ITracked" />,
+/// for <see cref="DocumentMetadataCompliance{TFixture}" /> (jasperfx#785).
+/// </summary>
+public class ComplianceAuditedNote : ITracked
+{
+    public Guid Id { get; set; }
+    public string Text { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string CausationId { get; set; } = string.Empty;
+    public string LastModifiedBy { get; set; } = string.Empty;
+}

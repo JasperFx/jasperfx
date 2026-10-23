@@ -5,6 +5,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using JasperFx;
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Documents;
 using JasperFx.Metadata;
@@ -247,8 +248,50 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
         var scope = ScopeFor(typeof(T), tenantId);
         return StorageFor(typeof(T), tenantId)
             .Where(pair => pair.Value is T && !IsDeleted(typeof(T), scope, pair.Key))
-            .Select(pair => Copy<T>(pair.Value))
+            .Select(pair => Hydrate(Copy<T>(pair.Value), typeof(T), scope, pair.Key))
             .ToList();
+    }
+
+    /// <summary>
+    /// Every row of a soft-deleted type, deleted or not, that <paramref name="keep" /> admits — the
+    /// in-memory reading of the soft-delete operators (jasperfx#785). Refused for a type that hard-deletes:
+    /// there is no deletion state to answer from, and an empty or complete answer would both look real.
+    /// </summary>
+    internal IReadOnlyList<T> SnapshotIncludingDeleted<T>(string tenantId, Func<bool, DateTimeOffset?, bool> keep)
+    {
+        var root = RootOf(typeof(T));
+        if (!SoftDeletedTypes.Contains(root))
+        {
+            throw new NotSupportedException(
+                $"{typeof(T).FullNameInCode()} is not soft-deleted, so a soft-delete operator cannot be applied to it.");
+        }
+
+        var scope = ScopeFor(typeof(T), tenantId);
+        return StorageFor(typeof(T), tenantId)
+            .Where(pair => pair.Value is T)
+            .Where(pair =>
+            {
+                _metadata.TryGetValue((root, scope, pair.Key), out var row);
+                return keep(row?.IsDeleted ?? false, row?.DeletedAt);
+            })
+            .Select(pair => Hydrate(Copy<T>(pair.Value), typeof(T), scope, pair.Key))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Copies the row's deletion state onto an <see cref="ISoftDeleted" /> document as it is read, the way
+    /// every real store maps the columns onto the marker's members.
+    /// </summary>
+    internal T Hydrate<T>(T document, Type documentType, string scope, object id)
+    {
+        if (document is ISoftDeleted softDeleted)
+        {
+            _metadata.TryGetValue((RootOf(documentType), scope, id), out var row);
+            softDeleted.Deleted = row?.IsDeleted ?? false;
+            softDeleted.DeletedAt = row?.IsDeleted == true ? row.DeletedAt : null;
+        }
+
+        return document;
     }
 
     /// <summary>
@@ -443,7 +486,7 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
         => _store.StorageFor(typeof(T), _tenantId).TryGetValue(id, out var found)
            && found is T
            && !_store.IsDeleted(typeof(T), _store.ScopeFor(typeof(T), _tenantId), id)
-            ? InMemoryDocumentStore.Copy<T>(found)
+            ? _store.Hydrate(InMemoryDocumentStore.Copy<T>(found), typeof(T), _store.ScopeFor(typeof(T), _tenantId), id)
             : default;
 
     public IQueryable<T> Query<T>() where T : notnull
@@ -465,6 +508,15 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
                 var existed = storage.ContainsKey(id);
 
                 guardVersion(entity, storage, id, existed, changes);
+
+                // ITracked: the session's metadata is copied onto the document as it is saved, and wins
+                // over whatever the document already carried (jasperfx#785)
+                if (entity is ITracked tracked)
+                {
+                    tracked.CorrelationId = CorrelationId!;
+                    tracked.CausationId = CausationId!;
+                    tracked.LastModifiedBy = CurrentUserName!;
+                }
 
                 // A COPY, not the caller's instance: a real store serializes at commit, so a caller
                 // mutating its object afterwards must not rewrite stored state behind the store's back.
@@ -600,6 +652,48 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
                 if (pair.Value is T document && !_store.IsDeleted(typeof(T), scope, pair.Key) && matches(document))
                 {
                     _store.Remove(typeof(T), _tenantId, pair.Key);
+                    changes.RecordDeleted(typeof(T), pair.Key);
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Restore the soft-deleted rows <paramref name="expression" /> matches, at commit — Marten's
+    /// <c>UndoDeleteWhere</c>, for the soft-delete compliance seam (jasperfx#785).
+    /// </summary>
+    internal void UndoDeleteWhere<T>(Expression<Func<T, bool>> expression) where T : notnull
+    {
+        var matches = expression.Compile();
+        _pending.Add(_ =>
+        {
+            var storage = _store.StorageFor(typeof(T), _tenantId);
+            var scope = _store.ScopeFor(typeof(T), _tenantId);
+            foreach (var pair in storage.ToArray())
+            {
+                if (pair.Value is T document && _store.IsDeleted(typeof(T), scope, pair.Key) && matches(document))
+                {
+                    _store.Restore(typeof(T), _tenantId, pair.Key);
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Remove every row <paramref name="expression" /> matches, soft-deleted or not, at commit — Marten's
+    /// <c>HardDeleteWhere</c>, for the soft-delete compliance seam (jasperfx#785).
+    /// </summary>
+    internal void HardDeleteWhere<T>(Expression<Func<T, bool>> expression) where T : notnull
+    {
+        var matches = expression.Compile();
+        _pending.Add(changes =>
+        {
+            var storage = _store.StorageFor(typeof(T), _tenantId);
+            foreach (var pair in storage.ToArray())
+            {
+                if (pair.Value is T document && matches(document))
+                {
+                    _store.HardRemove(typeof(T), _tenantId, pair.Key);
                     changes.RecordDeleted(typeof(T), pair.Key);
                 }
             }

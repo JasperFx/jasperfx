@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using JasperFx.Documents;
@@ -358,6 +359,76 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     /// a wiring reason.
     /// </remarks>
     public virtual bool SupportsSoftDeletedDocuments => false;
+
+    /// <summary>
+    /// Does this store implement the soft-delete seam — <see cref="QuerySoftDeletedAsync{T}" />,
+    /// <see cref="UndoDeleteWhere{T}" /> and <see cref="HardDeleteWhere{T}" /> — and replay
+    /// <see cref="DocumentComplianceConfig.SoftDeletedDocuments" />? Gates
+    /// <see cref="SoftDeleteCompliance{TFixture}" /> (jasperfx#785). Default <b>false</b>: implement the
+    /// three members, flip the flag.
+    /// </summary>
+    public virtual bool SupportsSoftDeleteOperators => false;
+
+    /// <summary>
+    /// Run <paramref name="filter" /> through the store's own soft-delete marker method — Marten's
+    /// <c>x =&gt; x.IsDeleted()</c>, say — in exactly one <c>Where()</c> over
+    /// <c>session.Query&lt;T&gt;()</c>, and return every match.
+    /// </summary>
+    /// <remarks>
+    /// A seam rather than a shared expression because each store's parser recognizes the marker by its
+    /// declaring type (see <see cref="SoftDeleteFilter" />). Do no filtering of your own: the parser is
+    /// what is under test, including its refusal of an operator against a type that is not soft-deleted.
+    /// </remarks>
+    public virtual Task<IReadOnlyList<T>> QuerySoftDeletedAsync<T>(
+        IDocumentReadOperations session, SoftDeleteFilter filter, CancellationToken token) where T : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement QuerySoftDeletedAsync, so it cannot run the soft-delete compliance facts.");
+
+    /// <summary>
+    /// Queue the store's own <c>UndoDeleteWhere&lt;T&gt;(predicate)</c> on <paramref name="session" />, to
+    /// commit with its next <c>SaveChangesAsync</c>. Not on the session contract (jasperfx#647).
+    /// </summary>
+    public virtual void UndoDeleteWhere<T>(IDocumentSessionOperations session, Expression<Func<T, bool>> predicate)
+        where T : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement UndoDeleteWhere, so it cannot run the soft-delete compliance facts.");
+
+    /// <summary>
+    /// Queue the store's own <c>HardDeleteWhere&lt;T&gt;(predicate)</c> on <paramref name="session" />: a
+    /// removal that ignores the soft-delete mapping, to commit with its next <c>SaveChangesAsync</c>.
+    /// </summary>
+    public virtual void HardDeleteWhere<T>(IDocumentSessionOperations session, Expression<Func<T, bool>> predicate)
+        where T : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement HardDeleteWhere, so it cannot run the soft-delete compliance facts.");
+
+    /// <summary>
+    /// Does this store copy a session's tracking metadata onto a document implementing
+    /// <see cref="JasperFx.Metadata.ITracked" /> when it is saved? Gates the tracking facts of
+    /// <see cref="DocumentMetadataCompliance{TFixture}" /> (jasperfx#785).
+    /// </summary>
+    public virtual bool SupportsTrackedDocuments => false;
+
+    /// <summary>
+    /// Set the correlation id, causation id and user name a session stamps onto what it saves.
+    /// </summary>
+    /// <remarks>
+    /// The default works for any session that implements <see cref="IMetadataContext" />, which is how
+    /// every current store exposes them. Override it only for a session that spells them differently.
+    /// </remarks>
+    public virtual void SetSessionMetadata(IDocumentSessionOperations session, string? correlationId,
+        string? causationId, string? userName)
+    {
+        if (session is not IMetadataContext context)
+        {
+            throw new NotSupportedException(
+                $"{session.GetType().FullName} does not implement IMetadataContext; override {nameof(SetSessionMetadata)} in {GetType().FullName}.");
+        }
+
+        context.CorrelationId = correlationId;
+        context.CausationId = causationId;
+        context.CurrentUserName = userName;
+    }
 
     /// <summary>
     /// Does this fixture replay <see cref="DocumentComplianceConfig.SubClasses" />? Gates the hierarchy
