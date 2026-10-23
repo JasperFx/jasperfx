@@ -224,6 +224,14 @@ normalised them away, because an unmixed store satisfies the assertion for a rea
 do with the behaviour under test. Vacuous green is worse than a skip, since only one of the two is
 visible.
 
+**`SingleTenantedEventSlicingCompliance` is obsolete and goes away in 3.0 (jasperfx#727).** The guard did
+its job and exposed the problem: Fisher normalizes the appended tenant ids, and Polecat refuses the
+second, differently-tenanted append (`ExistingStreamIdCollisionException`). So the suite skips on both,
+and it can only execute on Marten, which had the fix all along. A compliance suite that holds only the
+compliant store to the contract is a Marten test with extra ceremony, so that coverage moves to a
+Marten-local regression test (marten#5305). Existing enrollments compile with an obsolete warning until
+3.0. Don't add new ones.
+
 `AggregateToManyCompliance` and `AggregateToLinqOperatorCompliance` (jasperfx#754) are opt-in
 through fixture seam members rather than the registrar: the `AggregateToAsync` /
 `AggregateToManyAsync` operators ride on each product's raw-event LINQ query
@@ -447,7 +455,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
 | The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |
 | Subscriptions — delivery, rewind, filters, session writes, the change listener | `SubscriptionCompliance` |
-| Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` |
+| Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` (**obsolete**, removed in 3.0, jasperfx#727) |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
 | `AggregateToAsync` over an event query | `AggregateToLinqOperatorCompliance` |
 | `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |

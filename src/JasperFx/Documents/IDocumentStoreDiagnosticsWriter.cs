@@ -2,7 +2,8 @@ namespace JasperFx.Documents;
 
 /// <summary>
 /// The write-side sibling of <see cref="IDocumentStoreDiagnostics"/> (jasperfx#870 §6): save a document
-/// from JSON, or delete one, by type name and id, from a console that cannot reference the store.
+/// from JSON, delete one, or restore a soft-deleted one, by type name and id, from a console that cannot
+/// reference the store.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -57,6 +58,37 @@ public interface IDocumentStoreDiagnosticsWriter
     /// current document when the expected version is stale.
     /// </remarks>
     Task<DocumentWriteResult> DeleteDocumentAsync(DocumentDeleteRequest request, CancellationToken token = default);
+
+    /// <summary>
+    /// Restore one soft-deleted document (jasperfx#1059) — what Marten's <c>UndoDeleteWhere</c> does, by
+    /// type name and id, through the store's own pipeline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Returns <see cref="DocumentWriteStatus.Undeleted"/> with the document as restored — live, with a new
+    /// version. <see cref="DocumentWriteStatus.NotFound"/> when there is no <em>soft-deleted</em> row with
+    /// that id, a live one included: an undelete that did nothing must not look like one that succeeded.
+    /// <see cref="DocumentWriteStatus.ConcurrencyConflict"/> with the current, still-deleted document when
+    /// <see cref="DocumentUndeleteRequest.ExpectedVersion"/> is stale.
+    /// </para>
+    /// <para>
+    /// A type that hard-deletes has nothing to restore, and answers
+    /// <see cref="DocumentWriteStatus.NotSupported"/> rather than throwing, so a console can offer the
+    /// action per type without guarding the call. An unknown type name is still an
+    /// <see cref="ArgumentException"/>, as it is for the other writes.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.93 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). That default cannot know whether the type soft-deletes, so it throws
+    /// <see cref="NotSupportedException"/> naming the implementing type instead of guessing.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store built against a JasperFx older than 2.93.
+    /// </exception>
+    Task<DocumentWriteResult> UndeleteDocumentAsync(DocumentUndeleteRequest request, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnosticsWriter)}.{nameof(UndeleteDocumentAsync)}, which was added in JasperFx 2.93. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.93 or later.");
 }
 
 /// <summary>A request to save one document from JSON.</summary>
@@ -87,6 +119,22 @@ public sealed record DocumentDeleteRequest(string DocumentTypeName, string Id)
     public string? TenantId { get; init; }
 }
 
+/// <summary>A request to restore one soft-deleted document.</summary>
+/// <param name="DocumentTypeName">The document type — see the type-name rule on <see cref="IDocumentStoreDiagnostics"/>.</param>
+/// <param name="Id">The document's identity as text.</param>
+public sealed record DocumentUndeleteRequest(string DocumentTypeName, string Id)
+{
+    /// <summary>
+    /// The <see cref="StoredDocument.Version"/> of the soft-deleted row the caller last read — a load by id
+    /// returns it flagged with <see cref="StoredDocument.IsDeleted"/>. Null restores unconditionally; set,
+    /// a stale version is refused.
+    /// </summary>
+    public string? ExpectedVersion { get; init; }
+
+    /// <inheritdoc cref="DocumentWriteRequest.TenantId"/>
+    public string? TenantId { get; init; }
+}
+
 /// <summary>What a diagnostic write did.</summary>
 public enum DocumentWriteStatus
 {
@@ -96,21 +144,32 @@ public enum DocumentWriteStatus
     /// <summary>The document was deleted (or soft-deleted).</summary>
     Deleted,
 
-    /// <summary>There was no live document with that id to delete.</summary>
+    /// <summary>
+    /// There was no live document with that id to delete, or no soft-deleted one to undelete.
+    /// </summary>
     NotFound,
 
     /// <summary>
     /// The expected version was stale — or the document the caller expected no longer exists. Nothing was
     /// written.
     /// </summary>
-    ConcurrencyConflict
+    ConcurrencyConflict,
+
+    /// <summary>A soft-deleted document was restored (jasperfx#1059).</summary>
+    Undeleted,
+
+    /// <summary>
+    /// The store cannot do this for the document type — an undelete of a type that hard-deletes. Nothing
+    /// was written.
+    /// </summary>
+    NotSupported
 }
 
 /// <summary>The outcome of a diagnostic write.</summary>
 /// <param name="Status">What happened.</param>
 /// <param name="Document">
-/// After <see cref="DocumentWriteStatus.Saved"/>, the document as stored. After
-/// <see cref="DocumentWriteStatus.ConcurrencyConflict"/>, the <em>current</em> document, or null if it is
-/// gone. Otherwise null.
+/// After <see cref="DocumentWriteStatus.Saved"/> or <see cref="DocumentWriteStatus.Undeleted"/>, the
+/// document as stored. After <see cref="DocumentWriteStatus.ConcurrencyConflict"/>, the <em>current</em>
+/// document, or null if it is gone. Otherwise null.
 /// </param>
 public sealed record DocumentWriteResult(DocumentWriteStatus Status, StoredDocument? Document = null);

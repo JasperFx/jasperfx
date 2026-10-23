@@ -673,7 +673,7 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
             {
                 if (pair.Value is T document && _store.IsDeleted(typeof(T), scope, pair.Key) && matches(document))
                 {
-                    _store.UndoSoftDelete(typeof(T), _tenantId, pair.Key);
+                    _store.Restore(typeof(T), _tenantId, pair.Key);
                 }
             }
         });

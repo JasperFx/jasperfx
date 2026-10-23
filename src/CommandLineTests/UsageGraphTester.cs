@@ -225,6 +225,17 @@ namespace CommandLineTests
         }
 
         [Fact]
+        public void should_skip_unknown_flags_whose_value_contains_equals()
+        {
+            // GH-1057: WebApplicationFactory passes UseSetting("ConnectionStrings:Db", ...) as one argument
+            var input = buildRunInput(
+                "--ConnectionStrings:Db=Server=tcp:localhost,1433;User ID=sa;Encrypt=false",
+                "--Other=Password=secret;Server=x",
+                "--environment=Development");
+            input.EnvironmentFlag.ShouldBe("Development");
+        }
+
+        [Fact]
         public void should_skip_unknown_boolean_flags()
         {
             var input = buildRunInput("--some-unknown-boolean-flag", "--environment=Staging");
