@@ -110,6 +110,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsSoftDeletedDocuments => true;
 
+    public override bool SupportsDocumentUndelete => true;
+
     public override bool SupportsDocumentHierarchies => true;
 
     public override Task CleanDocumentDataAsync()

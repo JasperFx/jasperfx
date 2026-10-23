@@ -81,6 +81,19 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         _metadata.TryRemove((root, scope, id), out _);
     }
 
+    /// <summary>
+    /// The inverse of a soft delete: the row is live again, with a new version. The document itself never
+    /// left its bucket, so only the metadata changes — as only the deleted flag columns do on a real store.
+    /// </summary>
+    internal void Restore(Type documentType, string tenantId, object id)
+    {
+        var root = RootOf(documentType);
+        var now = DateTimeOffset.UtcNow;
+        _metadata.AddOrUpdate((root, ScopeFor(root, tenantId), id),
+            _ => throw new InvalidOperationException($"There is no row for {root.Name} '{id}' to restore."),
+            (_, existing) => existing with { Version = Guid.NewGuid(), LastModified = now, IsDeleted = false, DeletedAt = null });
+    }
+
     /// <summary>A removal that ignores soft deletes: the row and its metadata are gone.</summary>
     internal void HardRemove(Type documentType, string tenantId, object id)
     {
@@ -328,6 +341,34 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         }
 
         return new DocumentWriteResult(DocumentWriteStatus.Deleted);
+    }
+
+    Task<DocumentWriteResult> IDocumentStoreDiagnosticsWriter.UndeleteDocumentAsync(DocumentUndeleteRequest request,
+        CancellationToken token)
+    {
+        var requested = ResolveForWrite(request.DocumentTypeName);
+        if (!SoftDeletedTypes.Contains(RootOf(requested)))
+        {
+            return Task.FromResult(new DocumentWriteResult(DocumentWriteStatus.NotSupported));
+        }
+
+        var tenant = DocumentQueryOptions.NormalizeTenantId(request.TenantId) ?? StorageConstants.DefaultTenantId;
+
+        var current = Find(request.DocumentTypeName, request.Id, tenant);
+        if (current is not { IsDeleted: true })
+        {
+            return Task.FromResult(new DocumentWriteResult(DocumentWriteStatus.NotFound));
+        }
+
+        if (request.ExpectedVersion is not null && current.Document.Version != request.ExpectedVersion)
+        {
+            return Task.FromResult(new DocumentWriteResult(DocumentWriteStatus.ConcurrencyConflict, current.Document));
+        }
+
+        Restore(requested, tenant, current.RawId);
+
+        return Task.FromResult(new DocumentWriteResult(DocumentWriteStatus.Undeleted,
+            Find(request.DocumentTypeName, request.Id, tenant)?.Document));
     }
 
     private Type ResolveForWrite(string documentTypeName)
