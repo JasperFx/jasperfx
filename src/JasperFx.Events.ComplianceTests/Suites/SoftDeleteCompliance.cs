@@ -93,17 +93,41 @@ public abstract class SoftDeleteCompliance<TFixture> : DocumentStorageCompliance
     private static Guid[] Ids(IEnumerable<ComplianceArchivable> documents)
         => documents.Select(x => x.Id).OrderBy(x => x).ToArray();
 
+    /// <summary>
+    /// A soft-deleted document loaded by id: null on a store that excludes it from loads, and on one that
+    /// does not (<see cref="DocumentStorageComplianceFixture.LoadExcludesSoftDeletedDocuments" />), the
+    /// document with its <see cref="JasperFx.Metadata.ISoftDeleted" /> members saying it is deleted. Never a
+    /// document that looks live.
+    /// </summary>
+    private async Task ShouldLoadAsDeletedAsync(Guid id)
+    {
+        await using var query = QuerySession();
+        var loaded = await query.LoadAsync<ComplianceArchivable>(id, Cancellation);
+
+        if (theFixture.LoadExcludesSoftDeletedDocuments)
+        {
+            loaded.ShouldBeNull();
+            return;
+        }
+
+        loaded.ShouldNotBeNull();
+        loaded.Deleted.ShouldBeTrue();
+        loaded.DeletedAt.ShouldNotBeNull();
+    }
+
     // ------------------------------------------------------------ implicit exclusion
 
     [Fact]
-    public async Task a_soft_deleted_document_does_not_load()
+    public async Task a_soft_deleted_document_does_not_load_as_live()
     {
         SkipUnlessSupported();
         var (live, deleted) = await LiveAndDeletedAsync();
 
+        await ShouldLoadAsDeletedAsync(deleted.Id);
+
         await using var query = QuerySession();
-        (await query.LoadAsync<ComplianceArchivable>(deleted.Id, Cancellation)).ShouldBeNull();
-        (await query.LoadAsync<ComplianceArchivable>(live.Id, Cancellation)).ShouldNotBeNull();
+        var loaded = await query.LoadAsync<ComplianceArchivable>(live.Id, Cancellation);
+        loaded.ShouldNotBeNull().Deleted.ShouldBeFalse();
     }
 
     [Fact]
@@ -131,8 +155,7 @@ public abstract class SoftDeleteCompliance<TFixture> : DocumentStorageCompliance
         }
 
         // Gone from a plain read, still there to be found by an operator.
-        await using var query = QuerySession();
-        (await query.LoadAsync<ComplianceArchivable>(doomed.Id, Cancellation)).ShouldBeNull();
+        await ShouldLoadAsDeletedAsync(doomed.Id);
         Ids(await QueryAsync<ComplianceArchivable>(SoftDeleteFilter.IsDeleted)).ShouldBe([doomed.Id]);
     }
 

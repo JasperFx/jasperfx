@@ -370,6 +370,19 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     public virtual bool SupportsSoftDeleteOperators => false;
 
     /// <summary>
+    /// Does loading a soft-deleted document <em>by id</em> answer null, as a query does? Default <b>true</b>.
+    /// </summary>
+    /// <remarks>
+    /// The one place the stores were found to diverge after #785 shipped. Marten's load by id has never
+    /// applied the soft-delete filter: it returns the row, with <see cref="JasperFx.Metadata.ISoftDeleted" />
+    /// members reporting it deleted, and documents that as how the marker interface is meant to be read.
+    /// Changing that would break every application relying on it, so the suite pins each store's own
+    /// documented answer instead of skipping the facts: true asserts the load is null, false asserts the
+    /// document comes back flagged deleted. Queries and counts exclude soft-deleted rows either way.
+    /// </remarks>
+    public virtual bool LoadExcludesSoftDeletedDocuments => true;
+
+    /// <summary>
     /// Run <paramref name="filter" /> through the store's own soft-delete marker method — Marten's
     /// <c>x =&gt; x.IsDeleted()</c>, say — in exactly one <c>Where()</c> over
     /// <c>session.Query&lt;T&gt;()</c>, and return every match.
