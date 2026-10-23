@@ -1048,7 +1048,9 @@ fixture seam members with throwing defaults, behind `SupportsSoftDeleteOperators
 `QuerySoftDeletedAsync` runs one of the four marker operators through the store's own extension method,
 for the `DcbHasTagLinqCompliance` reason. `UndoDeleteWhere` and `HardDeleteWhere` queue the store's own
 operations. Its load-bearing fact is that **a soft-delete operator against a type that is not
-soft-deleted is refused** (polecat#558). `DocumentMetadataCompliance` needs no seam beyond a
+soft-deleted is refused** (polecat#558). Loading a soft-deleted document by id is the one divergence
+it pins rather than rules on: null by default, or the document flagged deleted on a store that sets
+`LoadExcludesSoftDeletedDocuments` false, as Marten does and documents. `DocumentMetadataCompliance` needs no seam beyond a
 `SetSessionMetadata` default that works for any `IMetadataContext` session. It pins `ITracked` stamping
 behind `SupportsTrackedDocuments`, and reads created / last-modified through `IDocumentStoreDiagnostics`.
 
