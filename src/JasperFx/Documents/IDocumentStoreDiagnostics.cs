@@ -258,6 +258,32 @@ public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEqual
     public string? OrderBy { get; init; }
 
     /// <summary>
+    /// Optional ordering by a metadata column every document table carries — last modified, version, or
+    /// created — rather than by a member of the document (jasperfx#1058). <see cref="DocumentMetadataOrder.NewestFirst"/>
+    /// is the "newest first" a document explorer opens with.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item><description>It composes with <see cref="Where"/>, <see cref="IdEquals"/>, soft deletes and
+    /// tenancy exactly as <see cref="OrderBy"/> does.</description></item>
+    /// <item><description>The metadata key comes first. A given <see cref="OrderBy"/> breaks its ties, and
+    /// the identity breaks whatever ties remain, so paging stays stable.</description></item>
+    /// <item><description>With <see cref="AllTenants"/>, the tenant id still comes first, as it does for
+    /// every all-tenants read.</description></item>
+    /// <item><description>A store that cannot order by the requested column throws
+    /// <see cref="DocumentCriteriaNotSupportedException"/> naming <c>nameof(OrderByMetadata)</c>: a type
+    /// whose table does not track <see cref="DocumentMetadataField.Created"/>, say, or a
+    /// <see cref="DocumentMetadataField.Version"/> that is a Guid and so has no meaningful order. Ignoring
+    /// it is the one wrong answer, as it is for every criterion.</description></item>
+    /// </list>
+    /// <para>
+    /// Added in JasperFx 2.93. A store built against an older JasperFx does not know this member exists
+    /// and returns its default order, so a console should pair it with a store version it knows honours it.
+    /// </para>
+    /// </remarks>
+    public DocumentMetadataOrder? OrderByMetadata { get; init; }
+
+    /// <summary>
     /// Typed values for the <c>@0</c>, <c>@1</c>, … placeholders in <see cref="Where"/>. Ignored when
     /// <see cref="Where"/> is null.
     /// </summary>
@@ -318,6 +344,31 @@ public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEqual
     /// </summary>
     public static string? NormalizeTenantId(string? tenantId)
         => string.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
+}
+
+/// <summary>A document metadata column that <see cref="DocumentQueryOptions.OrderByMetadata"/> can order by.</summary>
+public enum DocumentMetadataField
+{
+    /// <summary><see cref="StoredDocument.LastModified"/>: when the document was last written.</summary>
+    LastModified,
+
+    /// <summary>
+    /// <see cref="StoredDocument.Version"/>: meaningful for a numeric revision; a store may refuse it for a
+    /// Guid version.
+    /// </summary>
+    Version,
+
+    /// <summary><see cref="StoredDocument.Created"/>: when the document was first written, where tracked.</summary>
+    Created
+}
+
+/// <summary>An ordering by one document metadata column (jasperfx#1058).</summary>
+/// <param name="Field">The metadata column.</param>
+/// <param name="Descending">Largest first — newest first, for the timestamps.</param>
+public sealed record DocumentMetadataOrder(DocumentMetadataField Field, bool Descending = false)
+{
+    /// <summary>The most recently modified documents first.</summary>
+    public static DocumentMetadataOrder NewestFirst { get; } = new(DocumentMetadataField.LastModified, true);
 }
 
 /// <summary>
