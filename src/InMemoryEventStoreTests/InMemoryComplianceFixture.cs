@@ -102,6 +102,8 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
 
     public override bool SupportsAsyncDaemon => false;
 
+    public override bool SupportsProjectionFloors => true;
+
     public override bool SupportsExplorerSurface => false;
 
     public override bool SupportsFlatTableProjections => false;

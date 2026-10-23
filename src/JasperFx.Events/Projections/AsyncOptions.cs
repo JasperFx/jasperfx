@@ -121,12 +121,61 @@ public class AsyncOptions
         _cleanups.Add(new DeleteTableData(tableIdentifier));
     }
 
-    internal Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
+    internal async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
         IEventDatabase database,
         CancellationToken token)
     {
         var strategy = matchStrategy(database);
-        return strategy.DetermineStartingPositionAsync(highWaterMark, name, mode, database, token);
+
+        // jasperfx#809: a stored floor wins over whatever the code configured for this database
+        if (await storedFloorAsync(strategy, name, database, token).ConfigureAwait(false) is { } floor)
+        {
+            return await FromSequence.StartAtAsync(floor, name, database, token).ConfigureAwait(false);
+        }
+
+        return await strategy.DetermineStartingPositionAsync(highWaterMark, name, mode, database, token)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// jasperfx#809: the sequence a rebuild replays from, after teardown. A stored floor first, then the
+    /// configured strategy's own floor (<see cref="SubscribeFromSequence" />, <see cref="SubscribeFromTime" />),
+    /// else 0. Before this, every rebuild replayed from 0 and ignored a configured floor.
+    /// </summary>
+    internal async Task<long> DetermineRebuildFloorAsync(ShardName name, IEventDatabase database,
+        CancellationToken token)
+    {
+        var strategy = matchStrategy(database);
+
+        if (await storedFloorAsync(strategy, name, database, token).ConfigureAwait(false) is { } floor)
+        {
+            return floor;
+        }
+
+        return await strategy.RebuildFloorAsync(name, database, token).ConfigureAwait(false);
+    }
+
+    private static async Task<long?> storedFloorAsync(IPositionStrategy strategy, ShardName name,
+        IEventDatabase database, CancellationToken token)
+    {
+        // FromPresent ignores persisted state by design: it always jumps to the live high water
+        if (strategy is FromPresent) return null;
+
+        // FromFirstRun cannot work without the seam, so let its NotSupportedException surface as a failed start
+        if (strategy is FromFirstRun)
+        {
+            return await database.FetchProjectionFloorAsync(name.Name, name.TenantId, token).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await database.FetchProjectionFloorAsync(name.Name, name.TenantId, token).ConfigureAwait(false);
+        }
+        catch (NotSupportedException)
+        {
+            // A store that predates the seam has no stored floors: the configured strategy decides alone
+            return null;
+        }
     }
 
     // jasperfx#480: the side-effect version gate replays to the PERSISTED prior-version mark, but a
@@ -184,6 +233,37 @@ public class AsyncOptions
     }
 
     /// <summary>
+    /// jasperfx#809: on the projection's first continuous start in a database, pin its start floor at that
+    /// database's current high water and persist it there, so the projection never walks history it has no use
+    /// for. Every later start begins at <c>max(progress, floor)</c>, and a rebuild replays from the floor
+    /// instead of 0, because the floor outlives rebuild teardown.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Pinning intentionally drops history.</b> It is lossless only when no events the projection handles
+    /// exist below the floor, which is true for a projection over event types that are new. For a projection
+    /// over existing types it is a business decision.
+    /// </para>
+    /// <para>
+    /// Concurrent first starts on several nodes agree: the floor is inserted only if absent, and every node
+    /// uses the stored winner. The floor is keyed by projection name without its version, so a version bump
+    /// inherits it, plus the tenant under per-tenant partitioning. An operator can set or clear it through
+    /// <see cref="IEventDatabase.SetProjectionFloorAsync" />.
+    /// </para>
+    /// <para>
+    /// Requires a store that implements the floor seam on <see cref="IEventDatabase" />. On one that does not,
+    /// the shard fails to start with a <see cref="NotSupportedException" /> rather than silently walking from 0.
+    /// </para>
+    /// </remarks>
+    /// <param name="databaseIdentifier">Optionally applies this rule to *only* the named database in the case of
+    /// using a multi-tenancy per multiple databases strategy</param>
+    public AsyncOptions SubscribeFromFirstRun(string? databaseIdentifier = null)
+    {
+        _strategies.Add(new FromFirstRun(databaseIdentifier));
+        return this;
+    }
+
+    /// <summary>
     /// Use this option to prevent having to rebuild a projection when you are
     /// simply changing the projection lifecycle from "Inline" to "Async" but are
     /// making no other changes that would force a rebuild
@@ -201,7 +281,10 @@ public class AsyncOptions
     }
 }
 
-internal record Position(long Floor, bool ShouldUpdateProgressFirst);
+/// <param name="Floor">Where the shard starts.</param>
+/// <param name="ShouldUpdateProgressFirst">Seed the progression row at <paramref name="Floor" /> before starting.</param>
+/// <param name="PinnedFloor">jasperfx#809: set when this start pinned a new persisted floor, so the daemon logs it.</param>
+internal record Position(long Floor, bool ShouldUpdateProgressFirst, long? PinnedFloor = null);
 
 internal interface IPositionStrategy
 {
@@ -210,6 +293,10 @@ internal interface IPositionStrategy
     Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
         IEventDatabase database,
         CancellationToken token);
+
+    /// <summary>jasperfx#809: the floor a rebuild replays from when no floor is stored.</summary>
+    Task<long> RebuildFloorAsync(ShardName name, IEventDatabase database, CancellationToken token)
+        => Task.FromResult(0L);
 }
 
 internal class InlineToAsync(): IPositionStrategy
@@ -244,11 +331,44 @@ internal class FromSequence(string? databaseName, long sequence): IPositionStrat
             return new Position(Sequence, true);
         }
 
+        return await StartAtAsync(Sequence, name, database, token).ConfigureAwait(false);
+    }
+
+    public Task<long> RebuildFloorAsync(ShardName name, IEventDatabase database, CancellationToken token)
+        => Task.FromResult(Sequence);
+
+    /// <summary>
+    /// A continuous start against a floor: <c>max(progress, floor)</c>, seeding the progression row when the
+    /// floor is ahead of it.
+    /// </summary>
+    internal static async Task<Position> StartAtAsync(long floor, ShardName name, IEventDatabase database,
+        CancellationToken token)
+    {
         var current = await database.ProjectionProgressFor(name, token).ConfigureAwait(false);
 
-        return current >= Sequence
+        return current >= floor
             ? new Position(current, false)
-            : new Position(Sequence, true);
+            : new Position(floor, true);
+    }
+}
+
+/// <summary>
+/// jasperfx#809: <see cref="AsyncOptions.SubscribeFromFirstRun" />. Only reached when no floor is stored yet
+/// (<see cref="AsyncOptions.DetermineStartingPositionAsync" /> answers from a stored one first), so this is the
+/// first run: pin the high water, insert-if-absent, and start from whichever floor won.
+/// </summary>
+internal class FromFirstRun(string? databaseName): IPositionStrategy
+{
+    public string? DatabaseIdentifier { get; } = databaseName;
+
+    public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
+        ShardExecutionMode mode, IEventDatabase database, CancellationToken token)
+    {
+        var floor = await database.TrySetProjectionFloorAsync(name.Name, name.TenantId, highWaterMark, token)
+            .ConfigureAwait(false);
+
+        var position = await FromSequence.StartAtAsync(floor, name, database, token).ConfigureAwait(false);
+        return position with { PinnedFloor = floor };
     }
 }
 
@@ -272,6 +392,9 @@ internal class FromTime(string? databaseName, DateTimeOffset time): IPositionStr
 
         return current >= floor ? new Position(current, false) : new Position(floor, true);
     }
+
+    public async Task<long> RebuildFloorAsync(ShardName name, IEventDatabase database, CancellationToken token)
+        => await database.FindEventStoreFloorAtTimeAsync(EventFloorTime, token).ConfigureAwait(false) ?? 0;
 }
 
 internal class FromPresent(string? databaseName): IPositionStrategy

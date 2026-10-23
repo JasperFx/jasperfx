@@ -451,6 +451,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Batch data masking of stored events | `EventDataMaskingCompliance` |
 | Projection rebuild and catch-up semantics | `RebuildAndCatchUpCompliance` |
 | The projection error path and dead letters | `DeadLetterCompliance` |
+| The persisted projection start floor on `IEventDatabase` (jasperfx#809) | `ProjectionFloorCompliance` |
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
 | The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |
