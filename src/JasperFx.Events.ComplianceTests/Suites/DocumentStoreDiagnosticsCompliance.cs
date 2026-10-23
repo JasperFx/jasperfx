@@ -119,6 +119,17 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         => Assert.SkipUnless(theFixture.SupportsSoftDeletedDocuments,
             "This fixture does not replay DocumentComplianceConfig.SoftDeletedDocuments.");
 
+    private IDocumentStoreDiagnosticsWriter Undeleter
+    {
+        get
+        {
+            var writer = Writer;
+            Assert.SkipUnless(theFixture.SupportsDocumentUndelete,
+                "This store does not implement IDocumentStoreDiagnosticsWriter.UndeleteDocumentAsync (jasperfx#1059).");
+            return writer;
+        }
+    }
+
     private void SkipUnlessHierarchies()
         => Assert.SkipUnless(theFixture.SupportsDocumentHierarchies,
             "This fixture does not replay DocumentComplianceConfig.SubClasses.");
@@ -1144,6 +1155,129 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
 
         var document = await Diagnostics.LoadDocumentAsync(TicketType, ticket.Id.ToString(), null, Cancellation);
         document.ShouldNotBeNull().IsDeleted.ShouldBeTrue();
+    }
+
+    // ---------------------------------------------------------------- undelete (jasperfx#1059)
+
+    private async Task<ComplianceTicket> SoftDeletedTicketAsync()
+    {
+        var ticket = new ComplianceTicket { Id = Guid.NewGuid(), Title = "restore me", Priority = 2 };
+        await PersistAsync(ticket);
+
+        await using var session = LightweightSession();
+        session.Delete<ComplianceTicket>(ticket.Id);
+        await session.SaveChangesAsync(Cancellation);
+
+        return ticket;
+    }
+
+    [Fact]
+    public async Task undelete_restores_a_soft_deleted_document()
+    {
+        var writer = Undeleter;
+        SkipUnlessSoftDeletes();
+        var ticket = await SoftDeletedTicketAsync();
+        var deleted = (await Diagnostics.LoadDocumentAsync(TicketType, ticket.Id.ToString(), null, Cancellation))!;
+
+        var result = await writer.UndeleteDocumentAsync(new DocumentUndeleteRequest(TicketType, ticket.Id.ToString()), Cancellation);
+
+        result.Status.ShouldBe(DocumentWriteStatus.Undeleted);
+        var restored = result.Document.ShouldNotBeNull();
+        restored.IsDeleted.ShouldBeFalse();
+        restored.DeletedAt.ShouldBeNull();
+        restored.Version.ShouldNotBe(deleted.Version);
+
+        IdsOf(await QueryAsync(TicketType)).ShouldContain(ticket.Id);
+
+        await using var session = QuerySession();
+        (await session.LoadAsync<ComplianceTicket>(ticket.Id, Cancellation)).ShouldNotBeNull().Title.ShouldBe("restore me");
+    }
+
+    [Fact]
+    public async Task undelete_with_the_version_last_read_restores()
+    {
+        var writer = Undeleter;
+        SkipUnlessSoftDeletes();
+        var ticket = await SoftDeletedTicketAsync();
+        var deleted = (await Diagnostics.LoadDocumentAsync(TicketType, ticket.Id.ToString(), null, Cancellation))!;
+
+        var result = await writer.UndeleteDocumentAsync(
+            new DocumentUndeleteRequest(TicketType, ticket.Id.ToString()) { ExpectedVersion = deleted.Version },
+            Cancellation);
+
+        result.Status.ShouldBe(DocumentWriteStatus.Undeleted);
+    }
+
+    [Fact]
+    public async Task undelete_with_a_stale_version_is_refused_and_stays_deleted()
+    {
+        var writer = Undeleter;
+        SkipUnlessSoftDeletes();
+        var ticket = await SoftDeletedTicketAsync();
+        var stale = (await Diagnostics.LoadDocumentAsync(TicketType, ticket.Id.ToString(), null, Cancellation))!;
+
+        // Restored and deleted again behind the console's back: same state, newer version.
+        (await writer.UndeleteDocumentAsync(new DocumentUndeleteRequest(TicketType, ticket.Id.ToString()), Cancellation))
+            .Status.ShouldBe(DocumentWriteStatus.Undeleted);
+        (await writer.DeleteDocumentAsync(new DocumentDeleteRequest(TicketType, ticket.Id.ToString()), Cancellation))
+            .Status.ShouldBe(DocumentWriteStatus.Deleted);
+
+        var result = await writer.UndeleteDocumentAsync(
+            new DocumentUndeleteRequest(TicketType, ticket.Id.ToString()) { ExpectedVersion = stale.Version },
+            Cancellation);
+
+        result.Status.ShouldBe(DocumentWriteStatus.ConcurrencyConflict);
+        result.Document.ShouldNotBeNull().IsDeleted.ShouldBeTrue();
+
+        (await Diagnostics.LoadDocumentAsync(TicketType, ticket.Id.ToString(), null, Cancellation))
+            .ShouldNotBeNull().IsDeleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task undelete_of_a_live_document_is_not_found()
+    {
+        var writer = Undeleter;
+        SkipUnlessSoftDeletes();
+        var ticket = new ComplianceTicket { Id = Guid.NewGuid(), Title = "alive", Priority = 1 };
+        await PersistAsync(ticket);
+
+        var result = await writer.UndeleteDocumentAsync(new DocumentUndeleteRequest(TicketType, ticket.Id.ToString()), Cancellation);
+
+        result.Status.ShouldBe(DocumentWriteStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task undelete_of_a_missing_document_is_not_found()
+    {
+        var writer = Undeleter;
+        SkipUnlessSoftDeletes();
+
+        var result = await writer.UndeleteDocumentAsync(
+            new DocumentUndeleteRequest(TicketType, Guid.NewGuid().ToString()), Cancellation);
+
+        result.Status.ShouldBe(DocumentWriteStatus.NotFound);
+    }
+
+    [Fact]
+    public async Task undelete_of_a_type_that_hard_deletes_is_not_supported()
+    {
+        var writer = Undeleter;
+        var widget = Widget("hard");
+        await PersistAsync(widget);
+
+        var result = await writer.UndeleteDocumentAsync(new DocumentUndeleteRequest(WidgetType, widget.Id.ToString()), Cancellation);
+
+        result.Status.ShouldBe(DocumentWriteStatus.NotSupported);
+        result.Document.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task undelete_of_an_unknown_type_is_refused()
+    {
+        var writer = Undeleter;
+
+        await Should.ThrowAsync<ArgumentException>(() => writer.UndeleteDocumentAsync(
+            new DocumentUndeleteRequest("No.Such.Document", "1"), Cancellation));
     }
 
     [Fact]

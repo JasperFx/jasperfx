@@ -333,6 +333,14 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
             $"{GetType().FullName} does not expose IDocumentStoreDiagnosticsWriter, so it cannot run the document diagnostics write facts.");
 
     /// <summary>
+    /// Does this store's <see cref="DocumentDiagnosticsWriter" /> implement
+    /// <see cref="IDocumentStoreDiagnosticsWriter.UndeleteDocumentAsync" /> (jasperfx#1059)? Gates the
+    /// undelete facts, so a store that has not implemented it yet keeps a green suite when it moves to a
+    /// JasperFx that has the member. Flip it with the implementation.
+    /// </summary>
+    public virtual bool SupportsDocumentUndelete => false;
+
+    /// <summary>
     /// Does this fixture replay <see cref="DocumentComplianceConfig.SoftDeletedDocuments" />? Gates the
     /// soft-delete facts of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />.
     /// </summary>
