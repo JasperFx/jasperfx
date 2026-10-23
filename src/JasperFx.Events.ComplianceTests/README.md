@@ -455,6 +455,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
 | The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |
+| The event-body queryable (`QueryEventData<T>`) | `EventDataQueryCompliance` |
 | Subscriptions — delivery, rewind, filters, session writes, the change listener | `SubscriptionCompliance` |
 | Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` (**obsolete**, removed in 3.0, jasperfx#727) |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |

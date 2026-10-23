@@ -119,7 +119,8 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             .Distinct()
             .Select(x => new DocumentTypeRef(x.FullNameInCode(), x.Name.ToLowerInvariant(), "inmemory")
             {
-                RootTypeName = SubClassRoots.TryGetValue(x, out var root) ? root.FullNameInCode() : null
+                RootTypeName = SubClassRoots.TryGetValue(x, out var root) ? root.FullNameInCode() : null,
+                IsSoftDeleted = SoftDeletedTypes.Contains(RootOf(x))
             })
             .OrderBy(x => x.TypeName, StringComparer.Ordinal)
             .ToList());
@@ -311,20 +312,8 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
     async Task<DocumentWriteResult> IDocumentStoreDiagnosticsWriter.SaveDocumentJsonAsync(DocumentWriteRequest request,
         CancellationToken token)
     {
-        var requested = ResolveForWrite(request.DocumentTypeName);
+        var (requested, document) = DeserializeForWrite(request);
         var tenant = DocumentQueryOptions.NormalizeTenantId(request.TenantId) ?? StorageConstants.DefaultTenantId;
-
-        var document = JsonSerializer.Deserialize(request.Json, requested)
-                       ?? throw new ArgumentException("The JSON deserialized to null.", nameof(request));
-
-        var expectedId = ConvertIdentity(requested, request.Id);
-        var actualId = document.GetType().GetProperty("Id")?.GetValue(document);
-        if (!Equals(actualId, expectedId))
-        {
-            throw new ArgumentException(
-                $"The id in the JSON ({actualId}) does not match the requested id ({request.Id}).",
-                nameof(request));
-        }
 
         if (request.ExpectedVersion is not null && Conflict(request.DocumentTypeName, request.Id, tenant,
                 request.ExpectedVersion) is { } conflict)
@@ -370,6 +359,40 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         }
 
         return new DocumentWriteResult(DocumentWriteStatus.Deleted);
+    }
+
+    /// <summary>
+    /// The save's own deserialize step and refusals, then the serialize a stored document goes through — and
+    /// nothing else (jasperfx#1071).
+    /// </summary>
+    Task<string> IDocumentStoreDiagnosticsWriter.PreviewDocumentJsonAsync(DocumentWriteRequest request,
+        CancellationToken token)
+    {
+        var (_, document) = DeserializeForWrite(request);
+        return Task.FromResult(JsonSerializer.Serialize(document, document.GetType()));
+    }
+
+    /// <summary>
+    /// Shared by a save and its preview: resolve the type, deserialize the JSON as that type, and refuse an id
+    /// in the JSON that disagrees with the requested one.
+    /// </summary>
+    private (Type Requested, object Document) DeserializeForWrite(DocumentWriteRequest request)
+    {
+        var requested = ResolveForWrite(request.DocumentTypeName);
+
+        var document = JsonSerializer.Deserialize(request.Json, requested)
+                       ?? throw new ArgumentException("The JSON deserialized to null.", nameof(request));
+
+        var expectedId = ConvertIdentity(requested, request.Id);
+        var actualId = document.GetType().GetProperty("Id")?.GetValue(document);
+        if (!Equals(actualId, expectedId))
+        {
+            throw new ArgumentException(
+                $"The id in the JSON ({actualId}) does not match the requested id ({request.Id}).",
+                nameof(request));
+        }
+
+        return (requested, document);
     }
 
     Task<DocumentWriteResult> IDocumentStoreDiagnosticsWriter.UndeleteDocumentAsync(DocumentUndeleteRequest request,

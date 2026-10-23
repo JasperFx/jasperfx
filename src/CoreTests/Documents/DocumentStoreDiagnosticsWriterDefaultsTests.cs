@@ -25,6 +25,22 @@ public class DocumentStoreDiagnosticsWriterDefaultsTests
         ex.Message.ShouldContain("2.93");
     }
 
+    [Fact]
+    public async Task a_pre_2_94_store_refuses_preview_naming_itself()
+    {
+        IDocumentStoreDiagnosticsWriter writer = new Pre293Writer();
+
+        var ex = await Should.ThrowAsync<NotSupportedException>(() =>
+            writer.PreviewDocumentJsonAsync(new DocumentWriteRequest("Widget", "1", "{}")));
+
+        ex.Message.ShouldContain(typeof(Pre293Writer).FullName!);
+        ex.Message.ShouldContain("2.94");
+    }
+
+    [Fact]
+    public void a_type_ref_from_an_older_store_reads_as_a_permanent_delete()
+        => new DocumentTypeRef("Widget", "widget", "public").IsSoftDeleted.ShouldBeFalse();
+
     /// <summary>The writer contract exactly as it stood in JasperFx 2.92.</summary>
     private class Pre293Writer : IDocumentStoreDiagnosticsWriter
     {

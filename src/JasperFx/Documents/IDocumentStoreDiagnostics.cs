@@ -196,6 +196,18 @@ public record DocumentTypeRef(string TypeName, string Alias, string SchemaName)
 
     /// <summary>Whether this entry is a sub-class of a mapped root rather than a root.</summary>
     public bool IsSubClass => RootTypeName is not null;
+
+    /// <summary>
+    /// True when deleting a document of this type marks the row deleted rather than removing it — what a
+    /// <see cref="IDocumentStoreDiagnosticsWriter.DeleteDocumentAsync" /> will do, known before it is called,
+    /// so a console can tell an operator whether a delete is permanent (jasperfx#1070). A sub-class reports
+    /// its root's delete style, since the root's table holds its rows.
+    /// </summary>
+    /// <remarks>
+    /// Added in JasperFx 2.94. A store built against an older JasperFx leaves it <see langword="false" />,
+    /// which reads as "permanent" — the cautious answer for a confirmation prompt.
+    /// </remarks>
+    public bool IsSoftDeleted { get; init; }
 }
 
 /// <summary>

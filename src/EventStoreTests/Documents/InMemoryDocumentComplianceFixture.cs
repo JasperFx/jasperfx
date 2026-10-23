@@ -113,6 +113,10 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsDocumentUndelete => true;
 
+    public override bool ReportsDocumentDeleteStyle => true;
+
+    public override bool SupportsDocumentWritePreview => true;
+
     public override bool SupportsDocumentHierarchies => true;
 
     public override bool SupportsSoftDeleteOperators => true;
