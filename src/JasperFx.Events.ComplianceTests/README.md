@@ -692,6 +692,8 @@ alongside the event store — `JasperFx.Events.Documents`:
 | Session opening and the transaction boundary | `DocumentSessionCompliance` |
 | `Store` and `LoadAsync` — `Guid`, `string` and strong-typed identities | `DocumentLoadAndStoreCompliance` |
 | `Delete`, its identity overloads, and `DeleteWhere` | `DocumentDeleteCompliance` |
+| Soft deletes — exclusion, the four operators, undelete, hard delete, refusal on a hard-deleting type | `SoftDeleteCompliance` |
+| `ITracked` stamping and the created / last-modified timestamps | `DocumentMetadataCompliance` |
 | `Query<T>()`, its minimum translatable operator set, and the async terminators | `DocumentQueryCompliance` |
 | The route from a session to its event store | `DocumentSessionEventsCompliance` |
 | The stream actions a session has queued but not committed | `PendingStreamActionsCompliance` |
@@ -1023,11 +1025,23 @@ no store's search path does, and whether it should is a separate decision with a
 radius (marten#5440's other half, polecat#723 point 3). Pinning it here would fail every store over a
 question none of them has answered.
 
-Session semantics *are* now in scope, via the document contract above. The rest of the document-db
-side — patching, bulk insert, LINQ joins / grouping / `Include`, soft-delete semantics, document
-metadata, session listeners, the stores' `Advanced` surfaces and schema management — stays out, and
-that exclusion is now a settled boundary rather than an open question: those are the surfaces
+Session semantics *are* now in scope, via the document contract above, and so are session listeners
+(`IDocumentCommitListener`, jasperfx#679). The rest of the document-db side — patching, bulk insert,
+LINQ joins / grouping / `Include`, the stores' `Advanced` surfaces and schema management — stays out,
+and that exclusion is now a settled boundary rather than an open question: those are the surfaces
 jasperfx#647 deliberately declined to abstract.
+
+Soft deletes and document metadata stay off the session *contract* as well, but they are no longer
+unpinned (jasperfx#785). The survey behind that issue found that their declarative half was already
+shared (`ISoftDeleted`, `ITracked`, `IVersioned` in `JasperFx.Metadata`). What was missing was a ruling
+on how the stores behave, not an abstraction. `SoftDeleteCompliance` reaches the rest through three
+fixture seam members with throwing defaults, behind `SupportsSoftDeleteOperators`:
+`QuerySoftDeletedAsync` runs one of the four marker operators through the store's own extension method,
+for the `DcbHasTagLinqCompliance` reason. `UndoDeleteWhere` and `HardDeleteWhere` queue the store's own
+operations. Its load-bearing fact is that **a soft-delete operator against a type that is not
+soft-deleted is refused** (polecat#558). `DocumentMetadataCompliance` needs no seam beyond a
+`SetSessionMetadata` default that works for any `IMetadataContext` session. It pins `ITracked` stamping
+behind `SupportsTrackedDocuments`, and reads created / last-modified through `IDocumentStoreDiagnostics`.
 
 **A tenant axis does not reopen any of it**, and that is worth stating plainly because it has already
 been proposed once. jasperfx#898 asked for tenant-scoping facts over bulk insert, patching, soft

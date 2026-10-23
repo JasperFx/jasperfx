@@ -71,14 +71,36 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
         if (SoftDeletedTypes.Contains(root))
         {
             var now = DateTimeOffset.UtcNow;
+
+            // An already-deleted row keeps its original deletion time, as on all three real stores
+            // (polecat#419, jasperfx#785): a delete that changes nothing must not restamp it.
             _metadata.AddOrUpdate((root, scope, id),
                 _ => new RowMetadata(Guid.NewGuid(), now, now, documentType, true, now),
-                (_, existing) => existing with { Version = Guid.NewGuid(), LastModified = now, IsDeleted = true, DeletedAt = now });
+                (_, existing) => existing.IsDeleted
+                    ? existing
+                    : existing with { Version = Guid.NewGuid(), LastModified = now, IsDeleted = true, DeletedAt = now });
             return;
         }
 
         StorageFor(root, tenantId).TryRemove(id, out _);
         _metadata.TryRemove((root, scope, id), out _);
+    }
+
+    /// <summary>
+    /// The inverse of a soft delete: live again, with the deletion time cleared rather than kept, so the row
+    /// cannot be found again by <c>DeletedSince</c> (jasperfx#785).
+    /// </summary>
+    internal void UndoSoftDelete(Type documentType, string tenantId, object id)
+    {
+        var root = RootOf(documentType);
+        var key = (root, ScopeFor(root, tenantId), id);
+        if (_metadata.TryGetValue(key, out var existing))
+        {
+            _metadata[key] = existing with
+            {
+                Version = Guid.NewGuid(), LastModified = DateTimeOffset.UtcNow, IsDeleted = false, DeletedAt = null
+            };
+        }
     }
 
     /// <summary>A removal that ignores soft deletes: the row and its metadata are gone.</summary>

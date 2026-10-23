@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Reflection;
 using JasperFx.Documents;
 using JasperFx.Events;
@@ -112,6 +113,32 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsDocumentHierarchies => true;
 
+    public override bool SupportsSoftDeleteOperators => true;
+
+    public override Task<IReadOnlyList<T>> QuerySoftDeletedAsync<T>(IDocumentReadOperations session,
+        SoftDeleteFilter filter, CancellationToken token)
+    {
+        var tenantId = ((InMemoryDocumentSession)session).TenantId;
+        Func<bool, DateTimeOffset?, bool> keep = filter.Operator switch
+        {
+            SoftDeleteOperator.MaybeDeleted => (_, _) => true,
+            SoftDeleteOperator.IsDeleted => (deleted, _) => deleted,
+            SoftDeleteOperator.DeletedSince => (deleted, at) => deleted && at > filter.At,
+            SoftDeleteOperator.DeletedBefore => (deleted, at) => deleted && at < filter.At,
+            _ => throw new ArgumentOutOfRangeException(nameof(filter))
+        };
+
+        return Task.FromResult(_store.SnapshotIncludingDeleted<T>(tenantId, keep));
+    }
+
+    public override void UndoDeleteWhere<T>(IDocumentSessionOperations session, Expression<Func<T, bool>> predicate)
+        => ((InMemoryDocumentSession)session).UndoDeleteWhere(predicate);
+
+    public override void HardDeleteWhere<T>(IDocumentSessionOperations session, Expression<Func<T, bool>> predicate)
+        => ((InMemoryDocumentSession)session).HardDeleteWhere(predicate);
+
+    public override bool SupportsTrackedDocuments => true;
+
     public override Task CleanDocumentDataAsync()
     {
         _store.Clear();
@@ -164,6 +191,12 @@ public class in_memory_document_load_and_store_compliance
 
 public class in_memory_document_delete_compliance
     : DocumentDeleteCompliance<InMemoryDocumentComplianceFixture>;
+
+public class in_memory_soft_delete_compliance
+    : SoftDeleteCompliance<InMemoryDocumentComplianceFixture>;
+
+public class in_memory_document_metadata_compliance
+    : DocumentMetadataCompliance<InMemoryDocumentComplianceFixture>;
 
 public class in_memory_document_query_compliance
     : DocumentQueryCompliance<InMemoryDocumentComplianceFixture>;
