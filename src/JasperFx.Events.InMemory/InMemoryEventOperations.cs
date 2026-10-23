@@ -268,6 +268,13 @@ public partial class InMemoryEventOperations : IEventStoreOperations, IReadOnlyE
     public IQueryable<StreamState> QueryStreamStates(string? tenantId = null)
         => InMemoryDocumentQueryable<StreamState>.Wrap(Store.StreamStates(tenantId).AsQueryable());
 
+    /// <summary>
+    /// The bodies of every event stored as exactly <typeparamref name="T"/>, queried with LINQ-to-objects over a
+    /// snapshot (jasperfx#1073).
+    /// </summary>
+    public IQueryable<T> QueryEventData<T>(string? tenantId = null) where T : class
+        => InMemoryDocumentQueryable<T>.Wrap(Store.EventData<T>(tenantId).AsQueryable());
+
     // ---- Out of scope for the prototyping store ----
 
     /// <inheritdoc />

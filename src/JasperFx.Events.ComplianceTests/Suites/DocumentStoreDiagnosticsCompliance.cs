@@ -130,6 +130,17 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         }
     }
 
+    private IDocumentStoreDiagnosticsWriter Previewer
+    {
+        get
+        {
+            var writer = Writer;
+            Assert.SkipUnless(theFixture.SupportsDocumentWritePreview,
+                "This store does not implement IDocumentStoreDiagnosticsWriter.PreviewDocumentJsonAsync (jasperfx#1071).");
+            return writer;
+        }
+    }
+
     private void SkipUnlessHierarchies()
         => Assert.SkipUnless(theFixture.SupportsDocumentHierarchies,
             "This fixture does not replay DocumentComplianceConfig.SubClasses.");
@@ -224,6 +235,25 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
 
         types.Select(x => x.TypeName).ShouldContain(WidgetType);
         types.Select(x => x.TypeName).ShouldContain(GadgetType);
+    }
+
+    /// <summary>
+    /// The delete style is on the type list, so a console can say before a delete whether it is permanent
+    /// (jasperfx#1070).
+    /// </summary>
+    [Fact]
+    public async Task document_types_say_which_types_soft_delete()
+    {
+        var diagnostics = Diagnostics;
+        Assert.SkipUnless(theFixture.ReportsDocumentDeleteStyle,
+            "This store does not populate DocumentTypeRef.IsSoftDeleted (jasperfx#1070).");
+        SkipUnlessSoftDeletes();
+
+        var types = (await diagnostics.DocumentTypesAsync(Cancellation)).ToDictionary(x => x.TypeName);
+
+        types[TicketType].IsSoftDeleted.ShouldBeTrue();
+        types[WidgetType].IsSoftDeleted.ShouldBeFalse();
+        types[GadgetType].IsSoftDeleted.ShouldBeFalse();
     }
 
     // ---------------------------------------------------------------- paging, metadata, identity (§3, §4)
@@ -1298,6 +1328,114 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
 
         var document = await Diagnostics.LoadDocumentAsync(TicketType, ticket.Id.ToString(), null, Cancellation);
         document.ShouldNotBeNull().IsDeleted.ShouldBeTrue();
+    }
+
+    // ---------------------------------------------------------------- preview (jasperfx#1071)
+
+    private const string NotAWidgetMember = "NotAWidgetMember";
+
+    [Fact]
+    public async Task preview_drops_a_member_the_type_does_not_have_and_writes_nothing()
+    {
+        var writer = Previewer;
+        var widget = Widget("original");
+        await PersistAsync(widget);
+        var before = (await Diagnostics.LoadDocumentAsync(WidgetType, widget.Id.ToString(), null, Cancellation))!;
+
+        var edited = WithMember(WithMember(before.Json, nameof(ComplianceWidget.Name), "previewed"), NotAWidgetMember, 42);
+
+        var preview = await writer.PreviewDocumentJsonAsync(
+            new DocumentWriteRequest(WidgetType, widget.Id.ToString(), edited), Cancellation);
+
+        Member(preview, NotAWidgetMember).ShouldBeNull();
+        Member(preview, nameof(ComplianceWidget.Name))!.GetValue<string>().ShouldBe("previewed");
+
+        var after = (await Diagnostics.LoadDocumentAsync(WidgetType, widget.Id.ToString(), null, Cancellation))!;
+        after.Version.ShouldBe(before.Version);
+
+        await using var session = QuerySession();
+        (await session.LoadAsync<ComplianceWidget>(widget.Id, Cancellation))!.Name.ShouldBe("original");
+    }
+
+    /// <summary>
+    /// The point of the preview: it is what the save then stores, member for member, so a console's diff
+    /// against it is a diff against the outcome.
+    /// </summary>
+    [Fact]
+    public async Task preview_is_the_json_the_save_then_stores()
+    {
+        var writer = Previewer;
+        var widget = Widget("original", weight: 3);
+        await PersistAsync(widget);
+        var before = (await Diagnostics.LoadDocumentAsync(WidgetType, widget.Id.ToString(), null, Cancellation))!;
+
+        var edited = WithMember(WithMember(before.Json, nameof(ComplianceWidget.Color), "teal"), NotAWidgetMember, "x");
+        var request = new DocumentWriteRequest(WidgetType, widget.Id.ToString(), edited);
+
+        var preview = await writer.PreviewDocumentJsonAsync(request, Cancellation);
+        var saved = await writer.SaveDocumentJsonAsync(request, Cancellation);
+
+        saved.Status.ShouldBe(DocumentWriteStatus.Saved);
+        var stored = JsonNode.Parse(saved.Document.ShouldNotBeNull().Json)!.AsObject();
+        var previewed = JsonNode.Parse(preview)!.AsObject();
+
+        previewed.Select(x => x.Key).OrderBy(x => x, StringComparer.Ordinal)
+            .ShouldBe(stored.Select(x => x.Key).OrderBy(x => x, StringComparer.Ordinal));
+        foreach (var (key, value) in stored)
+        {
+            JsonNode.DeepEquals(previewed[key], value).ShouldBeTrue($"the previewed '{key}' differs from the stored one");
+        }
+    }
+
+    [Fact]
+    public async Task preview_of_a_document_that_does_not_exist_yet_inserts_nothing()
+    {
+        var writer = Previewer;
+        var template = Widget("template");
+        await PersistAsync(template);
+        var json = (await Diagnostics.LoadDocumentAsync(WidgetType, template.Id.ToString(), null, Cancellation))!.Json;
+
+        var id = Guid.NewGuid();
+        var preview = await writer.PreviewDocumentJsonAsync(
+            new DocumentWriteRequest(WidgetType, id.ToString(), WithMember(json, "Id", id.ToString())), Cancellation);
+
+        Guid.Parse(Member(preview, "Id")!.GetValue<string>()).ShouldBe(id);
+        (await Diagnostics.LoadDocumentAsync(WidgetType, id.ToString(), null, Cancellation)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task preview_ignores_the_expected_version()
+    {
+        var writer = Previewer;
+        var widget = Widget("original");
+        await PersistAsync(widget);
+        var stale = (await Diagnostics.LoadDocumentAsync(WidgetType, widget.Id.ToString(), null, Cancellation))!;
+
+        widget.Name = "changed by the application";
+        await PersistAsync(widget);
+
+        var preview = await writer.PreviewDocumentJsonAsync(new DocumentWriteRequest(
+            WidgetType, widget.Id.ToString(), WithMember(stale.Json, nameof(ComplianceWidget.Name), "console edit"))
+        {
+            ExpectedVersion = stale.Version
+        }, Cancellation);
+
+        Member(preview, nameof(ComplianceWidget.Name))!.GetValue<string>().ShouldBe("console edit");
+    }
+
+    [Fact]
+    public async Task preview_refuses_what_a_save_refuses()
+    {
+        var writer = Previewer;
+        var widget = Widget("mismatch");
+        await PersistAsync(widget);
+        var json = (await Diagnostics.LoadDocumentAsync(WidgetType, widget.Id.ToString(), null, Cancellation))!.Json;
+
+        await Should.ThrowAsync<ArgumentException>(() => writer.PreviewDocumentJsonAsync(
+            new DocumentWriteRequest(WidgetType, Guid.NewGuid().ToString(), json), Cancellation));
+
+        await Should.ThrowAsync<ArgumentException>(() => writer.PreviewDocumentJsonAsync(
+            new DocumentWriteRequest("No.Such.Document", "1", "{}"), Cancellation));
     }
 
     // ---------------------------------------------------------------- undelete (jasperfx#1059)

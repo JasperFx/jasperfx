@@ -85,4 +85,47 @@ public interface IReadOnlyEventStore
     /// </para>
     /// </remarks>
     IQueryable<StreamState> QueryStreamStates(string? tenantId = null);
+
+    /// <summary>
+    /// The bodies of every event of type <typeparamref name="T"/>, across all streams, as a composable
+    /// <see cref="IQueryable{T}"/> — the store-agnostic way to ask "every <c>OrderPlaced</c> with
+    /// <c>Total &gt; 1000</c>" (jasperfx#1073). Marten's <c>QueryRawEventDataOnly&lt;T&gt;()</c>, on the
+    /// shared read tier.
+    /// </summary>
+    /// <param name="tenantId">
+    /// Tenant partition to scope the events to, by the same rule as <see cref="QueryStreamStates"/>: null
+    /// means store-global, and a store without a tenant dimension MUST refuse a non-null tenant with a
+    /// <see cref="NotSupportedException"/> naming it rather than silently return the global set.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// The element is the event body, so a predicate is over one event type's own members. Only events
+    /// stored as exactly <typeparamref name="T"/> are returned — another event type with the same shape is
+    /// not. <c>Where()</c> must translate against the body's public members as the store's document LINQ
+    /// does, plus <c>OrderBy</c>/<c>ThenBy</c>, <c>Skip</c> and <c>Take</c>; a member the provider cannot
+    /// translate MUST fail the query naming it, never silently match every event — the jasperfx#737 failure
+    /// mode. With no <c>OrderBy</c>, the order of the results is the store's to choose.
+    /// </para>
+    /// <para>
+    /// Execute with the shared asynchronous terminators in <see cref="Documents.DocumentQueryableExtensions"/>
+    /// (<c>ToListAsync</c>, <c>CountAsync</c>, <c>AnyAsync</c>, <c>FirstOrDefaultAsync</c>): the queryable's
+    /// LINQ provider implements <see cref="Documents.IDocumentQueryExecutor"/>, as it does for
+    /// <see cref="QueryStreamStates"/>.
+    /// </para>
+    /// <para>
+    /// Not in this first cut: the envelope (sequence, stream, timestamp, tags) alongside the body, and a
+    /// predicate across several event types at once. <see cref="QueryEventsAsync"/> filters on the envelope.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.94 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). The default throws <see cref="NotSupportedException"/> naming the implementing
+    /// type.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store built against a JasperFx older than 2.94.
+    /// </exception>
+    IQueryable<T> QueryEventData<T>(string? tenantId = null) where T : class
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IReadOnlyEventStore)}.{nameof(QueryEventData)}<T>, which was added in JasperFx 2.94. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.94 or later.");
 }

@@ -89,6 +89,38 @@ public interface IDocumentStoreDiagnosticsWriter
     Task<DocumentWriteResult> UndeleteDocumentAsync(DocumentUndeleteRequest request, CancellationToken token = default)
         => throw new NotSupportedException(
             $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnosticsWriter)}.{nameof(UndeleteDocumentAsync)}, which was added in JasperFx 2.93. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.93 or later.");
+
+    /// <summary>
+    /// A dry run of <see cref="SaveDocumentJsonAsync" /> (jasperfx#1071): deserialize and re-serialize the
+    /// document exactly as a save would, and return the JSON the store would keep. Writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What a store keeps can differ from what an operator typed — a member the CLR type does not have is
+    /// dropped, casing and enum storage are normalized, a value is coerced — so a console diffing the
+    /// operator's edit against this answer, rather than against the operator's own text, can warn before the
+    /// save that a member is about to disappear.
+    /// </para>
+    /// <para>
+    /// The same refusals as a save, through the same deserialize step: an unknown type name or an id in the
+    /// JSON that disagrees with <see cref="DocumentWriteRequest.Id" /> is an <see cref="ArgumentException" />,
+    /// and JSON the store's serializer rejects fails as it would on a save. There is no version check —
+    /// <see cref="DocumentWriteRequest.ExpectedVersion" /> is ignored — and nothing is read from or written to
+    /// the database, so the document need not exist. The answer is the document body only: metadata a save
+    /// assigns, such as the new version, is not in it.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.94 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). The default throws <see cref="NotSupportedException" /> naming the implementing
+    /// type.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store built against a JasperFx older than 2.94.
+    /// </exception>
+    Task<string> PreviewDocumentJsonAsync(DocumentWriteRequest request, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnosticsWriter)}.{nameof(PreviewDocumentJsonAsync)}, which was added in JasperFx 2.94. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.94 or later.");
 }
 
 /// <summary>A request to save one document from JSON.</summary>

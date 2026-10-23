@@ -342,6 +342,21 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
             $"{GetType().FullName} does not expose IDocumentStoreDiagnosticsWriter, so it cannot run the document diagnostics write facts.");
 
     /// <summary>
+    /// Does this store's <see cref="IDocumentStoreDiagnostics.DocumentTypesAsync" /> populate
+    /// <see cref="DocumentTypeRef.IsSoftDeleted" /> (jasperfx#1070)? Gates the delete-style fact, so a store
+    /// that has not implemented it yet keeps a green suite when it moves to a JasperFx that has the member.
+    /// Flip it with the implementation.
+    /// </summary>
+    public virtual bool ReportsDocumentDeleteStyle => false;
+
+    /// <summary>
+    /// Does this store's <see cref="DocumentDiagnosticsWriter" /> implement
+    /// <see cref="IDocumentStoreDiagnosticsWriter.PreviewDocumentJsonAsync" /> (jasperfx#1071)? Gates the
+    /// preview facts. Flip it with the implementation.
+    /// </summary>
+    public virtual bool SupportsDocumentWritePreview => false;
+
+    /// <summary>
     /// Does this store's <see cref="DocumentDiagnosticsWriter" /> implement
     /// <see cref="IDocumentStoreDiagnosticsWriter.UndeleteDocumentAsync" /> (jasperfx#1059)? Gates the
     /// undelete facts, so a store that has not implemented it yet keeps a green suite when it moves to a

@@ -63,3 +63,6 @@ public class strong_typed_identity_compliance
 
 public class projection_floor_compliance
     : ProjectionFloorCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+public class event_data_query_compliance
+    : EventDataQueryCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;

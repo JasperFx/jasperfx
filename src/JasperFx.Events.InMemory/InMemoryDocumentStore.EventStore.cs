@@ -218,6 +218,18 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
         }
     }
 
+    internal IReadOnlyList<T> EventData<T>(string? tenantId) where T : class
+    {
+        using (EnterReadGate())
+        {
+            return _events
+                .Where(x => tenantId is null || x.TenantId == tenantId)
+                .Where(x => x.EventType == typeof(T))
+                .Select(x => (T)x.Data)
+                .ToList();
+        }
+    }
+
     internal long HighestEventSequence()
     {
         using (EnterReadGate())

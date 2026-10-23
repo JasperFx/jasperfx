@@ -95,7 +95,7 @@ public class TenantScopedExplorerReadDefaultsTests
         }
     }
 
-    // Only has to be distinguishable from null; nothing here is called.
+    // Only has to be distinguishable from null; nothing it implements is called.
     private sealed class StubReadOnlyEventStore : IReadOnlyEventStore
     {
         public Task<IReadOnlyList<IEvent>> FetchStreamAsync(Guid streamId, long version = 0,
@@ -117,6 +117,17 @@ public class TenantScopedExplorerReadDefaultsTests
 
         public IQueryable<StreamState> QueryStreamStates(string? tenantId = null)
             => throw new NotImplementedException();
+    }
+
+    [Fact]
+    public void query_event_data_on_a_pre_2_94_store_is_refused_naming_the_store()
+    {
+        IReadOnlyEventStore store = new StubReadOnlyEventStore();
+
+        var ex = Should.Throw<NotSupportedException>(() => store.QueryEventData<StreamState>());
+
+        ex.Message.ShouldContain(typeof(StubReadOnlyEventStore).FullName!);
+        ex.Message.ShouldContain("2.94");
     }
 
     private readonly ExplorerEventStore theRecorder = new();
