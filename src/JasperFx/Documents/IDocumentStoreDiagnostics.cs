@@ -178,7 +178,11 @@ public interface IDocumentStoreDiagnostics
     /// <para>
     /// The same refusals as <see cref="QueryDocumentsAsync"/>, with the same exceptions: a criterion the store
     /// cannot apply is a <see cref="DocumentCriteriaNotSupportedException"/>. An unknown type name reads as
-    /// <see langword="null"/>, there being no query to explain. An engine whose explain executes the
+    /// <see langword="null"/>, there being no query to explain, and so does a type whose table does not
+    /// exist yet, which a query reads as empty without running anything. A read that runs more than one page
+    /// query — <see cref="DocumentQueryOptions.AllTenants"/> across several databases — may be explained by
+    /// its first query, in tenant order, or refused with
+    /// <see cref="DocumentCriteriaNotSupportedException"/> naming <c>nameof(AllTenants)</c>. An engine whose explain executes the
     /// query (PostgreSQL's <c>EXPLAIN ANALYZE</c>) runs it so that nothing can be written.
     /// </para>
     /// <para>
@@ -206,7 +210,8 @@ public interface IDocumentStoreDiagnostics
     /// <param name="token">Cancellation.</param>
     /// <returns>
     /// The JSON, or <see langword="null"/> when the stream does not exist or aggregates to nothing (a
-    /// projection that deletes the document, say).
+    /// projection that deletes the document, say) — and for an id that cannot be a stream id at all, as a
+    /// load answers it.
     /// </returns>
     /// <remarks>
     /// <para>

@@ -86,8 +86,9 @@ public class StreamState
     public long CompactedVersion { get; set; }
 
     /// <summary>
-    /// The tenant the stream belongs to (jasperfx#1079): the store's default tenant id where the events are
-    /// single-tenanted. What tells two rows apart in <see cref="IEventStore.QueryStreamStatesForAllTenants"/>,
+    /// The tenant the stream belongs to (jasperfx#1079). Under conjoined tenancy, the stream's own tenant
+    /// column; under database-per-tenant, the tenant whose database holds it; for a single-tenanted store, the
+    /// store's default tenant id. What tells two rows apart in <see cref="IEventStore.QueryStreamStatesForAllTenants"/>,
     /// where the same id or key in two tenants is two streams.
     /// </summary>
     /// <remarks>

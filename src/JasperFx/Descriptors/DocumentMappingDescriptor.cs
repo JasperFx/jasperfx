@@ -143,6 +143,13 @@ public class DocumentMappingDescriptor
     /// document query filtering on a column this type does not capture is refused, so a console reads this
     /// to decide which metadata filters to offer. <see langword="null"/> when the store did not report it.
     /// </summary>
+    /// <remarks>
+    /// Per type, each flag means "this table has a column for it that a query can filter or order on".
+    /// <see cref="DocumentMetadataCapabilities.Version"/> is therefore true only for a real version column
+    /// (optimistic concurrency or numeric revisions), even where the store computes a
+    /// <see cref="JasperFx.Documents.StoredDocument.Version"/> token for every row; <see cref="DocumentMetadataCapabilities.TenantId"/>
+    /// only for a conjoined type; <see cref="DocumentMetadataCapabilities.SoftDelete"/> only for a soft-deleted one.
+    /// </remarks>
     public DocumentMetadataCapabilities? Metadata { get; set; }
 }
 
