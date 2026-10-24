@@ -32,18 +32,28 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
 
     public IReadOnlyList<IProjectionSource<TOperations, TQuerySession>> Projections => _projections;
 
+    /// <summary>
+    /// The progression identity a member of this stage runs under, given its composite parent's shard name —
+    /// the one place it is spelled, so the execution and <see cref="CompositeProjection{TOperations,TQuerySession}.ConstituentShardNames"/>
+    /// cannot drift apart (jasperfx#1080).
+    /// </summary>
+    internal ShardName MemberShardName(IProjectionSource<TOperations, TQuerySession> projection, ShardName parent)
+    {
+        // jasperfx#419: propagate the parent composite's tenant binding to every member stage.
+        // When the composite is caught up/rebuilt for a single tenant the parent ShardName carries
+        // that tenant id; dropping it here (a bare store-global constructor) was the marten#4679
+        // root cause -- every per-tenant member wrote the same store-global progression row.
+        return ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version)
+            // Tag the member with its composite parent name + stage ordinal so monitors can
+            // group a composite drill-in by stage. Metadata only — Identity is unchanged.
+            .ForCompositeStage((uint)Order, parent.Name);
+    }
+
     public ExecutionStage BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory, ShardName parent)
     {
         var executions = Projections.Select(projection =>
         {
-            // jasperfx#419: propagate the parent composite's tenant binding to every member stage.
-            // When the composite is caught up/rebuilt for a single tenant the parent ShardName carries
-            // that tenant id; dropping it here (a bare store-global constructor) was the marten#4679
-            // root cause -- every per-tenant member wrote the same store-global progression row.
-            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version)
-                // Tag the member with its composite parent name + stage ordinal so monitors can
-                // group a composite drill-in by stage. Metadata only — Identity is unchanged.
-                .ForCompositeStage((uint)Order, parent.Name);
+            var shardName = MemberShardName(projection, parent);
             return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
                 .BuildExecution(store, database, loggerFactory, shardName);
         }).ToArray();
@@ -55,12 +65,7 @@ public class ProjectionStage<TOperations, TQuerySession>(int order)
     {
         var executions = Projections.Select(projection =>
         {
-            // jasperfx#419: see the loggerFactory overload above -- the parent tenant binding must reach
-            // every member stage's ShardName so per-tenant progression rows stay distinct.
-            var shardName = ShardName.Compose(projection.Name, tenantId: parent.TenantId, version: projection.Version)
-                // Tag the member with its composite parent name + stage ordinal so monitors can
-                // group a composite drill-in by stage. Metadata only — Identity is unchanged.
-                .ForCompositeStage((uint)Order, parent.Name);
+            var shardName = MemberShardName(projection, parent);
             return projection.As<ISubscriptionFactory<TOperations, TQuerySession>>()
                 .BuildExecution(store, database, logger, shardName);
         }).ToArray();

@@ -6,6 +6,7 @@ using JasperFx.Events.Daemon;
 using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Projections.Composite;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events;
@@ -837,8 +838,27 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     /// </summary>
     IReadOnlyList<ShardName> IEventStore.RegisteredShardNames() => registeredShardNames();
 
+    /// <remarks>
+    ///     jasperfx#1080: a composite registers one shard under its own name, but each of its members writes
+    ///     its own progression row, named by <see cref="CompositeProjection{TOperations,TQuerySession}.ConstituentShardNames" />.
+    ///     Those are registered too, so they are listed after their composite, carrying
+    ///     <see cref="ShardName.CompositeParentName" /> and <see cref="ShardName.StageNumber" />. Without them a
+    ///     consumer reads every constituent's row as belonging to nothing registered.
+    /// </remarks>
     private IReadOnlyList<ShardName> registeredShardNames()
-        => AllShards().Select(x => x.Name).ToList();
+    {
+        var names = new List<ShardName>();
+        foreach (var shard in AllShards())
+        {
+            names.Add(shard.Name);
+            if (shard.Factory is CompositeProjection<TOperations, TQuerySession> composite)
+            {
+                names.AddRange(composite.ConstituentShardNames(shard.Name));
+            }
+        }
+
+        return names;
+    }
 
 
     /// <summary>

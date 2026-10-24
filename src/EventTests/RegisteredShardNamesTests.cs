@@ -12,6 +12,9 @@ using JasperFx.Events;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Projections.Composite;
+using JasperFx.Events.Subscriptions;
+using EventTests.Projections.Composite;
 using Microsoft.Extensions.Logging;
 using Shouldly;
 
@@ -164,5 +167,64 @@ public class RegisteredShardNamesTests
         IEventStore theStore = new BareEventStore();
 
         Should.Throw<NotSupportedException>(() => theStore.RegisteredShardNames());
+    }
+
+    private static CompositeProjection<FakeOperations, FakeSession> telehealthComposite()
+    {
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("TelehealthComposite");
+        composite.StageFor(1).Add(new FakeReplayMember("Appointment", canParticipate: true));
+        composite.StageFor(1).Add(new FakeReplayMember("Board", canParticipate: true));
+        composite.StageFor(2).Add(new FakeReplayMember("ProviderShift", canParticipate: true));
+        return composite;
+    }
+
+    [Fact]
+    public void a_composite_lists_its_constituents_after_itself()
+    {
+        // jasperfx#1080 (CritterWatch#1466): each constituent writes its own progression row, so a registry
+        // that names only the composite leaves those rows belonging to nothing registered.
+        var compositeShards = ((ISubscriptionSource<FakeOperations, FakeSession>)telehealthComposite()).Shards();
+        IEventStore theStore = new ShardRegistryEventStore([shard("VoyageLog"), ..compositeShards]);
+
+        theStore.RegisteredShardNames().Select(x => x.Identity)
+            .ShouldBe(["VoyageLog:All", "TelehealthComposite:All", "Appointment:All", "Board:All", "ProviderShift:All"]);
+    }
+
+    [Fact]
+    public void a_constituent_names_its_composite_and_stage()
+    {
+        var compositeShards = ((ISubscriptionSource<FakeOperations, FakeSession>)telehealthComposite()).Shards();
+        IEventStore theStore = new ShardRegistryEventStore([..compositeShards]);
+
+        var shift = theStore.RegisteredShardNames().Single(x => x.Name == "ProviderShift");
+        shift.CompositeParentName.ShouldBe("TelehealthComposite");
+        shift.StageNumber.ShouldBe(2u);
+
+        theStore.RegisteredShardNames().Single(x => x.Name == "TelehealthComposite").CompositeParentName.ShouldBeNull();
+    }
+
+    [Fact]
+    public void constituent_names_carry_the_composite_tenant_binding()
+    {
+        // The same rule ProjectionStage.BuildExecution applies (jasperfx#419): a composite bound to a tenant
+        // runs every member under that tenant, so that is the row each member writes.
+        var names = telehealthComposite()
+            .ConstituentShardNames(ShardName.Compose("TelehealthComposite", tenantId: "tenant-a"));
+
+        names.Select(x => x.Identity)
+            .ShouldBe(["Appointment:All:tenant-a", "Board:All:tenant-a", "ProviderShift:All:tenant-a"]);
+    }
+
+    [Fact]
+    public void a_nested_composite_contributes_its_own_members()
+    {
+        var inner = new CompositeProjection<FakeOperations, FakeSession>("Inner");
+        inner.StageFor(1).Add(new FakeReplayMember("Leaf", canParticipate: true));
+
+        var outer = new CompositeProjection<FakeOperations, FakeSession>("Outer");
+        outer.StageFor(1).Add(inner);
+
+        outer.ConstituentShardNames().Select(x => x.Identity).ShouldBe(["Inner:All", "Leaf:All"]);
+        outer.ConstituentShardNames().Single(x => x.Name == "Leaf").CompositeParentName.ShouldBe("Inner");
     }
 }

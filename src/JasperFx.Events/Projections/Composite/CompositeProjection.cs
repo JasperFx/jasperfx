@@ -21,6 +21,35 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     public IReadOnlyList<IProjectionSource<TOperations, TQuerySession>> AllProjections() =>
         Stages.SelectMany(x => x.Projections).ToList();
 
+    /// <summary>
+    /// The shard name each member projection runs under — and so the name of the progression row it writes —
+    /// when this composite runs as <paramref name="parent"/> (jasperfx#1080). A member that is itself a
+    /// composite contributes its own members as well. The composite's own name is not included.
+    /// </summary>
+    /// <param name="parent">
+    /// The composite's own shard name, carrying any tenant binding. Defaults to the store-global name this
+    /// composite registers.
+    /// </param>
+    public IReadOnlyList<ShardName> ConstituentShardNames(ShardName? parent = null)
+    {
+        parent ??= ShardName.Compose(Name, version: Version);
+        var names = new List<ShardName>();
+        foreach (var stage in Stages)
+        {
+            foreach (var projection in stage.Projections)
+            {
+                var name = stage.MemberShardName(projection, parent);
+                names.Add(name);
+                if (projection is CompositeProjection<TOperations, TQuerySession> nested)
+                {
+                    names.AddRange(nested.ConstituentShardNames(name));
+                }
+            }
+        }
+
+        return names;
+    }
+
     protected internal List<ProjectionStage<TOperations, TQuerySession>> Stages { get; } = new();
 
     protected internal ProjectionStage<TOperations, TQuerySession> StageFor(int stageNumber)
