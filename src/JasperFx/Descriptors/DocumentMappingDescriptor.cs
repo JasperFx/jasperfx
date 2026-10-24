@@ -104,18 +104,46 @@ public class DocumentMappingDescriptor
 
     /// <summary>
     /// The indexes on this document table in structured form (jasperfx#870 §5), so a console can say
-    /// whether a filter on a member can use one without parsing <see cref="Ddl"/>. Empty when the
-    /// implementation hasn't populated it — which is not the same as "no indexes"; <see cref="Ddl"/>
-    /// remains the canonical view.
+    /// whether a filter on a member can use one without parsing <see cref="Ddl"/>. Empty either when the
+    /// table has no secondary index or when the implementation did not populate it — <see cref="IndexesReported"/>
+    /// tells the two apart. <see cref="Ddl"/> remains the canonical view.
     /// </summary>
     public List<DocumentIndexDescriptor> Indexes { get; set; } = new();
 
     /// <summary>
+    /// True when the store populated <see cref="Indexes"/> completely, so an empty list means the table has
+    /// no secondary index and a filter on a document member reads every row (jasperfx#1081). False — the
+    /// default, and what a store built against a JasperFx older than 2.95 leaves — means "not reported", and
+    /// an empty list says nothing.
+    /// </summary>
+    /// <remarks>
+    /// A store sets it only when every index on the table made it into <see cref="Indexes"/>; one that could
+    /// not build the list (its table model failed to load, say) leaves it false rather than report a partial
+    /// list as the whole.
+    /// </remarks>
+    public bool IndexesReported { get; set; }
+
+    /// <summary>
     /// Members duplicated out of the JSON body into their own columns (Marten's duplicated fields,
     /// Polecat's and Fisher's equivalents). A filter on one of these reads a real column rather than the
-    /// JSON. Empty when the implementation hasn't populated it.
+    /// JSON. Empty either when nothing is duplicated or when the implementation did not populate it —
+    /// <see cref="DuplicatedFieldsReported"/> tells the two apart.
     /// </summary>
     public List<DuplicatedFieldDescriptor> DuplicatedFields { get; set; } = new();
+
+    /// <summary>
+    /// True when the store populated <see cref="DuplicatedFields"/> completely, so an empty list means no
+    /// member is duplicated (jasperfx#1081). False means "not reported", as for <see cref="IndexesReported"/>.
+    /// </summary>
+    public bool DuplicatedFieldsReported { get; set; }
+
+    /// <summary>
+    /// Which metadata columns this type's table captures — per type, where
+    /// <see cref="DocumentStoreUsage.DocumentMetadata"/> answers for the whole store (jasperfx#1077). A
+    /// document query filtering on a column this type does not capture is refused, so a console reads this
+    /// to decide which metadata filters to offer. <see langword="null"/> when the store did not report it.
+    /// </summary>
+    public DocumentMetadataCapabilities? Metadata { get; set; }
 }
 
 /// <summary>

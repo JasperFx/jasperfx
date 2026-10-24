@@ -365,6 +365,20 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     public virtual bool SupportsDocumentUndelete => false;
 
     /// <summary>
+    /// Does this store refuse a <see cref="DocumentQueryOptions.CorrelationId" />,
+    /// <see cref="DocumentQueryOptions.CausationId" /> or <see cref="DocumentQueryOptions.LastModifiedBy" />
+    /// filter on a type that does not capture the column (jasperfx#1077)? Gates that fact; flip it with the
+    /// implementation.
+    /// </summary>
+    public virtual bool RefusesUncapturedMetadataFilters => false;
+
+    /// <summary>
+    /// Does this store implement <see cref="IDocumentStoreDiagnostics.ExplainDocumentQueryAsync" />
+    /// (jasperfx#1078)? Gates the explain facts; flip it with the implementation.
+    /// </summary>
+    public virtual bool SupportsDocumentQueryExplain => false;
+
+    /// <summary>
     /// Does this fixture replay <see cref="DocumentComplianceConfig.SoftDeletedDocuments" />? Gates the
     /// soft-delete facts of <see cref="DocumentStoreDiagnosticsCompliance{TFixture}" />.
     /// </summary>

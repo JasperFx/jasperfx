@@ -84,4 +84,17 @@ public class StreamState
     /// </para>
     /// </remarks>
     public long CompactedVersion { get; set; }
+
+    /// <summary>
+    /// The tenant the stream belongs to (jasperfx#1079): the store's default tenant id where the events are
+    /// single-tenanted. What tells two rows apart in <see cref="IEventStore.QueryStreamStatesForAllTenants"/>,
+    /// where the same id or key in two tenants is two streams.
+    /// </summary>
+    /// <remarks>
+    /// Populated on the results of <see cref="IReadOnlyEventStore.QueryStreamStates"/> and
+    /// <see cref="IEventStore.QueryStreamStatesForAllTenants"/>, and translatable in their <c>Where()</c> and
+    /// <c>OrderBy()</c> like every other member. Added in JasperFx 2.95; a store built against an older
+    /// JasperFx leaves it null, and refuses a predicate on it by naming it.
+    /// </remarks>
+    public string? TenantId { get; set; }
 }

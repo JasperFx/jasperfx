@@ -138,6 +138,10 @@ public partial class InMemoryDocumentStore : IDocumentStoreDiagnostics, IDocumen
             return Task.FromResult(new DocumentQueryResult((IReadOnlyList<StoredDocument>)[], 0, pageNumber, pageSize));
         }
 
+        // The prototyping store keeps no correlation, causation or last-modified-by metadata on a stored
+        // document, so a filter on one is refused rather than ignored (jasperfx#1077).
+        options.AssertMetadataFiltersAreCaptured(documentTypeName, false, false, false);
+
         var rows = (options.AllTenants ? RowsOfEveryTenant(requested) : RowsOf(requested, options.TenantId))
             .Where(x => options.IncludeSoftDeleted || !x.IsDeleted);
 

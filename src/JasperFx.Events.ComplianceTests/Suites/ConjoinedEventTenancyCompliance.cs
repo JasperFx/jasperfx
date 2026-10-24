@@ -448,6 +448,90 @@ public abstract class ConjoinedEventTenancyCompliance<TFixture, TOperations, TQu
         bStream.Version.ShouldBe(1);
     }
 
+    private void SkipUnlessAllTenantStreamStates()
+        => Assert.SkipUnless(theFixture.SupportsAllTenantStreamStates,
+            "This event store does not implement IEventStore.QueryStreamStatesForAllTenants (jasperfx#1079).");
+
+    /// <summary>
+    /// The store-wide stream read (jasperfx#1079): every tenant's streams in one queryable, each row naming
+    /// its tenant, and the shared id read as the two streams it is.
+    /// </summary>
+    [Fact]
+    public async Task every_tenants_streams_are_queryable_store_wide()
+    {
+        SkipUnlessAllTenantStreamStates();
+
+        var shared = Guid.NewGuid();
+        var onlyA = Guid.NewGuid();
+
+        await appendAsync(TenantA, shared, new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+        await appendAsync(TenantA, onlyA, new ConsignmentBooked("Chicago"));
+        await appendAsync(TenantB, shared, new ConsignmentBooked("Lisbon"));
+
+        // Narrowed to this fact's ids: the schema is shared with every other fact in the suite.
+        var all = await Documents.DocumentQueryableExtensions.ToListAsync(
+            theFixture.EventStore.QueryStreamStatesForAllTenants().Where(x => x.Id == shared || x.Id == onlyA),
+            Cancellation);
+
+        all.Count.ShouldBe(3);
+        all.Where(x => x.Id == shared).Select(x => x.TenantId).OrderBy(x => x)
+            .ShouldBe([TenantA, TenantB]);
+        all.Single(x => x.Id == shared && x.TenantId == TenantA).Version.ShouldBe(2);
+        all.Single(x => x.Id == shared && x.TenantId == TenantB).Version.ShouldBe(1);
+        all.Single(x => x.Id == onlyA).TenantId.ShouldBe(TenantA);
+
+        // The tenant is a translatable member, like every other one.
+        var forB = await Documents.DocumentQueryableExtensions.ToListAsync(
+            theFixture.EventStore.QueryStreamStatesForAllTenants()
+                .Where(x => x.TenantId == TenantB && (x.Id == shared || x.Id == onlyA)),
+            Cancellation);
+        forB.ShouldHaveSingleItem().Id.ShouldBe(shared);
+    }
+
+    /// <summary>
+    /// The tenant-scoped stream read names the tenant too (jasperfx#1079), so a row read either way says
+    /// whose it is.
+    /// </summary>
+    [Fact]
+    public async Task tenant_scoped_stream_states_carry_their_tenant()
+    {
+        SkipUnlessAllTenantStreamStates();
+
+        var stream = Guid.NewGuid();
+        await appendAsync(TenantB, stream, new ConsignmentBooked("Lisbon"));
+
+        var forB = await Documents.DocumentQueryableExtensions.ToListAsync(
+            theFixture.EventStore.OpenReadOnlyEventStore(TenantB).QueryStreamStates(TenantB).Where(x => x.Id == stream),
+            Cancellation);
+
+        forB.ShouldHaveSingleItem().TenantId.ShouldBe(TenantB);
+    }
+
+    /// <summary>
+    /// The case jasperfx#1079 was filed for: a conjoined store that refuses its default tenant could not be
+    /// searched store-wide at all, because the only store-wide opener opens a default-tenant session.
+    /// </summary>
+    [Fact]
+    public async Task with_the_default_tenant_disabled_streams_are_still_queryable_store_wide()
+    {
+        SkipUnlessAllTenantStreamStates();
+        Assert.SkipUnless(theFixture.SupportsDisablingDefaultTenant,
+            "This event store cannot be built with the default tenant refused.");
+
+        await theFixture.ConfigureAsync(_defaultTenantDisabledConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var shared = Guid.NewGuid();
+        await appendAsync(TenantA, shared, new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+        await appendAsync(TenantB, shared, new ConsignmentBooked("Lisbon"));
+
+        var all = await Documents.DocumentQueryableExtensions.ToListAsync(
+            theFixture.EventStore.QueryStreamStatesForAllTenants().Where(x => x.Version >= 1), Cancellation);
+
+        all.Select(x => x.TenantId).OrderBy(x => x).ShouldBe([TenantA, TenantB]);
+        all.ShouldAllBe(x => x.Id == shared);
+    }
+
     /// <summary>
     /// <c>OpenReadOnlyEventStore(tenantId)</c> opens the read-only tier <em>in</em> one tenant's
     /// scope (jasperfx#885), which is what makes the tier's tenant-less members — everything except

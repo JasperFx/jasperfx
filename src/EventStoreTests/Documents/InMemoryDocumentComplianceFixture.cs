@@ -117,6 +117,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsDocumentWritePreview => true;
 
+    public override bool RefusesUncapturedMetadataFilters => true;
+
     public override bool SupportsDocumentHierarchies => true;
 
     public override bool SupportsSoftDeleteOperators => true;

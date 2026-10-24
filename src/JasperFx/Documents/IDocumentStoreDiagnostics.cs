@@ -160,6 +160,81 @@ public interface IDocumentStoreDiagnostics
         return loadThroughLegacyJsonAsync(documentTypeName, id, token);
     }
 
+    /// <summary>
+    /// How the store would execute <see cref="QueryDocumentsAsync"/> for the same arguments: how many rows it
+    /// read, how many it returned, and which indexes it used (jasperfx#1078) — the "did this filter scan?"
+    /// question only the store can answer, because only the store has the SQL its LINQ provider generated.
+    /// </summary>
+    /// <param name="documentTypeName">The document type — see the type-name rule on the interface.</param>
+    /// <param name="options">
+    /// Exactly what <see cref="QueryDocumentsAsync"/> takes, including paging. The plan is of that page query.
+    /// </param>
+    /// <param name="token">Cancellation.</param>
+    /// <returns>
+    /// The plan, or <see langword="null"/> when this store cannot explain a query — which a console renders as
+    /// "unknown", never as "no scan".
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// The same refusals as <see cref="QueryDocumentsAsync"/>, with the same exceptions: a criterion the store
+    /// cannot apply is a <see cref="DocumentCriteriaNotSupportedException"/>. An unknown type name reads as
+    /// <see langword="null"/>, there being no query to explain. An engine whose explain executes the
+    /// query (PostgreSQL's <c>EXPLAIN ANALYZE</c>) runs it so that nothing can be written.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.95 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). The default returns <see langword="null"/>, the same answer as a store that
+    /// cannot explain.
+    /// </para>
+    /// </remarks>
+    Task<DocumentQueryPlan?> ExplainDocumentQueryAsync(
+        string documentTypeName, DocumentQueryOptions options, CancellationToken token = default)
+        => Task.FromResult<DocumentQueryPlan?>(null);
+
+    /// <summary>
+    /// The document of the named type with this id, built now by live-aggregating its stream through the
+    /// registered single-stream projection, as the JSON the store would store for it — without storing
+    /// anything (jasperfx#1082). Diffed against <see cref="LoadDocumentAsync"/>, it answers "is this read
+    /// model stale or wrong?".
+    /// </summary>
+    /// <param name="documentTypeName">The document type — see the type-name rule on the interface.</param>
+    /// <param name="id">The document id as text, which is the stream's id or key; converted as a load converts it.</param>
+    /// <param name="tenantId">
+    /// The tenant whose stream to aggregate. Null, empty or whitespace means the default tenant, as for
+    /// <see cref="LoadDocumentAsync"/>.
+    /// </param>
+    /// <param name="token">Cancellation.</param>
+    /// <returns>
+    /// The JSON, or <see langword="null"/> when the stream does not exist or aggregates to nothing (a
+    /// projection that deletes the document, say).
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// Rendered by the store's own serializer, exactly as a projection would store it — casing, enum storage
+    /// and custom converters included — so it can be compared field by field with <see cref="StoredDocument.Json"/>.
+    /// A client-side rendering cannot be, which is why this is the store's job. The aggregation uses the
+    /// projection the store registered for the type, with its own apply methods and stream identity.
+    /// </para>
+    /// <para>
+    /// Only a type produced by a single-stream projection has one source stream per document.
+    /// <see cref="DocumentTypeRef.SingleStreamProjection"/> names it, and any other known type — a plain
+    /// document, a multi-stream or composite-only projection — is refused with
+    /// <see cref="InvalidOperationException"/> naming the type. An unknown type name is an
+    /// <see cref="ArgumentException"/>.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.95 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). The default throws <see cref="NotSupportedException"/> naming the implementing type.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store built against a JasperFx older than 2.95.
+    /// </exception>
+    Task<string?> AggregateDocumentJsonAsync(
+        string documentTypeName, string id, string? tenantId, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentStoreDiagnostics)}.{nameof(AggregateDocumentJsonAsync)}, which was added in JasperFx 2.95. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.95 or later.");
+
     private async Task<StoredDocument?> loadThroughLegacyJsonAsync(
         string documentTypeName, string id, CancellationToken token)
     {
@@ -208,6 +283,17 @@ public record DocumentTypeRef(string TypeName, string Alias, string SchemaName)
     /// which reads as "permanent" — the cautious answer for a confirmation prompt.
     /// </remarks>
     public bool IsSoftDeleted { get; init; }
+
+    /// <summary>
+    /// The name of the registered single-stream projection that produces this type, so a console knows it
+    /// can offer <see cref="IDocumentStoreDiagnostics.AggregateDocumentJsonAsync" /> — a stored-versus-rebuilt
+    /// comparison — for it (jasperfx#1082). <see langword="null" /> for any type that is not produced by one.
+    /// </summary>
+    /// <remarks>
+    /// Added in JasperFx 2.95. A store built against an older JasperFx leaves it <see langword="null" />, and
+    /// cannot rebuild a document either.
+    /// </remarks>
+    public string? SingleStreamProjection { get; init; }
 }
 
 /// <summary>
@@ -227,25 +313,42 @@ public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEqual
     public string? TenantId { get; init; }
 
     /// <summary>
-    /// Optional exact-match filter on the document's correlation id metadata. Null applies no filter. Only
-    /// honored when the store advertises and captures the correlation id metadata column; otherwise ignored.
+    /// Optional exact-match filter on the document's correlation id metadata. Null applies no filter.
     /// Added as an init-only member so the record stays binary-compatible. See JasperFx/CritterWatch #629.
     /// </summary>
+    /// <remarks>
+    /// Whether the column exists is a property of the queried type, not of the store: a store that
+    /// captures correlation ids for one type may not for another. On a type whose mapping does not capture the
+    /// column, the store throws <see cref="DocumentCriteriaNotSupportedException"/> naming
+    /// <c>nameof(CorrelationId)</c> (jasperfx#1077) — it used to skip the filter and return the unfiltered page,
+    /// which reads as a filtered one. <see cref="JasperFx.Descriptors.DocumentMappingDescriptor.Metadata"/>
+    /// says per type what is captured, so a console can stop offering the filter before submitting it.
+    /// </remarks>
     public string? CorrelationId { get; init; }
 
     /// <summary>
-    /// Optional exact-match filter on the document's causation id metadata. Null applies no filter. Only
-    /// honored when the store advertises and captures the causation id metadata column; otherwise ignored.
+    /// Optional exact-match filter on the document's causation id metadata. Null applies no filter.
     /// Added as an init-only member so the record stays binary-compatible. See JasperFx/CritterWatch #629.
     /// </summary>
+    /// <remarks>
+    /// Whether the column exists is a property of the queried type, not of the store: a store that
+    /// captures causation ids for one type may not for another. On a type whose mapping does not capture the
+    /// column, the store throws <see cref="DocumentCriteriaNotSupportedException"/> naming
+    /// <c>nameof(CausationId)</c> (jasperfx#1077) — it used to skip the filter and return the unfiltered page,
+    /// which reads as a filtered one. <see cref="JasperFx.Descriptors.DocumentMappingDescriptor.Metadata"/>
+    /// says per type what is captured, so a console can stop offering the filter before submitting it.
+    /// </remarks>
     public string? CausationId { get; init; }
 
     /// <summary>
     /// Optional exact-match filter on the document's "last modified by" user metadata. Null applies no
-    /// filter. Only honored when the store advertises and captures the last-modified-by metadata column;
-    /// otherwise ignored. Added as an init-only member so the record stays binary-compatible. See
+    /// filter. Added as an init-only member so the record stays binary-compatible. See
     /// JasperFx/CritterWatch #629.
     /// </summary>
+    /// <remarks>
+    /// Refused with <see cref="DocumentCriteriaNotSupportedException"/> naming <c>nameof(LastModifiedBy)</c>
+    /// on a type whose mapping does not capture the column, as <see cref="CorrelationId"/> is (jasperfx#1077).
+    /// </remarks>
     public string? LastModifiedBy { get; init; }
 
     /// <summary>
@@ -349,6 +452,33 @@ public record DocumentQueryOptions(int PageNumber, int PageSize, string? IdEqual
     }
 
     /// <summary>
+    /// Throws <see cref="DocumentCriteriaNotSupportedException"/> for the first of <see cref="CorrelationId"/>,
+    /// <see cref="CausationId"/> and <see cref="LastModifiedBy"/> that is set while the queried type's mapping
+    /// does not capture that column (jasperfx#1077) — one wording on every store. A store calls this with the
+    /// queried type's own capture flags (its root's, for a sub-class) before it reads.
+    /// </summary>
+    /// <param name="documentTypeName">The queried type, for the message.</param>
+    /// <param name="capturesCorrelationId">Whether the type's table has a correlation id column.</param>
+    /// <param name="capturesCausationId">Whether the type's table has a causation id column.</param>
+    /// <param name="capturesLastModifiedBy">Whether the type's table has a last-modified-by column.</param>
+    public void AssertMetadataFiltersAreCaptured(string documentTypeName, bool capturesCorrelationId,
+        bool capturesCausationId, bool capturesLastModifiedBy)
+    {
+        refuseUncaptured(CorrelationId, capturesCorrelationId, nameof(CorrelationId), "correlation id");
+        refuseUncaptured(CausationId, capturesCausationId, nameof(CausationId), "causation id");
+        refuseUncaptured(LastModifiedBy, capturesLastModifiedBy, nameof(LastModifiedBy), "last-modified-by");
+
+        void refuseUncaptured(string? value, bool captured, string criterion, string column)
+        {
+            if (value is not null && !captured)
+            {
+                throw new DocumentCriteriaNotSupportedException(criterion,
+                    $"documents of type '{documentTypeName}' do not capture {column} metadata, so they cannot be filtered on it. Enable {column} metadata for this type, or remove the filter.");
+            }
+        }
+    }
+
+    /// <summary>
     /// The tenant a store should actually read: <see langword="null"/> — the default tenant — for a null,
     /// empty or whitespace id, the id itself otherwise. CritterWatch#1304 measured an empty string read
     /// as a tenant <em>named</em> <c>""</c> (zero rows on conjoined Marten); this is the one definition
@@ -381,6 +511,48 @@ public sealed record DocumentMetadataOrder(DocumentMetadataField Field, bool Des
 {
     /// <summary>The most recently modified documents first.</summary>
     public static DocumentMetadataOrder NewestFirst { get; } = new(DocumentMetadataField.LastModified, true);
+}
+
+/// <summary>
+/// How a store executed, or would execute, a document query (jasperfx#1078). See
+/// <see cref="IDocumentStoreDiagnostics.ExplainDocumentQueryAsync"/>.
+/// </summary>
+/// <param name="Engine">The database engine — <c>"PostgreSQL"</c>, <c>"SqlServer"</c>, <c>"SQLite"</c>.</param>
+/// <param name="PlanText">The engine's own plan, as it printed it, for display.</param>
+/// <remarks>
+/// Every field below the two positional ones is optional, because the engines do not all say the same
+/// things: <see langword="null"/> means "the engine's plan does not say", which a console must not read as
+/// zero, none, or false.
+/// </remarks>
+public sealed record DocumentQueryPlan(string Engine, string PlanText)
+{
+    /// <summary>
+    /// Rows the engine read to answer the query, where its plan counts them. Compared with
+    /// <see cref="RowsReturned"/>, it is the "examined versus returned" a console shows.
+    /// </summary>
+    public long? RowsExamined { get; init; }
+
+    /// <summary>Rows the query returned, where the plan counts them.</summary>
+    public long? RowsReturned { get; init; }
+
+    /// <summary>
+    /// The indexes the plan used, by their database names. Empty means it used none; <see langword="null"/>
+    /// means the engine cannot say.
+    /// </summary>
+    public IReadOnlyList<string>? IndexesUsed { get; init; }
+
+    /// <summary>
+    /// Whether the plan reads the whole document table rather than seeking through an index — a sequential
+    /// scan, a table or clustered-index scan, SQLite's <c>SCAN</c>. <see langword="null"/> when the engine
+    /// cannot say. Answers the "did this filter scan?" question on an engine that does not count rows.
+    /// </summary>
+    public bool? ScansTable { get; init; }
+
+    /// <summary>
+    /// Whether the numbers come from executing the query (<c>EXPLAIN ANALYZE</c>, an actual execution plan)
+    /// rather than from the optimizer's estimate.
+    /// </summary>
+    public bool IsActual { get; init; }
 }
 
 /// <summary>

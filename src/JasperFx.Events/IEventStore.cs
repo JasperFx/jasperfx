@@ -337,6 +337,47 @@ public interface IEventStore
                 "Per-tenant OpenReadOnlyEventStore is not implemented on this IEventStore. Use an event store that implements multi-tenancy.");
 
     /// <summary>
+    /// Every tenant's streams as one composable <see cref="IQueryable{T}"/> of <see cref="StreamState"/> — the
+    /// store-wide form of <see cref="IReadOnlyEventStore.QueryStreamStates"/> (jasperfx#1079), and the stream
+    /// counterpart of <c>DocumentQueryOptions.AllTenants</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="OpenReadOnlyEventStore()"/> opens a default-tenant session, which a conjoined store with its
+    /// default tenant disabled refuses, and fanning out per tenant needs a tenant list that hash-partitioned
+    /// conjoined tenancy does not report. This member opens no default-tenant session: it reads the streams
+    /// table with no tenant predicate.
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><b>Conjoined:</b> every tenant's streams, each carrying its
+    /// <see cref="StreamState.TenantId"/>. The same id or key in two tenants is two rows.</description></item>
+    /// <item><description><b>Single-tenanted events:</b> exactly the streams the tenant-less
+    /// <see cref="IReadOnlyEventStore.QueryStreamStates"/> returns.</description></item>
+    /// <item><description><b>More than one database</b> (database-per-tenant): a store may fan out, or refuse
+    /// with <see cref="NotSupportedException"/> naming the reason — never answer from one database as though
+    /// it were all of them. A caller there opens <see cref="OpenReadOnlyEventStore(string?)"/> per tenant.</description></item>
+    /// </list>
+    /// <para>
+    /// Translation and execution follow <see cref="IReadOnlyEventStore.QueryStreamStates"/>: <c>Where()</c>,
+    /// <c>OrderBy</c>/<c>ThenBy</c>, <c>Skip</c> and <c>Take</c> over every member including
+    /// <see cref="StreamState.TenantId"/>, a member the provider cannot translate fails naming it, and the
+    /// shared async terminators in <see cref="Documents.DocumentQueryableExtensions"/> execute it. The
+    /// returned queryable holds whatever session it reads through for its own lifetime.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.95 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). The default throws <see cref="NotSupportedException"/> naming the implementing type.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation, on a store built against a JasperFx older than 2.95; or from a
+    /// multi-database store that does not fan out.
+    /// </exception>
+    IQueryable<StreamState> QueryStreamStatesForAllTenants()
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(QueryStreamStatesForAllTenants)}, which was added in JasperFx 2.95. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.95 or later.");
+
+    /// <summary>
     /// Compact a stream by aggregating events into a snapshot.
     /// Resolves aggregate type from stream state.
     /// </summary>

@@ -837,6 +837,122 @@ public abstract class DocumentStoreDiagnosticsCompliance<TFixture> : DocumentSto
         ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.Where));
     }
 
+    // ---------------------------------------------------------------- metadata filters (jasperfx#1077)
+
+    /// <summary>
+    /// None of this suite's types captures correlation, causation or last-modified-by metadata, so a filter on
+    /// any of them must be refused, naming the criterion. Skipping it returned the unfiltered page and total,
+    /// which reads as a filter that matched everything.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(DocumentQueryOptions.CorrelationId))]
+    [InlineData(nameof(DocumentQueryOptions.CausationId))]
+    [InlineData(nameof(DocumentQueryOptions.LastModifiedBy))]
+    public async Task a_metadata_filter_on_a_type_that_does_not_capture_it_is_refused(string criterion)
+    {
+        _ = Diagnostics;
+        Assert.SkipUnless(theFixture.RefusesUncapturedMetadataFilters,
+            "This store does not yet refuse a metadata filter on a type that does not capture it (jasperfx#1077).");
+        await PersistWidgetsAsync(2);
+
+        var options = criterion switch
+        {
+            nameof(DocumentQueryOptions.CorrelationId) => new DocumentQueryOptions(1, 10) { CorrelationId = "c-1" },
+            nameof(DocumentQueryOptions.CausationId) => new DocumentQueryOptions(1, 10) { CausationId = "c-1" },
+            _ => new DocumentQueryOptions(1, 10) { LastModifiedBy = "someone" }
+        };
+
+        var ex = await Should.ThrowAsync<DocumentCriteriaNotSupportedException>(() => QueryAsync(WidgetType, options));
+        ex.Criterion.ShouldBe(criterion);
+    }
+
+    // ---------------------------------------------------------------- explain (jasperfx#1078)
+
+    private IDocumentStoreDiagnostics Explainer
+    {
+        get
+        {
+            var diagnostics = Diagnostics;
+            Assert.SkipUnless(theFixture.SupportsDocumentQueryExplain,
+                "This store does not implement IDocumentStoreDiagnostics.ExplainDocumentQueryAsync (jasperfx#1078).");
+            return diagnostics;
+        }
+    }
+
+    [Fact]
+    public async Task explain_describes_the_page_query()
+    {
+        var explainer = Explainer;
+        await PersistWidgetsAsync(3);
+
+        var plan = await explainer.ExplainDocumentQueryAsync(WidgetType, new DocumentQueryOptions(1, 10), Cancellation);
+
+        plan.ShouldNotBeNull();
+        plan.Engine.ShouldNotBeNullOrWhiteSpace();
+        plan.PlanText.ShouldNotBeNullOrWhiteSpace();
+
+        // Every number is optional, but one that is reported has to be the right one.
+        if (plan.RowsReturned is { } returned)
+        {
+            returned.ShouldBe(3);
+        }
+
+        if (plan.RowsExamined is { } examined)
+        {
+            examined.ShouldBeGreaterThanOrEqualTo(plan.RowsReturned ?? 0);
+        }
+    }
+
+    [Fact]
+    public async Task explain_writes_nothing()
+    {
+        var explainer = Explainer;
+        await PersistWidgetsAsync(2);
+
+        await explainer.ExplainDocumentQueryAsync(WidgetType, new DocumentQueryOptions(1, 10), Cancellation);
+
+        (await QueryAsync(WidgetType)).TotalCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task explain_of_an_unknown_type_is_null()
+    {
+        var explainer = Explainer;
+
+        (await explainer.ExplainDocumentQueryAsync("No.Such.Type", new DocumentQueryOptions(1, 10), Cancellation))
+            .ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task explain_refuses_what_the_query_refuses()
+    {
+        var explainer = Explainer;
+        SkipUnlessCriteria();
+        await PersistWidgetsAsync(1);
+
+        var ex = await Should.ThrowAsync<DocumentCriteriaNotSupportedException>(() =>
+            explainer.ExplainDocumentQueryAsync(WidgetType,
+                new DocumentQueryOptions(1, 10) { Where = "Weight >>> nonsense (" }, Cancellation));
+        ex.Criterion.ShouldBe(nameof(DocumentQueryOptions.Where));
+    }
+
+    [Fact]
+    public async Task explain_follows_a_where()
+    {
+        var explainer = Explainer;
+        SkipUnlessCriteria();
+        await PersistWidgetsAsync(4);
+
+        var plan = await explainer.ExplainDocumentQueryAsync(WidgetType,
+            new DocumentQueryOptions(1, 10) { Where = "Weight > @0", Arguments = [2] }, Cancellation);
+
+        plan.ShouldNotBeNull();
+        if (plan.RowsReturned is { } returned)
+        {
+            returned.ShouldBe(2);
+        }
+    }
+
     // ---------------------------------------------------------------- criteria in depth (jasperfx#869)
 
     [Fact]

@@ -169,6 +169,17 @@ public class RegisteredShardNamesTests
         Should.Throw<NotSupportedException>(() => theStore.RegisteredShardNames());
     }
 
+    [Fact]
+    public void a_store_built_before_2_95_refuses_the_all_tenants_stream_read_naming_itself()
+    {
+        // jasperfx#1079: the default must refuse, never fall back to the default-tenant read it replaces.
+        IEventStore theStore = new BareEventStore();
+
+        var ex = Should.Throw<NotSupportedException>(() => theStore.QueryStreamStatesForAllTenants());
+        ex.Message.ShouldContain(nameof(BareEventStore));
+        ex.Message.ShouldContain("2.95");
+    }
+
     private static CompositeProjection<FakeOperations, FakeSession> telehealthComposite()
     {
         var composite = new CompositeProjection<FakeOperations, FakeSession>("TelehealthComposite");

@@ -387,6 +387,13 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsDisablingDefaultTenant => false;
 
     /// <summary>
+    /// True in a store that implements <see cref="IEventStore.QueryStreamStatesForAllTenants" /> and
+    /// populates <see cref="StreamState.TenantId" /> (jasperfx#1079). Defaults to false because the member's
+    /// default throws: implement it, then flip this.
+    /// </summary>
+    public virtual bool SupportsAllTenantStreamStates => false;
+
+    /// <summary>
     /// True in a store that has implemented the <c>IEvent.HasTag&lt;TTag&gt;</c> LINQ marker over
     /// its raw-event query and the <see cref="QueryRawEventsAsync"/> / <see cref="HasTagFilter{TTag}"/>
     /// seam members that reach it.

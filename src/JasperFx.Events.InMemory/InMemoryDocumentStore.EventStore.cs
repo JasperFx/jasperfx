@@ -81,6 +81,13 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     /// </summary>
     public IReadOnlyEventStore OpenReadOnlyEventStore() => QuerySession().Events;
 
+    /// <summary>
+    /// Every tenant's streams (jasperfx#1079). The prototyping store keeps every tenant in one list, so this is
+    /// the tenant-less read with no session behind it.
+    /// </summary>
+    public IQueryable<StreamState> QueryStreamStatesForAllTenants()
+        => InMemoryDocumentQueryable<StreamState>.Wrap(StreamStates(null).AsQueryable());
+
     /// <inheritdoc />
     public Task CompactStreamAsync(Guid streamId, CancellationToken token = default)
         => throw InMemoryEventRegistry.NotSupported("Compacting a stream");
@@ -211,9 +218,10 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
         {
             return _streams.Values
                 .Where(x => tenantId is null || x.TenantId == tenantId)
-                .Select(x => x.Id is Guid id
+                .Select(x => (x.Id is Guid id
                     ? new StreamState(id, x.Version, x.AggregateType, x.LastTimestamp, x.Created)
                     : new StreamState((string)x.Id, x.Version, x.AggregateType, x.LastTimestamp, x.Created))
+                    .WithTenant(x.TenantId))
                 .ToList();
         }
     }
@@ -245,5 +253,14 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
             var below = _events.Where(x => x.Timestamp < timestamp).ToList();
             return below.Count == 0 ? null : below.Max(x => x.Sequence);
         }
+    }
+}
+
+internal static class StreamStateTenantExtensions
+{
+    public static StreamState WithTenant(this StreamState state, string? tenantId)
+    {
+        state.TenantId = tenantId;
+        return state;
     }
 }
