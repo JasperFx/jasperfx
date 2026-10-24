@@ -170,6 +170,16 @@ public class RegisteredShardNamesTests
     }
 
     [Fact]
+    public void a_non_generic_store_answers_the_overload_without_members_and_refuses_with_them()
+    {
+        IEventStore theStore = new BareEventStore();
+
+        Should.Throw<NotSupportedException>(() => theStore.RegisteredShardNames(includeCompositeMembers: false));
+        Should.Throw<NotSupportedException>(() => theStore.RegisteredShardNames(includeCompositeMembers: true))
+            .Message.ShouldContain("2.95.1");
+    }
+
+    [Fact]
     public void a_store_built_before_2_95_refuses_the_all_tenants_stream_read_naming_itself()
     {
         // jasperfx#1079: the default must refuse, never fall back to the default-tenant read it replaces.
@@ -190,14 +200,29 @@ public class RegisteredShardNamesTests
     }
 
     [Fact]
-    public void a_composite_lists_its_constituents_after_itself()
+    public void the_plain_registry_lists_a_composite_as_one_startable_shard()
+    {
+        // Wolverine builds an event-subscription agent per name here (GH-5002). 2.95.0 listed the members too,
+        // and every member agent was refused by the daemon as an unknown shard ('Trip:V2:All'): a member runs
+        // inside its composite and cannot be started alone.
+        var compositeShards = ((ISubscriptionSource<FakeOperations, FakeSession>)telehealthComposite()).Shards();
+        IEventStore theStore = new ShardRegistryEventStore([shard("VoyageLog"), ..compositeShards]);
+
+        theStore.RegisteredShardNames().Select(x => x.Identity)
+            .ShouldBe(["VoyageLog:All", "TelehealthComposite:All"]);
+        theStore.RegisteredShardNames(includeCompositeMembers: false).Select(x => x.Identity)
+            .ShouldBe(["VoyageLog:All", "TelehealthComposite:All"]);
+    }
+
+    [Fact]
+    public void asked_for_members_a_composite_lists_its_constituents_after_itself()
     {
         // jasperfx#1080 (CritterWatch#1466): each constituent writes its own progression row, so a registry
         // that names only the composite leaves those rows belonging to nothing registered.
         var compositeShards = ((ISubscriptionSource<FakeOperations, FakeSession>)telehealthComposite()).Shards();
         IEventStore theStore = new ShardRegistryEventStore([shard("VoyageLog"), ..compositeShards]);
 
-        theStore.RegisteredShardNames().Select(x => x.Identity)
+        theStore.RegisteredShardNames(includeCompositeMembers: true).Select(x => x.Identity)
             .ShouldBe(["VoyageLog:All", "TelehealthComposite:All", "Appointment:All", "Board:All", "ProviderShift:All"]);
     }
 
@@ -207,11 +232,12 @@ public class RegisteredShardNamesTests
         var compositeShards = ((ISubscriptionSource<FakeOperations, FakeSession>)telehealthComposite()).Shards();
         IEventStore theStore = new ShardRegistryEventStore([..compositeShards]);
 
-        var shift = theStore.RegisteredShardNames().Single(x => x.Name == "ProviderShift");
+        var names = theStore.RegisteredShardNames(includeCompositeMembers: true);
+        var shift = names.Single(x => x.Name == "ProviderShift");
         shift.CompositeParentName.ShouldBe("TelehealthComposite");
         shift.StageNumber.ShouldBe(2u);
 
-        theStore.RegisteredShardNames().Single(x => x.Name == "TelehealthComposite").CompositeParentName.ShouldBeNull();
+        names.Single(x => x.Name == "TelehealthComposite").CompositeParentName.ShouldBeNull();
     }
 
     [Fact]

@@ -181,9 +181,36 @@ public interface IEventStore
     ///     an empty registry is a meaningful answer that would latch a readiness probe green.
     ///     </para>
     /// </summary>
+    /// <remarks>
+    ///     These are the shards a daemon can <em>start</em>, and consumers build agents from them — Wolverine's
+    ///     event-subscription agents among them (GH-5002). A composite projection is one shard here: its members
+    ///     run inside it and cannot be started on their own, so they are not listed, although each writes a
+    ///     progression row of its own. <see cref="RegisteredShardNames(bool)" /> lists them too. (JasperFx
+    ///     2.95.0 listed them here, which made Wolverine create an agent per member that the daemon refused as
+    ///     an unknown shard; 2.95.1 restored this answer and moved the members behind the overload.)
+    /// </remarks>
     IReadOnlyList<ShardName> RegisteredShardNames()
         => throw new NotSupportedException(
             "RegisteredShardNames is not implemented on this IEventStore. Use an event store (Marten, Polecat, or Fisher) that registers projection shards.");
+
+    /// <summary>
+    ///     jasperfx#1080 — <see cref="RegisteredShardNames()" />, optionally followed by each composite
+    ///     projection's constituent shards: the names its members' progression rows carry, tagged with
+    ///     <see cref="ShardName.CompositeParentName" /> and <see cref="ShardName.StageNumber" />. This is the
+    ///     list a monitor needs to account for every progression row; it is NOT a list of startable shards.
+    /// </summary>
+    /// <param name="includeCompositeMembers">
+    ///     True to list each composite's members after it; false is exactly <see cref="RegisteredShardNames()" />.
+    /// </param>
+    /// <exception cref="NotSupportedException">
+    ///     From the default implementation, for <paramref name="includeCompositeMembers" /> true on a store that
+    ///     implements only the non-generic interface.
+    /// </exception>
+    IReadOnlyList<ShardName> RegisteredShardNames(bool includeCompositeMembers)
+        => includeCompositeMembers
+            ? throw new NotSupportedException(
+                $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(RegisteredShardNames)}(includeCompositeMembers: true), which was added in JasperFx 2.95.1.")
+            : RegisteredShardNames();
 
     /// <summary>
     ///     Build a standalone, display-only high-water monitor for a single database — just the high-water agent,
@@ -862,7 +889,7 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     ///     which is where the correlation and its caveats are documented.
     /// </summary>
     Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(IEventDatabase database, CancellationToken token = default)
-        => database.FetchProjectionLagAsync(registeredShardNames(), token);
+        => database.FetchProjectionLagAsync(registeredShardNames(includeCompositeMembers: true), token);
 
     /// <summary>
     ///     jasperfx#619: the lag of the cells addressed by <paramref name="name" /> on
@@ -870,7 +897,7 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     /// </summary>
     Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(IEventDatabase database, ShardName name,
         CancellationToken token = default)
-        => database.FetchProjectionLagAsync(registeredShardNames(), name, token);
+        => database.FetchProjectionLagAsync(registeredShardNames(includeCompositeMembers: true), name, token);
 
     /// <summary>
     ///     jasperfx#815 — satisfies the non-generic <see cref="IEventStore.RegisteredShardNames" /> from the
@@ -878,22 +905,29 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     ///     without naming a closed generic. Implemented on the interface rather than on each store so no
     ///     store has to change.
     /// </summary>
-    IReadOnlyList<ShardName> IEventStore.RegisteredShardNames() => registeredShardNames();
+    IReadOnlyList<ShardName> IEventStore.RegisteredShardNames() => registeredShardNames(includeCompositeMembers: false);
+
+    /// <summary>
+    ///     jasperfx#1080 — the registry, with each composite's constituents after it when asked for.
+    /// </summary>
+    IReadOnlyList<ShardName> IEventStore.RegisteredShardNames(bool includeCompositeMembers)
+        => registeredShardNames(includeCompositeMembers);
 
     /// <remarks>
     ///     jasperfx#1080: a composite registers one shard under its own name, but each of its members writes
     ///     its own progression row, named by <see cref="CompositeProjection{TOperations,TQuerySession}.ConstituentShardNames" />.
-    ///     Those are registered too, so they are listed after their composite, carrying
-    ///     <see cref="ShardName.CompositeParentName" /> and <see cref="ShardName.StageNumber" />. Without them a
-    ///     consumer reads every constituent's row as belonging to nothing registered.
+    ///     With <paramref name="includeCompositeMembers" /> they are listed after their composite, carrying
+    ///     <see cref="ShardName.CompositeParentName" /> and <see cref="ShardName.StageNumber" />; without them a
+    ///     consumer reads every constituent's row as belonging to nothing registered. The projection lag read
+    ///     includes them for that reason. The plain registry does not: a member is not a startable shard.
     /// </remarks>
-    private IReadOnlyList<ShardName> registeredShardNames()
+    private IReadOnlyList<ShardName> registeredShardNames(bool includeCompositeMembers)
     {
         var names = new List<ShardName>();
         foreach (var shard in AllShards())
         {
             names.Add(shard.Name);
-            if (shard.Factory is CompositeProjection<TOperations, TQuerySession> composite)
+            if (includeCompositeMembers && shard.Factory is CompositeProjection<TOperations, TQuerySession> composite)
             {
                 names.AddRange(composite.ConstituentShardNames(shard.Name));
             }
