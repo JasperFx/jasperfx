@@ -772,6 +772,19 @@ each with its `TenantId`, and paging that never repeats a row across tenants. Co
 a named `TenantId` throws `ArgumentException` whatever the flag says: call
 `DocumentQueryOptions.AssertValidTenantScope()` before reading.
 
+Two JasperFx 2.95 gates, both plain skips because the members they cover are new.
+`RefusesUncapturedMetadataFilters` (jasperfx#1077) asserts that a `CorrelationId`, `CausationId` or
+`LastModifiedBy` filter on a type that does not capture that column is refused with
+`DocumentCriteriaNotSupportedException` naming it; call `DocumentQueryOptions.AssertMetadataFiltersAreCaptured`
+with the queried type's own flags. `SupportsDocumentQueryExplain` (jasperfx#1078) runs the
+`ExplainDocumentQueryAsync` facts: a plan for the page query, nothing written, `null` for an unknown type,
+the query's own refusals, and any row count the plan reports matching the real one.
+
+`SupportsAllTenantStreamStates` (jasperfx#1079), on the event fixture, runs the
+`QueryStreamStatesForAllTenants` facts in `ConjoinedEventTenancyCompliance`: one row per tenant for a shared
+stream id, `StreamState.TenantId` populated and translatable, and the same read on a store whose default
+tenant is disabled (with `SupportsDisablingDefaultTenant`).
+
 `DocumentCommitListenerCompliance` (jasperfx#679) is opt-in for a different reason: it needs only
 documents, so any store implementing the document contract can enroll, but it needs `BuildStoreAsync`
 to replay `config.CommitListeners` onto the store's own listener collection — `StoreOptions.Listeners`
