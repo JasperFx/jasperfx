@@ -178,8 +178,11 @@ public interface IDocumentStoreDiagnostics
     /// <para>
     /// The same refusals as <see cref="QueryDocumentsAsync"/>, with the same exceptions: a criterion the store
     /// cannot apply is a <see cref="DocumentCriteriaNotSupportedException"/>. An unknown type name reads as
-    /// <see langword="null"/>, there being no query to explain, and so does a type whose table does not
-    /// exist yet, which a query reads as empty without running anything. A read that runs more than one page
+    /// <see langword="null"/>, there being no query to explain. A known type whose read is answered without
+    /// running a statement — its table does not exist yet, the id cannot be an identity, the tenant has no
+    /// database — gets a plan of nothing: <see cref="DocumentQueryPlan.RowsExamined"/> and
+    /// <see cref="DocumentQueryPlan.RowsReturned"/> 0, <see cref="DocumentQueryPlan.ScansTable"/> false, and a
+    /// <see cref="DocumentQueryPlan.PlanText"/> saying no query was executed and why. A read that runs more than one page
     /// query — <see cref="DocumentQueryOptions.AllTenants"/> across several databases — may be explained by
     /// its first query, in tenant order, or refused with
     /// <see cref="DocumentCriteriaNotSupportedException"/> naming <c>nameof(AllTenants)</c>. An engine whose explain executes the
@@ -292,7 +295,8 @@ public record DocumentTypeRef(string TypeName, string Alias, string SchemaName)
     /// <summary>
     /// The name of the registered single-stream projection that produces this type, so a console knows it
     /// can offer <see cref="IDocumentStoreDiagnostics.AggregateDocumentJsonAsync" /> — a stored-versus-rebuilt
-    /// comparison — for it (jasperfx#1082). <see langword="null" /> for any type that is not produced by one.
+    /// comparison — for it (jasperfx#1082). <see langword="null" /> for any type that is not produced by one,
+    /// including a type whose single-stream projection is <c>Live</c>: that stores no document to compare with.
     /// </summary>
     /// <remarks>
     /// Added in JasperFx 2.95. A store built against an older JasperFx leaves it <see langword="null" />, and
@@ -523,7 +527,8 @@ public sealed record DocumentMetadataOrder(DocumentMetadataField Field, bool Des
 /// <see cref="IDocumentStoreDiagnostics.ExplainDocumentQueryAsync"/>.
 /// </summary>
 /// <param name="Engine">The database engine — <c>"PostgreSQL"</c>, <c>"SqlServer"</c>, <c>"SQLite"</c>.</param>
-/// <param name="PlanText">The engine's own plan, as it printed it, for display.</param>
+/// <param name="PlanText">The engine's own plan, as it printed it and in whatever format it was asked for
+/// (PostgreSQL JSON, SQL Server showplan XML, SQLite plan rows), for display.</param>
 /// <remarks>
 /// Every field below the two positional ones is optional, because the engines do not all say the same
 /// things: <see langword="null"/> means "the engine's plan does not say", which a console must not read as
@@ -532,7 +537,8 @@ public sealed record DocumentMetadataOrder(DocumentMetadataField Field, bool Des
 public sealed record DocumentQueryPlan(string Engine, string PlanText)
 {
     /// <summary>
-    /// Rows the engine read to answer the query, where its plan counts them. Compared with
+    /// Rows the engine read to answer the query, where its plan counts them — every row a scan produced,
+    /// including those a filter or recheck then discarded, across every loop. Compared with
     /// <see cref="RowsReturned"/>, it is the "examined versus returned" a console shows.
     /// </summary>
     public long? RowsExamined { get; init; }
@@ -548,7 +554,9 @@ public sealed record DocumentQueryPlan(string Engine, string PlanText)
 
     /// <summary>
     /// Whether the plan reads the whole document table rather than seeking through an index — a sequential
-    /// scan, a table or clustered-index scan, SQLite's <c>SCAN</c>. <see langword="null"/> when the engine
+    /// scan, a table or clustered-index scan, SQLite's <c>SCAN</c>, or a walk of an index with no seek
+    /// condition (PostgreSQL's usual plan for an unindexed filter under <c>ORDER BY id LIMIT</c>, where the
+    /// primary key then also appears in <see cref="IndexesUsed"/>). <see langword="null"/> when the engine
     /// cannot say. Answers the "did this filter scan?" question on an engine that does not count rows.
     /// </summary>
     public bool? ScansTable { get; init; }
