@@ -225,8 +225,9 @@ public interface IDocumentStoreDiagnostics
     /// </para>
     /// <para>
     /// Only a type produced by a single-stream projection has one source stream per document.
-    /// <see cref="DocumentTypeRef.SingleStreamProjection"/> names it, and any other known type — a plain
-    /// document, a multi-stream or composite-only projection — is refused with
+    /// <see cref="DocumentTypeRef.SingleStreamProjection"/> names it. Only a top-level registration counts: a
+    /// single-stream projection registered only inside a composite is not one. Any other known type — a plain
+    /// document, a multi-stream projection's, a composite member's — is refused with
     /// <see cref="InvalidOperationException"/> naming the type. An unknown type name is an
     /// <see cref="ArgumentException"/>.
     /// </para>

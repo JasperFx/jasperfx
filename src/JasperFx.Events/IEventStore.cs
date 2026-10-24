@@ -361,8 +361,9 @@ public interface IEventStore
     /// Translation and execution follow <see cref="IReadOnlyEventStore.QueryStreamStates"/>: <c>Where()</c>,
     /// <c>OrderBy</c>/<c>ThenBy</c>, <c>Skip</c> and <c>Take</c> over every member including
     /// <see cref="StreamState.TenantId"/>, a member the provider cannot translate fails naming it, and the
-    /// shared async terminators in <see cref="Documents.DocumentQueryableExtensions"/> execute it. The
-    /// returned queryable holds whatever session it reads through for its own lifetime.
+    /// shared async terminators in <see cref="Documents.DocumentQueryableExtensions"/> execute it. An
+    /// <see cref="IQueryable{T}"/> cannot be disposed, so the store must not hold a connection open between
+    /// executions: each terminator opens and releases its own.
     /// </para>
     /// <para>
     /// Added in JasperFx 2.95 and default-implemented so that a store built against an older JasperFx still
