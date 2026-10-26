@@ -775,10 +775,22 @@ public sealed record EventModelSliceDescriptor(
         // source, and spec-first work routinely has two declared sources (a model and its specs), so a
         // Declared-rung origin never disagrees: the higher rung keeps its origin, a tie keeps the first,
         // and nothing is recorded. Two stores on Derived / Observed still disagree exactly as #836 says.
+        //
+        // jasperfx#1083. An Observed origin is attribution in the same sense -- which service the slice
+        // was watched on (CritterWatch stamps critterwatch://observed/{service}) -- and never a store. So
+        // when exactly one side is Observed, runtime observation is confirming the slice rather than
+        // contradicting its origin: the higher rung keeps its origin and nothing is recorded. Two Observed
+        // services, like two Derived stores, still disagree.
         Uri? mergeOrigin()
         {
-            if (ProvenanceFor(EventModelRole.Origin) == EventModelProvenance.Declared
-                || other.ProvenanceFor(EventModelRole.Origin) == EventModelProvenance.Declared)
+            var mine = ProvenanceFor(EventModelRole.Origin);
+            var theirs = other.ProvenanceFor(EventModelRole.Origin);
+
+            var attributionOnly = mine == EventModelProvenance.Declared
+                                  || theirs == EventModelProvenance.Declared
+                                  || (mine == EventModelProvenance.Observed) != (theirs == EventModelProvenance.Observed);
+
+            if (attributionOnly)
             {
                 return takeOther(EventModelRole.Origin) ? other.Origin : Origin;
             }

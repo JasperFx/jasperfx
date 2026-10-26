@@ -180,6 +180,31 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## A source disagreement is a badge, not a sticky (0.16.0, jasperfx#1084)
+
+Every hotspot used to render as the same red sticky, so a source disagreement read with the same alarm
+as a pending spec or a pattern violation. A disagreement is often benign (two sources naming one
+handler differently), and on CritterWatch's dev fleet the canvas became a wall of red that operators
+learned to ignore.
+
+- **The disputed card wears a muted "≠"** instead. The role picks the card: `HandlerType` the handler,
+  `CommandType` the command, `EmittedEvents` / `ConsumedEvents` the events (only the ones either claim
+  names, so the agreed ones stay clean), and so on. Both claims, with rung and source, go on the card's
+  tooltip. The card gets `data-disagreement="true"`, and the glyph is generated content, so the card's
+  text is still exactly its label.
+- **A role with no card** (`Origin`, `TriggerKind`, `Pattern`, `Domain`, …), or whose cards are not on
+  the slice, badges the **slice header**.
+- **Findings keep their stickies**: `PendingSpecification`, `PatternViolation`, `ModelCollapse`,
+  `SliceCollision`, `UnresolvedSpecification`.
+- **`disagreementPresentation`** prop: `'badge'` (default) or `'sticky'` for the old rendering. The
+  same choice is `LayoutOptions.disagreements` for a host calling `layoutEventModel` directly; in badge
+  mode the disagreement's card takes no space.
+- **For a host's legend and selection detail**: `placeDisagreements(slice)` returns which card ids
+  (and which header) each disagreement marks, `disagreementLines(hotspots)` renders both claims, and
+  `disagreementsOf` / `isDisagreementElement` / `disagreementElementIds` find them. Key a legend's
+  "sources disagree" entry from these, not from `slice.hotspots`, so it describes what the canvas draws.
+- `EventModelClaim` gains `source`, the contributing source when it named itself (jasperfx#859).
+
 ## Who and how, handler identity, typed origins (0.15.0, jasperfx#1007)
 
 - **`triggeredBy`.** `Human` answers *who* triggers a slice; the other trigger kinds answer *how* the

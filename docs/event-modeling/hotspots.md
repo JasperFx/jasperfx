@@ -135,6 +135,19 @@ A source that did not attribute itself still renders as its rung, so nothing tha
 
 **Nothing is recorded when nothing is lost.** Two sources on the same rung whose lists union have not disagreed about anything; neither have two sources making the *same* claim from different rungs — the code saying `OrderPlaced` and production agreeing is the happy case, and it is silent. A role only one source claims is not a disagreement either, because the other never spoke. What does get recorded is any claim the merge actually dropped, including the one first-wins has always discarded when two same-rung sources name different handlers.
 
+### Where a slice came from: the `Origin` role
+
+`Origin` merges like any other role, so two sources that contributed the same slice from two different stores leave a disagreement naming both stores. But an origin is not always a claim about where the slice *lives*. Sometimes it only says who reported it, and then a difference is not a disagreement:
+
+- a **declared** origin names the model file or definition that wrote the slice down;
+- an **observed** origin names the service the slice was watched on (CritterWatch stamps `critterwatch://observed/{service}`).
+
+So when one side's origin is `Declared`, or exactly one side's is `Observed`, the higher rung keeps its origin and nothing is recorded. Runtime observation meeting the code confirms the slice. It doesn't contradict it. Two derived stores, or two observed services, still disagree.
+
+### How the canvas draws a disagreement
+
+`@jasperfx/event-model-vue` (0.16.0 and later) draws a source disagreement as a small muted **≠** on the card that renders the disputed role, not as a red sticky of its own. A disagreement is often benign, for example two sources naming one handler differently, and a canvas of red stickies teaches operators to ignore all of them. The handler card carries a `HandlerType` disagreement, the event cards an `EmittedEvents` one, and a role with no card (`Origin`, `TriggerKind`, `Pattern`, …) badges the slice header. Both claims go on the tooltip. The other hotspot kinds are findings and keep their stickies. A host that wants the old rendering passes `disagreement-presentation="sticky"`.
+
 ## A collapsed model set is a hotspot
 
 The fourth origin is the other one you never write. One service can host several Event Models — a modular monolith where each module names its own through `StoreOptions.EventModelName` is exactly that — and a consumer whose wire carries only a single `EventModelDescriptor` has to fold them. `EventModelSetDescriptor.Collapse()` does the fold at the caller's choice and records it:

@@ -272,19 +272,42 @@ public class SourceDisagreementHotspotTests
     }
 
     /// <summary>
-    /// Production outranks the code about the origin too, and the code's claim is still recorded.
+    /// jasperfx#1083. An Observed origin names the service the slice was watched on, not a store, so
+    /// runtime observation meeting the code confirms the slice: production keeps the origin and nothing
+    /// is recorded, in either merge direction.
     /// </summary>
     [Fact]
-    public void a_higher_rung_takes_the_origin_and_the_lower_claim_is_recorded()
+    public void an_observed_origin_confirms_a_derived_one_rather_than_disagreeing()
     {
-        var derived = Slice(EventModelProvenance.Derived) with { Origin = new Uri("store://ledger") };
-        var observed = Slice(EventModelProvenance.Observed) with { Origin = new Uri("store://audit") };
+        var derived = Slice(EventModelProvenance.Derived) with { Origin = new Uri("event-model://wolverine") };
+        var observed = Slice(EventModelProvenance.Observed) with
+        {
+            Origin = new Uri("critterwatch://observed/TripService"),
+        };
 
-        var merged = derived.Merge(observed);
+        foreach (var merged in new[] { derived.Merge(observed), observed.Merge(derived) })
+        {
+            merged.Origin.ShouldBe(new Uri("critterwatch://observed/TripService"));
+            merged.ProvenanceFor(EventModelRole.Origin).ShouldBe(EventModelProvenance.Observed);
+            DisagreementsIn(merged).ShouldBeEmpty();
+        }
+    }
 
-        merged.Origin.ShouldBe(new Uri("store://audit"));
-        DisagreementsIn(merged).ShouldHaveSingleItem().WinningClaim
-            .ShouldBe(new EventModelClaim(EventModelProvenance.Observed, "store://audit"));
+    /// <summary>
+    /// The exemption is for one Observed side only: two services that both watched the slice still
+    /// disagree about where it was seen, exactly as two Derived stores do (jasperfx#836).
+    /// </summary>
+    [Fact]
+    public void two_observed_origins_still_disagree()
+    {
+        var trips = Slice(EventModelProvenance.Observed) with { Origin = new Uri("critterwatch://observed/TripService") };
+        var billing = Slice(EventModelProvenance.Observed) with { Origin = new Uri("critterwatch://observed/Billing") };
+
+        var hotspot = DisagreementsIn(trips.Merge(billing)).ShouldHaveSingleItem();
+
+        hotspot.Role.ShouldBe(EventModelRole.Origin);
+        hotspot.WinningClaim.ShouldBe(new EventModelClaim(EventModelProvenance.Observed,
+            "critterwatch://observed/TripService"));
     }
 
     #endregion

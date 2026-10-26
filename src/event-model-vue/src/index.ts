@@ -24,6 +24,16 @@ export {
   patternsOf
 } from './filters'
 export type { SliceFilter } from './filters'
+// jasperfx#1084 — a source disagreement as a badge on the disputed card. Exported so a host's legend
+// and selection detail key what the canvas actually draws, not the raw hotspot list.
+export {
+  disagreementElementIds,
+  disagreementLines,
+  disagreementsOf,
+  isDisagreementElement,
+  placeDisagreements
+} from './disagreements'
+export type { DisagreementPlacement, DisagreementPresentation } from './disagreements'
 // issue #296 — navigation. The decisions are pure functions so a host can round-trip a viewport
 // through a URL without re-deriving what a focus or a level of detail means.
 export {
