@@ -373,6 +373,13 @@ describe('EventModelView — provenance and source disagreement', () => {
     return mount(EventModelView, { props: { descriptor: fourSourceModel() } }).findAll('.em-card')
   }
 
+  /** The pre-jasperfx#1084 rendering, still available to a host that asks for it. */
+  function stickyCards() {
+    return mount(EventModelView, {
+      props: { descriptor: fourSourceModel(), disagreementPresentation: 'sticky' }
+    }).findAll('.em-card')
+  }
+
   it('stamps the ladder rung on every card that carries one', () => {
     const byLabel = new Map(cards().map((c) => [c.text(), c.attributes('data-provenance')]))
 
@@ -398,7 +405,7 @@ describe('EventModelView — provenance and source disagreement', () => {
   })
 
   it('marks a source disagreement apart from a pending-specification hotspot', () => {
-    const all = cards()
+    const all = stickyCards()
     const pending = all.find((c) => c.text().includes('overdraft not specified'))!
     const conflict = all.find((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')!
 
@@ -407,7 +414,7 @@ describe('EventModelView — provenance and source disagreement', () => {
   })
 
   it('puts both claims on the tooltip, so the reader can decide which source to fix', () => {
-    const conflict = cards().find(
+    const conflict = stickyCards().find(
       (c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement'
     )!
     const title = conflict.attributes('title')!
@@ -419,7 +426,7 @@ describe('EventModelView — provenance and source disagreement', () => {
   it('renders a disagreement as a finding, not as a sentence (#178)', () => {
     // The card used to lead with the role name and a clipped sentence, and the reviewer who
     // designed the feature read it as a malformed events list. It now says what it is.
-    const conflict = cards().find(
+    const conflict = stickyCards().find(
       (c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement'
     )!
 
@@ -450,7 +457,9 @@ describe('EventModelView — provenance and source disagreement', () => {
         if (hotspot.origin === 'SourceDisagreement') hotspot.losingClaim = null
       }
     }
-    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const wrapper = mount(EventModelView, {
+      props: { descriptor: model, disagreementPresentation: 'sticky' }
+    })
     const conflict = wrapper
       .findAll('.em-card')
       .find((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')!
@@ -464,6 +473,50 @@ describe('EventModelView — provenance and source disagreement', () => {
 
     expect(title).toContain('Bank.AuditRecorded')
     expect(title).toContain('seen happening in a running system')
+  })
+
+  it('draws no sticky for a disagreement by default, and keeps the findings (jasperfx#1084)', () => {
+    const all = cards()
+
+    expect(all.some((c) => c.attributes('data-hotspot-origin') === 'SourceDisagreement')).toBe(false)
+    expect(all.some((c) => c.attributes('data-hotspot-origin') === 'PendingSpecification')).toBe(true)
+  })
+
+  it('badges the disputed cards instead, with both claims on the tooltip (jasperfx#1084)', () => {
+    const all = cards()
+    const badged = all.filter((c) => c.find('[data-testid="card-disagreement"]').exists())
+
+    expect(badged.map((c) => c.text()).sort()).toEqual(['AuditRecorded', 'FundsWithdrawn'])
+    expect(badged.every((c) => c.attributes('data-disagreement') === 'true')).toBe(true)
+    // The command and the handler were not disputed.
+    expect(all.find((c) => c.attributes('data-kind') === 'Handler')!.attributes('data-disagreement')).toBeUndefined()
+
+    const title = badged[0].attributes('title')!
+    expect(title).toContain('Sources disagree')
+    expect(title).toContain(
+      'EmittedEvents: kept Observed FundsWithdrawn, AuditRecorded; dropped Derived FundsWithdrawn'
+    )
+  })
+
+  it('badges the slice header for a role with no card (jasperfx#1084)', () => {
+    const model = fourSourceModel()
+    model.slices![0].hotspots!.push({
+      origin: 'SourceDisagreement',
+      text: 'Origin: two Derived sources disagree',
+      role: 'Origin',
+      winningClaim: { provenance: 'Derived', value: 'store://ledger' },
+      losingClaim: { provenance: 'Derived', value: 'store://audit' }
+    })
+    const wrapper = mount(EventModelView, { props: { descriptor: model } })
+    const badge = wrapper.find('.em-slice-header [data-testid="slice-disagreement"]')
+
+    expect(badge.exists()).toBe(true)
+    expect(badge.attributes('title')).toContain('Origin: kept Derived store://ledger; dropped Derived store://audit')
+  })
+
+  it('draws no badges when the host asks for stickies (jasperfx#1084)', () => {
+    const all = stickyCards()
+    expect(all.some((c) => c.find('[data-testid="card-disagreement"]').exists())).toBe(false)
   })
 
   it('does not mark a non-hotspot card with a hotspot origin', () => {

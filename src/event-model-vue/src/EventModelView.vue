@@ -46,6 +46,12 @@ import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
 import { chaptersOf, domainsOf, hiddenSliceNames, hotspotsOf, isEmptyFilter, type SliceFilter } from './filters'
 import {
+  disagreementLines,
+  placeDisagreements,
+  type DisagreementPlacement,
+  type DisagreementPresentation
+} from './disagreements'
+import {
   LANE_LABEL,
   PROVENANCE_LABEL,
   type EventModelDescriptor,
@@ -82,6 +88,12 @@ const props = withDefaults(
      * a PR; a host that wants none of that ignores `viewport-change` and passes nothing here.
      */
     initialViewport?: Partial<ViewportState> | null
+    /**
+     * How a `SourceDisagreement` is drawn (jasperfx#1084). `badge`, the default, marks the disputed
+     * card (or the slice header, for a role with no card) with a muted "≠" whose tooltip carries both
+     * claims; `sticky` keeps the old separate hotspot card. Findings stay stickies either way.
+     */
+    disagreementPresentation?: DisagreementPresentation
   }>(),
   {
     descriptor: null,
@@ -90,7 +102,8 @@ const props = withDefaults(
     layout: undefined,
     filterable: true,
     minimap: true,
-    initialViewport: null
+    initialViewport: null,
+    disagreementPresentation: 'badge'
   }
 )
 
@@ -169,11 +182,35 @@ function toggleCollapsed(name: string) {
 
 const graph = computed(() =>
   layoutEventModel(props.descriptor, {
+    disagreements: props.disagreementPresentation,
     ...props.layout,
     collapsedSlices: effectiveCollapsed.value,
     hiddenSlices: hidden.value
   })
 )
+
+// jasperfx#1084 — where each drawn slice's disagreements land, computed once per layout rather than
+// per card render. Empty when they are drawn as stickies.
+const disagreementPlacements = computed(() => {
+  const placements = new Map<string, DisagreementPlacement>()
+  if (props.disagreementPresentation !== 'badge') return placements
+  for (const slice of graph.value.slices) {
+    if (!slice.collapsed) placements.set(slice.name, placeDisagreements(slice.descriptor))
+  }
+  return placements
+})
+
+function cardDisagreements(node: { id: string; sliceName: string }): HotspotDescriptor[] {
+  return disagreementPlacements.value.get(node.sliceName)?.byElementId.get(node.id) ?? []
+}
+
+function headerDisagreements(sliceName: string): HotspotDescriptor[] {
+  return disagreementPlacements.value.get(sliceName)?.header ?? []
+}
+
+function badgeTitle(hotspots: readonly HotspotDescriptor[]): string {
+  return ['Sources disagree', ...disagreementLines(hotspots)].join('\n')
+}
 
 /**
  * #295 — how much of the cross-slice link layer to draw: everything, only what touches the
@@ -681,7 +718,7 @@ function hotspotFor(node: { element: EventModelElement; sliceName: string }): Ho
  * disagreement's two claims are appended, because both are exactly the kind of thing you want on
  * hover rather than crowding the card.
  */
-function titleFor(node: { element: EventModelElement; sliceName: string }): string {
+function titleFor(node: { id: string; element: EventModelElement; sliceName: string }): string {
   const parts: string[] = [node.element.type?.fullName ?? node.element.label]
 
   const provenance = node.element.provenance
@@ -698,6 +735,10 @@ function titleFor(node: { element: EventModelElement; sliceName: string }): stri
       `Dropped: ${hotspot.losingClaim.provenance} claims ${hotspot.losingClaim.value}`
     )
   }
+
+  // jasperfx#1084 — the disagreements this card's badge stands for.
+  const disagreements = cardDisagreements(node)
+  if (disagreements.length > 0) parts.push('Sources disagree', ...disagreementLines(disagreements))
 
   return parts.join('\n')
 }
@@ -1218,6 +1259,15 @@ function outcomeFor(sliceName: string): string | null {
                 <span v-if="slice.descriptor.pattern" class="em-slice-pattern">{{
                   slice.descriptor.pattern
                 }}</span>
+                <!-- jasperfx#1084 — a disagreement about a role with no card (Origin, TriggerKind, …). -->
+                <span
+                  v-if="headerDisagreements(slice.name).length > 0"
+                  class="em-disagreement"
+                  data-testid="slice-disagreement"
+                  :data-count="headerDisagreements(slice.name).length"
+                  :title="badgeTitle(headerDisagreements(slice.name))"
+                  :aria-label="badgeTitle(headerDisagreements(slice.name))"
+                />
               </div>
             </div>
 
@@ -1284,6 +1334,7 @@ function outcomeFor(sliceName: string): string | null {
               :data-lane="node.element.lane"
               :data-provenance="node.element.provenance ?? undefined"
               :data-hotspot-origin="hotspotFor(node)?.origin ?? undefined"
+              :data-disagreement="cardDisagreements(node).length > 0 ? 'true' : undefined"
               :data-dimmed="dimmed(node.sliceName) ? 'true' : undefined"
               :data-selected="selection?.kind === 'element' && selection.id === node.id ? 'true' : undefined"
               :title="titleFor(node)"
@@ -1313,6 +1364,15 @@ function outcomeFor(sliceName: string): string | null {
                 @keydown.enter.stop.prevent="jumpToOrigin(node.id)"
                 >◂ {{ originOf(node.id)!.slice }}</span
               >
+              <!-- jasperfx#1084 — the sources disagree about what this card renders. Muted, because a
+                   disagreement is often benign; the claims are on the card's tooltip. -->
+              <span
+                v-if="cardDisagreements(node).length > 0"
+                class="em-disagreement"
+                data-testid="card-disagreement"
+                :data-count="cardDisagreements(node).length"
+                aria-hidden="true"
+              />
               <span v-if="hotspotFor(node)" class="em-hotspot">
                 <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
                 <template v-if="claimsFor(hotspotFor(node)!)">
@@ -1808,6 +1868,30 @@ function outcomeFor(sliceName: string): string | null {
   line-height: 1.1;
   opacity: 0.55;
   cursor: pointer;
+}
+/* jasperfx#1084 — a source disagreement, drawn on the card it disputes rather than as a sticky of its
+   own. Muted on purpose: two sources naming one handler differently is often benign, and a canvas
+   of red stickies taught operators to ignore every one of them. Top-right, clear of the origin
+   chevron; `currentColor` so it takes the card's own ink. The glyph is generated content so the card's
+   text stays exactly its label; the claims are on the card's tooltip. */
+.em-disagreement::before {
+  content: '≠';
+}
+.em-disagreement {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.em-slice-header .em-disagreement {
+  position: static;
+  flex: 0 0 auto;
+  pointer-events: auto;
+  cursor: help;
 }
 .em-origin:hover,
 .em-origin:focus-visible {

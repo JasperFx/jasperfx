@@ -1,4 +1,5 @@
 import { requiredContentWidth } from './text'
+import { disagreementElementIds, type DisagreementPresentation } from './disagreements'
 import {
   LANE_ORDER,
   type EventModelDescriptor,
@@ -74,6 +75,12 @@ export interface LayoutOptions {
    * exactly; so does any model the split has nothing to say about (see {@link streamRowPlan}).
    */
   streamRows?: boolean
+  /**
+   * How a `SourceDisagreement` hotspot is drawn (jasperfx#1084). `badge`, the default, lays out no card
+   * for it: the viewer marks the disputed card (or the slice header) with a "≠" instead. `sticky` lays
+   * the hotspot card out like any other element, as before.
+   */
+  disagreements?: DisagreementPresentation
 }
 
 export interface LaidOutNode {
@@ -566,6 +573,7 @@ export function layoutEventModel(
   const sliceGap = options.sliceGap ?? DEFAULTS.sliceGap
   const collapsed = options.collapsedSlices ?? new Set<string>()
   const hidden = options.hiddenSlices ?? new Set<string>()
+  const badgeDisagreements = (options.disagreements ?? 'badge') === 'badge'
 
   // A row, not a lane, is now the unit of vertical space: every lane is one row tall except an
   // EventStream lane the plan split, and the flat plan makes that case identical to the old one.
@@ -616,7 +624,11 @@ export function layoutEventModel(
     if (hidden.has(slice.name)) continue
 
     const isCollapsed = collapsed.has(slice.name)
-    const elements = isCollapsed ? [] : (slice.elements ?? [])
+    // jasperfx#1084 — a disagreement drawn as a badge has no card of its own, so it takes no space.
+    const badged = badgeDisagreements ? disagreementElementIds(slice) : null
+    const elements = isCollapsed
+      ? []
+      : (slice.elements ?? []).filter((e) => !badged || !badged.has(e.id))
 
     // Group by lane, preserving declaration order inside each lane. Declaration order is the
     // producer's statement about sequence (a command before the events it emits), so sorting

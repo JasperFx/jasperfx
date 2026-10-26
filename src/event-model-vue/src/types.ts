@@ -132,6 +132,12 @@ export interface EventModelClaim {
   provenance: EventModelProvenance
   /** Display rendering of what was claimed — short type names for the typed roles. */
   value: string
+  /**
+   * The contributing source, when it named itself with an origin (jasperfx#859), such as
+   * `critterwatch://observed/TripService`. Absent for an unattributed source and on the `Origin` role,
+   * whose value already is the source.
+   */
+  source?: string | null
 }
 
 /** What a domain policy covers (jasperfx#960); a string under the wire's string-enum converter. */
