@@ -6,15 +6,18 @@ namespace JasperFx.Events.SourceGenerator.Tests;
 
 /// <summary>
 /// When an Apply-only event reaches a projection whose aggregate does not exist yet, the evolver
-/// constructs the aggregate itself. For an aggregate with required members that construction is an
+/// constructs the aggregate itself. For an aggregate with required members that construction was an
 /// object initializer, and an object initializer runs after the constructor: `Prop = default!`
 /// overwrote `public required List&lt;string&gt; Prop { get; set; } = [];` with null, and the Apply
 /// handler that ran next dereferenced it. The reflective `new T()` of earlier versions ran the
-/// initializers, so this was a regression for every aggregate that relies on them.
+/// initializers, so this was a regression for every aggregate that relies on them (#1087).
 ///
-/// The emitter now copies a required member's own initializer into the object initializer when the
-/// expression is self-contained (needs no using and no member of the aggregate to bind in the
-/// generated file), and falls back to `default!` otherwise.
+/// #1088 first fixed this by copying self-contained initializers into the object initializer. #1090
+/// replaced that with `Activator.CreateInstance(typeof(T))`, which runs the constructor and every
+/// initializer, including those that need a using or a member of the aggregate to bind
+/// (`Guid.NewGuid()`, a constant). This fixture, with one required member of each shape, is #1088's.
+/// The runtime check that each member keeps its declared value is in EventTests,
+/// Bug_1087_required_members_on_missing_aggregate.
 /// </summary>
 public class RequiredMemberInitializerTests
 {
@@ -57,41 +60,22 @@ public sealed class Order
 ";
 
     [Fact]
-    public void self_contained_initializers_are_copied_into_the_object_initializer()
+    public void every_required_member_initializer_runs_because_the_aggregate_is_built_through_its_constructor()
     {
         var (diagnostics, generatedSources) = GeneratorHarness.Run(Source);
         diagnostics.ShouldBeEmpty();
 
         var generated = generatedSources.Single(s => s.Contains("OrderEvolver"));
 
-        generated.ShouldContain("Name = string.Empty");
-        generated.ShouldContain("Lines = []");
-        generated.ShouldContain("Tags = new()");
-        generated.ShouldContain(@"Flags = new() { ""a"", ""b"" }");
-        generated.ShouldContain("Count = 42");
-        generated.ShouldContain("Limit = int.MaxValue");
-        generated.ShouldContain("Note = null");
-        generated.ShouldContain("Created = global::System.DateTimeOffset.MinValue");
-        generated.ShouldContain(@"Codes = [""x"", ""y""]");
-        generated.ShouldContain("Total = (long)(10 + 20) * -1");
+        generated.ShouldContain("(global::Test.Order)global::System.Activator.CreateInstance(typeof(global::Test.Order))!");
+
+        // No object initializer overwrites what the constructor and initializers set
+        generated.ShouldNotContain("new global::Test.Order {");
+        generated.ShouldNotContain("= default!");
     }
 
     [Fact]
-    public void initializers_that_would_not_bind_in_the_generated_file_fall_back_to_default()
-    {
-        var (_, generatedSources) = GeneratorHarness.Run(Source);
-        var generated = generatedSources.Single(s => s.Contains("OrderEvolver"));
-
-        // No initializer at all
-        generated.ShouldContain("Id = default!");
-        // `Guid` resolves through a using the generated file does not have
-        generated.ShouldContain("Token = default!");
-        // A constant of the aggregate is not in scope in the evolver
-        generated.ShouldContain("Priority = default!");
-    }
-
-    [Fact]
-    public void the_generated_object_initializer_compiles()
+    public void the_generated_construction_compiles()
     {
         var compilation = CSharpCompilation.Create(
             assemblyName: "RequiredMemberInitializerTests",

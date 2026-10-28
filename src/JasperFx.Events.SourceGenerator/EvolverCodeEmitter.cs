@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 #pragma warning disable RS1024 // Symbols should be compared for equality
 
@@ -1266,16 +1265,19 @@ internal static class EvolverCodeEmitter
 
     /// <summary>
     /// Constructor expression for the aggregate when the SG needs to build a
-    /// fresh instance in the Apply-only / null-snapshot branch. Three cases:
+    /// fresh instance in the Apply-only / null-snapshot branch. Four cases:
     ///
     /// 1. Public parameterless ctor, no required members → `new T()`.
-    /// 2. Public parameterless ctor with required members →
-    ///    `new T { Required = &lt;initializer&gt;, ... }`. A required member that declares a
-    ///    self-contained initializer (`= []`, `= new()`, `= string.Empty`, a literal) keeps
-    ///    it, so the instance looks like the one `new T()` builds; any other required member
-    ///    gets `default!`. The C# compiler accepts the construction even though required
-    ///    members are about to be overwritten by Apply.
-    /// 3. No public parameterless ctor (e.g. `private T()` signalling
+    /// 2. Public parameterless ctor marked <c>[SetsRequiredMembers]</c> → `new T()`.
+    ///    The attribute tells the compiler the ctor takes care of required members.
+    /// 3. Public parameterless ctor with required members →
+    ///    `(T)Activator.CreateInstance(typeof(T))!`. `required` is only enforced at
+    ///    compile time, so this still runs the ctor and every property / field
+    ///    initializer, which is what Marten 8's runtime codegen did. The SG used to
+    ///    emit `new T { Required = default!, ... }`, which overwrote initializers
+    ///    like `public required List&lt;string&gt; Emails { get; set; } = [];` with
+    ///    null (#1087). `typeof(T)` is a literal, so the call is trim and AOT safe.
+    /// 4. No public parameterless ctor (e.g. `private T()` signalling
     ///    "construct me reflectively" or no parameterless ctor at all) →
     ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
     ///    the instance without invoking any ctor or field initializers. Pre-#276
@@ -1289,127 +1291,53 @@ internal static class EvolverCodeEmitter
     private static string BuildAggregateConstructorExpression(INamedTypeSymbol type)
     {
         var fqn = Fqn(type);
-        var requiredMembers = new List<(string Name, string Value)>();
-        // Dedup by name: an `override required` (or `new`-shadowed required) member
-        // appears in both the derived type's and the base type's GetMembers(), which
-        // would otherwise emit `new T { Prop = default!, Prop = default! }` -> CS1912.
-        // The walk runs most-derived -> base, so the first sighting wins.
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        for (INamedTypeSymbol? current = type;
-             current is not null && current.SpecialType != SpecialType.System_Object;
-             current = current.BaseType)
+
+        var publicParameterless = type.InstanceConstructors.FirstOrDefault(c =>
+            c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+
+        if (publicParameterless is null && type.TypeKind != TypeKind.Struct)
         {
-            foreach (var member in current.GetMembers())
-            {
-                if (member is IPropertySymbol prop && prop.IsRequired)
-                {
-                    if (seen.Add(prop.Name)) requiredMembers.Add((prop.Name, RequiredMemberValue(prop)));
-                }
-                else if (member is IFieldSymbol field && field.IsRequired)
-                {
-                    if (seen.Add(field.Name)) requiredMembers.Add((field.Name, RequiredMemberValue(field)));
-                }
-            }
+            // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
+            // aggregates. Field initializers won't run; document in the migration guide.
+            return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
         }
 
-        var hasPublicParameterless = type.TypeKind == TypeKind.Struct ||
-            type.InstanceConstructors.Any(c =>
-                c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
-
-        if (hasPublicParameterless && requiredMembers.Count > 0)
+        if (!AggregateAnalyzer.HasRequiredMembers(type) || (publicParameterless is not null && SetsRequiredMembers(publicParameterless)))
         {
-            var inits = string.Join(", ", requiredMembers.Select(m => $"{m.Name} = {m.Value}"));
-            return $"new {fqn} {{ {inits} }}";
+            return $"new {fqn}()";
         }
 
-        if (hasPublicParameterless) return $"new {fqn}()";
+        return $"({fqn})global::System.Activator.CreateInstance(typeof({fqn}))!";
+    }
 
-        // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
-        // aggregates. Field initializers won't run; document in the migration guide.
-        return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
+    private static bool SetsRequiredMembers(IMethodSymbol constructor)
+    {
+        return constructor.GetAttributes().Any(a =>
+            a.AttributeClass?.ToDisplayString() == "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute");
     }
 
     /// <summary>
-    /// The value the object initializer assigns to a required member: the member's own
-    /// initializer when it is self-contained, otherwise `default!`.
-    ///
-    /// The object initializer runs after the constructor, so `Prop = default!` wipes out
-    /// `public required List&lt;string&gt; Prop { get; set; } = [];` and the Apply-only handler
-    /// that runs next dereferences null — a regression from the reflective `new T()` that
-    /// ran the initializers. Copying the initializer text restores that, but only when the
-    /// expression cannot depend on the aggregate's file: the generated file has its own
-    /// namespace and no usings, so an identifier that resolves through a `using` or to a
-    /// member of the aggregate (`GenerateId()`, a constant) would not bind there. Accepted:
-    /// literals, `null`, `default`, collection expressions, target-typed `new(...)`,
-    /// `typeof`/`sizeof`/`nameof` of predefined types, unary/binary/parenthesized/cast
-    /// combinations of those, and member access rooted at a predefined type (`string.Empty`,
-    /// `int.MaxValue`) or at `global::`. Anything else, and any initializer spanning more than
-    /// one line, keeps `default!`.
+    /// True when an unguarded <c>case {createEventType} data:</c> arm already matches every
+    /// <paramref name="eventType"/>, i.e. the event type is the create type itself, derives from it,
+    /// or implements it. The null-snapshot switch emits its Create arms first, so an Apply-fallback
+    /// arm for such an event type is unreachable (CS8120) and, as in Marten 8, the Create wins (#1087).
     /// </summary>
-    private static string RequiredMemberValue(ISymbol member)
+    private static bool IsHandledByCreate(ITypeSymbol eventType, IEnumerable<ConventionalMethodInfo> createMethods)
     {
-        foreach (var reference in member.DeclaringSyntaxReferences)
+        foreach (var create in createMethods)
         {
-            var initializer = reference.GetSyntax() switch
-            {
-                PropertyDeclarationSyntax property => property.Initializer?.Value,
-                VariableDeclaratorSyntax field => field.Initializer?.Value,
-                _ => null
-            };
+            var createType = create.EventType;
+            if (createType.SpecialType == SpecialType.System_Object) return true;
 
-            if (initializer is not null && IsSelfContained(initializer))
+            for (var current = eventType; current is not null; current = current.BaseType)
             {
-                // The expression's own text, so literals and spacing survive as written. A
-                // multi-line initializer would put line breaks into the generated statement.
-                var text = initializer.ToString();
-                if (text.IndexOf('\n') < 0 && text.IndexOf('\r') < 0) return text;
+                if (SymbolEqualityComparer.Default.Equals(current, createType)) return true;
             }
+
+            if (eventType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, createType))) return true;
         }
 
-        return "default!";
-    }
-
-    private static bool IsSelfContained(ExpressionSyntax expression)
-    {
-        switch (expression)
-        {
-            case LiteralExpressionSyntax:
-            case PredefinedTypeSyntax:
-                return true;
-            case CollectionExpressionSyntax collection:
-                return collection.Elements.All(e =>
-                    e is ExpressionElementSyntax element && IsSelfContained(element.Expression));
-            case ImplicitObjectCreationExpressionSyntax creation:
-                return (creation.ArgumentList?.Arguments ?? default).All(a => IsSelfContained(a.Expression))
-                       && (creation.Initializer?.Expressions ?? default).All(IsSelfContained);
-            case ImplicitArrayCreationExpressionSyntax array:
-                return array.Initializer.Expressions.All(IsSelfContained);
-            case AssignmentExpressionSyntax assignment:
-                // `{ Name = value }` inside a nested initializer
-                return assignment.Left is IdentifierNameSyntax && IsSelfContained(assignment.Right);
-            case ParenthesizedExpressionSyntax parenthesized:
-                return IsSelfContained(parenthesized.Expression);
-            case PrefixUnaryExpressionSyntax unary:
-                return IsSelfContained(unary.Operand);
-            case BinaryExpressionSyntax binary:
-                return IsSelfContained(binary.Left) && IsSelfContained(binary.Right);
-            case CastExpressionSyntax cast:
-                return cast.Type is PredefinedTypeSyntax && IsSelfContained(cast.Expression);
-            case DefaultExpressionSyntax @default:
-                return @default.Type is PredefinedTypeSyntax;
-            case TypeOfExpressionSyntax @typeof:
-                return @typeof.Type is PredefinedTypeSyntax;
-            case SizeOfExpressionSyntax @sizeof:
-                return @sizeof.Type is PredefinedTypeSyntax;
-            case MemberAccessExpressionSyntax memberAccess:
-                return memberAccess.Expression is PredefinedTypeSyntax
-                       || memberAccess.Expression is AliasQualifiedNameSyntax
-                       || (memberAccess.Expression is MemberAccessExpressionSyntax inner && IsSelfContained(inner));
-            case AliasQualifiedNameSyntax alias:
-                return alias.Alias.Identifier.Text == "global";
-            default:
-                return false;
-        }
+        return false;
     }
 
     /// <summary>
@@ -2155,12 +2083,9 @@ internal static class EvolverCodeEmitter
         }
 
         // For Apply-only event types (no matching Create), use default ctor + Apply
-        var createEventTypes = new HashSet<ITypeSymbol>(createMethods.Select(m => m.EventType),
-            SymbolEqualityComparer.Default);
-
         foreach (var method in applyMethods)
         {
-            if (createEventTypes.Contains(method.EventType)) continue;
+            if (IsHandledByCreate(method.EventType, createMethods)) continue;
 
             var eventTypeName = Fqn(method.EventType);
             var docType = Fqn(info.AggregateType!);
@@ -2227,12 +2152,9 @@ internal static class EvolverCodeEmitter
             sb.AppendLine(";");
         }
 
-        var createEventTypes = new HashSet<ITypeSymbol>(createMethods.Select(m => m.EventType),
-            SymbolEqualityComparer.Default);
-
         foreach (var method in applyMethods)
         {
-            if (createEventTypes.Contains(method.EventType)) continue;
+            if (IsHandledByCreate(method.EventType, createMethods)) continue;
             if (!info.HasDefaultConstructor) continue;
 
             var eventTypeName = Fqn(method.EventType);
