@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 #pragma warning disable RS1024 // Symbols should be compared for equality
 
@@ -1269,8 +1270,11 @@ internal static class EvolverCodeEmitter
     ///
     /// 1. Public parameterless ctor, no required members → `new T()`.
     /// 2. Public parameterless ctor with required members →
-    ///    `new T { Required = default!, ... }`. The C# compiler accepts the
-    ///    construction even though required members are about to be overwritten by Apply.
+    ///    `new T { Required = &lt;initializer&gt;, ... }`. A required member that declares a
+    ///    self-contained initializer (`= []`, `= new()`, `= string.Empty`, a literal) keeps
+    ///    it, so the instance looks like the one `new T()` builds; any other required member
+    ///    gets `default!`. The C# compiler accepts the construction even though required
+    ///    members are about to be overwritten by Apply.
     /// 3. No public parameterless ctor (e.g. `private T()` signalling
     ///    "construct me reflectively" or no parameterless ctor at all) →
     ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
@@ -1285,7 +1289,7 @@ internal static class EvolverCodeEmitter
     private static string BuildAggregateConstructorExpression(INamedTypeSymbol type)
     {
         var fqn = Fqn(type);
-        var requiredMembers = new List<string>();
+        var requiredMembers = new List<(string Name, string Value)>();
         // Dedup by name: an `override required` (or `new`-shadowed required) member
         // appears in both the derived type's and the base type's GetMembers(), which
         // would otherwise emit `new T { Prop = default!, Prop = default! }` -> CS1912.
@@ -1299,11 +1303,11 @@ internal static class EvolverCodeEmitter
             {
                 if (member is IPropertySymbol prop && prop.IsRequired)
                 {
-                    if (seen.Add(prop.Name)) requiredMembers.Add(prop.Name);
+                    if (seen.Add(prop.Name)) requiredMembers.Add((prop.Name, RequiredMemberValue(prop)));
                 }
                 else if (member is IFieldSymbol field && field.IsRequired)
                 {
-                    if (seen.Add(field.Name)) requiredMembers.Add(field.Name);
+                    if (seen.Add(field.Name)) requiredMembers.Add((field.Name, RequiredMemberValue(field)));
                 }
             }
         }
@@ -1314,7 +1318,7 @@ internal static class EvolverCodeEmitter
 
         if (hasPublicParameterless && requiredMembers.Count > 0)
         {
-            var inits = string.Join(", ", requiredMembers.Select(n => $"{n} = default!"));
+            var inits = string.Join(", ", requiredMembers.Select(m => $"{m.Name} = {m.Value}"));
             return $"new {fqn} {{ {inits} }}";
         }
 
@@ -1323,6 +1327,89 @@ internal static class EvolverCodeEmitter
         // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
         // aggregates. Field initializers won't run; document in the migration guide.
         return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
+    }
+
+    /// <summary>
+    /// The value the object initializer assigns to a required member: the member's own
+    /// initializer when it is self-contained, otherwise `default!`.
+    ///
+    /// The object initializer runs after the constructor, so `Prop = default!` wipes out
+    /// `public required List&lt;string&gt; Prop { get; set; } = [];` and the Apply-only handler
+    /// that runs next dereferences null — a regression from the reflective `new T()` that
+    /// ran the initializers. Copying the initializer text restores that, but only when the
+    /// expression cannot depend on the aggregate's file: the generated file has its own
+    /// namespace and no usings, so an identifier that resolves through a `using` or to a
+    /// member of the aggregate (`GenerateId()`, a constant) would not bind there. Accepted:
+    /// literals, `null`, `default`, collection expressions, target-typed `new(...)`,
+    /// `typeof`/`sizeof`/`nameof` of predefined types, unary/binary/parenthesized/cast
+    /// combinations of those, and member access rooted at a predefined type (`string.Empty`,
+    /// `int.MaxValue`) or at `global::`. Anything else, and any initializer spanning more than
+    /// one line, keeps `default!`.
+    /// </summary>
+    private static string RequiredMemberValue(ISymbol member)
+    {
+        foreach (var reference in member.DeclaringSyntaxReferences)
+        {
+            var initializer = reference.GetSyntax() switch
+            {
+                PropertyDeclarationSyntax property => property.Initializer?.Value,
+                VariableDeclaratorSyntax field => field.Initializer?.Value,
+                _ => null
+            };
+
+            if (initializer is not null && IsSelfContained(initializer))
+            {
+                // The expression's own text, so literals and spacing survive as written. A
+                // multi-line initializer would put line breaks into the generated statement.
+                var text = initializer.ToString();
+                if (text.IndexOf('\n') < 0 && text.IndexOf('\r') < 0) return text;
+            }
+        }
+
+        return "default!";
+    }
+
+    private static bool IsSelfContained(ExpressionSyntax expression)
+    {
+        switch (expression)
+        {
+            case LiteralExpressionSyntax:
+            case PredefinedTypeSyntax:
+                return true;
+            case CollectionExpressionSyntax collection:
+                return collection.Elements.All(e =>
+                    e is ExpressionElementSyntax element && IsSelfContained(element.Expression));
+            case ImplicitObjectCreationExpressionSyntax creation:
+                return (creation.ArgumentList?.Arguments ?? default).All(a => IsSelfContained(a.Expression))
+                       && (creation.Initializer?.Expressions ?? default).All(IsSelfContained);
+            case ImplicitArrayCreationExpressionSyntax array:
+                return array.Initializer.Expressions.All(IsSelfContained);
+            case AssignmentExpressionSyntax assignment:
+                // `{ Name = value }` inside a nested initializer
+                return assignment.Left is IdentifierNameSyntax && IsSelfContained(assignment.Right);
+            case ParenthesizedExpressionSyntax parenthesized:
+                return IsSelfContained(parenthesized.Expression);
+            case PrefixUnaryExpressionSyntax unary:
+                return IsSelfContained(unary.Operand);
+            case BinaryExpressionSyntax binary:
+                return IsSelfContained(binary.Left) && IsSelfContained(binary.Right);
+            case CastExpressionSyntax cast:
+                return cast.Type is PredefinedTypeSyntax && IsSelfContained(cast.Expression);
+            case DefaultExpressionSyntax @default:
+                return @default.Type is PredefinedTypeSyntax;
+            case TypeOfExpressionSyntax @typeof:
+                return @typeof.Type is PredefinedTypeSyntax;
+            case SizeOfExpressionSyntax @sizeof:
+                return @sizeof.Type is PredefinedTypeSyntax;
+            case MemberAccessExpressionSyntax memberAccess:
+                return memberAccess.Expression is PredefinedTypeSyntax
+                       || memberAccess.Expression is AliasQualifiedNameSyntax
+                       || (memberAccess.Expression is MemberAccessExpressionSyntax inner && IsSelfContained(inner));
+            case AliasQualifiedNameSyntax alias:
+                return alias.Alias.Identifier.Text == "global";
+            default:
+                return false;
+        }
     }
 
     /// <summary>
