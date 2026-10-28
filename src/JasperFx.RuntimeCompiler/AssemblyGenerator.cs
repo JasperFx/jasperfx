@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -28,7 +29,18 @@ namespace JasperFx.RuntimeCompiler
 	public class AssemblyGenerator : IAssemblyGenerator
 	{
 
+		// #1086: MetadataReference.CreateFromFile() copies the entire PE image into
+		// native memory that is only released when the reference is finalized. The
+		// managed heap barely moves while that happens, so in a process that compiles
+		// over and over (many hosts in one test run, each compiling in Dynamic mode),
+		// the GC rarely runs and native memory grows by ~60-100 MB per compilation.
+		// The same assemblies are referenced every time, and a PortableExecutableReference
+		// is immutable and safe to share, so create one per path for the whole process.
+		private static readonly ConcurrentDictionary<string, MetadataReference> _referenceCache =
+			new(StringComparer.Ordinal);
+
 		private readonly List<MetadataReference> _references = [];
+		private readonly HashSet<string> _referencePaths = new(StringComparer.Ordinal);
 		private readonly List<Assembly> _assemblies = [];
 
 		public static string[]? HintPaths { get; set; }
@@ -64,11 +76,10 @@ namespace JasperFx.RuntimeCompiler
 					return;
 				}
 
-				var alreadyReferenced = _references.Any(x => x.Display == referencePath);
-				if (alreadyReferenced)
+				if (!_referencePaths.Add(referencePath))
 					return;
 
-				var reference = MetadataReference.CreateFromFile(referencePath);
+				var reference = _referenceCache.GetOrAdd(referencePath, static path => MetadataReference.CreateFromFile(path));
 
 				_references.Add(reference);
 
@@ -111,6 +122,8 @@ namespace JasperFx.RuntimeCompiler
 				Console.WriteLine($"Could not make an assembly reference to {assembly.FullName}\n\n{e}");
 			}
 		}
+
+		internal IReadOnlyList<MetadataReference> References => _references;
 
 		private static string? createAssemblyReference(Assembly assembly)
 		{
