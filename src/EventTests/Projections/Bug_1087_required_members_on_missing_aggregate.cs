@@ -40,9 +40,36 @@ public partial class Bug1087IgnoringProjection : SingleStreamProjection<Bug1087D
     }
 }
 
+// Required members whose values an object initializer could not reproduce in the generated file:
+// one needs a using, one reads a constant of the aggregate, one is set in the constructor body
+public class Bug1087InitializedDoc
+{
+    public const int NoPriority = -1;
+
+    public Bug1087InitializedDoc()
+    {
+        Tags = ["from-constructor"];
+    }
+
+    public required Guid Id { get; set; }
+    public required Guid Token { get; set; } = Guid.NewGuid();
+    public required int Priority { get; set; } = NoPriority;
+    public required List<string> Tags { get; set; }
+    public required List<string> Emails { get; set; } = [];
+}
+
+public partial class Bug1087InitializedDocProjection : SingleStreamProjection<Bug1087InitializedDoc, Guid>
+{
+    public Bug1087InitializedDoc Create(Bug1087Created e) =>
+        new() { Id = e.Id, Token = Guid.Empty, Priority = 0, Tags = [], Emails = [] };
+
+    public void Apply(Bug1087Touched e, Bug1087InitializedDoc doc) => doc.Emails.Add(e.Email);
+}
+
 public class Bug_1087_required_members_on_missing_aggregate
 {
-    private static async Task<Bug1087Doc?> determine(SingleStreamProjection<Bug1087Doc, Guid> projection, params object[] events)
+    private static async Task<TDoc?> determine<TDoc>(SingleStreamProjection<TDoc, Guid> projection, params object[] events)
+        where TDoc : class
     {
         projection.AssembleAndAssertValidity();
 
@@ -50,7 +77,7 @@ public class Bug_1087_required_members_on_missing_aggregate
             new FakeSession(),
             null,
             Guid.NewGuid(),
-            new NulloIdentitySetter<Bug1087Doc, Guid>(),
+            new NulloIdentitySetter<TDoc, Guid>(),
             events.Select((data, i) =>
             {
                 var e = (IEvent)Activator.CreateInstance(typeof(Event<>).MakeGenericType(data.GetType()), data)!;
@@ -87,6 +114,18 @@ public class Bug_1087_required_members_on_missing_aggregate
             new Bug1087Touched(id, "one@example.com"));
 
         snapshot.ShouldNotBeNull();
+        snapshot.Emails.ShouldBe(["one@example.com"]);
+    }
+
+    [Fact]
+    public async Task initializers_that_need_a_using_or_a_member_of_the_aggregate_and_the_constructor_body_all_run()
+    {
+        var snapshot = await determine(new Bug1087InitializedDocProjection(), new Bug1087Touched(Guid.NewGuid(), "one@example.com"));
+
+        snapshot.ShouldNotBeNull();
+        snapshot.Token.ShouldNotBe(Guid.Empty);
+        snapshot.Priority.ShouldBe(Bug1087InitializedDoc.NoPriority);
+        snapshot.Tags.ShouldBe(["from-constructor"]);
         snapshot.Emails.ShouldBe(["one@example.com"]);
     }
 }
