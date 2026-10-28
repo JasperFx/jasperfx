@@ -1265,13 +1265,19 @@ internal static class EvolverCodeEmitter
 
     /// <summary>
     /// Constructor expression for the aggregate when the SG needs to build a
-    /// fresh instance in the Apply-only / null-snapshot branch. Three cases:
+    /// fresh instance in the Apply-only / null-snapshot branch. Four cases:
     ///
     /// 1. Public parameterless ctor, no required members → `new T()`.
-    /// 2. Public parameterless ctor with required members →
-    ///    `new T { Required = default!, ... }`. The C# compiler accepts the
-    ///    construction even though required members are about to be overwritten by Apply.
-    /// 3. No public parameterless ctor (e.g. `private T()` signalling
+    /// 2. Public parameterless ctor marked <c>[SetsRequiredMembers]</c> → `new T()`.
+    ///    The attribute tells the compiler the ctor takes care of required members.
+    /// 3. Public parameterless ctor with required members →
+    ///    `(T)Activator.CreateInstance(typeof(T))!`. `required` is only enforced at
+    ///    compile time, so this still runs the ctor and every property / field
+    ///    initializer, which is what Marten 8's runtime codegen did. The SG used to
+    ///    emit `new T { Required = default!, ... }`, which overwrote initializers
+    ///    like `public required List&lt;string&gt; Emails { get; set; } = [];` with
+    ///    null (#1087). `typeof(T)` is a literal, so the call is trim and AOT safe.
+    /// 4. No public parameterless ctor (e.g. `private T()` signalling
     ///    "construct me reflectively" or no parameterless ctor at all) →
     ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
     ///    the instance without invoking any ctor or field initializers. Pre-#276
@@ -1285,44 +1291,53 @@ internal static class EvolverCodeEmitter
     private static string BuildAggregateConstructorExpression(INamedTypeSymbol type)
     {
         var fqn = Fqn(type);
-        var requiredMembers = new List<string>();
-        // Dedup by name: an `override required` (or `new`-shadowed required) member
-        // appears in both the derived type's and the base type's GetMembers(), which
-        // would otherwise emit `new T { Prop = default!, Prop = default! }` -> CS1912.
-        // The walk runs most-derived -> base, so the first sighting wins.
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        for (INamedTypeSymbol? current = type;
-             current is not null && current.SpecialType != SpecialType.System_Object;
-             current = current.BaseType)
+
+        var publicParameterless = type.InstanceConstructors.FirstOrDefault(c =>
+            c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
+
+        if (publicParameterless is null && type.TypeKind != TypeKind.Struct)
         {
-            foreach (var member in current.GetMembers())
+            // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
+            // aggregates. Field initializers won't run; document in the migration guide.
+            return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
+        }
+
+        if (!AggregateAnalyzer.HasRequiredMembers(type) || (publicParameterless is not null && SetsRequiredMembers(publicParameterless)))
+        {
+            return $"new {fqn}()";
+        }
+
+        return $"({fqn})global::System.Activator.CreateInstance(typeof({fqn}))!";
+    }
+
+    private static bool SetsRequiredMembers(IMethodSymbol constructor)
+    {
+        return constructor.GetAttributes().Any(a =>
+            a.AttributeClass?.ToDisplayString() == "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute");
+    }
+
+    /// <summary>
+    /// True when an unguarded <c>case {createEventType} data:</c> arm already matches every
+    /// <paramref name="eventType"/>, i.e. the event type is the create type itself, derives from it,
+    /// or implements it. The null-snapshot switch emits its Create arms first, so an Apply-fallback
+    /// arm for such an event type is unreachable (CS8120) and, as in Marten 8, the Create wins (#1087).
+    /// </summary>
+    private static bool IsHandledByCreate(ITypeSymbol eventType, IEnumerable<ConventionalMethodInfo> createMethods)
+    {
+        foreach (var create in createMethods)
+        {
+            var createType = create.EventType;
+            if (createType.SpecialType == SpecialType.System_Object) return true;
+
+            for (var current = eventType; current is not null; current = current.BaseType)
             {
-                if (member is IPropertySymbol prop && prop.IsRequired)
-                {
-                    if (seen.Add(prop.Name)) requiredMembers.Add(prop.Name);
-                }
-                else if (member is IFieldSymbol field && field.IsRequired)
-                {
-                    if (seen.Add(field.Name)) requiredMembers.Add(field.Name);
-                }
+                if (SymbolEqualityComparer.Default.Equals(current, createType)) return true;
             }
+
+            if (eventType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, createType))) return true;
         }
 
-        var hasPublicParameterless = type.TypeKind == TypeKind.Struct ||
-            type.InstanceConstructors.Any(c =>
-                c.Parameters.Length == 0 && c.DeclaredAccessibility == Accessibility.Public);
-
-        if (hasPublicParameterless && requiredMembers.Count > 0)
-        {
-            var inits = string.Join(", ", requiredMembers.Select(n => $"{n} = default!"));
-            return $"new {fqn} {{ {inits} }}";
-        }
-
-        if (hasPublicParameterless) return $"new {fqn}()";
-
-        // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
-        // aggregates. Field initializers won't run; document in the migration guide.
-        return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
+        return false;
     }
 
     /// <summary>
@@ -2068,12 +2083,9 @@ internal static class EvolverCodeEmitter
         }
 
         // For Apply-only event types (no matching Create), use default ctor + Apply
-        var createEventTypes = new HashSet<ITypeSymbol>(createMethods.Select(m => m.EventType),
-            SymbolEqualityComparer.Default);
-
         foreach (var method in applyMethods)
         {
-            if (createEventTypes.Contains(method.EventType)) continue;
+            if (IsHandledByCreate(method.EventType, createMethods)) continue;
 
             var eventTypeName = Fqn(method.EventType);
             var docType = Fqn(info.AggregateType!);
@@ -2140,12 +2152,9 @@ internal static class EvolverCodeEmitter
             sb.AppendLine(";");
         }
 
-        var createEventTypes = new HashSet<ITypeSymbol>(createMethods.Select(m => m.EventType),
-            SymbolEqualityComparer.Default);
-
         foreach (var method in applyMethods)
         {
-            if (createEventTypes.Contains(method.EventType)) continue;
+            if (IsHandledByCreate(method.EventType, createMethods)) continue;
             if (!info.HasDefaultConstructor) continue;
 
             var eventTypeName = Fqn(method.EventType);

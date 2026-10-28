@@ -1506,7 +1506,7 @@ internal static class AggregateAnalyzer
         return type;
     }
 
-    private static bool HasRequiredMembers(INamedTypeSymbol type)
+    internal static bool HasRequiredMembers(INamedTypeSymbol type)
     {
         // Walk the inheritance chain — a required member on a base class still
         // forces the derived `new T()` to initialize it.
