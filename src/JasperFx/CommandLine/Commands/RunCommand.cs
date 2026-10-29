@@ -26,18 +26,21 @@ public class RunCommand : JasperFxAsyncCommand<RunInput>
             checks.Assert();
         }
 
-        var reset = new ManualResetEventSlim();
+        // Await shutdown rather than block on it. A blocking wait here parks a thread-pool thread
+        // for the life of the app, and in a container limited to under one CPU that is the pool's
+        // only minimum thread, so every burst of work waits ~500ms for the pool to add one (#1092).
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // ReSharper disable once PossibleNullReferenceException
         AssemblyLoadContext.GetLoadContext(typeof(RunCommand).Assembly)!.Unloading +=
-            (Action<AssemblyLoadContext>)(context => reset.Set());
+            (Action<AssemblyLoadContext>)(context => stopped.TrySetResult());
         Console.CancelKeyPress += (ConsoleCancelEventHandler)((sender, eventArgs) =>
         {
-            reset.Set();
+            stopped.TrySetResult();
             eventArgs.Cancel = true;
         });
 
         var lifetime = host.Services.GetService<IHostApplicationLifetime>();
-        lifetime?.ApplicationStopping.Register(() => reset.Set());
+        lifetime?.ApplicationStopping.Register(() => stopped.TrySetResult());
 
         // A host started under JasperFxEnvironment.AutoStartHost (WebApplicationFactory testing)
         // has already run every IHostedService.StartAsync. IHost.StartAsync is not re-entrant, so
@@ -47,7 +50,7 @@ public class RunCommand : JasperFxAsyncCommand<RunInput>
             await host.StartAsync();
         }
 
-        reset.Wait();
+        await stopped.Task;
         await host.StopAsync();
         return true;
     }
