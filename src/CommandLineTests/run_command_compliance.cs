@@ -29,8 +29,8 @@ public class run_command_compliance
                 .ConfigureServices(services => services.AddSingleton<IHostedService>(counter))
                 .Build();
 
-            // Run on a background thread: with the guard in place the run command skips its only
-            // await, so its shutdown Wait() blocks synchronously — a direct call would deadlock.
+            // Off the test thread, so that a regression to a blocking shutdown wait (see
+            // waits_for_shutdown_without_blocking_the_calling_thread) cannot stop us reaching StopApplication.
             var runTask = Task.Run(() => host.RunJasperFxCommands([]));
 
             // Do not shut down until any redundant start has happened, or a stopping host would
@@ -41,6 +41,36 @@ public class run_command_compliance
             await runTask.TimeoutAfterAsync(5000);
 
             counter.Starts.ShouldBe(1);
+        }
+        finally
+        {
+            JasperFxEnvironment.AutoStartHost = false;
+        }
+    }
+
+    [Fact]
+    public async Task waits_for_shutdown_without_blocking_the_calling_thread()
+    {
+        // GH-1092: the run command used to block on a ManualResetEventSlim until shutdown, which
+        // parks a thread-pool thread for the life of the app and starves the pool in containers
+        // with less than one CPU. With an already-started host there is no await ahead of that
+        // wait, so the block lands on the caller's thread and makes it easy to observe.
+        JasperFxEnvironment.AutoStartHost = true;
+        try
+        {
+            var host = Host.CreateDefaultBuilder().Build();
+            var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+
+            // Safety net so a regression fails this test instead of hanging it: a blocking run
+            // command only returns once this stops the host, by which point its task is complete.
+            await using var safetyNet = new Timer(_ => lifetime.StopApplication(), null, 5000, Timeout.Infinite);
+
+            var runTask = host.RunJasperFxCommands([]);
+
+            runTask.IsCompleted.ShouldBeFalse("the run command blocked its caller until shutdown");
+
+            lifetime.StopApplication();
+            (await runTask.TimeoutAfterAsync(5000)).ShouldBe(0);
         }
         finally
         {
