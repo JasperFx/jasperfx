@@ -130,6 +130,17 @@ public class TenantScopedExplorerReadDefaultsTests
         ex.Message.ShouldContain("2.94");
     }
 
+    [Fact]
+    public void query_raw_events_on_a_pre_2_97_store_is_refused_naming_the_store()
+    {
+        IReadOnlyEventStore store = new StubReadOnlyEventStore();
+
+        var ex = Should.Throw<NotSupportedException>(() => store.QueryRawEvents());
+
+        ex.Message.ShouldContain(typeof(StubReadOnlyEventStore).FullName!);
+        ex.Message.ShouldContain("2.97");
+    }
+
     private readonly ExplorerEventStore theRecorder = new();
 
     // The tenant overloads are default interface members, so they are only reachable through the
