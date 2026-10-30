@@ -128,4 +128,39 @@ public interface IReadOnlyEventStore
     IQueryable<T> QueryEventData<T>(string? tenantId = null) where T : class
         => throw new NotSupportedException(
             $"{GetType().FullName} does not implement {nameof(IReadOnlyEventStore)}.{nameof(QueryEventData)}<T>, which was added in JasperFx 2.94. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.94 or later.");
+
+    /// <summary>
+    /// Every event, across all streams, as a composable <see cref="IQueryable{T}"/> over the
+    /// <see cref="IEvent"/> envelope — the store-agnostic way to filter and order events by their
+    /// metadata (sequence, stream, timestamp, event type, correlation and causation ids, tenant) with LINQ
+    /// (jasperfx#1094). Marten's <c>QueryAllRawEvents()</c>, on the shared read tier.
+    /// </summary>
+    /// <param name="tenantId">
+    /// Tenant partition to scope the events to, by the same rule as <see cref="QueryStreamStates"/>: null
+    /// means store-global, and a store without a tenant dimension MUST refuse a non-null tenant with a
+    /// <see cref="NotSupportedException"/> naming it rather than silently return the global set.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// The element is the envelope, so a predicate is over <see cref="IEvent"/> metadata. The body is
+    /// <c>object</c> here; a predicate on one event type's own members stays on
+    /// <see cref="QueryEventData{T}"/>. A member the provider cannot translate MUST fail the query naming
+    /// it, never silently match every event — the jasperfx#737 failure mode.
+    /// </para>
+    /// <para>
+    /// Execute with the shared asynchronous terminators in <see cref="Documents.DocumentQueryableExtensions"/>,
+    /// as for <see cref="QueryStreamStates"/>.
+    /// </para>
+    /// <para>
+    /// Added in JasperFx 2.97 and default-implemented so that a store built against an older JasperFx still
+    /// loads (jasperfx#933). The default throws <see cref="NotSupportedException"/> naming the implementing
+    /// type.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store built against a JasperFx older than 2.97.
+    /// </exception>
+    IQueryable<IEvent> QueryRawEvents(string? tenantId = null)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IReadOnlyEventStore)}.{nameof(QueryRawEvents)}, which was added in JasperFx 2.97. The store was built against an older JasperFx; upgrade the store package to a version built against JasperFx 2.97 or later.");
 }
