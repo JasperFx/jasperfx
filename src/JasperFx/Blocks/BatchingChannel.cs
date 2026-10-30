@@ -15,6 +15,12 @@ public class BatchingChannel<T> : BlockBase<T>
     private readonly Block<T> _inner;
     private readonly Timer _trigger;
 
+    // jasperfx#1095: Post hands an item to _inner, which adds it to _current on its own consumer, so an item can
+    // still be on its way when TriggerBatch runs. These let TriggerBatch keep its promise for items posted before it.
+    private long _posted; // Interlocked
+    private long _added; // under _syncLock
+    private long _flushThrough; // under _syncLock: flush once _added reaches this; 0 is none
+
     public BatchingChannel(TimeSpan timeOut, IBlock<T[]> downstream, int batchSize = 100)
     {
         _current = new List<T>(batchSize);
@@ -28,7 +34,10 @@ public class BatchingChannel<T> : BlockBase<T>
         {
             try
             {
-                TriggerBatch();
+                lock (_syncLock)
+                {
+                    flushCurrent();
+                }
             }
             catch (Exception)
             {
@@ -48,18 +57,33 @@ public class BatchingChannel<T> : BlockBase<T>
         set => _inner.OnError = value;
     }
 
+    /// <summary>
+    /// Flush the current batch now, including any item posted before this call that the channel has not
+    /// finished adding to the batch. Those go out as soon as they have been added, without waiting for the
+    /// timeout, so <c>Post</c> followed by <c>TriggerBatch</c> never waits out the timeout (jasperfx#1095).
+    /// Items posted after this call are a new batch.
+    /// </summary>
     public void TriggerBatch()
     {
         lock (_syncLock)
         {
-            if (_current.Any())
-            {
-                _downstream.Post(_current.ToArray());
-                _current.Clear();
-            }
+            flushCurrent();
 
-            disarmTimer();
+            var posted = Interlocked.Read(ref _posted);
+            if (posted > _added) _flushThrough = posted;
         }
+    }
+
+    // Callers hold _syncLock.
+    private void flushCurrent()
+    {
+        if (_current.Any())
+        {
+            _downstream.Post(_current.ToArray());
+            _current.Clear();
+        }
+
+        disarmTimer();
     }
 
     private void addItem(T item)
@@ -67,11 +91,16 @@ public class BatchingChannel<T> : BlockBase<T>
         lock (_syncLock)
         {
             _current.Add(item);
-            if (_current.Count >= _batchSize)
+            _added++;
+
+            if (_flushThrough > 0 && _added >= _flushThrough)
             {
-                _downstream.Post(_current.ToArray());
-                _current.Clear();
-                disarmTimer();
+                _flushThrough = 0;
+                flushCurrent();
+            }
+            else if (_current.Count >= _batchSize)
+            {
+                flushCurrent();
             }
             else if (_current.Count == 1)
             {
@@ -158,11 +187,13 @@ public class BatchingChannel<T> : BlockBase<T>
 
     public override ValueTask PostAsync(T item)
     {
+        Interlocked.Increment(ref _posted);
         return _inner.PostAsync(item);
     }
 
     public override void Post(T item)
     {
+        Interlocked.Increment(ref _posted);
         _inner.Post(item);
     }
 }
