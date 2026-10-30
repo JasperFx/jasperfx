@@ -34,6 +34,29 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
         return true;
     }
 
+    public override bool TryBuildBackfillExecutor([NotNullWhen(true)] out IBackfillExecutor? executor)
+    {
+        var inners = new List<IBackfillExecutor>();
+        foreach (var execution in _inners.SelectMany(x => x.Executions))
+        {
+            if (execution.TryBuildBackfillExecutor(out var inner))
+            {
+                inners.Add(inner);
+            }
+        }
+
+        executor = inners.Count == 0 ? null : new CompositeBackfillExecutor(inners);
+        return executor != null;
+    }
+
+    public override void ResetAggregateCaches()
+    {
+        foreach (var execution in _inners.SelectMany(x => x.Executions))
+        {
+            execution.ResetAggregateCaches();
+        }
+    }
+
     protected override async Task<IProjectionBatch> buildBatchWithNoSkippingAsync(EventRange range, CancellationToken cancellationToken)
     {
         IProjectionBatch<TOperations, TQuerySession>? batch = null;

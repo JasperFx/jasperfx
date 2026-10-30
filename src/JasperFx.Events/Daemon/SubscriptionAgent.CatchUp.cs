@@ -13,6 +13,24 @@ public partial class SubscriptionAgent
     /// <param name="cancellation"></param>
     public async Task CatchUpAsync(long highWaterMark, ShardState state, CancellationToken cancellation)
     {
+        // Nothing else runs this shard during a catch-up, so its backfills can run start to finish in line
+        if (_execution.TryBuildBackfillExecutor(out var backfills))
+        {
+            if (state.Sequence == 0)
+            {
+                await backfills.SettleAsync(cancellation).ConfigureAwait(false);
+            }
+            else
+            {
+                var request = new BackfillRequest(ErrorOptions, _runtime, Options.BatchSize);
+                if (await backfills.CatchUpAsync(() => state.Sequence, request, cancellation).ConfigureAwait(false))
+                {
+                    await backfills.HandOverAsync(state.Sequence, request, cancellation).ConfigureAwait(false);
+                    _execution.ResetAggregateCaches();
+                }
+            }
+        }
+
         if (state.Sequence == highWaterMark) return;
 
         var progression = state.Sequence;
