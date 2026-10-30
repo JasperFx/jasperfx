@@ -136,4 +136,110 @@ public class BatchingChannelTests
             batches.SelectMany(x => x).OrderBy(x => x).ShouldBe(Enumerable.Range(0, 10));
         }
     }
+
+    // jasperfx#1095: Post hands the item to the inner block, which adds it on its own consumer, so a TriggerBatch
+    // straight after a Post found an empty batch and did nothing. The item then armed the timer and waited out the
+    // whole timeout. Asserting on the elapsed time is the point: the item arrives either way.
+    [Fact]
+    public async Task trigger_batch_right_after_post_flushes_without_waiting_for_the_timeout()
+    {
+        for (var i = 0; i < 10; i++)
+        {
+            var (channel, batches, firstBatch) = channelWithCapture(30.Seconds(), 100);
+
+            channel.Post(i);
+            channel.TriggerBatch();
+
+            var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds(), TestContext.Current.CancellationToken));
+            flushed.ShouldBe(firstBatch.Task, "TriggerBatch must cover the item posted before it");
+
+            lock (batches)
+            {
+                batches.ShouldHaveSingleItem().ShouldBe([i]);
+            }
+
+            channel.Complete();
+        }
+    }
+
+    [Fact]
+    public async Task trigger_batch_right_after_post_async_flushes_without_waiting_for_the_timeout()
+    {
+        var (channel, _, firstBatch) = channelWithCapture(30.Seconds(), 100);
+
+        await channel.PostAsync(1);
+        channel.TriggerBatch();
+
+        var flushed = await Task.WhenAny(firstBatch.Task, Task.Delay(2.Seconds(), TestContext.Current.CancellationToken));
+        flushed.ShouldBe(firstBatch.Task);
+
+        channel.Complete();
+    }
+
+    [Fact]
+    public async Task trigger_batch_covers_every_item_posted_before_it_in_one_batch()
+    {
+        var (channel, batches, firstBatch) = channelWithCapture(30.Seconds(), 100);
+
+        channel.Post(1);
+        channel.Post(2);
+        channel.Post(3);
+        channel.TriggerBatch();
+
+        await firstBatch.Task.WaitAsync(2.Seconds(), TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+
+        lock (batches)
+        {
+            batches.SelectMany(x => x).ShouldBe([1, 2, 3], "nothing lost, nothing duplicated, in order");
+        }
+
+        channel.Complete();
+    }
+
+    [Fact]
+    public async Task an_item_posted_after_trigger_batch_keeps_its_own_batch_and_timer()
+    {
+        var (channel, batches, firstBatch) = channelWithCapture(30.Seconds(), 100);
+
+        channel.Post(1);
+        channel.TriggerBatch();
+        await firstBatch.Task.WaitAsync(2.Seconds(), TestContext.Current.CancellationToken);
+
+        channel.Post(2);
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+
+        lock (batches)
+        {
+            batches.ShouldHaveSingleItem().ShouldBe([1], "a later item is not flushed by an earlier trigger");
+        }
+
+        channel.TriggerBatch();
+        await Task.Delay(300, TestContext.Current.CancellationToken);
+
+        lock (batches)
+        {
+            batches.Count.ShouldBe(2);
+        }
+
+        channel.Complete();
+    }
+
+    [Fact]
+    public async Task trigger_batch_on_an_idle_channel_leaves_the_next_item_to_its_timer()
+    {
+        var (channel, batches, firstBatch) = channelWithCapture(300.Milliseconds(), 100);
+
+        channel.TriggerBatch();
+        channel.Post(1);
+
+        await firstBatch.Task.WaitAsync(5.Seconds(), TestContext.Current.CancellationToken);
+
+        lock (batches)
+        {
+            batches.ShouldHaveSingleItem().ShouldBe([1]);
+        }
+
+        channel.Complete();
+    }
 }
