@@ -37,5 +37,9 @@
         -->
         <Compile Include="..\JasperFx.Events.ComplianceTests\RecordingMessageOutbox.cs"
                  Link="ComplianceTests\RecordingMessageOutbox.cs" />
+
+        <!-- jasperfx#1050: same reason. Its Hits count is what the compliance suite leans on. -->
+        <Compile Include="..\JasperFx.Events.ComplianceTests\RecordingAggregateWriteCache.cs"
+                 Link="ComplianceTests\RecordingAggregateWriteCache.cs" />
     </ItemGroup>
 </Project>

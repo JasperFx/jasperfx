@@ -26,6 +26,10 @@ namespace JasperFx.Events.Fetching;
 public sealed class RecentlyUsedAggregateWriteCache: IAggregateWriteCache
 {
     private readonly RecentlyUsedCache<AggregateCacheKey, Entry> _cache = new();
+
+    // Serializes the writers, so StoreIfNewer's read and write are one step to any other writer. Takes
+    // stay outside it: a take needs no comparison, and losing the claim race to one only costs a load.
+    private readonly object _writeLock = new();
     private long _hits;
     private long _misses;
 
@@ -76,8 +80,30 @@ public sealed class RecentlyUsedAggregateWriteCache: IAggregateWriteCache
     {
         ArgumentNullException.ThrowIfNull(aggregate);
 
-        _cache.Store(key, new Entry(aggregate, version));
+        lock (_writeLock)
+        {
+            _cache.Store(key, new Entry(aggregate, version));
+        }
+
         _cache.CompactIfNecessary();
+    }
+
+    public bool StoreIfNewer(AggregateCacheKey key, object aggregate, long version)
+    {
+        ArgumentNullException.ThrowIfNull(aggregate);
+
+        lock (_writeLock)
+        {
+            if (_cache.TryFind(key, out var existing) && existing.Version > version)
+            {
+                return false;
+            }
+
+            _cache.Store(key, new Entry(aggregate, version));
+        }
+
+        _cache.CompactIfNecessary();
+        return true;
     }
 
     public void Evict(AggregateCacheKey key)
