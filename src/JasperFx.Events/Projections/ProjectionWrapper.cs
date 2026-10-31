@@ -80,6 +80,8 @@ public class ProjectionWrapper<TOperations, TQuerySession> :
 
             foreach (var publishedType in source.PublishedTypes()) RegisterPublishedType(publishedType);
         }
+
+        Options.DeleteTablesPublishedBy(projection);
     }
 
     [ChildDescription] public IJasperFxProjection<TOperations> Inner { get; }

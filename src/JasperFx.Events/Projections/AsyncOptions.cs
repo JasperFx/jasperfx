@@ -56,6 +56,12 @@ public class AsyncOptions
     public bool TeardownDataOnRebuild { get; set; } = true;
 
     /// <summary>
+    /// jasperfx#1046: the home of <see cref="JasperFxEventProjectionBase{TOperations,TQuerySession}.DeletePublishedTypesOnTeardown" />.
+    /// False means <see cref="CleanUps" /> is the whole of this projection's document teardown.
+    /// </summary>
+    internal bool DeletePublishedTypesOnTeardown { get; set; } = true;
+
+    /// <summary>
     /// jasperfx#480, for blue/green projection deploys. When a NEW version of this projection
     /// (ShardName.Version > 1) starts continuous execution and a PRIOR version's progression row is
     /// ahead of this version's own progress, the new version catches up to the prior version's mark
@@ -127,6 +133,22 @@ public class AsyncOptions
     public void DeleteDataInTableOnTeardown(string tableIdentifier)
     {
         _cleanups.Add(new DeleteTableData(tableIdentifier));
+    }
+
+    /// <summary>
+    /// jasperfx#1046: a wrapper is not its inner projection's type, so <see cref="ProjectionTeardownPlan" />
+    /// cannot see <see cref="IPublishesTables" /> through one, and a wrapped flat table would be left out of
+    /// the rebuild. Options are what every wrapper does adopt, so a wrapper records the tables here.
+    /// </summary>
+    internal void DeleteTablesPublishedBy(object projection)
+    {
+        if (projection is not IPublishesTables publisher) return;
+
+        foreach (var table in publisher.PublishedTableNames())
+        {
+            var cleanUp = new DeleteTableData(table);
+            if (!_cleanups.Contains(cleanUp)) _cleanups.Add(cleanUp);
+        }
     }
 
     internal async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,
