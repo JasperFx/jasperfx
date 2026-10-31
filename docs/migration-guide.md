@@ -120,7 +120,16 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
 * **`JasperFx.Pagination` holds `CursorCodec`, `IPagedList<T>` and `PagedList<T>`** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). The v1 cursor format is unchanged for clients, and the seek predicate stays per store.
 
+* **`ClientSideAppendPlanner` holds the append decisions for client-side stores** ([#1051](https://github.com/JasperFx/jasperfx/issues/1051)), in the new `JasperFx.Events.Appending` namespace. Supply a row per action, scoped to that action's tenant, and call `Plan` and then `Apply`. `Plan` changes nothing and does no I/O, so a refused batch leaves every action as it was. A stream you forget to read arrives as `NotRead` and is refused rather than restarting at version 1. Marten keeps its own append path.
+
 ### Behavior changes
+
+* **Client-side appends are decided the same way on Polecat and Fisher** ([#1051](https://github.com/JasperFx/jasperfx/issues/1051)), as each store adopts the planner:
+
+  * Polecat event timestamps come from the application's `TimeProvider` rather than SQL Server's clock, and a caller-set `IEvent.Timestamp` is kept. Inline projections and the stored row now agree.
+  * Polecat no longer stamps correlation, causation, user or headers on the envelope when that `Enable*` option is off.
+  * On Fisher, a session header no longer replaces an event's own header of the same name, and events raised by a projection are not checked against the slice's version.
+  * `StartStream` with a non-zero `ExpectedVersionOnServer` is refused, and under conjoined tenancy so is an event of another tenant.
 
 * **Two stores in one process with the same meter name share one `Meter`** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). This applies as soon as you take JasperFx 3.0, with no store adoption, because `new OpenTelemetryOptions(name).Meter` is now shared by name. Don't dispose it.
 

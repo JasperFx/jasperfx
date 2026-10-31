@@ -51,6 +51,8 @@ src/
 ./build.sh test-stress      # Concurrency stress tests only
 ./build.sh test             # All tests
 ./build.sh nuget-pack       # Package for NuGet
+./build.sh Pack --version 3.0.0-local.1 --feed ~/code/local-nuget  # Local pack into a flat feed
+./build.sh TestEvents --framework net10.0  # Test targets take one framework
 ./build.sh clean            # Clean outputs
 ```
 
