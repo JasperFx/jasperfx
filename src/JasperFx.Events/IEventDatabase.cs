@@ -30,8 +30,34 @@ public interface IEventDatabase
 
     Task EnsureStorageExistsAsync(Type storageType, CancellationToken token);
 
-    Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout);
-    
+    /// <summary>
+    ///     Wait until every shard in <see cref="RegisteredShardNames" /> has caught up to the event sequence as
+    ///     of this call, measured against <see cref="FetchHighestEventSequenceNumber(CancellationToken)" />.
+    ///     Intended for test automation. A database with no registered shards or no events returns at once.
+    ///     See <see cref="NonStaleProjectionWait.WaitAsync" /> for the rules, jasperfx#1046.
+    /// </summary>
+    /// <param name="timeout">How long to wait for.</param>
+    /// <exception cref="TimeoutException">
+    ///     The shards had not caught up in time, whatever a store's provider threw when the clock ran out.
+    /// </exception>
+    async Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout)
+        => await NonStaleProjectionWait.WaitAsync(this, RegisteredShardNames(), timeout).ConfigureAwait(false);
+
+    /// <summary>
+    ///     The shards that make progress on this database, at their current versions, which is the set
+    ///     <see cref="WaitForNonStaleProjectionDataAsync" /> waits on. Normally the store's
+    ///     <c>AllShards()</c> projected onto <see cref="AsyncShard{TOperations,TQuerySession}.Name" />: a
+    ///     composite commits its members in its own batch, so its one row speaks for them.
+    ///     <para>
+    ///     The default throws <see cref="NotSupportedException" /> rather than returning an empty list. Empty
+    ///     means nothing runs asynchronously, and a store that has not implemented this must not borrow that
+    ///     answer, because the wait would then report stale data as current. See jasperfx#1046.
+    ///     </para>
+    /// </summary>
+    IReadOnlyList<ShardName> RegisteredShardNames()
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(RegisteredShardNames)} (jasperfx#1046), so it cannot use the default {nameof(WaitForNonStaleProjectionDataAsync)}.");
+
     /// <summary>
     ///     Check the current progress of a single projection or projection shard
     /// </summary>
