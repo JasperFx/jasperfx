@@ -591,6 +591,29 @@ public class ClientSideAppendMetadata
     }
 
     [Fact]
+    public void a_refusal_beside_a_write_still_wins_over_a_short_reservation()
+    {
+        var writes = Planning.Action();
+        var refused = Planning.Action(StreamActionType.Start);
+
+        var plan = ClientSideAppendPlanner.Plan([writes, refused],
+            x => x == refused ? StreamRowSnapshot.Live(1) : StreamRowSnapshot.Missing,
+            Planning.Context(mode: EventAppendMode.Rich));
+
+        Should.Throw<ExistingStreamIdCollisionException>(() => plan.Apply());
+    }
+
+    [Fact]
+    public void a_reservation_is_measured_against_the_whole_plan()
+    {
+        // Enough for either stream alone, and not for the two of them
+        Should.Throw<InvalidOperationException>(() => ClientSideAppendPlanner.Plan(
+                [Planning.Action(), Planning.Action(events: 1)], _ => StreamRowSnapshot.Live(1),
+                Planning.Context(mode: EventAppendMode.Rich, sequences: [10, 11])))
+            .Message.ShouldContain("3 events with 2 reserved");
+    }
+
+    [Fact]
     public void rich_sequences_run_across_the_streams_in_plan_order()
     {
         var first = Planning.Action();
@@ -978,6 +1001,32 @@ public class ClientSideAppendUnitsOfWork
         stream.Events[1].TenantId = "tenant-b";
 
         ClientSideAppendPlanner.WorkFor(stream, TenancyStyle.Single).ShouldBe(StreamAppendWork.Append);
+
+        // Left as it is, because only an event with no tenant is the plan's to fill in
+        Planning.Plan(stream, StreamRowSnapshot.Live(1), Planning.Context(tenancy: TenancyStyle.Single)).Apply();
+
+        stream.Events[1].TenantId.ShouldBe("tenant-b");
+    }
+
+    /// <summary>
+    ///     What the planner cannot do, pinned so that nobody takes the tests above for more than they are.
+    ///     <see cref="RecordingOperations" /> finds a pending action by id alone, as Polecat's and Marten's
+    ///     <c>TryFindStream</c> do, and <c>StreamAction.AddEvent</c> restamps the event, so the second tenant
+    ///     is gone before a plan exists. The fix belongs in that lookup.
+    /// </summary>
+    [Fact]
+    public void a_merge_that_happened_before_the_plan_is_invisible_to_it()
+    {
+        var operations = new RecordingOperations(StreamIdentity.AsGuid, "tenant-a");
+        var id = Guid.NewGuid();
+
+        operations.ForTenant("tenant-a").Append(id, new QuestStarted("in tenant a"));
+        var merged = operations.ForTenant("tenant-b").Append(id, new MemberJoined("in tenant b"));
+
+        merged.Events.Count.ShouldBe(2);
+        merged.Events.ShouldAllBe(x => x.TenantId == "tenant-a");
+
+        ClientSideAppendPlanner.WorkFor(merged, TenancyStyle.Conjoined).ShouldBe(StreamAppendWork.Append);
     }
 
     [Fact]
@@ -1114,6 +1163,19 @@ public class ClientSideAppendNumberingAhead
             x => x.TenantId == "tenant-a" ? StreamRowSnapshot.Live(3) : StreamRowSnapshot.Missing, Planning.Context());
 
         inB.Events.Select(x => x.Version).ShouldBe([1, 2]);
+    }
+
+    [Fact]
+    public void the_same_id_is_one_stream_without_conjoined_tenancy()
+    {
+        var id = Guid.NewGuid();
+        var inA = Planning.Action(id: id, tenant: "tenant-a");
+        var inB = Planning.Action(id: id, tenant: "tenant-b");
+
+        ClientSideAppendPlanner.NumberAhead([inA, inB], _ => StreamRowSnapshot.Live(3),
+            Planning.Context(tenancy: TenancyStyle.Single));
+
+        inB.Events.Select(x => x.Version).ShouldBe([6, 7]);
     }
 
     [Fact]
