@@ -12,7 +12,7 @@ namespace JasperFx.Events.InMemory;
 /// Out of scope for a prototyping store, and refused with a <see cref="NotSupportedException"/> that says
 /// so: archiving, compaction, rewriting events, and the tag (DCB) queries.
 /// </remarks>
-public partial class InMemoryEventOperations : IEventStoreOperations, IReadOnlyEventStore
+public partial class InMemoryEventOperations : EventOperationsBase, IEventStoreOperations, IReadOnlyEventStore
 {
     private readonly InMemoryDocumentSession _session;
     private readonly Dictionary<object, StreamAction> _streams = new();
@@ -33,186 +33,55 @@ public partial class InMemoryEventOperations : IEventStoreOperations, IReadOnlyE
     /// <inheritdoc />
     public IEvent BuildEvent(object data) => Registry.BuildEvent(data);
 
-    // ---- StartStream ----
+    // ---- The seams of EventOperationsBase ----
 
     /// <inheritdoc />
-    public StreamAction StartStream<TAggregate>(Guid id, params object[] events) where TAggregate : class
-        => StartStream(typeof(TAggregate), id, events);
+    protected override StreamIdentity StreamIdentity => Registry.StreamIdentity;
 
     /// <inheritdoc />
-    public StreamAction StartStream<TAggregate>(Guid id, IEnumerable<object> events) where TAggregate : class
-        => StartStream(typeof(TAggregate), id, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream(Type aggregateType, Guid id, IEnumerable<object> events)
-        => StartStream(aggregateType, id, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream(Type aggregateType, Guid id, params object[] events)
+    protected override StreamAction StartStreamCore(Type? aggregateType, Guid id, object[] events)
     {
-        var stream = StartStream(id, events);
+        var stream = track(id, StreamAction.Start(Registry, id, events));
         stream.AggregateType = aggregateType;
         return stream;
     }
 
     /// <inheritdoc />
-    public StreamAction StartStream<TAggregate>(string streamKey, IEnumerable<object> events) where TAggregate : class
-        => StartStream(typeof(TAggregate), streamKey, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream<TAggregate>(string streamKey, params object[] events) where TAggregate : class
-        => StartStream(typeof(TAggregate), streamKey, events);
-
-    /// <inheritdoc />
-    public StreamAction StartStream(Type aggregateType, string streamKey, IEnumerable<object> events)
-        => StartStream(aggregateType, streamKey, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream(Type aggregateType, string streamKey, params object[] events)
+    protected override StreamAction StartStreamCore(Type? aggregateType, string streamKey, object[] events)
     {
-        var stream = StartStream(streamKey, events);
+        var stream = track(streamKey, StreamAction.Start(Registry, streamKey, events));
         stream.AggregateType = aggregateType;
         return stream;
     }
 
     /// <inheritdoc />
-    public StreamAction StartStream(Guid id, IEnumerable<object> events) => StartStream(id, events.ToArray());
+    protected override StreamAction AppendCore(Guid stream, object[] events)
+        => appendTo(stream, () => StreamAction.Append(Registry, stream, events), events);
 
     /// <inheritdoc />
-    public StreamAction StartStream(Guid id, params object[] events)
-    {
-        assertGuidIdentity();
-        return track(id, StreamAction.Start(Registry, id, events));
-    }
+    protected override StreamAction AppendCore(string stream, object[] events)
+        => appendTo(stream, () => StreamAction.Append(Registry, stream, events), events);
 
-    /// <inheritdoc />
-    public StreamAction StartStream(string streamKey, IEnumerable<object> events)
-        => StartStream(streamKey, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream(string streamKey, params object[] events)
-    {
-        assertStringIdentity();
-        return track(streamKey, StreamAction.Start(Registry, streamKey, events));
-    }
-
-    /// <inheritdoc />
-    public StreamAction StartStream<TAggregate>(IEnumerable<object> events) where TAggregate : class
-        => StartStream(typeof(TAggregate), events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream<TAggregate>(params object[] events) where TAggregate : class
-        => StartStream(typeof(TAggregate), events);
-
-    /// <inheritdoc />
-    public StreamAction StartStream(Type aggregateType, IEnumerable<object> events)
-        => StartStream(aggregateType, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream(Type aggregateType, params object[] events)
-    {
-        var stream = StartStream(events);
-        stream.AggregateType = aggregateType;
-        return stream;
-    }
-
-    /// <inheritdoc />
-    public StreamAction StartStream(IEnumerable<object> events) => StartStream(events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction StartStream(params object[] events)
-        => IsGuidIdentity
-            ? StartStream(CombGuidIdGeneration.NewGuid(), events)
-            : StartStream(Guid.NewGuid().ToString(), events);
-
-    // ---- Append ----
-
-    /// <inheritdoc />
-    public StreamAction Append(Guid stream, IEnumerable<object> events) => Append(stream, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction Append(Guid stream, params object[] events)
-    {
-        assertGuidIdentity();
-        return appendTo(stream, () => StreamAction.Append(Registry, stream, events), events);
-    }
-
-    /// <inheritdoc />
-    public StreamAction Append(string stream, IEnumerable<object> events) => Append(stream, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction Append(string stream, params object[] events)
-    {
-        assertStringIdentity();
-        return appendTo(stream, () => StreamAction.Append(Registry, stream, events), events);
-    }
-
-    /// <inheritdoc />
-    public StreamAction Append(Guid stream, long expectedVersion, IEnumerable<object> events)
-        => Append(stream, expectedVersion, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction Append(Guid stream, long expectedVersion, params object[] events)
-    {
-        var action = Append(stream, events);
-        action.ExpectedVersionOnServer = expectedVersion;
-        return action;
-    }
-
-    /// <inheritdoc />
-    public StreamAction Append(string stream, long expectedVersion, IEnumerable<object> events)
-        => Append(stream, expectedVersion, events.ToArray());
-
-    /// <inheritdoc />
-    public StreamAction Append(string stream, long expectedVersion, params object[] events)
-    {
-        var action = Append(stream, events);
-        action.ExpectedVersionOnServer = expectedVersion;
-        return action;
-    }
-
-    /// <inheritdoc />
-    public Task AppendOptimistic(Guid streamId, CancellationToken token, params object[] events)
-    {
-        assertGuidIdentity();
-        Append(streamId, events).ExpectedVersionOnServer = requireVersion(streamId);
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task AppendOptimistic(Guid streamId, params object[] events)
-        => AppendOptimistic(streamId, CancellationToken.None, events);
-
-    /// <inheritdoc />
-    public Task AppendOptimistic(string streamKey, CancellationToken token, params object[] events)
-    {
-        assertStringIdentity();
-        Append(streamKey, events).ExpectedVersionOnServer = requireVersion(streamKey);
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task AppendOptimistic(string streamKey, params object[] events)
-        => AppendOptimistic(streamKey, CancellationToken.None, events);
+    /// <summary>
+    /// The version the stream is at before the append, as on Fisher, where Marten and Polecat read it as the
+    /// version after it. See <see cref="EventOperationsBase.ExpectedStartingVersion"/>.
+    /// </summary>
+    protected override long ExpectedStartingVersion(long expectedVersion, StreamAction stream) => expectedVersion;
 
     // There is no lock to take on an in-memory stream, so "exclusive" is the optimistic guard -- the
     // same documented choice Fisher makes for SQLite.
 
     /// <inheritdoc />
-    public Task AppendExclusive(Guid streamId, CancellationToken token, params object[] events)
-        => AppendOptimistic(streamId, token, events);
+    protected override Task<long> ReadStreamVersionCore<TId>(TId stream, bool exclusive, CancellationToken token)
+        => Task.FromResult(requireVersion(stream));
 
     /// <inheritdoc />
-    public Task AppendExclusive(Guid streamId, params object[] events)
-        => AppendOptimistic(streamId, CancellationToken.None, events);
+    protected override Task<IEventStream<T>> FetchForWritingCore<T, TId>(TId id, long? expectedVersion, bool exclusive,
+        CancellationToken cancellation)
+        => fetchForWritingAsync<T>(id, expectedVersion, cancellation);
 
     /// <inheritdoc />
-    public Task AppendExclusive(string streamKey, CancellationToken token, params object[] events)
-        => AppendOptimistic(streamKey, token, events);
-
-    /// <inheritdoc />
-    public Task AppendExclusive(string streamKey, params object[] events)
-        => AppendOptimistic(streamKey, CancellationToken.None, events);
+    protected override Task SaveChangesCore(CancellationToken cancellation) => _session.SaveChangesAsync(cancellation);
 
     // ---- Reading ----
 
