@@ -1,3 +1,5 @@
+using JasperFx.Core.Reflection;
+using JasperFx.Events.Protected;
 using JasperFx.Events.Tags;
 
 namespace JasperFx.Events;
@@ -11,7 +13,7 @@ public interface IEvent<out T>: IEvent where T : notnull
     new T Data { get; }
 }
 
-public class Event<T>: IEvent<T> where T : notnull
+public class Event<T>: IEvent<T>, IReplaceableEventData where T : notnull
 {
     public Event(T data)
     {
@@ -24,6 +26,16 @@ public class Event<T>: IEvent<T> where T : notnull
     public T Data { get; set; }
 
     object IEvent.Data => Data;
+
+    void IReplaceableEventData.ReplaceData(object data)
+    {
+        // Only a masking rule against a base type or interface can get this wrong. It fails the pass rather
+        // than skipping the event, because a skipped event keeps its protected information.
+        Data = data is T replacement
+            ? replacement
+            : throw new InvalidOperationException(
+                $"A masking rule returned {data.GetType().FullNameInCode()} for an event of type {typeof(T).FullNameInCode()}, which cannot hold it.");
+    }
 
     public Type EventType => typeof(T);
     public string EventTypeName { get; set; } = null!;
