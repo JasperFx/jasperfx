@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
 
@@ -10,8 +9,6 @@ namespace JasperFx.Events.InMemory;
 /// </summary>
 public class InMemoryEventRegistry : EventRegistry, IAggregationSourceFactory<IInMemoryQuerySession>
 {
-    private readonly ConcurrentDictionary<string, Type> _aggregatesByAlias = new();
-
     /// <summary>Record the correlation id of the session on every event it appends.</summary>
     public bool CorrelationIdEnabled { get; set; }
 
@@ -48,19 +45,7 @@ public class InMemoryEventRegistry : EventRegistry, IAggregationSourceFactory<II
     /// here by default, and <see cref="StreamAction.PrepareEvents"/> asks for it on every stream that
     /// names an aggregate type.
     /// </summary>
-    public override string AggregateAliasFor(Type aggregateType)
-    {
-        var alias = aggregateType.FullName ?? aggregateType.Name;
-        _aggregatesByAlias.TryAdd(alias, aggregateType);
-        return alias;
-    }
-
-    /// <inheritdoc />
-    public override Type AggregateTypeFor(string aggregateTypeName)
-        => _aggregatesByAlias.TryGetValue(aggregateTypeName, out var type)
-            ? type
-            : throw new ArgumentOutOfRangeException(nameof(aggregateTypeName),
-                $"No aggregate type has been recorded under the alias '{aggregateTypeName}'.");
+    protected override string AliasFor(Type aggregateType) => aggregateType.FullName ?? aggregateType.Name;
 
     /// <summary>
     /// The live aggregator for an aggregate no projection was registered for (jasperfx#964): a
