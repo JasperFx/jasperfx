@@ -24,10 +24,10 @@ namespace JasperFx.Events.Documents;
 /// dropping projection writes. A consumer that wants both registers both.
 /// </para>
 /// <para>
-/// Deliberately post-commit only. A <c>BeforeCommit</c> counterpart is not declared: no measured
-/// consumer needs one, and a pre-commit hook wanting to read what is about to be appended is already
-/// served by <see cref="IDocumentSessionOperations.PendingStreams" />. It can be added additively if
-/// a case turns up.
+/// Deliberately post-commit only. The case for a before-save hook did turn up, in a message bus outbox,
+/// and it is <see cref="IDocumentSaveListener" /> (jasperfx#1052). It derives from this interface rather
+/// than adding to it, because the stores' existing adapters forward this one member and would have
+/// silently dropped a second.
 /// </para>
 /// <para>
 /// <strong>Registration is the store's concern.</strong> Each product already owns a
