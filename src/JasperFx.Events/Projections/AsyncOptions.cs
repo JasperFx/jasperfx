@@ -18,6 +18,7 @@ public record DeleteTableData(string TableIdentifier): IProjectionCleanupActions
 public class AsyncOptions
 {
     private readonly List<IProjectionCleanupActions> _cleanups = new();
+    private int? _maximumHopperSize;
 
     public IReadOnlyList<IProjectionCleanupActions> CleanUps => _cleanups;
 
@@ -28,9 +29,16 @@ public class AsyncOptions
 
     /// <summary>
     ///     The maximum number of events to be held in memory in preparation
-    ///     for determining projection updates.
+    ///     for determining projection updates. Defaults to two pages, 2 x <see cref="BatchSize"/>, unless
+    ///     set explicitly. A shard that is behind holds this many events while it waits for a write slot,
+    ///     so memory follows behind shards x hopper depth, and a deeper hopper does not buy throughput
+    ///     when the writes are what is slow (jasperfx#1076).
     /// </summary>
-    public int MaximumHopperSize { get; set; } = 5000;
+    public int MaximumHopperSize
+    {
+        get => _maximumHopperSize ?? 2 * BatchSize;
+        set => _maximumHopperSize = value;
+    }
 
     /// <summary>
     ///     Optional list of stored document or feature types that this projection
