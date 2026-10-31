@@ -59,6 +59,37 @@ public static class TagTypeRegistration
     {
         return new TagTypeRegistration<TTag, TInner>(unwrapper, tableSuffix ?? typeof(TTag).Name.ToTableAlias());
     }
+
+    /// <summary>
+    /// The explicit registration of <paramref name="tagType" /> as a line of code, for an error or log message
+    /// to hand back when a tag type could not be registered by inference. The inner type and member follow the
+    /// tag when it can be read, with <c>TInner</c> and <c>Value</c> as placeholders when it can't, and a
+    /// missing or empty suffix becomes the one <see cref="Create{TTag}"/> uses by default.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Diagnostic text only; if the tag type's members were trimmed the line falls back to placeholders.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "Diagnostic text only; if the tag type's members were trimmed the line falls back to placeholders.")]
+    public static string RegistrationLine(Type tagType, string? tableSuffix, Type? aggregateType)
+    {
+        var inner = "TInner";
+        var member = "Value";
+        try
+        {
+            var valueType = ValueTypeInfo.ForType(tagType);
+            inner = valueType.SimpleType.NameInCode();
+            member = valueType.ValueProperty.Name;
+        }
+        catch (Exception)
+        {
+            // Not a shape ValueTypeInfo understands, or its members were trimmed; the placeholders still name
+            // the overload
+        }
+
+        var suffix = string.IsNullOrEmpty(tableSuffix) ? tagType.Name.ToTableAlias() : tableSuffix;
+        var forAggregate = aggregateType == null ? "" : $".ForAggregate<{aggregateType.NameInCode()}>()";
+        return $"opts.Events.RegisterTagType<{tagType.NameInCode()}, {inner}>(x => x.{member}, \"{suffix}\"){forAggregate};";
+    }
 }
 
 /// <summary>
