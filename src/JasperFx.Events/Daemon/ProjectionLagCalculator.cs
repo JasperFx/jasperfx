@@ -31,6 +31,9 @@ public static class ProjectionLagCalculator
     ///     single <c>:All</c> agent, which records no per-tenant rows at all — keeps its own cell,
     ///     measured against the store-global mark, falling back to the highest tenant mark when the
     ///     store-global row is absent. Without this that agent is invisible.</item>
+    ///     <item>The reverse: a registered shard with no store-global row, whose rows are tenant-qualified, under
+    ///     a store with no tenant high-water rows, reports those tenants' cells against the store-global mark.
+    ///     Calling it "no row" would report a shard that is running as one that never started (jasperfx#1046).</item>
     ///     </list>
     ///     </para>
     /// </summary>
@@ -49,6 +52,7 @@ public static class ProjectionLagCalculator
     {
         var tenantMarks = new Dictionary<string, long>();
         var sequences = new Dictionary<string, long>();
+        var tenantRows = new Dictionary<string, List<ShardName>>();
         long globalMark = 0;
 
         foreach (var state in progress)
@@ -76,6 +80,17 @@ public static class ProjectionLagCalculator
 
             sequences[parsed.Identity] =
                 Math.Max(sequences.TryGetValue(parsed.Identity, out var existing) ? existing : 0, state.Sequence);
+
+            if (parsed.TenantId != null)
+            {
+                var storeGlobal = parsed.ForTenant(null).Identity;
+                if (!tenantRows.TryGetValue(storeGlobal, out var cells))
+                {
+                    tenantRows[storeGlobal] = cells = [];
+                }
+
+                cells.Add(parsed);
+            }
         }
 
         // Deterministic ordering so a status endpoint's output doesn't churn between polls
@@ -94,6 +109,13 @@ public static class ProjectionLagCalculator
 
             if (tenants.Length == 0)
             {
+                if (!sequences.ContainsKey(name.Identity) && tenantRows.TryGetValue(name.Identity, out var cells))
+                {
+                    results.AddRange(cells.Distinct().OrderBy(x => x.TenantId, StringComparer.Ordinal)
+                        .Select(x => lagFor(x, globalMark)));
+                    continue;
+                }
+
                 results.Add(lagFor(name, globalMark));
                 continue;
             }
@@ -121,6 +143,57 @@ public static class ProjectionLagCalculator
         {
             var has = sequences.TryGetValue(name.Identity, out var sequence);
             return new ProjectionLag(name, databaseIdentifier, has ? sequence : 0, mark, has);
+        }
+    }
+
+    /// <summary>
+    ///     The cells of <paramref name="lags" /> that have not reached <paramref name="ceiling" />, which is the
+    ///     question a caller that just committed is asking. See jasperfx#1046.
+    ///     <para>
+    ///     This is deliberately not <see cref="ProjectionLag.IsCaughtUp" />, which is measured against the
+    ///     persisted high-water row. That is the right bar for a status endpoint, but a caller's own events sit
+    ///     at the highest sequence and may be above a mark the agent has not published yet, so
+    ///     <see cref="ProjectionLag.IsCaughtUp" /> would report current on exactly the events being asked about.
+    ///     <list type="bullet">
+    ///     <item>A cell with no row is stale, however small its arithmetic looks.</item>
+    ///     <item>A store-global cell is measured against <paramref name="ceiling" />. Reading past it is caught
+    ///     up, not an error: <see cref="ProjectionLag.Sequence" /> can legitimately be ahead of either bar.</item>
+    ///     <item>A tenant cell is measured against its own tenant's mark (marten#4761): a tenant drawing its own
+    ///     sequence legitimately tops out below the store-wide maximum, and holding it to
+    ///     <paramref name="ceiling" /> would never finish. Until the leading tenant's mark has reached
+    ///     <paramref name="ceiling" /> the marks are not yet about the events in question, so every tenant cell
+    ///     is held to <paramref name="ceiling" /> instead.</item>
+    ///     <item>When <see cref="Calculate" /> reports a store-global cell for a shard alongside tenant cells, that
+    ///     shard is one <c>:All</c> agent spanning every tenant. It owns none of those rows, so they are not its
+    ///     to fill, and requiring them would never finish.</item>
+    ///     </list>
+    ///     </para>
+    /// </summary>
+    /// <param name="lags">The cells, as calculated by <see cref="Calculate" />.</param>
+    /// <param name="ceiling">The highest event sequence the caller wants to be covered.</param>
+    public static IReadOnlyList<ProjectionLag> StaleCells(IReadOnlyList<ProjectionLag> lags, long ceiling)
+    {
+        var leadingTenantMark = lags
+            .Where(x => x.Shard.TenantId != null)
+            .Select(x => x.HighWaterMark)
+            .DefaultIfEmpty(0)
+            .Max();
+
+        var storeGlobalAgents = lags
+            .Where(x => x.Shard.TenantId == null)
+            .Select(x => x.Shard.Identity)
+            .ToHashSet();
+
+        return lags.Where(x => !isCurrent(x)).ToList();
+
+        bool isCurrent(ProjectionLag lag)
+        {
+            if (lag.Shard.TenantId == null) return lag.HasProgressionRow && lag.Sequence >= ceiling;
+
+            if (storeGlobalAgents.Contains(lag.Shard.ForTenant(null).Identity)) return true;
+
+            var mark = leadingTenantMark < ceiling ? ceiling : lag.HighWaterMark;
+            return lag.HasProgressionRow && lag.Sequence >= mark;
         }
     }
 
