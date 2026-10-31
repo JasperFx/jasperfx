@@ -106,7 +106,15 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
 * **`ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, TSubscription>` is public** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)), so Marten and Fisher can drop their copies. Its scope now spans the store's whole run, including the commit, so a scoped service that flushes on dispose flushes after the commit.
 
+* **`EventOperationsBase` holds the shared write surface** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)): `StartStream`, `Append`, `AppendOptimistic`, `AppendExclusive`, `FetchForWriting`, `FetchForExclusiveWriting`, `WriteToAggregate` and `WriteExclusivelyToAggregate`.
+
+  Derive from it, or implement `IEventOperationsHost` if your class already has a base class, and implement the `*Core` seams. The base reads no tenant and assumes no append mode, so the tenant is stamped in your seams, on the instance the call was made on. Natural-key fetches stay per store.
+
+  `Append(stream, expectedVersion, ...)` defaults to meaning the version after the append. A store reading it as the version before overrides `ExpectedStartingVersion`.
+
 ### Behavior changes
+
+* **Stream validation is uniform on every event operations overload** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)), before anything is read, as each store adopts the base. A stream identity that doesn't match the store's `StreamIdentity` throws `InvalidOperationException`, an empty Guid or key throws `ArgumentOutOfRangeException`, `StartStream` with no events throws `EmptyEventStreamException`, and null events throw `ArgumentNullException`. In particular, `FetchForWriting(Guid.Empty)` no longer starts a `Guid.Empty` stream on Polecat or Fisher, and `AppendOptimistic(Guid.Empty)` throws `ArgumentOutOfRangeException` rather than `NonExistentStreamException`.
 
 * **Pre-generated code fails at startup rather than at first use** ([#1041](https://github.com/JasperFx/jasperfx/issues/1041)). `DynamicCodeBuilder.LoadPrebuiltTypes()` now throws `ExpectedTypeMissingException` when the static type loader is in effect (`TypeLoadMode.Static`, or `Auto` on Native AOT) and an expected pre-built type is missing. Dynamic mode, `Auto` with runtime code generation, custom `ITypeLoader`s and the `codegen` commands are unaffected. The text of `ExpectedTypeMissingException` and `MissingTypeException` changed, so don't match on it.
 
