@@ -1,5 +1,38 @@
 # Migration Guide
 
+## Key Changes in 3.0.0
+
+JasperFx 3.0 is the foundation of the Critter Stack .NET 11 release train, alongside Weasel 10, Marten 10, Polecat 6, Fisher 2 and Wolverine 7.
+
+::: warning In progress
+This section grows as the 3.0 work lands, so it describes the `3.0` branch rather than a released package.
+:::
+
+### Foundation
+
+* **.NET 9 support was dropped.** JasperFx 3.0 targets `net10.0`. `net11.0` joins it once the .NET 11 SDK is on the build machines. Stay on JasperFx 2.x if you still need .NET 9.
+
+* **`JasperFx.RuntimeCompiler` moves to 6.0.0**, because it follows the same target framework change and depends on JasperFx 3.
+
+* **`Microsoft.Extensions.*` packages have a 10.0.0 floor.**
+
+### Changed defaults
+
+* **`GateSideEffectsBehindPriorVersion` is on by default for every event store** ([#1075](https://github.com/JasperFx/jasperfx/issues/1075)).
+
+  When a new version of a projection (`Version > 1`) starts behind the highest prior version's progress during a blue/green or rolling deploy, it now catches up to that version's mark with side effects suppressed. `RaiseSideEffects`, raised events and published messages only fire for events the prior version never processed. Before 3.0 the new version emitted them over the whole replay, so the same messages could go out twice.
+
+  * **Schema effect:** none. The gate reads the existing progression rows.
+  * **Cost:** each start of a `Version > 1` shard reads the store's projection progress once. Projections at version 1 do not pay this, and neither do shards that subscribe from the present, which have no prior replay to gate.
+  * **Pacing:** a gated shard starts normally and reports `ShardState.SideEffectsSuppressed` while it warms up. `DaemonSettings.MaxConcurrentSideEffectGateWarmupsPerDatabase` limits how many warm up at once.
+  * **Opt out:** set `GateSideEffectsBehindPriorVersion = false` on the projection, or use your store's restore helper (`RestoreV9Defaults()` in Marten, and the Polecat 6 and Fisher 2 equivalents) to put every changed default back.
+
+  A shard that subscribes from the present used to log a warning when this was set. It now logs at `Information`, since the combination is no longer one anyone chose.
+
+### Compliance suites
+
+* **`SingleTenantedEventSlicingCompliance` was removed** ([#1065](https://github.com/JasperFx/jasperfx/issues/1065)), along with `TallyIncremented` and `TenantSlicingTally`. It was marked obsolete in 2.x because it could only execute on Marten. Remove any enrollment from your store's compliance tests.
+
 ## Key Changes in 2.0.0
 
 JasperFx 2.0 is the foundation release of the [Critter Stack 2026](https://github.com/JasperFx/jasperfx/issues/217) wave. It ships in lockstep with Marten 9.0, Wolverine 6.0, Polecat 4.0, and Weasel 9.0. Most of the changes below are mechanical pin bumps + namespace adjustments; a few API shapes changed in ways that downstream code will notice.

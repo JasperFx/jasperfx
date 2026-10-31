@@ -637,10 +637,11 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return started;
     }
 
-    // jasperfx#480: opt-in blue/green side-effect gate. When a projection opts in and a NEW version of it
-    // starts behind the highest PRIOR version's persisted progression mark N, the agent runs from its own
-    // progress to N with side effects suppressed and only emits them past N — so RaiseSideEffects fires
-    // only for events the previous version never processed. Returns N, or 0 when the gate does not apply.
+    // jasperfx#480: the blue/green side-effect gate, on unless a projection turns it off (jasperfx#1075).
+    // When a NEW version of a projection starts behind the highest PRIOR version's persisted progression
+    // mark N, the agent runs from its own progress to N with side effects suppressed and only emits them
+    // past N — so RaiseSideEffects fires only for events the previous version never processed. Returns N,
+    // or 0 when the gate does not apply.
     //
     // Crash safety is unchanged from the pre-#598 shape and comes from the same place: the trigger is
     // "persisted progress < N", not "no progress at all", so an interrupted warm-up resumes suppressed
@@ -655,8 +656,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         if (shard.Options.UsesFromPresent(Database))
         {
-            Logger.LogWarning(
-                "Projection shard {Name} opts into GateSideEffectsBehindPriorVersion but subscribes from 'present', which ignores persisted progression. The side-effect gate is skipped",
+            // Not a warning: the gate is on by default (jasperfx#1075), so nobody chose this combination, and
+            // there is no prior replay to gate when a shard starts from the present.
+            Logger.LogInformation(
+                "Projection shard {Name} subscribes from 'present', which ignores persisted progression, so GateSideEffectsBehindPriorVersion does not apply",
                 name.Identity);
             return 0;
         }
