@@ -89,7 +89,7 @@ public static class StreamExtensions
         try
         {
             var bytes = await stream.ReadBytesAsync(expected.Length).ConfigureAwait(false);
-            return expected.SequenceEqual(bytes);
+            return expected.AsSpan().SequenceEqual(bytes);
         }
         catch (Exception)
         {

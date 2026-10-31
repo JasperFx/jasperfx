@@ -65,4 +65,20 @@ public class StreamExtensionsTests
 
         actual.ShouldBe(bytes);
     }
+
+    [Fact]
+    public async Task read_expected_buffer_is_true_when_the_stream_starts_with_it()
+    {
+        var stream = new MemoryStream([1, 2, 3, 4]);
+
+        (await stream.ReadExpectedBufferAsync([1, 2, 3])).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task read_expected_buffer_is_false_when_the_stream_differs()
+    {
+        var stream = new MemoryStream([1, 2, 9, 4]);
+
+        (await stream.ReadExpectedBufferAsync([1, 2, 3])).ShouldBeFalse();
+    }
 }
