@@ -705,6 +705,16 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsTombstoneStream => false;
 
     /// <summary>
+    /// True in a store whose masking pass reaches archived events, which is a read of its own wherever the
+    /// plain stream read leaves them out. See <c>EventDataMaskingBase&lt;TSession&gt;</c>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong> so that a store implements the read first and flips this after,
+    /// rather than going red on the JasperFx upgrade that added the fact (#1048).
+    /// </remarks>
+    public virtual bool SupportsMaskingArchivedEvents => false;
+
+    /// <summary>
     /// Queue an unarchive of the given stream on the session — <paramref name="streamIdentity"/> is
     /// a <see cref="Guid"/> or a <see cref="string"/>. Like <c>ArchiveStream</c>, this takes effect
     /// on SaveChanges rather than immediately.
