@@ -64,7 +64,9 @@ public class ScopedProjectionWrapper<TProjection, TOperations, TQuerySession> : 
                 RegisterPublishedType(publishedType);
             }
         }
-        
+
+        Options.DeleteTablesPublishedBy(raw);
+
         base.Version = 1;
         if (typeof(TProjection).TryGetAttribute<ProjectionVersionAttribute>(out var att))
         {
