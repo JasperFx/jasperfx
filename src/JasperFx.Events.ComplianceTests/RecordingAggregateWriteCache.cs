@@ -145,6 +145,27 @@ public class RecordingAggregateWriteCache: IAggregateWriteCache
         }
     }
 
+    /// <remarks>
+    /// Forwarded rather than left to the interface's default, which is built on
+    /// <see cref="TryTake" />: a write-back would then count as a take, and <see cref="Hits" /> would
+    /// go up for a store that never read the cache at all, which is the failure this type exists to
+    /// catch.
+    /// </remarks>
+    public bool StoreIfNewer(AggregateCacheKey key, object aggregate, long version)
+    {
+        var stored = _inner.StoreIfNewer(key, aggregate, version);
+
+        if (stored)
+        {
+            lock (_locker)
+            {
+                _stored.Add(key);
+            }
+        }
+
+        return stored;
+    }
+
     public void Evict(AggregateCacheKey key)
     {
         _inner.Evict(key);
