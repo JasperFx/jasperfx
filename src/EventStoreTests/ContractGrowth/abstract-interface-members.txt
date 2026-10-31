@@ -650,6 +650,8 @@ JasperFx.Events.IReadOnlyEventStore :: System.Threading.Tasks.Task`1[System.Coll
 JasperFx.Events.IStorageOperations :: Boolean get_EnableSideEffectsOnInlineProjections()
 JasperFx.Events.IStorageOperations :: System.Threading.Tasks.Task`1[JasperFx.Events.Daemon.IProjectionStorage`2[TDoc,TId]] FetchProjectionStorageAsync[TDoc,TId](System.String, System.Threading.CancellationToken)
 JasperFx.Events.IStorageOperations :: System.Threading.Tasks.ValueTask`1[JasperFx.Events.IMessageSink] GetOrStartMessageSink()
+JasperFx.Events.IUnitOfWorkChangeSet :: System.Collections.Generic.IEnumerable`1[JasperFx.Events.IEvent] GetEvents()
+JasperFx.Events.IUnitOfWorkChangeSet :: System.Collections.Generic.IEnumerable`1[JasperFx.Events.StreamAction] GetStreams()
 JasperFx.Events.IUpdatedEntity :: System.Object get_Entity()
 JasperFx.Events.Projections.IEntityStorage`1 :: Void Store[T](TOperations, T)
 JasperFx.Events.Projections.IEventEnrichment`1 :: System.Threading.Tasks.Task EnrichEventsAsync(TQuerySession, System.Collections.Generic.IReadOnlyList`1[JasperFx.Events.IEvent], System.Threading.CancellationToken)
