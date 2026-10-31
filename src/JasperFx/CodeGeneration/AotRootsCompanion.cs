@@ -13,8 +13,9 @@ namespace JasperFx.CodeGeneration;
 ///         The problem this solves (jasperfx#743, follow-on from wolverine#4287): pre-generated
 ///         code is reached at runtime by reflection — an assembly scan plus
 ///         <c>Activator.CreateInstance</c> — so ILC has no static reference to it, trims it, and
-///         <c>TypeLoadMode.Static</c> silently degrades to a scan that finds nothing under Native
-///         AOT. Until now the application author had to hand-write the rooting attributes.
+///         <c>TypeLoadMode.Static</c> degrades to a scan that finds nothing under Native AOT. Until
+///         now the application author had to hand-write the rooting attributes. When a scan does come
+///         up empty, the failure names this companion as the way out (jasperfx#1041).
 ///     </para>
 ///     <para>
 ///         A module initializer is an unconditional ILC root, so anchoring the block there roots
