@@ -44,6 +44,22 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
   * **Schema effect:** none.
   * **Opt out:** set `MaximumHopperSize` explicitly, which always wins over the derived default. `MaximumHopperSize = 5000` restores the old behavior.
 
+### For event store authors
+
+The types below were lifted out of Marten, Polecat and Fisher so that each store can delete its own copy. Adopting them is expected to land in the same change as the JasperFx 3.0 pin bump: where a store keeps a type of the same name, any file importing both namespaces stops compiling with `CS0104`.
+
+* **`EventBoundary<T>` and `TagValueStringifier` are now in `JasperFx.Events.Tags`** ([#1044](https://github.com/JasperFx/jasperfx/issues/1044)).
+
+  Build the boundary from `FetchForWritingByTags`, and pass the same `IEventOperations` the fetch went through, because that decides the tenant of what it appends. Under `ForTenant` that means the tenant-scoped operations, not the root session's. The boundary does not enforce consistency: the store still checks `LastSeenSequence` at `SaveChangesAsync`.
+
+  Behavior that differs from the stores' own copies:
+
+  * An event routed by a tag stamps the tag's aggregate type on a stream that has none.
+  * On a Guid-identity store, a string or numeric tag no longer names a stream. The next tag that can name one does, and failing that the event gets its own new stream.
+  * On a string-identity store, any tag value names a stream, in invariant form.
+  * A `Guid.Empty` tag value reaches the store's `Append` guard rather than being accepted.
+  * Under Marten's `UseMandatoryStreamTypeDeclaration`, an event no tag can route now throws `StreamTypeMissingException` at `AppendOne`.
+
 ### Compliance suites
 
 * **`SingleTenantedEventSlicingCompliance` was removed** ([#1065](https://github.com/JasperFx/jasperfx/issues/1065)), along with `TallyIncremented` and `TenantSlicingTally`. It was marked obsolete in 2.x because it could only execute on Marten. Remove any enrollment from your store's compliance tests.
