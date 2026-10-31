@@ -195,11 +195,13 @@ public interface IComplianceStoreRegistrar
     /// <remarks>
     /// <para>
     /// Typed as the concrete <see cref="RecordingMessageOutbox"/> for the same reason as
-    /// <see cref="Subscribe"/>: <c>IMessageOutbox</c> is a per-product interface — Marten's
-    /// <c>CreateBatch</c> takes its internal <c>DocumentSessionBase</c>, Polecat's and Fisher's take
-    /// their own <c>IDocumentSession</c> — so there is no shared type to accept here. The library
-    /// owns the recording type and each consumer completes it as a partial implementing its own
-    /// interface, so naming the concrete type is the one spelling that works everywhere.
+    /// <see cref="Subscribe"/>: each product's options are still typed to its own <c>IMessageOutbox</c>
+    /// — Marten's <c>CreateBatch</c> takes its internal <c>DocumentSessionBase</c>, Polecat's and
+    /// Fisher's take their own <c>IDocumentSession</c> — so the shared
+    /// <see cref="JasperFx.Events.Documents.IMessageOutbox"/> is not yet a type every store can accept
+    /// here. The library owns the recording type and each consumer completes it as a partial
+    /// implementing its own interface, so naming the concrete type is the one spelling that works
+    /// everywhere.
     /// </para>
     /// <para>
     /// Carries a throwing default for the same reason as <see cref="UseBinarySerializer{TEvent}"/>:

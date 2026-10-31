@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace JasperFx.Events.ComplianceTests;
@@ -20,12 +21,12 @@ namespace JasperFx.Events.ComplianceTests;
 /// <para>
 /// This is the third shared type in the library that cannot be reached by an alias alone, after
 /// <c>ComplianceFlatTableProjection</c> and <see cref="ComplianceSubscription" />, and for the same
-/// reason as the second: <c>IMessageOutbox</c> and <c>IMessageBatch</c> are per-product types whose
-/// members genuinely differ. Marten declares <c>IMessageBatch : IMessageSink, IChangeListener</c>,
-/// so its commit hooks take <c>(IDocumentSession, IChangeSet, CancellationToken)</c>, while Polecat
-/// and Fisher declare their own two-member interface taking a bare <c>CancellationToken</c>. The
-/// library owns the recording, the ordering and the probe; a consumer supplies only the interface
-/// implementation:
+/// reason as the second: each product still declares its own <c>IMessageOutbox</c> and
+/// <c>IMessageBatch</c>, and their members differ. Marten declares
+/// <c>IMessageBatch : IMessageSink, IChangeListener</c>, so its commit hooks take
+/// <c>(IDocumentSession, IChangeSet, CancellationToken)</c>, while Polecat and Fisher declare their own
+/// two-member interface taking a bare <c>CancellationToken</c>. The library owns the recording, the
+/// ordering and the probe; a consumer supplies only the interface implementation:
 /// </para>
 /// <code>
 /// public partial class RecordingMessageOutbox : IMessageOutbox
@@ -44,16 +45,31 @@ namespace JasperFx.Events.ComplianceTests;
 /// }
 /// </code>
 /// <para>
+/// The library half already implements the shared <see cref="JasperFx.Events.Documents.IMessageOutbox" />
+/// and <see cref="JasperFx.Events.Documents.IMessageBatch" /> (jasperfx#1045), so a store that has moved
+/// onto those deletes its half of this type altogether. The implementations are <em>explicit</em>, and
+/// that is load-bearing. This package ships as source, and an existing consumer's half declares a public
+/// <c>BeforeCommitAsync(CancellationToken)</c> of its own, so a public member here would be CS0111 in
+/// that consumer the day it took this version. Written explicitly, the two coexist in every state a
+/// store can be in: on its own interfaces, on interfaces deriving from the shared ones, or on the shared
+/// ones alone. The names are fully qualified for the same reason, since the consumer owns the usings
+/// that decide what a bare <c>IMessageOutbox</c> means.
+/// </para>
+/// <para>
 /// Recording is under a lock because the daemon raises side effects for the slices in one batch
 /// concurrently. Marten's own <c>RecordingMessageOutbox</c> carries a comment saying exactly that,
 /// added after an unguarded <c>List.Add</c> silently dropped batches and presented as flakiness
 /// (marten#5065) — so the shared copy is synchronized from the start.
 /// </para>
 /// </remarks>
-public partial class RecordingMessageOutbox
+public partial class RecordingMessageOutbox : JasperFx.Events.Documents.IMessageOutbox
 {
     private readonly object _locker = new();
     private readonly List<RecordingMessageBatch> _batches = new();
+
+    ValueTask<JasperFx.Events.Documents.IMessageBatch> JasperFx.Events.Documents.IMessageOutbox.CreateBatch(
+        JasperFx.Events.Documents.IDocumentSessionOperations session)
+        => new(NewBatch());
 
     /// <summary>
     /// Optional read of the <em>committed</em> state, run at each commit hook so a suite can tell
@@ -149,7 +165,7 @@ public partial class RecordingMessageOutbox
 /// One outbox batch — the messages published through it and the order its commit hooks fired in.
 /// </summary>
 /// <inheritdoc cref="RecordingMessageOutbox" path="/remarks"/>
-public partial class RecordingMessageBatch
+public partial class RecordingMessageBatch : JasperFx.Events.Documents.IMessageBatch
 {
     private readonly object _locker = new();
     private readonly List<(object Message, string TenantId)> _published = new();
@@ -157,6 +173,12 @@ public partial class RecordingMessageBatch
     private readonly Func<Task<bool>>? _probe;
 
     internal RecordingMessageBatch(Func<Task<bool>>? probe) => _probe = probe;
+
+    Task JasperFx.Events.Documents.IMessageBatch.BeforeCommitAsync(CancellationToken token)
+        => RecordBeforeCommitAsync();
+
+    Task JasperFx.Events.Documents.IMessageBatch.AfterCommitAsync(CancellationToken token)
+        => RecordAfterCommitAsync();
 
     /// <summary>
     /// Messages published through this batch, in order.
