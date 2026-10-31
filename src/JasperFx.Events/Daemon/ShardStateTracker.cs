@@ -22,7 +22,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
     // listeners that existed at that moment" -- see the comment on SubscribeAndCaptureCurrentStates.
     // They were also both read-modify-write on plain fields before, so two concurrent Subscribe calls
     // could silently lose one of the subscribers outright.
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private ImmutableList<IObserver<ShardState>> _listeners = ImmutableList<IObserver<ShardState>>.Empty;
     private ImHashMap<string, ShardState> _states = ImHashMap<string, ShardState>.Empty;
     private long _highWaterMark;
