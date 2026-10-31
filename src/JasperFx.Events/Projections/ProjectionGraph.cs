@@ -15,7 +15,7 @@ namespace JasperFx.Events.Projections;
 
 [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
     Justification = "Class-level: reflects on registered projection Type values via TypeExtensions.Closes(...). The projection types are preserved at the registration boundary on the caller side.")]
-public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> : DaemonSettings
+public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> : DaemonSettings, IEventSubscriptionRegistrar
     where TOperations : TQuerySession, IStorageOperations
     where TProjection : IJasperFxProjection<TOperations>
 {
@@ -270,6 +270,19 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     /// Add a subscription to this event store
     /// </summary>
     /// <param name="subscription"></param>
+    /// <inheritdoc />
+    /// <remarks>
+    /// Virtual rather than implemented here, because running a subscription is the store's: the daemon
+    /// resolves an <see cref="ISubscriptionRunner{T}" /> from the store, and a store that had not written one
+    /// would only find out at daemon start. So the default refuses at registration, and a store overrides
+    /// this to wrap the subscription in its own <c>SubscriptionBase</c> using
+    /// <see cref="JasperFxSubscriptionBase{TOperations,TQuerySession,TSubscription}.ConfigureFrom" />.
+    /// </remarks>
+    /// <exception cref="NotSupportedException">From the default implementation.</exception>
+    public virtual void Subscribe(IEventSubscription subscription, Action<ISubscriptionOptions>? configure = null)
+        => throw new NotSupportedException(
+            $"{GetType().FullNameInCode()} does not implement {nameof(IEventSubscriptionRegistrar)}.{nameof(Subscribe)}, so subscription {subscription.SubscriptionName} was refused here rather than registered and never run.");
+
     protected void registerSubscription(ISubscriptionSource<TOperations, TQuerySession> subscription)
     {
         _subscriptions.Add(subscription);

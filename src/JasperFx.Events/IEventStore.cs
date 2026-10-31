@@ -323,6 +323,81 @@ public interface IEventStore
     EventStoreIdentity Identity { get; }
 
     /// <summary>
+    /// Whether this store identifies streams by <see cref="Guid" /> or by string key.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On the non-generic interface so that a consumer holding the store a chain writes to can ask it,
+    /// which is the fact that made Wolverine read a store's concrete options, and read the default
+    /// store's at that: an ancillary store with a different identity got the wrong code. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/1052" />.
+    /// </para>
+    /// <para>
+    /// <see cref="IEventStore{TOperations,TQuerySession}" /> answers this from its
+    /// <c>Registry</c>, so every store implementing that interface has it already. This default is
+    /// for the rare implementer that stops at the non-generic one.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on a store with no event registry to read.
+    /// </exception>
+    StreamIdentity StreamIdentity
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(StreamIdentity)}.");
+
+    /// <summary>
+    /// The CLR type this store identifies an aggregate or document of <paramref name="aggregateType" /> by.
+    /// A strong-typed identifier comes back as itself, never as its primitive, and never as a
+    /// <see cref="Nullable{T}" />.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <strong>Not <see cref="IEventStore{TOperations,TQuerySession}.IdentityTypeForProjectedType" />,
+    /// and it cannot forward to it.</strong> Despite the name, that member has four answers: Marten
+    /// returns the document type itself, Polecat and Fisher return the stream identity primitive ("what
+    /// does a shard slice by"), and the in-memory store returns the aggregate's id type. What a consumer
+    /// generating code needs is the last of those, which Marten spells
+    /// <c>EventGraph.IdentityTypeFor</c>.
+    /// </para>
+    /// <para>
+    /// A fact about the store and not the type: a store can name a different member as the identity, so
+    /// asking the default store about an aggregate keyed differently on an ancillary one answers
+    /// confidently and wrongly. That is wolverine GH-4441, and it is why the default throws rather than
+    /// reflecting over <c>Id</c> the way Wolverine does for Polecat and Fisher today. That reflection is
+    /// also where GH-3942's nullable unwrap went missing on Fisher.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when the store has not implemented this member.
+    /// </exception>
+    Type IdentityTypeFor(Type aggregateType)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(IdentityTypeFor)}, so it cannot say how it identifies {aggregateType.FullName}. This member deliberately does not guess from an Id member, because a store can configure a different one.");
+
+    /// <summary>
+    /// The natural key registered for an aggregate on this store, or null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ <strong>The default throws instead of returning null, because null is a real answer.</strong> It
+    /// means "this aggregate has no natural key", and a consumer takes the identity branch on it. Wolverine's
+    /// Fisher integration inherited exactly that null, which left its natural-key branch unreachable and
+    /// reported "unable to determine an aggregate id" for a well-formed handler (GH-4439).
+    /// </para>
+    /// <para>
+    /// Marten and Polecat declare this on their projection options, and Fisher has it internally as
+    /// <c>NaturalKeyFor</c>. A store forwards. Scoped to this store, because a natural key is registered per
+    /// store: see <see href="https://github.com/JasperFx/jasperfx/issues/1052" />.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when the store has not implemented this member.
+    /// </exception>
+    NaturalKeyDefinition? FindNaturalKeyDefinition(Type aggregateType)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(FindNaturalKeyDefinition)}. This member deliberately throws rather than returning null, which would mean {aggregateType.FullName} has no natural key.");
+
+    /// <summary>
     /// Open a read-only event store session for querying
     /// </summary>
     IReadOnlyEventStore OpenReadOnlyEventStore();
@@ -873,6 +948,16 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
 {
     IEventRegistry Registry { get; }
 
+    /// <summary>
+    /// Answered from <see cref="Registry" />, which every store already has, so none of them has to write
+    /// this (jasperfx#1052).
+    /// </summary>
+    StreamIdentity IEventStore.StreamIdentity => Registry.StreamIdentity;
+
+    /// <summary>
+    /// What this store's daemon addresses a projected type by. The stores do not agree on what that is,
+    /// so a consumer wanting an identity type wants <see cref="IEventStore.IdentityTypeFor" />.
+    /// </summary>
     Type IdentityTypeForProjectedType(Type aggregateType);
     
     string DefaultDatabaseName { get; }
