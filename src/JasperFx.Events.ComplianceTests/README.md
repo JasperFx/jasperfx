@@ -428,6 +428,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Archiving a stream and its consequences | `StreamArchivingCompliance` |
 | Hard-deleting a stream with `TombstoneStream` (opt-in, `SupportsTombstoneStream`) | `StreamTombstoningCompliance` |
 | The event store explorer surface | `EventStoreExplorerCompliance` |
+| Projection step-through over real rows (opt-in, for a store that has adopted `ProjectionStepThrough`) | `ProjectionStepThroughCompliance` |
 | Flat-table event projections | `FlatTableProjectionCompliance` |
 | String stream identity, read and write surface | `StringStreamIdentityCompliance` |
 | Multi-stream projection grouping and fan-out | `MultiStreamProjectionCompliance` |
