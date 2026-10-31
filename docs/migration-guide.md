@@ -98,6 +98,14 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
 * **`Insert<T>(T)`, `Update<T>(T)`, `StoreObjects` and `CheckExistsAsync<T>(object)` are on the shared write and read tiers** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)).
 
+* **`AggregateWriteCacheSession` and `AggregateWriteBaseline<T>` hold the aggregate write-back** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)).
+
+  `Flush` only after a commit you own, and call `Discard` otherwise, including on a failed save and on a transaction the caller owns. Register at the version the instance reflects, and use `Advance` only with the instance that actually holds the newer state. Call `TakeBaseline(..., 0)` for a missing stream, so a stale entry cannot outlive it.
+
+* **`IAggregateWriteCache.StoreIfNewer` refuses a write older than the existing entry** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)). It is a default member, so custom caches keep compiling and get the guard through `TryTake` and `Store`. A write-back therefore reads as a take to anything counting takes. Override it if your cache can compare and swap, or if your counters matter.
+
+* **`ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, TSubscription>` is public** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)), so Marten and Fisher can drop their copies. Its scope now spans the store's whole run, including the commit, so a scoped service that flushes on dispose flushes after the commit.
+
 ### Behavior changes
 
 * **Pre-generated code fails at startup rather than at first use** ([#1041](https://github.com/JasperFx/jasperfx/issues/1041)). `DynamicCodeBuilder.LoadPrebuiltTypes()` now throws `ExpectedTypeMissingException` when the static type loader is in effect (`TypeLoadMode.Static`, or `Auto` on Native AOT) and an expected pre-built type is missing. Dynamic mode, `Auto` with runtime code generation, custom `ITypeLoader`s and the `codegen` commands are unaffected. The text of `ExpectedTypeMissingException` and `MissingTypeException` changed, so don't match on it.
