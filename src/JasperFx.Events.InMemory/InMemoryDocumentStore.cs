@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
@@ -376,6 +377,10 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
     private readonly string _tenantId;
     private readonly List<Action<InMemoryChangeSet>> _pending = new();
 
+    // No participants ever reach these: a store with no connection has nothing to hand one, so
+    // AddTransactionParticipant stays on the contract's refusal rather than pretending.
+    private readonly DocumentSessionHooks _hooks = new();
+
     internal InMemoryDocumentSession(InMemoryDocumentStore store, string tenantId)
     {
         _store = store;
@@ -407,6 +412,9 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
 
     /// <inheritdoc />
     public IReadOnlyList<StreamAction> PendingStreams => Events.PendingStreams;
+
+    /// <inheritdoc />
+    public void AddSaveListener(IDocumentSaveListener listener) => _hooks.AddListener(listener);
 
     // ---- IMetadataContext: what Rich append metadata copies onto each event ----
 
@@ -496,8 +504,39 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
     {
         foreach (var entity in entities)
         {
-            var id = InMemoryDocumentStore.IdentityOf(entity);
-            _pending.Add(changes =>
+            enlistWrite(entity, requireNew: false, requireExisting: false);
+        }
+    }
+
+    /// <inheritdoc />
+    public void Insert<T>(T document) where T : notnull
+        => enlistWrite(document, requireNew: true, requireExisting: false);
+
+    /// <inheritdoc />
+    public void Update<T>(T document) where T : notnull
+        => enlistWrite(document, requireNew: false, requireExisting: true);
+
+    // Static and generic over the runtime type, because a document's storage bucket, version guard and
+    // write record all key on T: a document stored as object would land in a bucket nothing reads.
+    private static readonly MethodInfo StoreRuntimeTyped =
+        typeof(InMemoryDocumentSession).GetMethod(nameof(storeRuntimeTyped), BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+    /// <inheritdoc />
+    [UnconditionalSuppressMessage("AOT", "IL3050", Justification = "Prototyping store; not AOT-compatible.")]
+    public void StoreObjects(IEnumerable<object> documents)
+    {
+        foreach (var document in documents)
+        {
+            StoreRuntimeTyped.MakeGenericMethod(document.GetType()).Invoke(this, [document]);
+        }
+    }
+
+    private void storeRuntimeTyped<T>(T document) where T : notnull => Store(document);
+
+    private void enlistWrite<T>(T entity, bool requireNew, bool requireExisting) where T : notnull
+    {
+        var id = InMemoryDocumentStore.IdentityOf(entity);
+        _pending.Add(changes =>
             {
                 var storage = _store.StorageFor(typeof(T), _tenantId);
 
@@ -506,6 +545,16 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
                 // deliberately does not hold products to one determination here -- only to the
                 // document landing in exactly one of the two collections.
                 var existed = storage.ContainsKey(id);
+
+                if (requireNew && existed)
+                {
+                    throw new DocumentAlreadyExistsException(typeof(T), id);
+                }
+
+                if (requireExisting && !existed)
+                {
+                    throw new InvalidOperationException($"Nonexistent document {typeof(T).FullName}: {id}");
+                }
 
                 guardVersion(entity, storage, id, existed, changes);
 
@@ -533,7 +582,6 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
                     changes.RecordInserted(entity);
                 }
             });
-        }
     }
 
     /// <summary>
@@ -707,15 +755,18 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
         // succeeded, and a store that applied first would break the second half of that.
         token.ThrowIfCancellationRequested();
 
-        var streams = Events.PendingStreams;
-
-        if (_pending.Count == 0 && streams.Count == 0)
+        if (_pending.Count == 0 && Events.PendingStreams.Count == 0)
         {
             // An empty unit of work raises nothing. The contract permits either answer here and the
             // compliance suite asserts neither; this side is chosen to match Fisher.
             return;
         }
 
+        // jasperfx#1052: ahead of everything taken from the session below, so what a hook enlists joins
+        // this commit, and outside the commit gate, so a hook can read through a second session.
+        await _hooks.BeforeSaveAsync(this, token).ConfigureAwait(false);
+
+        var streams = Events.PendingStreams;
         var changes = new InMemoryChangeSet();
         var pending = _pending.ToArray();
         var inline = _store.Projections.InlineProjections(_store);
@@ -761,6 +812,9 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
 
         _pending.Clear();
         Events.ClearPendingStreams();
+
+        // jasperfx#1052: past the catch above, so a commit that rolled back never reaches it
+        await _hooks.AfterCommitAsync(this, changes, null).ConfigureAwait(false);
 
         foreach (var listener in _store.Listeners)
         {
