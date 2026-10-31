@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using JasperFx.Core;
 using Shouldly;
 
@@ -133,6 +134,21 @@ public class StringExtensionsTester
     }
 
     [Fact]
+    public void the_regex_cache_keeps_cultures_apart()
+    {
+        var us = new CultureInfo("en-us");
+        var german = new CultureInfo("de-DE");
+
+        for (var i = 0; i < 2; i++)
+        {
+            "1,000.5".IsValidNumber(us).ShouldBeTrue();
+            "1,000.5".IsValidNumber(german).ShouldBeFalse();
+            "1.000,5".IsValidNumber(german).ShouldBeTrue();
+            "1.000,5".IsValidNumber(us).ShouldBeFalse();
+        }
+    }
+
+    [Fact]
     public void to_bool()
     {
         "true".ToBool().ShouldBeTrue();
@@ -258,6 +274,66 @@ e
         str1.GetStableHashCode().ShouldBe(str1.GetStableHashCode());
         str2.GetStableHashCode().ShouldBe(str2.GetStableHashCode());
         str1.GetStableHashCode().ShouldNotBe(str2.GetStableHashCode());
+    }
+
+    // jasperfx#1041. These values are persisted downstream and Wolverine routes partitioned messages by
+    // them, so they are not allowed to change. They were computed independently of this code and held
+    // against the Encoding.UTF8.GetBytes implementation before the buffer changed.
+    [Fact]
+    public void java_compliant_hash_values_are_pinned()
+    {
+        var pins = new (string Text, int Hash)[]
+        {
+            ("", 0),
+            ("a", 97),
+
+            // Java's "hello".hashCode(), which is where the name comes from
+            ("hello", 99162322),
+            ("7f1d3c8e-2c4d-4a7b-9f60-5c1b0a3e9d12", -718012035),
+
+            // Two, three and four byte sequences. It hashes UTF-8 bytes where Java hashes UTF-16 code units,
+            // so past ASCII these are NOT Java's values. They are what is persisted all the same.
+            ("Größe", 2037676107),
+            ("日本語", 622067898),
+            ("order-😀", 713980918),
+
+            // A lone surrogate on either side encodes as U+FFFD, as Encoding.UTF8 does
+            ("a\ud83db", 96891094),
+            ("a\ude00b", 96891094),
+
+            // Past the stack buffer, on either side of its 256 bytes, and with every width of multibyte sequence
+            (new string('x', 4000), 182136832),
+            (string.Concat(Enumerable.Repeat("Größe-日本語-😀", 200)), 851147616),
+            (new string('x', 255) + "😀", 1091662927),
+            (new string('語', 86), -488524928)
+        };
+
+        foreach (var (text, hash) in pins)
+        {
+            text.DeterministicJavaCompliantHash().ShouldBe(hash);
+        }
+    }
+
+    [Fact]
+    public void java_compliant_hash_matches_hashing_the_utf8_bytes_for_arbitrary_text()
+    {
+        var random = new Random(1041);
+
+        // Every width of sequence, and lone surrogates, at lengths on both sides of the stack buffer
+        var alphabet = new[] { "x", "ß", "語", "😀", "\ud83d", "\ude00" };
+
+        for (var i = 0; i < 2000; i++)
+        {
+            var text = string.Concat(Enumerable.Range(0, random.Next(1, 900)).Select(_ => alphabet[random.Next(alphabet.Length)]));
+
+            var expected = 0;
+            foreach (var b in Encoding.UTF8.GetBytes(text))
+            {
+                expected = 31 * expected + b;
+            }
+
+            text.DeterministicJavaCompliantHash().ShouldBe(expected);
+        }
     }
 
     [Theory]
