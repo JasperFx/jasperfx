@@ -1,4 +1,5 @@
 using System.Text.Json;
+using JasperFx.Core.Reflection;
 using JasperFx.Descriptors;
 using JasperFx.Events.Projections;
 
@@ -44,4 +45,46 @@ public interface ISteppableAggregation<TQuerySession>
         Func<IEvent, EventRecord> toRecord,
         IProjectionStepObserver? observer,
         CancellationToken cancellation);
+
+    /// <summary>
+    /// The same fan-out fold, given the store's serializer in both directions, which is what lets a failed
+    /// apply put the fold back on the state from before it (jasperfx#1049).
+    /// </summary>
+    Task<MultiAggregateProjectionResult> BuildTimelinesAsync(
+        IReadOnlyList<IEvent> events,
+        TQuerySession session,
+        ProjectionStateSerializer states,
+        Func<IEvent, EventRecord> toRecord,
+        IProjectionStepObserver? observer,
+        CancellationToken cancellation)
+        => BuildTimelinesAsync(events, session, states.Serialize, toRecord, observer, cancellation);
+
+    /// <summary>
+    /// Fold <paramref name="events"/> into one aggregate, one at a time, capturing the state around each
+    /// as the JSON the store would persist. The single-aggregate form behind
+    /// <see cref="IEventStore.RunProjectionAsync{TState}"/> and
+    /// <see cref="IEventStore.RunProjectionByNameAsync"/>; a store reaches it through
+    /// <see cref="ProjectionStepThrough{TQuerySession}"/>. Nothing is persisted.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <c>BuildTimelinesAsync</c> this does not slice or enrich: the list is taken as the events of
+    /// this aggregate, and every record produces a step, including one <paramref name="toEvent"/> cannot read.
+    /// </remarks>
+    /// <param name="identity">The aggregate's identity. A single-stream projection reads it off each event instead.</param>
+    /// <param name="events">Events to replay, in apply order.</param>
+    /// <param name="toEvent">Maps a wire record to an <see cref="IEvent"/>, or to <see langword="null"/> when this process cannot read it.</param>
+    /// <param name="session">Live query session handed to the projection's apply methods.</param>
+    /// <param name="startingState">State to start from, as JSON; <see langword="null"/> starts with no aggregate.</param>
+    /// <param name="states">The store's serializer.</param>
+    /// <param name="cancellation">Cancellation token for the replay.</param>
+    Task<ProjectionTimeline<JsonElement?>> BuildTimelineAsync(
+        object identity,
+        IReadOnlyList<EventRecord> events,
+        Func<EventRecord, IEvent?> toEvent,
+        TQuerySession session,
+        JsonElement? startingState,
+        ProjectionStateSerializer states,
+        CancellationToken cancellation)
+        => throw new NotSupportedException(
+            $"{GetType().FullNameInCode()} does not implement the single-aggregate step-through. Use {nameof(BuildTimelinesAsync)}.");
 }
