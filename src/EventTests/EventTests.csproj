@@ -29,5 +29,13 @@
 
     <ItemGroup>
         <Compile Remove="Class1.cs" />
+
+        <!--
+          jasperfx#1045: compiled from source, because that is how a store consumes the compliance
+          package. The partial's other half lives in Projections/MessageOutboxBridgeTests.cs, and a
+          library change that would break a consumer's half fails this build.
+        -->
+        <Compile Include="..\JasperFx.Events.ComplianceTests\RecordingMessageOutbox.cs"
+                 Link="ComplianceTests\RecordingMessageOutbox.cs" />
     </ItemGroup>
 </Project>
