@@ -5,9 +5,7 @@ namespace JasperFx.Core;
 /// <summary>
 ///     Comb Guid Id Generation. More info https://web.archive.org/web/20250000000000*/http://www.informit.com/articles/article.aspx?p=25862
 /// </summary>
-#if NET9_0_OR_GREATER
 [Obsolete("Replaced by the built-in `Guid.CreateVersion7()`. This type will be removed in a future release.")]
-#endif
 public class CombGuidIdGeneration
 {
     /*

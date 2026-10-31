@@ -9,7 +9,7 @@ This guide walks through publishing a .NET application that uses JasperFx (and t
 JasperFx 2.0 is the first release where AOT publishing is a supported posture for apps that don't need runtime code generation. JasperFx and JasperFx.Events 2.0.0-alpha.12+ build with `IsAotCompatible=true` and 0 IL warnings; the rest of the Critter Stack family (Marten, Wolverine, Polecat) is on the same arc.
 
 ::: tip Prerequisites
-- .NET 9 or 10 SDK
+- .NET 10 SDK
 - An application using `TypeLoadMode.Static` (see [CLI: codegen Command](./cli.md))
 - All Critter Stack packages at the 2026-wave alphas or later (JasperFx 2.0, JasperFx.Events 2.0, Weasel 9.0, Marten 9.0, Wolverine 6.0, Polecat 4.0)
 :::

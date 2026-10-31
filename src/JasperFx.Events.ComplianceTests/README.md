@@ -410,7 +410,7 @@ Both current consumers accept a `ComplianceSourceDir` property that swaps the pu
 working copy, so a new wave can be validated against a real store before the JasperFx release:
 
 ```bash
-dotnet test src/EventSourcingTests/EventSourcingTests.csproj -f net9.0 \
+dotnet test src/EventSourcingTests/EventSourcingTests.csproj -f net10.0 \
     -p:ComplianceSourceDir=/path/to/jasperfx/src/JasperFx.Events.ComplianceTests
 ```
 

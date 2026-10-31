@@ -120,11 +120,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install .NET 9.0.x
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 9.0.x
-
       - name: Install .NET 10.0.x
         uses: actions/setup-dotnet@v6
         with:
@@ -217,7 +212,7 @@ jobs:
           fail=0
           smoke() {
             echo "::group::dotnet run -- $*"
-            output=$(dotnet run --project src/CommandLineRunner --framework net9.0 -- "$@" 2>&1) || true
+            output=$(dotnet run --project src/CommandLineRunner --framework net10.0 -- "$@" 2>&1) || true
             echo "$output"
             echo "::endgroup::"
             if echo "$output" | grep -qE 'Unhandled exception|System\.[A-Za-z.]+Exception'; then
