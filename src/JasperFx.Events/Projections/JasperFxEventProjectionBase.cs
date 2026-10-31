@@ -174,7 +174,13 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     /// for the ones you do want wiped.
     /// </para>
     /// </summary>
-    public bool DeletePublishedTypesOnTeardown { get; set; } = true;
+    public bool DeletePublishedTypesOnTeardown
+    {
+        // On the options because jasperfx#1046's ProjectionTeardownPlan has to honour this through a
+        // wrapper, which adopts this projection's options and its published types but is not its type
+        get => Options.DeletePublishedTypesOnTeardown;
+        set => Options.DeletePublishedTypesOnTeardown = value;
+    }
 
     // jasperfx#626: an EventProjection can publish several document types, so the base constructor
     // cannot do what JasperFxAggregationProjectionBase does with its single TDoc -- and it could not
