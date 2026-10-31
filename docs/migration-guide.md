@@ -74,7 +74,13 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
   Implement `IProjectionTableResolver` to resolve it to tables. The SQL, the transaction and the tenant scoping stay in the store. The plan is the union of what the three stores each covered, and it honors `TeardownDataOnRebuild` across every data category. On a composite, `false` also covers its members, which is new: a member can still opt out on its own. `DeletePublishedTypesOnTeardown = false` is honored too, where Polecat and Fisher truncated those tables anyway.
 
+* **`ProjectionBatchBase<TSession>`, `MessagePublishing`, and the shared `IMessageOutbox` and `IMessageBatch` are now in JasperFx.Events** ([#1045](https://github.com/JasperFx/jasperfx/issues/1045)).
+
+  The interfaces live in `JasperFx.Events.Documents`. Polecat's and Fisher's own `IMessageOutbox` and `IMessageBatch` derive from them for one release, so existing implementers such as Wolverine's keep compiling. Move to the shared interfaces before those are removed. Pass the real `ShardExecutionMode` to the base constructor, which has no default, and always await `beforeCommit` as the last step before commit, even for an empty batch.
+
 ### Behavior changes
+
+* **Projection batches built on `ProjectionBatchBase` publish nothing outside `ShardExecutionMode.Continuous`** ([#1045](https://github.com/JasperFx/jasperfx/issues/1045)). A rebuild or catch-up replays history, so a message from one is a second delivery of something already sent, and a re-raised event permanently grows the stream on every rebuild. Neither the message hooks nor raised events were gated consistently across the stores. This takes effect in each store once it adopts the base.
 
 * **`FetchProjectionLagAsync`:** a shard with only tenant-qualified progress rows, under a store-global high-water mark, now reports those tenants' cells rather than "no row" ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
 
