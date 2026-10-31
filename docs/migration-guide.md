@@ -78,7 +78,27 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
   The interfaces live in `JasperFx.Events.Documents`. Polecat's and Fisher's own `IMessageOutbox` and `IMessageBatch` derive from them for one release, so existing implementers such as Wolverine's keep compiling. Move to the shared interfaces before those are removed. Pass the real `ShardExecutionMode` to the base constructor, which has no default, and always await `beforeCommit` as the last step before commit, even for an empty batch.
 
+* **`EventDataMaskingBase<TSession>` and `StreamCompactingExecution<TSession>` are now in JasperFx.Events** ([#1048](https://github.com/JasperFx/jasperfx/issues/1048)).
+
+  Implement `TryMask` as a call on your own event graph, so that this and the `EventRegistry` masking lift can be adopted in either order. The `*IncludingArchived*` reads have to include archived events, and `SupportsMaskingArchivedEvents` on the compliance fixture turns on the facts for them. Masking commits nothing on failure, and compaction queues its work on your session and returns whether it did, so a store that commits inside compaction can do so on `true`.
+
+* **`Projections.StepThrough(toEvent, serializer)` replaces the stores' `RunProjectionAsync`, `RunProjectionByNameAsync` and `RunMultiStreamProjectionAsync` bodies** ([#1049](https://github.com/JasperFx/jasperfx/issues/1049)).
+
+  `ProjectionStateSerializer` requires both a serialize and a deserialize delegate. There is deliberately no copy delegate, because an identity function would compile and record live references. Enroll `ProjectionStepThroughCompliance` when you adopt it.
+
 ### Behavior changes
+
+* **Pre-generated code fails at startup rather than at first use** ([#1041](https://github.com/JasperFx/jasperfx/issues/1041)). `DynamicCodeBuilder.LoadPrebuiltTypes()` now throws `ExpectedTypeMissingException` when the static type loader is in effect (`TypeLoadMode.Static`, or `Auto` on Native AOT) and an expected pre-built type is missing. Dynamic mode, `Auto` with runtime code generation, custom `ITypeLoader`s and the `codegen` commands are unaffected. The text of `ExpectedTypeMissingException` and `MissingTypeException` changed, so don't match on it.
+
+* **Stepping through a projection shows true history** ([#1049](https://github.com/JasperFx/jasperfx/issues/1049)). A delete shows as a null state, and a failed apply no longer leaks partial changes into later steps. The typed `RunProjectionAsync` throws `ProjectionStateRoundTripException` for a state the serializer cannot read back faithfully, such as a `{ get; private set; }` property, instead of reporting wrong values; use `RunProjectionByNameAsync` for those aggregates. `ISteppableAggregation.BuildTimelinesAsync` stamps version metadata, honors `Compacted<T>`, treats `HardDelete` as a delete and rethrows cancellation, and those four reach stores without any adoption.
+
+* **Masking and compaction fixes arrive as each store adopts the shared classes** ([#1048](https://github.com/JasperFx/jasperfx/issues/1048)):
+
+  * Masking reaches archived streams and events. Marten and Polecat skipped them silently, so re-run masking if you relied on it for archived data.
+  * An event selected twice in a pass is masked once, and a pass that fails commits nothing.
+  * `ForTenant` refuses a null or empty tenant, and `IncludeStream` refuses `Guid.Empty` and an empty key.
+  * Compaction leaves a stream that folds to nothing alone, where Marten and Polecat replaced it with an empty snapshot and deleted the events.
+  * An archiver the store cannot call fails the compaction rather than being skipped, and compaction refuses an empty stream identity.
 
 * **Projection batches built on `ProjectionBatchBase` publish nothing outside `ShardExecutionMode.Continuous`** ([#1045](https://github.com/JasperFx/jasperfx/issues/1045)). A rebuild or catch-up replays history, so a message from one is a second delivery of something already sent, and a re-raised event permanently grows the stream on every rebuild. Neither the message hooks nor raised events were gated consistently across the stores. This takes effect in each store once it adopts the base.
 
