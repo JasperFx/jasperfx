@@ -124,6 +124,10 @@ ordering, the commit probe and the shared `IMessageSink` half; a consumer suppli
 members. Only `ProjectionSideEffectCompliance` needs these, so a store that has no message outbox
 simply leaves `SupportsMessageOutbox` false and never writes them.
 
+The library half also implements the shared `JasperFx.Events.Documents.IMessageOutbox` and
+`IMessageBatch` (jasperfx#1045), explicitly so that it cannot collide with the members below. A store
+whose options are typed to the shared interfaces deletes these two partials and writes nothing.
+
 ```csharp
 namespace JasperFx.Events.ComplianceTests;
 
@@ -316,7 +320,7 @@ see `Local/ComplianceSideEffectProjectionPlaceholder.cs` for the exact spelling)
 suite's projection has to *override* `RaiseSideEffects` and so must derive from the product's own
 `SingleStreamProjection<TDoc, TId>`. And **two more per-consumer partials**,
 `RecordingMessageOutbox` and `RecordingMessageBatch`, for the same reason as `ComplianceSubscription`:
-`IMessageOutbox` and `IMessageBatch` are per-product types whose members genuinely differ — Marten
+each product's `IMessageOutbox` and `IMessageBatch` have members that differ — Marten
 declares `IMessageBatch : IMessageSink, IChangeListener`, so its hooks take
 `(IDocumentSession, IChangeSet, CancellationToken)`, while Polecat's and Fisher's take a bare
 `CancellationToken`. The library owns the recording, the ordering and the probe; a consumer writes
