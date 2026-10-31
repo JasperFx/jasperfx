@@ -44,8 +44,14 @@ public class ValueTypeInfo
             return valueType;
         }
 
-        var builder = type.GetMethods(BindingFlags.Static | BindingFlags.Public).FirstOrDefault(x =>
-            x.GetParameters().Length == 1 && x.GetParameters()[0].ParameterType == valueProperty.PropertyType);
+        var builders = type.GetMethods(BindingFlags.Static | BindingFlags.Public).Where(x =>
+            x.GetParameters().Length == 1 && x.GetParameters()[0].ParameterType == valueProperty.PropertyType).ToArray();
+
+        // GH-1054: prefer a builder that returns the wrapper. Taking the first match bound a type pairing
+        // From(string) with a nullable sibling such as FromNullable(string?) to the sibling, and every
+        // wrapper built from it then failed with "cannot be used for return type". Polecat corrected this
+        // behind ForType and Marten beside it (marten#4288); Fisher never did.
+        var builder = builders.FirstOrDefault(x => x.ReturnType == type) ?? builders.FirstOrDefault();
 
         if (builder != null)
         {
