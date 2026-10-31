@@ -38,11 +38,14 @@ partial class Build : NukeBuild
     [Parameter("Target framework for single-framework targets (F# gate, command smoke tests) - Default is 'net10.0'")]
     readonly string SingleFramework = "net10.0";
 
-    [Parameter("Package version for NugetPack, overriding JasperFxVersion in Directory.Build.props (e.g. 3.0.0-local.1)")]
-    readonly string Version;
+    [Parameter("Run the test targets on one target framework, e.g. net10.0. Default: every framework the test project declares")]
+    readonly string Framework;
 
-    [Parameter("Folder to publish packed .nupkg files into as a local NuGet feed (NugetPack)")]
-    readonly string Feed;
+    [Parameter("Stamp this version on the packages, e.g. 3.0.0-local.1. Default: JasperFxVersion from Directory.Build.props", Name = "Version")]
+    readonly string PackVersion;
+
+    [Parameter("Copy the packed packages into this folder, e.g. ~/code/local-nuget")]
+    readonly AbsolutePath Feed;
 
     // Which Stoat/Bobcat gate this run belongs to. Test targets inherit it through the environment; it is
     // logged so a run's correlation is visible in the build output rather than silent.
@@ -86,6 +89,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestCore");
             DotNetTest(c => c
                 .SetProjectFile(Solution.CoreTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -98,6 +102,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestCodegen");
             DotNetTest(c => c
                 .SetProjectFile(Solution.CodegenTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -130,6 +135,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestCommandLine");
             DotNetTest(c => c
                 .SetProjectFile(Solution.CommandLineTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -142,6 +148,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestEvents");
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -154,6 +161,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestEventStore");
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventStoreTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -168,6 +176,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestInMemoryEventStore");
             DotNetTest(c => c
                 .SetProjectFile(Solution.InMemoryEventStoreTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -192,7 +201,7 @@ partial class Build : NukeBuild
     // Both source generator suites. These are in the solution (so `compile` builds them, and they
     // break the build if they stop compiling) but were in no test target, meaning 45 tests covering
     // the two Roslyn generators built and never ran. Single-framework by project: both test
-    // projects pin TargetFramework=net9.0 to match the netstandard2.0 generators they host.
+    // projects pin one TargetFramework to host the netstandard2.0 generators they exercise.
     Target TestSourceGenerators => _ => _
         .DependsOn(Compile)
         .Executes(() =>
@@ -234,6 +243,7 @@ partial class Build : NukeBuild
             ReportRunTag("TestMicrosoftExtensionsAI");
             DotNetTest(c => c
                 .SetProjectFile(Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -596,10 +606,26 @@ partial class Build : NukeBuild
                 "Shipped MSBuild targets verified in 10 arrangements: {File}", ShippedEventsTargets);
         });
 
+    /// <summary>
+    /// The train's local pack: <c>./build.sh Pack --version 3.0.0-local.1 --feed ~/code/local-nuget</c>.
+    /// </summary>
+    /// <remarks>
+    /// --version goes through JasperFxVersion, never Version: the line packages read JasperFxVersion, and
+    /// JasperFx.RuntimeCompiler keeps its own VersionPrefix off the line, which a -p:Version would silently
+    /// restamp. It takes the prerelease suffix instead, so 3.0.0-local.1 also yields 6.0.0-local.1 rather
+    /// than a RuntimeCompiler whose number is already on nuget.org depending on an older JasperFx. Use a
+    /// fresh -local.N for every pack, because a repeated version is served from ~/.nuget/packages rather
+    /// than the feed.
+    /// </remarks>
+    Target Pack => _ => _
+        .DependsOn(NugetPack);
+
     Target NugetPack => _ => _
         .DependsOn(Compile)
         .Executes(() =>
         {
+            var started = DateTime.UtcNow;
+
             var projects = new[]
             {
                 Solution.JasperFx,
@@ -619,19 +645,23 @@ partial class Build : NukeBuild
                     .SetProject(project)
                     .SetOutputDirectory(ArtifactsDirectory)
                     .SetConfiguration(Configuration.Release)
-                    .When(_ => !string.IsNullOrEmpty(Version), x => x.SetProperty("JasperFxVersion", Version)));
+                    .When(_ => !string.IsNullOrEmpty(PackVersion), x => x
+                        .SetProperty("JasperFxVersion", PackVersion)
+                        .SetVersionSuffix(PackVersion.Contains('-') ? PackVersion[(PackVersion.IndexOf('-') + 1)..] : null)));
             }
 
-            if (!string.IsNullOrEmpty(Feed))
+            if (Feed == null) return;
+
+            // Only what this run packed: artifacts/ is never cleaned, so it still holds earlier versions.
+            // The feed is a flat folder, which is the layout Stoat reads and nuget.config points at.
+            Feed.CreateDirectory();
+            var packed = ArtifactsDirectory.GlobFiles("*.nupkg").Where(x => File.GetLastWriteTimeUtc(x) >= started).ToArray();
+            foreach (var package in packed)
             {
-                Directory.CreateDirectory(Feed);
-                foreach (var package in ArtifactsDirectory.GlobFiles("*.nupkg"))
-                {
-                    File.Copy(package, Path.Combine(Feed, package.Name), true);
-                }
-
-                Serilog.Log.Information("Copied packed packages into the local feed {Feed}", Feed);
+                package.CopyToDirectory(Feed, ExistsPolicy.FileOverwrite);
             }
+
+            Serilog.Log.Information("Copied {Count} packages to {Feed}", packed.Length, Feed);
         });
     
     
