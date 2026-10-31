@@ -59,7 +59,7 @@ public interface IAggregationSourceFactory<TQuerySession>
     Justification = "Class-level: EventMappingFor uses CloseAndBuildAs to construct EventTypeData<T> envelopes via reflection. Event types are preserved by registration on the caller side per the AOT publishing guide.")]
 [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
     Justification = "Class-level: CloseAndBuildAs uses MakeGenericType + Activator.CreateInstance — runtime code generation. AOT consumers should preregister event types via AddEventType for ahead-of-time delegate caching.")]
-public class EventRegistry : IEventRegistry
+public partial class EventRegistry : IEventRegistry
 {
     private ImHashMap<Type, IEventType> _eventTypes = ImHashMap<Type, IEventType>.Empty;
 
@@ -147,6 +147,7 @@ public class EventRegistry : IEventRegistry
 
         info = typeof(EventTypeData<>).CloseAndBuildAs<IEventType>(eventType);
         _eventTypes = _eventTypes.AddOrUpdate(eventType, info);
+        RegisterDotNetTypeNames(info);
 
         return info;
     }
@@ -156,14 +157,36 @@ public class EventRegistry : IEventRegistry
         EventMappingFor(eventType);
     }
 
+    /// <summary>
+    ///     The aggregate type recorded under an alias. Throws for an alias this deployment does not know;
+    ///     use <see cref="TryResolveAggregateType" /> on a read path that has to tolerate one.
+    /// </summary>
     public virtual Type AggregateTypeFor(string aggregateTypeName)
     {
-        throw new NotSupportedException("Override in a derived class to support aggregate type resolution.");
+        return TryResolveAggregateType(aggregateTypeName)
+               ?? throw new ArgumentOutOfRangeException(nameof(aggregateTypeName),
+                   $"Unknown aggregate type name '{aggregateTypeName}'.");
     }
 
+    /// <summary>
+    ///     The alias an aggregate type is persisted under, cached per type. The name itself comes from
+    ///     <see cref="AliasFor" />, which is what a store overrides.
+    /// </summary>
+    /// <remarks>
+    ///     Still virtual because it always was, but overriding it now opts out of the cache and of the
+    ///     alias-to-type half too: <see cref="AggregateTypeFor" /> and
+    ///     <see cref="TryResolveAggregateType" /> only know what came through here.
+    /// </remarks>
     public virtual string AggregateAliasFor(Type aggregateType)
     {
-        throw new NotSupportedException("Override in a derived class to support aggregate alias resolution.");
+        var alias = _aliasByAggregateType.GetOrAdd(aggregateType,
+            static (type, registry) => registry.AliasFor(type), this);
+
+        // First one seen wins: an alias is a persisted name, so two types that share one is an ambiguity
+        // in the stored data that this cache has no way to resolve.
+        _aggregateTypeByAlias.TryAdd(alias, aggregateType);
+
+        return alias;
     }
 }
 
