@@ -96,7 +96,7 @@ public static class StreamExtensions
         {
             var bytes = new byte[expected.Length];
             await stream.ReadExactlyAsync(bytes).ConfigureAwait(false);
-            return expected.SequenceEqual(bytes);
+            return expected.AsSpan().SequenceEqual(bytes);
         }
         catch (Exception)
         {
