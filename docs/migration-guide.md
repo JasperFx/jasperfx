@@ -86,6 +86,18 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
   `ProjectionStateSerializer` requires both a serialize and a deserialize delegate. There is deliberately no copy delegate, because an identity function would compile and record live references. Enroll `ProjectionStepThroughCompliance` when you adopt it.
 
+* **Session hooks and enlistment** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)).
+
+  `IDocumentSessionOperations.AddSaveListener`, `IDocumentWriteOperations.AddTransactionParticipant` and `ProjectionGraph.Subscribe(IEventSubscription)` throw `NotSupportedException` until a store adopts them, so a hook a store does not run fails at registration rather than losing messages silently. Use one `DocumentSessionHooks` per session, count `HasPendingParticipants` as work, and throw from either registration on a session whose commit the store does not run. A shared participant belongs to one unit of work, unlike the stores' own, which last until dispose.
+
+  The hook order is fixed: before-save, participants, then the message hook immediately before commit. After-commit runs only after a successful commit, takes no cancellation token, and runs every hook before rethrowing a failure.
+
+* **`session.MetadataContext` exposes session metadata** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)), including `CurrentUserName`, which is the same state as `LastModifiedBy` on all three stores. It is an accessor rather than `IDocumentSessionOperations : IMetadataContext`, because inheriting makes `session.TenantId` ambiguous (`CS0229`) on every store-typed session.
+
+* **`IEventStore.IdentityTypeFor`** gives an aggregate's identity type, with strong types preserved ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)). `IdentityTypeForProjectedType` answers differently per store, so use the new member. `IEventStore.StreamIdentity` is answered for you from the registry, and `IEventStore.FindNaturalKeyDefinition` is new.
+
+* **`Insert<T>(T)`, `Update<T>(T)`, `StoreObjects` and `CheckExistsAsync<T>(object)` are on the shared write and read tiers** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)).
+
 ### Behavior changes
 
 * **Pre-generated code fails at startup rather than at first use** ([#1041](https://github.com/JasperFx/jasperfx/issues/1041)). `DynamicCodeBuilder.LoadPrebuiltTypes()` now throws `ExpectedTypeMissingException` when the static type loader is in effect (`TypeLoadMode.Static`, or `Auto` on Native AOT) and an expected pre-built type is missing. Dynamic mode, `Auto` with runtime code generation, custom `ITypeLoader`s and the `codegen` commands are unaffected. The text of `ExpectedTypeMissingException` and `MissingTypeException` changed, so don't match on it.
