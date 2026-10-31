@@ -12,14 +12,17 @@ namespace JasperFx.Events.Protected;
 /// Lifted here because both Critter Stack event stores declared this interface member-for-member
 /// identically in parallel namespaces (marten#5154). It sits beside
 /// <see cref="StreamCompactingRequest{T}"/> for the same reason: the *shape* of the request is a
-/// database-agnostic description of intent, while executing it is unavoidably store-specific — each
-/// product resolves its own session, query surface and update path.
+/// database-agnostic description of intent. <see cref="EventDataMaskingBase{TSession}"/> carries out
+/// everything but what is store-specific, the session and its reads.
 /// </para>
 /// <para>
 /// A store exposes this through its own advanced-operations surface (both current products spell it
 /// <c>Advanced.ApplyEventDataMasking(Action&lt;IEventDataMasking&gt;, CancellationToken)</c>) and
 /// supplies the implementation. Masking rules themselves are registered per event type on the store's
 /// event options, not here.
+/// </para>
+/// <para>
+/// A selection reaches archived events: archiving a stream does not erase it (#1048).
 /// </para>
 /// </remarks>
 public interface IEventDataMasking
