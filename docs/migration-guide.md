@@ -112,7 +112,21 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
   `Append(stream, expectedVersion, ...)` defaults to meaning the version after the append. A store reading it as the version before overrides `ExpectedStartingVersion`.
 
+* **`OpenTelemetryOptions` owns one `ActivitySource`, named like its `Meter`, and both are shared by name for the process** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Answer `IEventStore.Meter` and `IEventStore.ActivitySource` from your options rather than creating your own. Derive from `OpenTelemetryOptions<TChangeSet>` for `ExportCounterOnChangeSets`, and call `RecordCommit` from your commit listener.
+
+* **`StoreActivator<TStore, TDatabase>` replaces a hand-written startup service** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Global locks stay inside Weasel's per-database apply: the activator takes none of its own. Under `ContinueOnFailures`, leave the Weasel database at `FailFast` and let the activator handle the failure, because a lost lock otherwise looks like a successful migration.
+
+* **`StrongTypedIdResolver` replaces local strong-typed id discovery** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). It keeps both stores' rules for class wrappers as named `StrongTypedIdStyle` values.
+
+* **`JasperFx.Pagination` holds `CursorCodec`, `IPagedList<T>` and `PagedList<T>`** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). The v1 cursor format is unchanged for clients, and the seek predicate stays per store.
+
 ### Behavior changes
+
+* **Two stores in one process with the same meter name share one `Meter`** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). This applies as soon as you take JasperFx 3.0, with no store adoption, because `new OpenTelemetryOptions(name).Meter` is now shared by name. Don't dispose it.
+
+* **With `ContinueOnFailures`, `IInitialData` no longer runs after a failed migration**, and a host stopping during activation cancels rather than logging a failed migration ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). This takes effect as each store adopts `StoreActivator`.
+
+* **A malformed cursor is always refused with an `ArgumentException`**, and a key type the codec cannot carry now fails at `Encode` rather than on the next request ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Polecat cursors over enum keys change bytes, and were undecodable before.
 
 * **Stream validation is uniform on every event operations overload** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)), before anything is read, as each store adopts the base. A stream identity that doesn't match the store's `StreamIdentity` throws `InvalidOperationException`, an empty Guid or key throws `ArgumentOutOfRangeException`, `StartStream` with no events throws `EmptyEventStreamException`, and null events throw `ArgumentNullException`. In particular, `FetchForWriting(Guid.Empty)` no longer starts a `Guid.Empty` stream on Polecat or Fisher, and `AppendOptimistic(Guid.Empty)` throws `ArgumentOutOfRangeException` rather than `NonExistentStreamException`.
 
