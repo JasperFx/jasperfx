@@ -484,6 +484,7 @@ JasperFx.Events.IEventOperations :: JasperFx.Events.StreamAction StartStream[TAg
 JasperFx.Events.IEventOperations :: JasperFx.Events.StreamAction StartStream[TAggregate](System.Object[])
 JasperFx.Events.IEventOperations :: JasperFx.Events.StreamAction StartStream[TAggregate](System.String, System.Collections.Generic.IEnumerable`1[System.Object])
 JasperFx.Events.IEventOperations :: JasperFx.Events.StreamAction StartStream[TAggregate](System.String, System.Object[])
+JasperFx.Events.IEventOperationsHost :: JasperFx.Events.EventOperationsBase get_Operations()
 JasperFx.Events.IEventRegistry :: JasperFx.Events.EventAppendMode get_AppendMode()
 JasperFx.Events.IEventRegistry :: JasperFx.Events.IEvent BuildEvent(System.Object)
 JasperFx.Events.IEventRegistry :: JasperFx.Events.IEventType EventMappingFor(System.Type)
