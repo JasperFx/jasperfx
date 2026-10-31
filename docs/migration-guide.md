@@ -18,6 +18,10 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
 
 * **`JasperFx.RuntimeCompiler` compiles with Roslyn 5.9**, and **`FastExpressionCompiler` moves to 6.0**, which itself drops `netstandard2.0` and `net9.0` and renames `ClosureInfo` to `CompilerContext`. Neither name appears in JasperFx's public API, but code of yours that uses FastExpressionCompiler directly will meet the rename.
 
+### Testing
+
+* **`JasperFx.Events.ComplianceTests` depends on xunit.v3 4.x**, which runs on Microsoft.Testing.Platform 2.x. A test project that enrolls in the compliance suites has to move to xunit.v3 4.x with it, because 3.x beside platform 2.x fails at run time. Add `"test": { "runner": "Microsoft.Testing.Platform" }` to `global.json`, and pass a project to `dotnet test` with `--project` rather than as a positional path.
+
 ### Changed defaults
 
 * **`GateSideEffectsBehindPriorVersion` is on by default for every event store** ([#1075](https://github.com/JasperFx/jasperfx/issues/1075)).

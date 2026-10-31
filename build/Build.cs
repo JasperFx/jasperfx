@@ -88,7 +88,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestCore");
             DotNetTest(c => c
-                .SetProjectFile(Solution.CoreTests)
+                .SetProcessAdditionalArguments("--project", Solution.CoreTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -101,7 +101,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestCodegen");
             DotNetTest(c => c
-                .SetProjectFile(Solution.CodegenTests)
+                .SetProcessAdditionalArguments("--project", Solution.CodegenTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -121,7 +121,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestCodegenFSharp");
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.CodegenTests_FSharp)
+                .SetProcessAdditionalArguments("--project", Solution.src.CodegenTests_FSharp)
                 .SetFramework(SingleFramework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -134,7 +134,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestCommandLine");
             DotNetTest(c => c
-                .SetProjectFile(Solution.CommandLineTests)
+                .SetProcessAdditionalArguments("--project", Solution.CommandLineTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -147,7 +147,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestEvents");
             DotNetTest(c => c
-                .SetProjectFile(Solution.EventTests)
+                .SetProcessAdditionalArguments("--project", Solution.EventTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -160,7 +160,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestEventStore");
             DotNetTest(c => c
-                .SetProjectFile(Solution.EventStoreTests)
+                .SetProcessAdditionalArguments("--project", Solution.EventStoreTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -175,7 +175,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestInMemoryEventStore");
             DotNetTest(c => c
-                .SetProjectFile(Solution.InMemoryEventStoreTests)
+                .SetProcessAdditionalArguments("--project", Solution.InMemoryEventStoreTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -192,7 +192,8 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestStress");
             DotNetTest(c => c
-                .SetProjectFile(Solution.StressTests)
+                .SetProcessAdditionalArguments("--project", Solution.StressTests)
+                .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -208,13 +209,13 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestSourceGenerators");
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_SourceGenerator_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_SourceGenerator_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
 
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_Events_SourceGenerator_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_Events_SourceGenerator_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -228,7 +229,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestAspire");
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_Aspire_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_Aspire_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -242,7 +243,7 @@ partial class Build : NukeBuild
         {
             ReportRunTag("TestMicrosoftExtensionsAI");
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
