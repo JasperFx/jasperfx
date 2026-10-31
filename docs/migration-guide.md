@@ -29,6 +29,15 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
 
   A shard that subscribes from the present used to log a warning when this was set. It now logs at `Information`, since the combination is no longer one anyone chose.
 
+* **`AsyncOptions.MaximumHopperSize` now defaults to 2 x `BatchSize`** instead of a flat 5,000 ([#1076](https://github.com/JasperFx/jasperfx/issues/1076)).
+
+  A shard that is behind keeps loading pages until it holds this many events, and those pages then wait for a write slot, so memory followed behind shards x 5,000 events however small `BatchSize` was. Shrinking `BatchSize` to save memory made that worse, because it meant more pages of prefetch per shard.
+
+  * **Effect:** far less memory on write-bound shards at the default `BatchSize` of 500. Measured against the real agent with a simulated database, peak in-flight events fell by 77% with no measurable change in throughput.
+  * **Larger batches:** the default follows `BatchSize` in both directions, so a `BatchSize` above 2,500 now gets a deeper hopper than it had before. Set `MaximumHopperSize` if you tuned around the old cap.
+  * **Schema effect:** none.
+  * **Opt out:** set `MaximumHopperSize` explicitly, which always wins over the derived default. `MaximumHopperSize = 5000` restores the old behavior.
+
 ### Compliance suites
 
 * **`SingleTenantedEventSlicingCompliance` was removed** ([#1065](https://github.com/JasperFx/jasperfx/issues/1065)), along with `TallyIncremented` and `TenantSlicingTally`. It was marked obsolete in 2.x because it could only execute on Marten. Remove any enrollment from your store's compliance tests.
