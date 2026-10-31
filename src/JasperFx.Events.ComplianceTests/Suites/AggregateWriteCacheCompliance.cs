@@ -102,11 +102,11 @@ public partial class CachedJournal
 /// feature being reintroduced, not a test needing a gate.
 /// </para>
 /// <para>
-/// <b>When an entry is written is not pinned.</b> The two lifecycles differ — an Async snapshot can
-/// be cached at fetch time, while an Inline snapshot is mutated by the projection during commit and
-/// so can only be cached once the commit succeeds. Both are correct, and the difference is
-/// observable: a fetch that appends nothing may never warm the cache at all. Every arrange step here
-/// therefore fetches, appends and commits, so it warms the cache under either policy.
+/// <b>When an entry is written is not pinned here</b>, because not every store has moved to
+/// <see cref="AggregateWriteCacheSession" />, which writes back only after a commit. Marten's Async
+/// plan still stores at fetch time. The difference is observable: a fetch that appends nothing may
+/// never warm the cache at all. Every arrange step here therefore fetches, appends and commits, so it
+/// warms the cache under either policy.
 /// </para>
 /// </remarks>
 public abstract class AggregateWriteCacheCompliance<TFixture, TOperations, TQuerySession>
