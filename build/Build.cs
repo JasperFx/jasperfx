@@ -71,7 +71,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.CoreTests)
+                .SetProcessAdditionalArguments("--project", Solution.CoreTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -83,7 +83,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.CodegenTests)
+                .SetProcessAdditionalArguments("--project", Solution.CodegenTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -102,7 +102,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.CodegenTests_FSharp)
+                .SetProcessAdditionalArguments("--project", Solution.src.CodegenTests_FSharp)
                 .SetFramework("net10.0")
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -114,7 +114,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.CommandLineTests)
+                .SetProcessAdditionalArguments("--project", Solution.CommandLineTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -126,7 +126,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.EventTests)
+                .SetProcessAdditionalArguments("--project", Solution.EventTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -138,7 +138,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.EventStoreTests)
+                .SetProcessAdditionalArguments("--project", Solution.EventStoreTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -152,7 +152,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.InMemoryEventStoreTests)
+                .SetProcessAdditionalArguments("--project", Solution.InMemoryEventStoreTests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
@@ -168,13 +168,13 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_SourceGenerator_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_SourceGenerator_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
 
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_Events_SourceGenerator_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_Events_SourceGenerator_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -187,7 +187,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_Aspire_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_Aspire_Tests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -200,7 +200,7 @@ partial class Build : NukeBuild
         .Executes(() =>
         {
             DotNetTest(c => c
-                .SetProjectFile(Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
+                .SetProcessAdditionalArguments("--project", Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
                 .SetFramework(Framework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
