@@ -9,7 +9,7 @@ namespace JasperFx.Events.Daemon.HighWater;
 /// </summary>
 public sealed class PolledTenantSet
 {
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     // Each polled tenant, with a stamp of its membership: a new one every time the tenant joins the set,
     // kept for as long as it stays. A tenant that leaves and comes back may be a new incarnation of itself
