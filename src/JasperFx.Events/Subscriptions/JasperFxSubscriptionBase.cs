@@ -42,6 +42,18 @@ public abstract class JasperFxSubscriptionBase<TOperations, TQuerySession, TSubs
         Name = GetType().NameInCode();
     }
 
+    /// <summary>
+    /// Take this subscription's name, version, options and filters from a store-agnostic one. A store
+    /// wrapping an <see cref="IEventSubscription" /> in its own base class calls this from the constructor.
+    /// </summary>
+    protected void ConfigureFrom(IEventSubscription subscription)
+    {
+        Name = subscription.SubscriptionName;
+        Version = subscription.SubscriptionVersion;
+        Options = subscription.Options;
+        subscription.Filter(this);
+    }
+
     public SubscriptionType Type => SubscriptionType.Subscription;
     public ProjectionLifecycle Lifecycle => ProjectionLifecycle.Async;
     public ShardName[] ShardNames() => [ShardName.Compose(Name, version: Version)];

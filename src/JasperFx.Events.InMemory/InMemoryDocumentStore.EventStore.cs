@@ -108,8 +108,15 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     IEventRegistry IEventStore<IInMemoryDocumentSession, IInMemoryQuerySession>.Registry => Events;
 
     /// <inheritdoc />
-    public Type IdentityTypeForProjectedType(Type aggregateType)
+    public Type IdentityTypeForProjectedType(Type aggregateType) => IdentityTypeFor(aggregateType);
+
+    /// <inheritdoc />
+    public Type IdentityTypeFor(Type aggregateType)
         => InMemoryAggregateIdentity.ResolveIdType(aggregateType, Events.StreamIdentity);
+
+    /// <inheritdoc />
+    public NaturalKeyDefinition? FindNaturalKeyDefinition(Type aggregateType)
+        => Projections.TryFindAggregate(aggregateType, out var projection) ? projection.NaturalKeyDefinition : null;
 
     /// <inheritdoc />
     public string DefaultDatabaseName => InMemoryEventDatabase.Name;
