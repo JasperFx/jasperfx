@@ -92,6 +92,39 @@ public interface IDocumentSessionOperations : IDocumentWriteOperations
             $"{GetType().FullName} does not implement {nameof(IDocumentSessionOperations)}.{nameof(PendingStreams)}, so the stream actions queued in this session cannot be read. This member deliberately throws rather than answering with an empty list, because an empty list is indistinguishable from a session with nothing pending and would silently discard whatever the caller derives from the pending events.");
 
     /// <summary>
+    /// Run <paramref name="listener" /> on this session's saves, for as long as the session lives.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On the session rather than a parameter of opening one, because a message bus does not always open
+    /// the session it joins: Wolverine's <c>IMartenOutbox.Enroll</c> and its Polecat and Fisher twins take
+    /// one the application opened. That is where the stores' listener lists differ. Marten's is writeable
+    /// after open. Polecat's and Fisher's come from <c>SessionOptions</c>, so their <c>Enroll</c> has no
+    /// after-commit hook to register and nothing flushes the outbox. One
+    /// <see cref="DocumentSessionHooks" /> per session has no such limit. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/1052" />.
+    /// </para>
+    /// <para>
+    /// ⚠️ <strong>The default throws, and this is where the failure is meant to happen.</strong> A hook a
+    /// store accepts and never fires is an outbox that silently never flushes, which is message loss with a
+    /// clean build. So a store that has not wired hooks refuses here, at registration, and the caller finds
+    /// out at the first session and not from a missing message. For the same reason a store must throw for
+    /// a session whose saves do not run these hooks: a projection batch's session is the case, because the
+    /// daemon owns that commit.
+    /// </para>
+    /// <para>
+    /// Implementing this and then not reaching <see cref="DocumentSessionHooks" /> from
+    /// <see cref="SaveChangesAsync" /> is the one failure the compiler cannot see.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation, or from a store on a session that does not run these hooks.
+    /// </exception>
+    void AddSaveListener(IDocumentSaveListener listener)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentSessionOperations)}.{nameof(AddSaveListener)}, so it refuses this listener here rather than accepting a before-save or after-commit hook it would never fire.");
+
+    /// <summary>
     /// Commit every pending change enlisted in this session's unit of work as a single transaction.
     /// </summary>
     /// <remarks>
