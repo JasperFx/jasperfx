@@ -60,6 +60,28 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
   * A `Guid.Empty` tag value reaches the store's `Append` guard rather than being accepted.
   * Under Marten's `UseMandatoryStreamTypeDeclaration`, an event no tag can route now throws `StreamTypeMissingException` at `AppendOne`.
 
+* **`EventRegistry` now owns masking rules, binary serializers, tag types and the name and alias caches** ([#1043](https://github.com/JasperFx/jasperfx/issues/1043)).
+
+  Override `AliasFor` rather than `AggregateAliasFor`, which is now the caching wrapper around it. A store that keeps overriding `AggregateAliasFor` must move both alias overrides together, or `AggregateTypeFor` and `TryResolveAggregateType` come back empty. Call `RegisterDotNetTypeNames` wherever you build an event mapping: stores override `EventMappingFor` and never reach the base one, so this is how the name cache hears about a registration. A bare `EventRegistry.AggregateTypeFor` now throws `ArgumentOutOfRangeException` on an unknown alias rather than `NotSupportedException`.
+
+  Until a store adopts these, it compiles with `CS0108` hiding warnings and behaves as before, because its own members win. That includes masking: a store's own rules hide the base ones, so adopt this before building on the shared masking in any later lift.
+
+* **`IEventDatabase.WaitForNonStaleProjectionDataAsync` has a default implementation** ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
+
+  A store may delete its own and implement `RegisteredShardNames()`. A store that keeps its own is unaffected. A class that needs the method public should forward to `NonStaleProjectionWait.WaitAsync`, not to the interface, which would recurse. The default reads the ceiling once so sustained appends cannot keep it waiting, returns at once on an empty store, and always reports expiry as a `TimeoutException`.
+
+* **`ProjectionTeardownPlan.For(source)` lists everything a rebuild must clear** ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
+
+  Implement `IProjectionTableResolver` to resolve it to tables. The SQL, the transaction and the tenant scoping stay in the store. The plan is the union of what the three stores each covered, and it honors `TeardownDataOnRebuild` across every data category. On a composite, `false` also covers its members, which is new: a member can still opt out on its own. `DeletePublishedTypesOnTeardown = false` is honored too, where Polecat and Fisher truncated those tables anyway.
+
+### Behavior changes
+
+* **`FetchProjectionLagAsync`:** a shard with only tenant-qualified progress rows, under a store-global high-water mark, now reports those tenants' cells rather than "no row" ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
+
+* **Masking rules against a base type now work** ([#1043](https://github.com/JasperFx/jasperfx/issues/1043)). `AddMaskingRuleForProtectedInformation<T>(Func<T,T>)` applies to events assignable to `T`, as the `Action<T>` overload always has. A replacing rule against a base type or interface used to match nothing, which left protected data in place, so re-run masking if you relied on one. The rule must return something the event type can hold, or the masking pass fails. This takes effect in each store once it adopts the shared masking.
+
+* **Tag registration** ([#1043](https://github.com/JasperFx/jasperfx/issues/1043)): once Polecat and Fisher adopt it, an empty or whitespace table suffix is refused, and registering a tag type again with a different inner type throws.
+
 ### Compliance suites
 
 * **`SingleTenantedEventSlicingCompliance` was removed** ([#1065](https://github.com/JasperFx/jasperfx/issues/1065)), along with `TallyIncremented` and `TenantSlicingTally`. It was marked obsolete in 2.x because it could only execute on Marten. Remove any enrollment from your store's compliance tests.
