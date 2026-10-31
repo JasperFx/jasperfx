@@ -1,3 +1,6 @@
+using JasperFx.Events.Appending;
+using JasperFx.MultiTenancy;
+
 namespace JasperFx.Events.InMemory;
 
 /// <summary>
@@ -51,61 +54,62 @@ public partial class InMemoryDocumentStore
     /// Append a unit of work's streams. Called from inside <see cref="CommitAtomicallyAsync"/>, so any throw
     /// here -- a collision, a stale expected version -- rolls back the documents and every stream.
     /// </summary>
+    /// <remarks>
+    /// On the same decision table as the stores that number events client-side (jasperfx#1051), which is what
+    /// puts that table under the compliance suites in this repository. The commit gate is what makes the
+    /// reads below safe to plan from.
+    /// </remarks>
     internal void AppendStreams(IReadOnlyCollection<StreamAction> streams, IMetadataContext session)
     {
-        foreach (var stream in streams)
+        // StreamAction.AddEvent stamped the stream's tenant at the time the event was added, and the plan
+        // only fills an EMPTY tenant -- so the session's tenant is applied here explicitly.
+        foreach (var @event in streams.SelectMany(x => x.Events))
         {
+            @event.TenantId = session.TenantId;
+        }
+
+        var eventCount = _events.Count;
+
+        var plan = ClientSideAppendPlanner.Plan(streams, rowFor, new ClientSideAppendContext
+        {
+            Metadata = session,
+            Timestamp = Events.TimeProvider.GetUtcNow(),
+            Tenancy = TenancyStyle.Single,
+
+            // Rich whatever the registry says: this store is its own database, so nothing assigns a
+            // sequence behind the plan's back for a Quick mode to read back.
+            AppendMode = EventAppendMode.Rich,
+            ReservedSequences = Enumerable.Range(1, streams.Sum(x => x.Events.Count))
+                .Select(i => (long)eventCount + i)
+                .ToArray()
+        });
+
+        plan.Apply();
+
+        foreach (var write in plan.Writes)
+        {
+            var stream = write.Stream;
             var key = StreamKeyFor(stream);
-            _streams.TryGetValue(key, out var row);
-            var currentVersion = row?.Version ?? 0;
-
-            if (stream.Events.Count == 0)
-            {
-                // A stream fetched for writing with nothing appended still guards its version when it
-                // asked to (FetchForWriting with AlwaysEnforceConsistency).
-                if (stream is { AlwaysEnforceConsistency: true, ExpectedVersionOnServer: { } expected }
-                    && expected != currentVersion)
-                {
-                    throw new EventStreamUnexpectedMaxEventIdException(key, stream.AggregateType, expected,
-                        currentVersion);
-                }
-
-                continue;
-            }
-
-            if (stream.ActionType == StreamActionType.Start && row is not null)
-            {
-                throw new ExistingStreamIdCollisionException(key, stream.AggregateType);
-            }
-
-            // StreamAction.AddEvent stamped the stream's tenant at the time the event was added, and Rich
-            // metadata only fills an EMPTY tenant -- so the session's tenant is applied here explicitly.
-            foreach (var @event in stream.Events)
-            {
-                @event.TenantId = session.TenantId;
-            }
-
-            var sequences = new Queue<long>();
-            for (var i = 1; i <= stream.Events.Count; i++) sequences.Enqueue(_events.Count + i);
-
-            // Versions, sequences, ids, timestamps and metadata, plus the optimistic concurrency guard:
-            // a stale expected version throws EventStreamUnexpectedMaxEventIdException.
-            stream.PrepareEvents(currentVersion, Events, sequences, session);
 
             _events.AddRange(stream.Events);
 
             var last = stream.Events[^1].Timestamp;
-            _streams[key] = row is null
-                ? new StreamRow(key, stream.Version, stream.AggregateType, stream.Events[0].Timestamp, last,
-                    session.TenantId)
-                : row with
+            _streams[key] = _streams.TryGetValue(key, out var row)
+                ? row with
                 {
                     Version = stream.Version,
                     LastTimestamp = last,
                     AggregateType = row.AggregateType ?? stream.AggregateType
-                };
+                }
+                : new StreamRow(key, stream.Version, stream.AggregateType, stream.Events[0].Timestamp, last,
+                    session.TenantId);
         }
     }
+
+    private StreamRowSnapshot rowFor(StreamAction stream)
+        => _streams.TryGetValue(StreamKeyFor(stream), out var row)
+            ? StreamRowSnapshot.Live(row.Version)
+            : StreamRowSnapshot.Missing;
 
     internal long? CurrentVersion(object streamKey)
     {
