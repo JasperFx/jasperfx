@@ -199,6 +199,9 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         return snapshot;
     }
 
+    // A stream is one aggregate, so this is what BuildAsync does: the event says, whatever the caller passed.
+    private protected override Func<IEvent, TId> stepIdentitySource(object identity) => _identitySource;
+
     protected override IInlineProjection<TOperations> buildForInline()
     {
         return this;
