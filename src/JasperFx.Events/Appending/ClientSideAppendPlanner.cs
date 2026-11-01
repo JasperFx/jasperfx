@@ -155,15 +155,10 @@ public sealed record StreamAppendRule(
 ///     </para>
 ///     <para>
 ///     <b>The expected version here has one meaning: the version of the stream before these events.</b>
-///     Stores disagree about the argument of <c>Append(stream, expectedVersion, ...)</c>, Marten and Polecat
-///     reading it as the version after the append and Fisher and the in-memory store as the version before
-///     (jasperfx#1047). That split is settled one layer up, in
-///     <see cref="EventOperationsBase.ExpectedStartingVersion" />, and both sides of it arrive here as the
-///     same thing, <see cref="StreamAction.ExpectedVersionOnServer" />, whose every other writer
-///     (<c>FetchForWriting</c>, <c>AppendOptimistic</c>) already means the starting version. So nothing in
-///     this class knows which reading a store is on and nothing here could choose one, and it does not
-///     subtract the pending events: doing so would hand Fisher Marten's semantics. If the stores are ever
-///     unified, the override goes away and this class does not change.
+///     That is <see cref="StreamAction.ExpectedVersionOnServer" />, whose every writer already means the
+///     starting version. <c>Append(stream, expectedVersion, ...)</c> takes the version <em>after</em> the
+///     append (jasperfx#1047) and <see cref="EventOperationsBase" /> converts it once, so this class must not
+///     subtract the pending events a second time.
 ///     </para>
 ///     <para>
 ///     <b>What the planner cannot see.</b> It sees the actions a store hands it, and that is where its

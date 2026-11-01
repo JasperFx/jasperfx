@@ -351,19 +351,6 @@ public abstract class EventOperationsBaseContract
             .ParamName.ShouldBe("expectedVersion");
     }
 
-    [Fact]
-    public void a_store_that_reads_the_expected_version_as_the_version_before_the_append_can_say_so()
-    {
-        // Fisher pins this: one event at expected version zero starts a missing stream
-        var (byId, idSeams) = guidKeyed();
-        var (byKey, keySeams) = stringKeyed();
-        idSeams.ExpectedVersionIsTheStartingVersion = true;
-        keySeams.ExpectedVersionIsTheStartingVersion = true;
-
-        byId.Append(Guid.NewGuid(), 0, Started).ExpectedVersionOnServer.ShouldBe(0);
-        byKey.Append("quest-1", 3, Started, Joined).ExpectedVersionOnServer.ShouldBe(3);
-    }
-
     // ---- AppendOptimistic and AppendExclusive ----
 
     [Fact]
@@ -684,7 +671,6 @@ public class RecordingOperations(StreamIdentity identity, string tenantId, List<
     public List<string> Calls { get; } = [];
     public List<CancellationToken> Tokens { get; } = [];
     public bool RequireStreamType { get; set; }
-    public bool ExpectedVersionIsTheStartingVersion { get; set; }
     public bool StreamExists { get; set; } = true;
     public long ExistingVersion { get; set; } = 1;
     public Exception? FetchFailure { get; set; }
@@ -763,9 +749,6 @@ public class RecordingOperations(StreamIdentity identity, string tenantId, List<
 
         return Task.CompletedTask;
     }
-
-    protected override long ExpectedStartingVersion(long expectedVersion, StreamAction stream)
-        => ExpectedVersionIsTheStartingVersion ? expectedVersion : base.ExpectedStartingVersion(expectedVersion, stream);
 
     private StreamAction track(StreamAction stream, Type? aggregateType)
     {

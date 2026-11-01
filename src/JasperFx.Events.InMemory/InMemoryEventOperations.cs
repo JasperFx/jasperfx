@@ -62,12 +62,6 @@ public partial class InMemoryEventOperations : EventOperationsBase, IEventStoreO
     protected override StreamAction AppendCore(string stream, object[] events)
         => appendTo(stream, () => StreamAction.Append(Registry, stream, events), events);
 
-    /// <summary>
-    /// The version the stream is at before the append, as on Fisher, where Marten and Polecat read it as the
-    /// version after it. See <see cref="EventOperationsBase.ExpectedStartingVersion"/>.
-    /// </summary>
-    protected override long ExpectedStartingVersion(long expectedVersion, StreamAction stream) => expectedVersion;
-
     // There is no lock to take on an in-memory stream, so "exclusive" is the optimistic guard -- the
     // same documented choice Fisher makes for SQLite.
 
