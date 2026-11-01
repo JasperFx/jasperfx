@@ -121,13 +121,11 @@ public abstract class EventOperationsBase : IEventOperations
     /// </summary>
     /// <remarks>
     ///     <para>
-    ///     <b>This is a virtual because the stores really do mean different things by the argument
-    ///     (jasperfx#1047).</b> Marten and Polecat read it as the version of the stream <em>after</em> the
-    ///     append, so <c>Append(id, 2, e)</c> succeeds on a stream at version 1, and this default subtracts
-    ///     the pending events. Fisher reads it as the version <em>before</em> the append, so the same call
-    ///     succeeds on a stream at version 2, and it pins that with a test that appending one event at
-    ///     expected version 0 creates a stream. A store on that reading overrides this to return
-    ///     <paramref name="expectedVersion" />.
+    ///     <b>The argument is the version of the stream <em>after</em> the append, on every store
+    ///     (jasperfx#1047).</b> So <c>Append(id, 2, e)</c> succeeds on a stream at version 1. Fisher and the
+    ///     in-memory store used to read it as the version before the append, so the same portable call
+    ///     passed on one store and failed on another, with no compliance fact to notice. This is deliberately
+    ///     not a seam any more: <c>FetchForWritingCompliance</c> pins the meaning.
     ///     </para>
     ///     <para>
     ///     The two overloads share this one guard. Marten's Guid overload refused a version below the
@@ -137,7 +135,7 @@ public abstract class EventOperationsBase : IEventOperations
     /// </remarks>
     /// <param name="expectedVersion">The caller's expected version.</param>
     /// <param name="stream">The stream action, with the events of this call already added.</param>
-    protected virtual long ExpectedStartingVersion(long expectedVersion, StreamAction stream)
+    private static long expectedStartingVersion(long expectedVersion, StreamAction stream)
     {
         var starting = expectedVersion - stream.Events.Count;
 
@@ -472,7 +470,7 @@ public abstract class EventOperationsBase : IEventOperations
 
     private StreamAction expecting(StreamAction stream, long expectedVersion)
     {
-        stream.ExpectedVersionOnServer = ExpectedStartingVersion(expectedVersion, stream);
+        stream.ExpectedVersionOnServer = expectedStartingVersion(expectedVersion, stream);
         return stream;
     }
 

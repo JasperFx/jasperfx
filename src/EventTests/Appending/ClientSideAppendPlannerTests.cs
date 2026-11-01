@@ -710,70 +710,52 @@ public class ClientSideAppendExpectedVersions
 }
 
 /// <summary>
-///     The split jasperfx#1047 found and left alone: <c>Append(stream, expectedVersion, ...)</c> is the
-///     version after the append on Marten and Polecat, and before it on Fisher and the in-memory store.
-///     These pin each store to its own reading through the one planner, so that a planner which quietly
-///     picked one fails here, and so that unifying them later is a change someone has to make on purpose.
+///     <c>Append(stream, expectedVersion, ...)</c> is the version after the append on every store
+///     (jasperfx#1047). The conversion happens once, in <see cref="EventOperationsBase" />, so these go from
+///     the public call through the one planner to catch a second conversion here.
 /// </summary>
 public class ClientSideAppendExpectedVersionReadings
 {
-    private static RecordingOperations VersionAfterTheAppend() => new(StreamIdentity.AsGuid, "tenant-a");
+    private static RecordingOperations Operations() => new(StreamIdentity.AsGuid, "tenant-a");
 
-    private static RecordingOperations VersionBeforeTheAppend()
-        => new(StreamIdentity.AsGuid, "tenant-a") { ExpectedVersionIsTheStartingVersion = true };
-
-    private static ClientSideAppendPlan Plan(RecordingOperations operations, long current, long expectedVersion,
-        params object[] events)
+    private static ClientSideAppendPlan Plan(long current, long expectedVersion, params object[] events)
     {
-        var stream = operations.Append(Guid.NewGuid(), expectedVersion, events);
+        var stream = Operations().Append(Guid.NewGuid(), expectedVersion, events);
         return Planning.Plan(stream, StreamRowSnapshot.Live(current));
     }
 
     [Fact]
-    public void version_after_reading_succeeds_one_short_of_the_argument()
+    public void an_append_succeeds_one_short_of_the_argument()
     {
-        Plan(VersionAfterTheAppend(), 1, 2, new QuestStarted("x")).Refusal.ShouldBeNull();
+        Plan(1, 2, new QuestStarted("x")).Refusal.ShouldBeNull();
     }
 
     [Fact]
-    public void version_after_reading_refuses_a_stream_already_at_the_argument()
+    public void an_append_refuses_a_stream_already_at_the_argument()
     {
-        Plan(VersionAfterTheAppend(), 2, 2, new QuestStarted("x")).Refusal.ShouldNotBeNull()
+        Plan(2, 2, new QuestStarted("x")).Refusal.ShouldNotBeNull()
             .Verdict.ShouldBe(StreamAppendVerdict.RefuseUnexpectedVersion);
     }
 
     [Fact]
-    public void version_before_reading_succeeds_at_the_argument()
-    {
-        Plan(VersionBeforeTheAppend(), 2, 2, new QuestStarted("x")).Refusal.ShouldBeNull();
-    }
-
-    [Fact]
-    public void version_before_reading_refuses_a_stream_one_short_of_the_argument()
-    {
-        Plan(VersionBeforeTheAppend(), 1, 2, new QuestStarted("x")).Refusal.ShouldNotBeNull()
-            .Verdict.ShouldBe(StreamAppendVerdict.RefuseUnexpectedVersion);
-    }
-
-    [Fact]
-    public void several_events_move_the_argument_on_the_after_reading_and_not_on_the_before_reading()
+    public void several_events_count_toward_the_argument()
     {
         object[] events = [new QuestStarted("x"), new MemberJoined("y"), new MemberJoined("z")];
 
-        Plan(VersionAfterTheAppend(), 2, 5, events).Refusal.ShouldBeNull();
-        Plan(VersionBeforeTheAppend(), 5, 5, events).Refusal.ShouldBeNull();
+        Plan(2, 5, events).Refusal.ShouldBeNull();
+        Plan(5, 5, events).Refusal.ShouldNotBeNull();
     }
 
     [Fact]
-    public void version_before_reading_creates_a_stream_at_expected_version_zero()
+    public void a_missing_stream_is_created_by_naming_the_version_its_events_reach()
     {
-        var stream = VersionBeforeTheAppend().Append(Guid.NewGuid(), 0L, new QuestStarted("x"));
+        var stream = Operations().Append(Guid.NewGuid(), 1L, new QuestStarted("x"));
 
-        // Fisher pins this one, and on the after reading the same call never reaches the planner
         Planning.Plan(stream, StreamRowSnapshot.Missing).Steps[0].Verdict.ShouldBe(StreamAppendVerdict.InsertStream);
 
+        // What Fisher used to write for this. It never reaches the planner now
         Should.Throw<ArgumentOutOfRangeException>(() =>
-            VersionAfterTheAppend().Append(Guid.NewGuid(), 0L, new QuestStarted("x")));
+            Operations().Append(Guid.NewGuid(), 0L, new QuestStarted("x")));
     }
 
     [Fact]
@@ -782,7 +764,7 @@ public class ClientSideAppendExpectedVersionReadings
         var stream = Planning.Action(events: 3);
         stream.ExpectedVersionOnServer = 7;
 
-        // Subtracting the pending events here would give the before reading the after reading's semantics
+        // EventOperationsBase already took the pending events off, so subtracting here would do it twice
         Planning.Plan(stream, StreamRowSnapshot.Live(7)).Steps[0].Verdict.ShouldBe(StreamAppendVerdict.UpdateStream);
         Planning.Plan(stream, StreamRowSnapshot.Live(4)).Refusal.ShouldNotBeNull();
         Planning.Plan(stream, StreamRowSnapshot.Live(10)).Refusal.ShouldNotBeNull();

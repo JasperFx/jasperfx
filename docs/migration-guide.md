@@ -110,8 +110,6 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 
   Derive from it, or implement `IEventOperationsHost` if your class already has a base class, and implement the `*Core` seams. The base reads no tenant and assumes no append mode, so the tenant is stamped in your seams, on the instance the call was made on. Natural-key fetches stay per store.
 
-  `Append(stream, expectedVersion, ...)` defaults to meaning the version after the append. A store reading it as the version before overrides `ExpectedStartingVersion`.
-
 * **`OpenTelemetryOptions` owns one `ActivitySource`, named like its `Meter`, and both are shared by name for the process** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Answer `IEventStore.Meter` and `IEventStore.ActivitySource` from your options rather than creating your own. Derive from `OpenTelemetryOptions<TChangeSet>` for `ExportCounterOnChangeSets`, and call `RecordCommit` from your commit listener.
 
 * **`StoreActivator<TStore, TDatabase>` replaces a hand-written startup service** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Global locks stay inside Weasel's per-database apply: the activator takes none of its own. Under `ContinueOnFailures`, leave the Weasel database at `FailFast` and let the activator handle the failure, because a lost lock otherwise looks like a successful migration.
@@ -123,6 +121,18 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
 * **`ClientSideAppendPlanner` holds the append decisions for client-side stores** ([#1051](https://github.com/JasperFx/jasperfx/issues/1051)), in the new `JasperFx.Events.Appending` namespace. Supply a row per action, scoped to that action's tenant, and call `Plan` and then `Apply`. `Plan` changes nothing and does no I/O, so a refused batch leaves every action as it was. A stream you forget to read arrives as `NotRead` and is refused rather than restarting at version 1. Marten keeps its own append path.
 
 ### Behavior changes
+
+* **`Append(stream, expectedVersion, ...)` means the version of the stream after the append, on every store** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)).
+
+  `Append(id, 2, e)` succeeds on a stream at version 1, as Marten and Polecat have always done. **This is a breaking change on Fisher and the in-memory store**, which read the argument as the version before the append, so the same portable call behaved differently per store:
+
+  | Call | Fisher before 2.0 | Now |
+  |---|---|---|
+  | `Append(id, 2, e)`, stream at version 2 | Succeeds | Fails with a concurrency exception. Pass `3` |
+  | `Append(id, 2, e)`, stream at version 1 | Fails | Succeeds |
+  | `Append(id, 0, e)`, stream missing | Creates the stream | Throws `ArgumentOutOfRangeException`. Pass `1` |
+
+  To migrate, add the number of events being appended to the version you were passing. `FetchForWriting` and `AppendOptimistic` are unaffected, because neither takes this argument. `FetchForWritingCompliance` pins the meaning, so a store on the old reading fails it.
 
 * **Client-side appends are decided the same way on Polecat and Fisher** ([#1051](https://github.com/JasperFx/jasperfx/issues/1051)), as each store adopts the planner:
 
