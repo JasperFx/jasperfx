@@ -255,12 +255,19 @@ public static partial class StringExtensions
 
     public static bool IsValidNumber(this string number, CultureInfo culture)
     {
+        var groupSeparator = Regex.Escape(culture.NumberFormat.NumberGroupSeparator);
+        var decimalSeparator = Regex.Escape(culture.NumberFormat.NumberDecimalSeparator);
+
+        // A whole part with an optional fraction, or a bare fraction, so that there is always a digit.
+        // \z rather than $, which would allow a trailing newline
         var _validNumberPattern =
-            @"^-?(?:\d+|\d{1,3}(?:"
-            + culture.NumberFormat.NumberGroupSeparator +
-            @"\d{3})+)?(?:\"
-            + culture.NumberFormat.NumberDecimalSeparator +
-            @"\d+)?$";
+            @"^-?(?:(?:\d+|\d{1,3}(?:"
+            + groupSeparator +
+            @"\d{3})+)(?:"
+            + decimalSeparator +
+            @"\d+)?|"
+            + decimalSeparator +
+            @"\d+)\z";
 
         return new Regex(_validNumberPattern, RegexOptions.ECMAScript).IsMatch(number);
     }
