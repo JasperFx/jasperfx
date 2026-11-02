@@ -19,6 +19,14 @@ public interface IEventSlice<T>: IEventSlice
     void AppendEvent<TEvent>(Guid streamId, TEvent @event) where TEvent : notnull;
     void AppendEvent<TEvent>(string streamKey, TEvent @event) where TEvent : notnull;
     void AppendEvent<TEvent>(TEvent @event) where TEvent : notnull;
+
+    /// <summary>
+    ///     Publish a side-effect message. It carries the correlation id that every event in this slice
+    ///     agrees on. Where they don't agree there is no telling which event the message came from and
+    ///     it carries none, so attribute each message yourself with
+    ///     <see cref="PublishMessage(object, MessageMetadata)"/> and
+    ///     <see cref="MessageMetadata.From(IEvent)"/>.
+    /// </summary>
     void PublishMessage(object message);
 
     /// <summary>
@@ -199,6 +207,80 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
     IEnumerable<(object Message, MessageMetadata Metadata)> IEventSlice<TDoc>.PublishedMessagesWithMetadata()
         => PublishedMessagesWithMetadata ?? [];
+
+    /// <summary>
+    ///     Publish <see cref="PublishedMessages"/> through the daemon's batch. Every side effect path
+    ///     goes through this or its <see cref="IMessageSink"/> twin so that they cannot disagree about
+    ///     what a message without metadata of its own carries.
+    /// </summary>
+    internal async Task PublishMessagesAsync(IProjectionBatch batch)
+    {
+        var metadata = metadataFromEvents();
+
+        foreach (var message in PublishedMessages ?? [])
+        {
+            if (metadata is { } agreed)
+            {
+                await batch.PublishMessageAsync(message, agreed).ConfigureAwait(false);
+            }
+            else
+            {
+                await batch.PublishMessageAsync(message, TenantId).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Publish <see cref="PublishedMessages"/> through an inline projection's message sink.
+    /// </summary>
+    internal async Task PublishMessagesAsync(IMessageSink sink)
+    {
+        var metadata = metadataFromEvents();
+
+        foreach (var message in PublishedMessages ?? [])
+        {
+            if (metadata is { } agreed)
+            {
+                await sink.PublishAsync(message, agreed).ConfigureAwait(false);
+            }
+            else
+            {
+                await sink.PublishAsync(message, TenantId).ConfigureAwait(false);
+            }
+        }
+    }
+
+    // #1101: PublishMessage(message) doesn't say which event the message came from, so the slice can only
+    // vouch for what all of its events agree on. Taking the last event's value would be a guess, because a
+    // slice can span several flows. Null means there is nothing to say and the caller publishes with the
+    // tenant alone, which leaves the id to the bus: under the daemon, that is one id for the whole page.
+    // Correlation only, because a causation header would overwrite the handler's own envelope id on the
+    // events it appends.
+    private MessageMetadata? metadataFromEvents()
+    {
+        var correlationId = agreedCorrelationId();
+
+        return correlationId == null ? null : new MessageMetadata(TenantId) { CorrelationId = correlationId };
+    }
+
+    private string? agreedCorrelationId()
+    {
+        string? agreed = null;
+
+        foreach (var @event in _events)
+        {
+            // Null on an appended event is a flow we can't name. A synthetic event was never appended, so
+            // its null says nothing about which flow this slice belongs to
+            if (@event.Data is ISyntheticEvent) continue;
+
+            var correlationId = @event.CorrelationId;
+            if (correlationId == null || (agreed != null && correlationId != agreed)) return null;
+
+            agreed = correlationId;
+        }
+
+        return agreed;
+    }
 
     /// <summary>
     ///     The related aggregate document

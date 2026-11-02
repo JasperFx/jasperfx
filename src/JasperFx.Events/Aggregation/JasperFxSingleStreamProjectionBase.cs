@@ -278,10 +278,7 @@ public abstract class JasperFxSingleStreamProjectionBase<TDoc, TId, TOperations,
         if (slice.PublishedMessages != null)
         {
             var sink = await session.GetOrStartMessageSink().ConfigureAwait(false);
-            foreach (var message in slice.PublishedMessages)
-            {
-                await sink.PublishAsync(message, stream.TenantId).ConfigureAwait(false);
-            }
+            await slice.PublishMessagesAsync(sink).ConfigureAwait(false);
         }
 
         // Independent path: messages enqueued with per-message metadata.

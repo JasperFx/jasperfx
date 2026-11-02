@@ -248,8 +248,87 @@ public class AggregationRunnerRaisedEventsTests
         theBatch.QuickAppends.ShouldHaveSingleItem().Id.ShouldBe(own);
     }
 
+    private record ShipOrder;
+
+    // jasperfx#1101, the measured case: two flows, one stream each, landing in one daemon page. Each side
+    // effect has to carry its own flow's id, or the bus gives both of them the page's.
+    [Fact]
+    public async Task two_flows_in_one_batch_each_keep_their_own_correlation()
+    {
+        var flowA = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventInFlow("flow-A")]);
+        var flowB = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventInFlow("flow-B")]);
+
+        Action<IEventSlice<User>> publish = s => s.PublishMessage(new ShipOrder());
+
+        await applyAsync(flowA, AggregationScope.SingleStream, StreamIdentity.AsGuid, publish);
+        await applyAsync(flowB, AggregationScope.SingleStream, StreamIdentity.AsGuid, publish);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.Select(x => x.Metadata.CorrelationId).ShouldBe(["flow-A", "flow-B"]);
+        theBatch.PublishedWithMetadata.ShouldAllBe(x => x.Metadata.TenantId == "foo");
+    }
+
+    // The shape enrichment leaves behind: AddReferences() puts a stand in beside the appended events
+    [Fact]
+    public async Task a_reference_beside_events_that_agree_does_not_cost_the_correlation()
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventInFlow("flow-A"), eventInFlow("flow-A")]);
+        slice.Reference(new User("Beast", "Hank McCoy"));
+
+        await publishFromAsync(slice);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
+    // A composite stage's slices get these from the stage upstream of them
+    [Theory]
+    [InlineData("updated")]
+    [InlineData("deleted")]
+    public async Task an_upstream_stand_in_beside_events_that_agree_does_not_cost_the_correlation(string standIn)
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventInFlow("flow-A"), eventInFlow("flow-A")]);
+        slice.AddEvent(standInEvent(slice.Id, standIn));
+
+        await publishFromAsync(slice);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
+    private Task publishFromAsync(EventSlice<User, Guid> slice)
+        => applyAsync(slice, AggregationScope.SingleStream, StreamIdentity.AsGuid,
+            s => s.PublishMessage(new ShipOrder()));
+
+    private static IEvent standInEvent(Guid id, string standIn) => standIn switch
+    {
+        "updated" => new Updated<User>("foo", new User("Beast", "Hank McCoy"), ActionType.Store).ToEvent(),
+        "deleted" => new ProjectionDeleted<User, Guid>(id, "foo").ToEvent(),
+        _ => throw new ArgumentOutOfRangeException(nameof(standIn))
+    };
+
+    // With event metadata off there is nothing to copy, and that has to stay today's exact call rather
+    // than become a metadata publish that says nothing
+    [Fact]
+    public async Task a_slice_with_no_event_metadata_publishes_with_the_tenant_alone()
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventInFlow(null)]);
+
+        await publishFromAsync(slice);
+
+        theBatch.PublishedWithMetadata.ShouldBeEmpty();
+        theBatch.PublishedWithTenantOnly.ShouldHaveSingleItem().TenantId.ShouldBe("foo");
+    }
+
+    private static Event<AEvent> eventInFlow(string? correlationId)
+        => new(new AEvent()) { StreamId = Guid.NewGuid(), Version = 4, CorrelationId = correlationId };
+
     private class RecordingBatch : IProjectionBatch
     {
+        public List<(object Message, string TenantId)> PublishedWithTenantOnly { get; } = new();
+
+        public List<(object Message, MessageMetadata Metadata)> PublishedWithMetadata { get; } = new();
+
         public List<StreamAction> QuickAppends { get; } = new();
 
         // The version is read as it arrives, since the event instance is free to change afterwards
@@ -266,7 +345,17 @@ public class AggregationRunnerRaisedEventsTests
 
         public Task ExecuteAsync(CancellationToken token) => Task.CompletedTask;
 
-        public Task PublishMessageAsync(object message, string tenantId) => Task.CompletedTask;
+        public Task PublishMessageAsync(object message, string tenantId)
+        {
+            PublishedWithTenantOnly.Add((message, tenantId));
+            return Task.CompletedTask;
+        }
+
+        public Task PublishMessageAsync(object message, MessageMetadata metadata)
+        {
+            PublishedWithMetadata.Add((message, metadata));
+            return Task.CompletedTask;
+        }
 
         public ValueTask RecordProgress(EventRange range) => ValueTask.CompletedTask;
 
