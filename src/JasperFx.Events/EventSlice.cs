@@ -309,29 +309,9 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
             foreach (var group in groups)
             {
-                var action = StreamAction.Append(group.Key, RaisedEvents.ToArray());
-                action.TenantId = TenantId;
-
-                if (aggregationScope == AggregationScope.SingleStream && ActionType == StreamActionType.Start)
-                {
-                    var version = _events.Count;
-                    action.ExpectedVersionOnServer = version;
-
-                    foreach (var @event in RaisedEvents)
-                    {
-                        @event.Version = ++version;
-                        storage.QuickAppendEventWithVersion(action, @event);
-                    }
-
-                    action.Version = version;
-
-                    storage.UpdateStreamVersion(action);
-                }
-                else
-                {
-                    action.TenantId = TenantId;
-                    storage.QuickAppendEvents(action);
-                }
+                var action = StreamAction.Append(group.Key, group.ToArray());
+                appendRaisedEvents(action, storage, aggregationScope,
+                    group.Key == _events.FirstOrDefault()?.StreamId);
             }
         }
         else
@@ -341,30 +321,39 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
 
             foreach (var group in groups)
             {
-                var action = StreamAction.Append(group.Key, RaisedEvents.ToArray());
-                action.TenantId = TenantId;
-
-                if (aggregationScope == AggregationScope.SingleStream && ActionType == StreamActionType.Start)
-                {
-                    var version = _events.Count;
-                    action.ExpectedVersionOnServer = version;
-
-                    foreach (var @event in RaisedEvents)
-                    {
-                        @event.Version = ++version;
-                        storage.QuickAppendEventWithVersion(action, @event);
-                    }
-
-                    action.Version = version;
-
-                    storage.UpdateStreamVersion(action);
-                }
-                else
-                {
-                    action.TenantId = TenantId;
-                    storage.QuickAppendEvents(action);
-                }
+                var action = StreamAction.Append(group.Key, group.ToArray());
+                appendRaisedEvents(action, storage, aggregationScope,
+                    group.Key == _events.FirstOrDefault()?.StreamKey);
             }
+        }
+    }
+
+    private void appendRaisedEvents(StreamAction action, IProjectionBatch storage,
+        AggregationScope aggregationScope, bool isOwnStream)
+    {
+        action.TenantId = TenantId;
+
+        // A slice that starts a stream holds that stream from its first event, so _events.Count is that
+        // stream's version. It says nothing about any other stream a projection raises events to, and
+        // those are left to the store to number
+        if (isOwnStream && aggregationScope == AggregationScope.SingleStream && ActionType == StreamActionType.Start)
+        {
+            var version = _events.Count;
+            action.ExpectedVersionOnServer = version;
+
+            foreach (var @event in action.Events)
+            {
+                @event.Version = ++version;
+                storage.QuickAppendEventWithVersion(action, @event);
+            }
+
+            action.Version = version;
+
+            storage.UpdateStreamVersion(action);
+        }
+        else
+        {
+            storage.QuickAppendEvents(action);
         }
     }
 
