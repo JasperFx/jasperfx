@@ -102,7 +102,12 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
 
     public override IEnumerable<Type> PublishedTypes()
     {
-        return Stages.SelectMany(stage => stage.Projections.SelectMany(x => x.PublishedTypes()));
+        // The composite's own declarations belong to no member, so nothing else would report them (fisher#63).
+        // They come last because the stores read a projection's first published type as its state type.
+        return Stages.SelectMany(stage => stage.Projections.SelectMany(x => x.PublishedTypes()))
+            .Concat(base.PublishedTypes())
+            .Distinct()
+            .ToArray();
     }
 
     SubscriptionType ISubscriptionSource.Type => SubscriptionType.CompositeProjection;
