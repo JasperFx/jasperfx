@@ -705,7 +705,7 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsTombstoneStream => false;
 
     /// <summary>
-    /// True in a store whose masking pass reaches archived events, which is a read of its own wherever the
+    /// True in a store whose masking pass reaches archived events, which is a read of its own because the
     /// plain stream read leaves them out. See <c>EventDataMaskingBase&lt;TSession&gt;</c>.
     /// </summary>
     /// <remarks>
