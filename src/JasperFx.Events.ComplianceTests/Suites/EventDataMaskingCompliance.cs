@@ -138,8 +138,8 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
     };
 
     /// <summary>
-    /// What a rule was handed, for the archived facts: a plain stream read leaves archived events out on some
-    /// stores, so reading the masked event back is not something this suite can do portably.
+    /// What a rule was handed, for the archived facts: a plain stream read leaves archived events out, so it
+    /// cannot read the masked event back.
     /// </summary>
     private static readonly ConcurrentBag<string> _subjectsARuleReached = [];
 
