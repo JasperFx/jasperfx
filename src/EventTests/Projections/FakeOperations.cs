@@ -25,9 +25,18 @@ public class FakeOperations : FakeSession, IStorageOperations
         throw new NotImplementedException();
     }
 
-    public bool EnableSideEffectsOnInlineProjections { get; } = false;
+    public bool EnableSideEffectsOnInlineProjections { get; set; } = false;
+
+    // jasperfx#1101: left null it preserves the original throwing behavior, the same as ProjectionStorage
+    public IMessageSink? MessageSink { get; set; }
+
     public ValueTask<IMessageSink> GetOrStartMessageSink()
     {
+        if (MessageSink != null)
+        {
+            return new ValueTask<IMessageSink>(MessageSink);
+        }
+
         throw new NotImplementedException();
     }
 }

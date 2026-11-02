@@ -867,8 +867,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
 
         if (slice.PublishedMessages != null)
         {
-            foreach (var message in slice.PublishedMessages)
-                await batch.PublishMessageAsync(message, slice.TenantId).ConfigureAwait(false);
+            await slice.PublishMessagesAsync(batch).ConfigureAwait(false);
         }
 
         // Independent path for messages enqueued with per-message metadata via

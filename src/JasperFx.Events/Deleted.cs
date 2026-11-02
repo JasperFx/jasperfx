@@ -7,7 +7,7 @@ namespace JasperFx.Events;
 /// <param name="Identity"></param>
 /// <typeparam name="TDoc"></typeparam>
 /// <typeparam name="TId"></typeparam>
-public record ProjectionDeleted<TDoc, TId>(TId Identity, string TenantId) : ICanWrapEvent, ProjectionDeleted<TDoc>, DeletedIdentity<TId>
+public record ProjectionDeleted<TDoc, TId>(TId Identity, string TenantId) : ICanWrapEvent, ProjectionDeleted<TDoc>, DeletedIdentity<TId>, ISyntheticEvent
 {
     public IEvent ToEvent()
     {
