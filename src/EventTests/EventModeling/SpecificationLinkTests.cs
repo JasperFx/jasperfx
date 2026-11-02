@@ -192,6 +192,56 @@ namespace EventTests.EventModeling
             linked.Slices.Single(x => x.Name == "A").Specifications.ShouldBeEmpty();
         }
 
+        // jasperfx#1099. Two modules handle one command, and one of them reaches it both ways: the fold's
+        // HandlerType is the endpoint, so the handler's namespace is only on AdditionalEntryPoints.
+        private static EventModelDescriptor oneModuleFoldedFromTwoEntryPoints(bool messageFirst)
+        {
+            var message = commandSlice<ApplyToVolunteer>("Clinic", handler: T<SpecLinkModules.Clinic.ApplyHandler>()) with
+            {
+                TriggerKind = TriggerKind.MessageHandler,
+                Origin = new Uri("event-model://wolverine"),
+            };
+            var http = commandSlice<ApplyToVolunteer>("Clinic", handler: T<SpecLinkModules.ClinicApi.ApplyEndpoint>()) with
+            {
+                TriggerKind = TriggerKind.Http,
+                Origin = new Uri("event-model://wolverine-http"),
+            };
+
+            return model(commandSlice<ApplyToVolunteer>("Shelter", handler: T<SpecLinkModules.Shelter.ApplyHandler>()),
+                messageFirst ? message.Merge(http) : http.Merge(message));
+        }
+
+        [Theory]
+        [InlineData(true, "SpecLinkModules.Clinic")]
+        [InlineData(false, "SpecLinkModules.Clinic")]
+        [InlineData(true, "SpecLinkModules.ClinicApi")]
+        [InlineData(false, "SpecLinkModules.ClinicApi")]
+        public void a_namespace_finds_a_folded_slice_through_either_of_its_entry_points(bool messageFirst, string ns)
+        {
+            var linked = EventModelSpecifications.Link(oneModuleFoldedFromTwoEntryPoints(messageFirst),
+                [spec<ApplyToVolunteer>("Volunteers/apply") with { Namespace = ns }]);
+
+            linked.Hotspots.ShouldBeEmpty();
+            linked.Slices.Single(x => x.Name == "Shelter").Specifications.ShouldBeEmpty();
+
+            var fold = linked.Slices.Single(x => x.Name == "Clinic");
+            fold.Specifications.ShouldHaveSingleItem();
+            fold.AdditionalEntryPoints.ShouldHaveSingleItem();
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void a_namespace_naming_the_other_module_does_not_find_the_folded_slice(bool messageFirst)
+        {
+            var linked = EventModelSpecifications.Link(oneModuleFoldedFromTwoEntryPoints(messageFirst),
+                [spec<ApplyToVolunteer>("Volunteers/apply") with { Namespace = "SpecLinkModules.Shelter" }]);
+
+            linked.Hotspots.ShouldBeEmpty();
+            linked.Slices.Single(x => x.Name == "Clinic").Specifications.ShouldBeEmpty();
+            linked.Slices.Single(x => x.Name == "Shelter").Specifications.ShouldHaveSingleItem();
+        }
+
         [Fact]
         public void an_explicit_slice_overrides_the_inference()
         {
@@ -296,4 +346,9 @@ namespace SpecLinkModules.Shelter
 namespace SpecLinkModules.Clinic
 {
     public class ApplyHandler;
+}
+
+namespace SpecLinkModules.ClinicApi
+{
+    public class ApplyEndpoint;
 }

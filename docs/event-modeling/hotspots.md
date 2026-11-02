@@ -144,6 +144,10 @@ A source that did not attribute itself still renders as its rung, so nothing tha
 
 So when one side's origin is `Declared`, or exactly one side's is `Observed`, the higher rung keeps its origin and nothing is recorded. Runtime observation meeting the code confirms the slice. It doesn't contradict it. Two derived stores, or two observed services, still disagree.
 
+### An endpoint and a message handler aren't a disagreement
+
+A command reachable both over HTTP and as a message folds into one slice from two `Derived` sources, by design. Nothing is wrong with either source and there's nothing to fix, so that fold raises no hotspot on `TriggerKind`, `HandlerType` or `Origin`. The slice keeps the HTTP side and carries the message handler on `AdditionalEntryPoints`; see [Two entry points to one command](/event-modeling/descriptors#two-entry-points-to-one-command).
+
 ### How the canvas draws a disagreement
 
 `@jasperfx/event-model-vue` (0.16.0 and later) draws a source disagreement as a small muted **≠** on the card that renders the disputed role, not as a red sticky of its own. A disagreement is often benign, for example two sources naming one handler differently, and a canvas of red stickies teaches operators to ignore all of them. The handler card carries a `HandlerType` disagreement, the event cards an `EmittedEvents` one, and a role with no card (`Origin`, `TriggerKind`, `Pattern`, …) badges the slice header. Both claims go on the tooltip. The other hotspot kinds are findings and keep their stickies. A host that wants the old rendering passes `disagreement-presentation="sticky"`.
@@ -180,7 +184,7 @@ The merge refuses to do that now. It keeps the first slice, folds nothing else i
 The two handlers ride on `WinningClaim` and `LosingClaim` with `Role = HandlerType`, just like a disagreement. The usual fix is to [declare which module each handler belongs to](/event-modeling/declaring#modules-are-domains).
 
 ::: info
-It's only a collision when the **same** source (the same `Origin`) did it. Two *different* sources describing one slice with different handlers is normal -- Wolverine.HTTP deliberately names an endpoint's slice for its request type so the endpoint and the message handler for that command become one slice -- and that's handled as an ordinary disagreement.
+It's only a collision when the **same** source (the same `Origin`) did it. Two *different* sources describing one slice with different handlers is normal -- Wolverine.HTTP deliberately names an endpoint's slice for its request type so the endpoint and the message handler for that command [become one slice](/event-modeling/descriptors#two-entry-points-to-one-command) with no hotspot at all. Any other pair of sources naming different handlers is an ordinary disagreement.
 :::
 
 ## A query that writes is a hotspot

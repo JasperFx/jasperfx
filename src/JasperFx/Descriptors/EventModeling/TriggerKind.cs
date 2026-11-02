@@ -64,7 +64,10 @@ public static class TriggerKindCompatibility
     /// <summary>
     /// Whether two claims about one slice's trigger kind are compatible: the same kind, or
     /// <see cref="TriggerKind.Human"/> on one side and a kind that <see cref="CanBeHumanTriggered"/> on
-    /// the other. Symmetric. Anything else is a <see cref="HotspotOrigin.SourceDisagreement"/>.
+    /// the other. Symmetric. Anything else is a <see cref="HotspotOrigin.SourceDisagreement"/>, with one
+    /// exception this method cannot see because it depends on the rungs as well as the kinds: two
+    /// <see cref="EventModelProvenance.Derived"/> sources claiming <see cref="TriggerKind.Http"/> and
+    /// <see cref="TriggerKind.MessageHandler"/> (see <see cref="EventModelSliceDescriptor.AdditionalEntryPoints"/>).
     /// </summary>
     public static bool IsCompatibleWith(this TriggerKind kind, TriggerKind other)
         => kind == other || SplitsWhoFromHow(kind, other);
@@ -76,4 +79,16 @@ public static class TriggerKindCompatibility
     internal static bool SplitsWhoFromHow(TriggerKind kind, TriggerKind other)
         => (kind == TriggerKind.Human && other.CanBeHumanTriggered())
            || (other == TriggerKind.Human && kind.CanBeHumanTriggered());
+
+    // jasperfx#1099. Grpc stays out on the evidence: Wolverine stamps an RPC's trigger onto the message
+    // handler's slice inside its one source (ApplyGrpcTriggers), so Grpc never meets MessageHandler in a
+    // merge, and whether it meets Http has not been seen in practice.
+    /// <summary>
+    /// The two claims could be two ways into one command: an HTTP endpoint and a message handler. Whether
+    /// they <em>are</em> also depends on who made them, which is
+    /// <see cref="EventModelSliceDescriptor.Merge"/>'s question.
+    /// </summary>
+    internal static bool AreHttpAndMessageHandler(TriggerKind kind, TriggerKind other)
+        => (kind == TriggerKind.Http && other == TriggerKind.MessageHandler)
+           || (kind == TriggerKind.MessageHandler && other == TriggerKind.Http);
 }

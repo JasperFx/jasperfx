@@ -20,6 +20,7 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `CommandType` | Derived | The inbound message type |
 | `HandlerType` | Derived | The user's handler or endpoint class — distinct from the aggregates, and never generated code. See [Handler identity](#handler-identity) |
 | `HandlerMethod` | Derived | The name of the user's handler or endpoint method on `HandlerType` |
+| `AdditionalEntryPoints` | Merge | The ways into the slice beyond the one `TriggerKind` and `HandlerType` name. See [Two entry points to one command](#two-entry-points-to-one-command) |
 | `AggregateTypes` | Derived | Projected write models the handler decides against |
 | `EmittedEvents` | Derived | Events the slice writes, in declaration order |
 | `PublishedMessages` | Derived | Non-event messages — cascaded commands, integration messages |
@@ -72,6 +73,31 @@ The rule is symmetric and doesn't depend on the rungs. `TriggerKindCompatibility
 
 <!-- JEREMY: why "who" and "how" are different questions, with the CritterCrush rehearsal as the example -->
 
+### Two entry points to one command
+
+Wolverine.HTTP names an endpoint's slice for its request type, the same name a message handler for that command gets, so the two fold into one slice. Both claims are true, so the fold raises no hotspot on the roles that name an entry point. Whichever source came first, the merged slice keeps the HTTP side:
+
+- `TriggerKind` is `Http`, beside the route on `TriggerOrigin`.
+- `HandlerType`, `HandlerMethod` and `Origin` are the endpoint's.
+- `AdditionalEntryPoints` holds the message handler: its `Kind`, `HandlerType`, `HandlerMethod` and `Origin`.
+
+`AdditionalEntryPoints` is for a console that wants to navigate to the other handler, and a spec manifest's `Namespace` matches it as well as `HandlerType`. The slice's `Elements` still draw one handler.
+
+This is the fold of two `Derived` sources claiming `Http` and `MessageHandler`, and nothing else is:
+
+| Sources | Result |
+|---------|--------|
+| Two `Derived` sources, `Http` and `MessageHandler` | The fold above |
+| The same pair from one source (the same `Origin`) | `SourceDisagreement` on `TriggerKind`, or a `SliceCollision` if the handlers differ |
+| A declared `Http` met by a derived `MessageHandler`, or the reverse | `SourceDisagreement`: the board wants an entry point the code doesn't have |
+| An observed kind met by a derived one | `SourceDisagreement`: production outranks the code |
+| Two unstamped sources | `SourceDisagreement`, as before |
+| Two `Derived` sources with any other kinds | `SourceDisagreement` on `TriggerKind`, `HandlerType` and `Origin`, as before |
+
+Roles outside the entry point still merge as usual, so an endpoint and a handler in two different `Domain`s disagree about `Domain`. `Grpc` isn't part of the pair: Wolverine stamps an RPC's trigger onto the message handler's slice inside one source, so the two never meet in a merge.
+
+Merges are pairwise, so a declared `Http` that meets the message handler before the endpoint records `MessageHandler` beating it on the way, and that hotspot stays even though the slice ends on `Http`.
+
 ### Handler identity
 
 `HandlerType` and `HandlerMethod` name the code the user wrote, so a viewer like CritterWatch can navigate straight to it. They never name generated code. Wolverine wraps every handler in a generated `MessageHandler` subclass and every HTTP endpoint in a generated `HttpHandler` subclass, and neither of those belongs on a descriptor:
@@ -83,7 +109,7 @@ The rule is symmetric and doesn't depend on the rungs. `TriggerKindCompatibility
 
 `HandlerRelationshipDescriptor` has the same pair (`HandlerType` plus an optional `HandlerMethod`), and `ToSliceDescriptor()` carries both onto the slice.
 
-`HandlerMethod` merges as part of the handler. It goes with whichever `HandlerType` wins, and it's never taken from a different type. If both sides name the same type, a known method fills in an unknown one. Two different methods on the same type leave a `SourceDisagreement` on `HandlerType`, e.g. `Derived claims OrderHandler.Handle; Declared claims OrderHandler.Consume`.
+`HandlerMethod` merges as part of the handler. It goes with whichever `HandlerType` wins, and it's never taken from a different type. If both sides name the same type, a known method fills in an unknown one. Two different methods on the same type leave a `SourceDisagreement` on `HandlerType`, e.g. `Derived claims OrderHandler.Handle; Declared claims OrderHandler.Consume`, unless they're [an endpoint and a message handler](#two-entry-points-to-one-command) on one class.
 
 `Chapter` merges like `Domain`: first non-null wins, and a genuine disagreement between two sources becomes a `SourceDisagreement` hotspot rather than a silent drop.
 
@@ -289,7 +315,7 @@ var linked = EventModelSpecifications.Link(model, manifest);
 ```
 
 - **The join key is the command type.** A spec links to the one slice whose `CommandType` is its command.
-- **Several slices handling one command** -- one per module -- are narrowed by the spec's `Domain`, then by its `Namespace` (a prefix of the slice's handler namespace). If that leaves exactly one, the spec links there. Otherwise it links nowhere, and an `UnresolvedSpecification` hotspot on the model names the candidates rather than guessing.
+- **Several slices handling one command** -- one per module -- are narrowed by the spec's `Domain`, then by its `Namespace` (a prefix of the namespace of the slice's handler, or of any handler on its `AdditionalEntryPoints`). If that leaves exactly one, the spec links there. Otherwise it links nowhere, and an `UnresolvedSpecification` hotspot on the model names the candidates rather than guessing.
 - **An explicit `SliceName`** replaces the inference. One naming a slice the model doesn't have is reported the same way.
 - **A spec whose command no slice handles** is not linked and not reported: it specifies code that doesn't exist yet.
 - **Derived links sit on the `Specified` rung.** A hand-typed `LinksToSpecification` that agrees records nothing. One that the specifications don't include loses, and is recorded as a `SourceDisagreement`.

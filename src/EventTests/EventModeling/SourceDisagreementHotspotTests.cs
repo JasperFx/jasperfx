@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using JasperFx.Descriptors;
 using JasperFx.Events.EventModeling;
 using Shouldly;
@@ -471,12 +473,305 @@ public class SourceDisagreementHotspotTests
 
     #endregion
 
+    #region an HTTP endpoint and a message handler for one command (jasperfx#1099)
+
+    private static readonly Uri WolverineSource = new("event-model://wolverine");
+    private static readonly Uri WolverineHttpSource = new("event-model://wolverine-http");
+
+    private static readonly JsonSerializerOptions CritterWatchWire = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
+
+    private static string[] HotspotRolesIn(EventModelSliceDescriptor slice) =>
+        DisagreementsIn(slice).Select(x => x.Role!.Value.ToString()).Order(StringComparer.Ordinal).ToArray();
+
+    // The two claims Wolverine's two derived sources make for a command reachable both ways: the issue's repro.
+    private static EventModelSliceDescriptor MessageSlice() =>
+        EventModelSliceDescriptor.Named("CreateItem") with
+        {
+            Provenance = EventModelProvenance.Derived,
+            Origin = WolverineSource,
+            TriggerKind = TriggerKind.MessageHandler,
+            HandlerType = T<CreateItemHandler>(),
+            HandlerMethod = "Handle",
+        };
+
+    private static EventModelSliceDescriptor HttpSlice() =>
+        EventModelSliceDescriptor.Named("CreateItem") with
+        {
+            Provenance = EventModelProvenance.Derived,
+            Origin = WolverineHttpSource,
+            TriggerKind = TriggerKind.Http,
+            TriggerOrigin = new PublisherOrigin { HttpRoute = "/items", HttpMethod = "POST", Label = "POST /items" },
+            HandlerType = T<CreateItemEndpoint>(),
+            HandlerMethod = "Post",
+        };
+
+    private static EventModelDescriptor Source(EventModelSliceDescriptor slice) => new("Items", [slice]);
+
+    private static void ShouldBeTheHttpFold(EventModelSliceDescriptor merged)
+    {
+        merged.Hotspots.ShouldBeEmpty();
+
+        merged.TriggerKind.ShouldBe(TriggerKind.Http);
+        merged.TriggerOrigin!.Label.ShouldBe("POST /items");
+        merged.HandlerType.ShouldBe(T<CreateItemEndpoint>());
+        merged.HandlerMethod.ShouldBe("Post");
+        merged.Origin.ShouldBe(WolverineHttpSource);
+
+        merged.AdditionalEntryPoints.ShouldHaveSingleItem().ShouldBe(new EventModelEntryPoint(
+            TriggerKind.MessageHandler, T<CreateItemHandler>(), "Handle", WolverineSource));
+    }
+
+    [Fact]
+    public void an_http_endpoint_and_a_message_handler_fold_without_a_disagreement_in_either_order()
+    {
+        ShouldBeTheHttpFold(MessageSlice().Merge(HttpSlice()));
+        ShouldBeTheHttpFold(HttpSlice().Merge(MessageSlice()));
+    }
+
+    [Fact]
+    public void the_model_merge_folds_them_to_the_same_slice_whichever_source_comes_first()
+    {
+        var messageFirst = EventModelDescriptor.Merge("Items", [Source(MessageSlice()), Source(HttpSlice())]);
+        var httpFirst = EventModelDescriptor.Merge("Items", [Source(HttpSlice()), Source(MessageSlice())]);
+
+        ShouldBeTheHttpFold(messageFirst.Slices.ShouldHaveSingleItem());
+        ShouldBeTheHttpFold(httpFirst.Slices.ShouldHaveSingleItem());
+
+        // Everything that reaches a viewer, not only the roles named above
+        JsonSerializer.Serialize(httpFirst, CritterWatchWire).ShouldBe(JsonSerializer.Serialize(messageFirst, CritterWatchWire));
+    }
+
+    [Fact]
+    public void the_fold_stays_on_the_derived_rung_for_every_role_it_settles()
+    {
+        var merged = MessageSlice().Merge(HttpSlice());
+
+        merged.ProvenanceFor(EventModelRole.TriggerKind).ShouldBe(EventModelProvenance.Derived);
+        merged.ProvenanceFor(EventModelRole.HandlerType).ShouldBe(EventModelProvenance.Derived);
+        merged.ProvenanceFor(EventModelRole.Origin).ShouldBe(EventModelProvenance.Derived);
+    }
+
+    [Fact]
+    public void one_class_serving_as_endpoint_and_handler_folds_without_a_method_disagreement()
+    {
+        // A hybrid class: one HandlerType, so the only claim left to disagree on is the method
+        var http = HttpSlice() with { HandlerType = T<CreateItemHandler>() };
+
+        foreach (var merged in new[] { MessageSlice().Merge(http), http.Merge(MessageSlice()) })
+        {
+            merged.Hotspots.ShouldBeEmpty();
+            merged.HandlerType.ShouldBe(T<CreateItemHandler>());
+            merged.HandlerMethod.ShouldBe("Post");
+            merged.AdditionalEntryPoints.ShouldHaveSingleItem().HandlerMethod.ShouldBe("Handle");
+        }
+    }
+
+    [Fact]
+    public void the_who_survives_the_fold_whichever_order_the_three_sources_arrive_in()
+    {
+        var human = EventModelSliceDescriptor.Named("CreateItem") with
+        {
+            Provenance = EventModelProvenance.Declared,
+            TriggerKind = TriggerKind.Human,
+            TriggerLabel = "Clerk adds an item",
+        };
+
+        foreach (var merged in new[]
+                 {
+                     human.Merge(MessageSlice()).Merge(HttpSlice()),
+                     human.Merge(HttpSlice()).Merge(MessageSlice()),
+                     MessageSlice().Merge(HttpSlice()).Merge(human),
+                     HttpSlice().Merge(MessageSlice()).Merge(human),
+                 })
+        {
+            ShouldBeTheHttpFold(merged);
+            merged.TriggeredBy.ShouldBe(TriggerKind.Human);
+            merged.TriggerLabel.ShouldBe("Clerk adds an item");
+        }
+    }
+
+    [Fact]
+    public void folding_the_same_sources_again_changes_nothing()
+    {
+        ShouldBeTheHttpFold(MessageSlice().Merge(HttpSlice()).Merge(MessageSlice()).Merge(HttpSlice()));
+    }
+
+    [Fact]
+    public void the_kinds_prove_the_fold_when_neither_source_attributed_itself()
+    {
+        var message = MessageSlice() with { Origin = null };
+        var http = HttpSlice() with { Origin = null };
+
+        foreach (var merged in new[] { message.Merge(http), http.Merge(message) })
+        {
+            merged.Hotspots.ShouldBeEmpty();
+            merged.TriggerKind.ShouldBe(TriggerKind.Http);
+            merged.HandlerType.ShouldBe(T<CreateItemEndpoint>());
+            merged.Origin.ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public void the_fold_quiets_only_the_roles_it_settles()
+    {
+        // The two entry points are not told what domain they live in by the fold
+        var merged = (MessageSlice() with { Domain = "Catalog" }).Merge(HttpSlice() with { Domain = "Storefront" });
+
+        HotspotRolesIn(merged).ShouldBe(["Domain"]);
+    }
+
+    /// <summary>
+    /// jasperfx#704 stands for everything but the one fold: two Derived sources that really disagree still
+    /// raise a hotspot on every role they dropped a claim on, whether or not their kinds differ.
+    /// </summary>
+    [Theory]
+    [InlineData(TriggerKind.MessageHandler, TriggerKind.MessageHandler, new[] { "HandlerType", "Origin" })]
+    [InlineData(TriggerKind.Http, TriggerKind.Http, new[] { "HandlerType", "Origin" })]
+    [InlineData(TriggerKind.Http, TriggerKind.Grpc, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    [InlineData(TriggerKind.Grpc, TriggerKind.MessageHandler, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    [InlineData(TriggerKind.Http, TriggerKind.External, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    [InlineData(TriggerKind.Http, TriggerKind.JobScheduler, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    [InlineData(TriggerKind.MessageHandler, TriggerKind.External, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    public void two_derived_sources_that_really_disagree_still_raise_their_hotspots(TriggerKind first, TriggerKind second,
+        string[] roles)
+    {
+        var one = MessageSlice() with { TriggerKind = first, TriggerOrigin = null };
+        var other = HttpSlice() with { TriggerKind = second, TriggerOrigin = null };
+
+        var merged = one.Merge(other);
+
+        HotspotRolesIn(merged).ShouldBe(roles);
+        merged.AdditionalEntryPoints.ShouldBeEmpty();
+
+        // First wins, as it always has
+        merged.TriggerKind.ShouldBe(first);
+        merged.HandlerType.ShouldBe(T<CreateItemHandler>());
+        merged.Origin.ShouldBe(WolverineSource);
+    }
+
+    [Theory]
+    // A Declared origin is attribution and never disagrees (jasperfx#959), so that rung has one hotspot fewer
+    [InlineData(EventModelProvenance.Declared, new[] { "HandlerType", "TriggerKind" })]
+    [InlineData(EventModelProvenance.Specified, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    [InlineData(EventModelProvenance.Observed, new[] { "HandlerType", "Origin", "TriggerKind" })]
+    public void the_pair_is_only_a_fold_between_two_derived_sources(EventModelProvenance rung, string[] roles)
+    {
+        // Two declarations naming different kinds disagree about the design; so do two observations
+        // from two services. Neither is the code describing its own two entry points.
+        var merged = (MessageSlice() with { Provenance = rung }).Merge(HttpSlice() with { Provenance = rung });
+
+        HotspotRolesIn(merged).ShouldBe(roles);
+        merged.TriggerKind.ShouldBe(TriggerKind.MessageHandler);
+        merged.AdditionalEntryPoints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_declared_kind_the_code_does_not_implement_still_disagrees()
+    {
+        // The board says HTTP, the code has only a message handler: that endpoint does not exist yet
+        var declared = HttpSlice() with { Provenance = EventModelProvenance.Declared, Origin = null };
+
+        var merged = declared.Merge(MessageSlice());
+
+        merged.TriggerKind.ShouldBe(TriggerKind.MessageHandler);
+        merged.HandlerType.ShouldBe(T<CreateItemHandler>());
+        HotspotRolesIn(merged).ShouldBe(["HandlerType", "TriggerKind"]);
+        merged.AdditionalEntryPoints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void an_observed_kind_still_outranks_what_the_fold_kept()
+    {
+        var observed = MessageSlice() with { Provenance = EventModelProvenance.Observed, Origin = null };
+
+        var merged = MessageSlice().Merge(HttpSlice()).Merge(observed);
+
+        merged.TriggerKind.ShouldBe(TriggerKind.MessageHandler);
+        merged.HandlerType.ShouldBe(T<CreateItemHandler>());
+        HotspotRolesIn(merged).ShouldBe(["HandlerType", "TriggerKind"]);
+    }
+
+    [Fact]
+    public void unstamped_sources_merge_exactly_as_they_always_have()
+    {
+        // ProvenanceFor reads an unattributed slice as Declared: the compatibility hinge of jasperfx#703
+        var merged = (MessageSlice() with { Provenance = null, Origin = null })
+            .Merge(HttpSlice() with { Provenance = null, Origin = null });
+
+        merged.TriggerKind.ShouldBe(TriggerKind.MessageHandler);
+        HotspotRolesIn(merged).ShouldBe(["HandlerType", "TriggerKind"]);
+    }
+
+    [Fact]
+    public void one_source_claiming_both_kinds_is_not_a_fold()
+    {
+        var http = HttpSlice() with { Origin = WolverineSource, HandlerType = T<CreateItemHandler>(), HandlerMethod = "Handle" };
+
+        var merged = MessageSlice().Merge(http);
+
+        HotspotRolesIn(merged).ShouldBe(["TriggerKind"]);
+        merged.AdditionalEntryPoints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void one_source_naming_two_handlers_under_the_pair_is_still_a_collision()
+    {
+        var merged = MessageSlice().Merge(HttpSlice() with { Origin = WolverineSource });
+
+        merged.Hotspots.ShouldHaveSingleItem().Origin.ShouldBe(HotspotOrigin.SliceCollision);
+        merged.TriggerKind.ShouldBe(TriggerKind.MessageHandler);
+        merged.AdditionalEntryPoints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_later_collision_keeps_the_entry_points_already_folded()
+    {
+        var folded = MessageSlice().Merge(HttpSlice());
+
+        var merged = folded.Merge(HttpSlice() with { HandlerType = T<OrderHandler>() });
+
+        merged.Hotspots.ShouldHaveSingleItem().Origin.ShouldBe(HotspotOrigin.SliceCollision);
+        merged.AdditionalEntryPoints.ShouldHaveSingleItem().HandlerType.ShouldBe(T<CreateItemHandler>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void additional_entry_points_round_trip(bool critterWatchWire)
+    {
+        var options = critterWatchWire ? CritterWatchWire : new JsonSerializerOptions();
+
+        var json = JsonSerializer.Serialize(new EventModelDescriptor("Items", [MessageSlice().Merge(HttpSlice())]), options);
+        var back = JsonSerializer.Deserialize<EventModelDescriptor>(json, options)!.Slices.Single();
+
+        json.ShouldContain(critterWatchWire ? "\"additionalEntryPoints\":[{\"kind\":\"messageHandler\"" : "\"AdditionalEntryPoints\":[{\"Kind\":2");
+        ShouldBeTheHttpFold(back);
+    }
+
+    [Fact]
+    public void a_slice_from_before_additional_entry_points_still_deserializes()
+    {
+        const string json = """{"name":"CreateItem","triggerKind":"messageHandler"}""";
+
+        var slice = JsonSerializer.Deserialize<EventModelSliceDescriptor>(json, CritterWatchWire)!;
+
+        slice.AdditionalEntryPoints.ShouldBeEmpty();
+    }
+
+    #endregion
+
     public class PlaceOrder { }
     public class OrderHandler { }
     public class LegacyOrderHandler { }
     public class OrderPlaced { }
     public class OrderShipped { }
     public class AuditRecorded { }
+    public class CreateItemHandler { }
+    public class CreateItemEndpoint { }
 }
 
 /// <summary>
