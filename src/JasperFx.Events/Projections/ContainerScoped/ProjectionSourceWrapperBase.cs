@@ -109,6 +109,11 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         var sp = scope.ServiceProvider;
         var source = sp.GetRequiredService<TSource>();
         var description = source.Describe(store);
+
+        // jasperfx#1102: this wrapper is what was registered. The instance just resolved is a new one that
+        // has never seen the Options registration configured here, and is free to describe itself its own way.
+        description.PublishedTypes = SubscriptionDescriptor.PublishedTypesFor(this);
+
         return description;
     }
 
@@ -117,7 +122,10 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         return this;
     }
 
-    IEnumerable<Type> IProjectionSource<TOperations, TQuerySession>.PublishedTypes()
+    // jasperfx#1102: an override, because this was an explicit implementation of the interface sitting beside
+    // ProjectionBase's public method, which never saw _publishedTypes. Anything holding this wrapper as a
+    // ProjectionBase or an IPublishesTypes was told only about Options.StorageTypes.
+    public override IEnumerable<Type> PublishedTypes()
     {
         return _publishedTypes.Concat(Options.StorageTypes).Distinct().ToArray();
     }
