@@ -111,6 +111,15 @@ public class EntityDescriptor
     /// underlying view from the entity name when those don't agree.
     /// </summary>
     public string? ViewName { get; set; }
+
+    /// <summary>
+    /// The script that creates this entity's table — the <c>CREATE TABLE</c> with its keys and foreign
+    /// keys, then each <c>CREATE INDEX</c>. Parallel of <see cref="DocumentMappingDescriptor.Ddl"/>. It is
+    /// the model's script, not the database's, so a database behind on its migrations will differ. Empty
+    /// when the bridge cannot produce one: a view-mapped entity, or a non-relational provider. An entity
+    /// that shares a table reports that table's script.
+    /// </summary>
+    public string Ddl { get; set; } = "";
 }
 
 /// <summary>
