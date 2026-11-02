@@ -240,7 +240,10 @@ public class HighWaterAgent: IDisposable
 
         await waitAsync(_settings.FastPollingTime, loopToken).ConfigureAwait(false);
 
-        while (!_token.IsCancellationRequested)
+        // wolverine#5318: the loop token is linked to the daemon token, and Dispose, StopAsync and a restart cancel
+        // it. Once it is cancelled every poll wait returns at once, so the loop must exit on it, not on the daemon
+        // token alone, or a disposed agent's loop spins on Detect without ever waiting.
+        while (!loopToken.IsCancellationRequested)
         {
             // jasperfx#539: a superseded loop (RestartAsync bumped the generation) exits before doing any
             // work, so a wedged loop that later recovers can never run beside its replacement.
