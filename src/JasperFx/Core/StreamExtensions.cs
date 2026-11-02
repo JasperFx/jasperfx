@@ -61,6 +61,12 @@ public static class StreamExtensions
     /// <summary>
     ///     Read Byte array from stream
     /// </summary>
+    /// <remarks>
+    ///     The array is always <paramref name="length" /> long. If the stream ends first the remainder is
+    ///     left zeroed and nothing says so, which makes a short read look like zeros. Use
+    ///     <see cref="Stream.ReadExactlyAsync(byte[], int, int, CancellationToken)" /> when a short read
+    ///     has to fail.
+    /// </remarks>
     /// <param name="stream"></param>
     /// <param name="length"></param>
     /// <returns></returns>
@@ -88,7 +94,8 @@ public static class StreamExtensions
     {
         try
         {
-            var bytes = await stream.ReadBytesAsync(expected.Length).ConfigureAwait(false);
+            var bytes = new byte[expected.Length];
+            await stream.ReadExactlyAsync(bytes).ConfigureAwait(false);
             return expected.SequenceEqual(bytes);
         }
         catch (Exception)

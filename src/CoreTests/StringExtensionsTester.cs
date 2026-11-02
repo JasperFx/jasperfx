@@ -132,6 +132,55 @@ public class StringExtensionsTester
         foreach (var number in numbers) number.IsValidNumber(new CultureInfo("en-us")).ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData("1x234")]
+    [InlineData("1 234")]
+    [InlineData("12x345x678")]
+    public void the_group_separator_is_not_a_wildcard(string number)
+    {
+        // The de-DE group separator is "."
+        number.IsValidNumber(new CultureInfo("de-DE")).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("-")]
+    public void a_number_has_to_have_a_digit(string number)
+    {
+        number.IsValidNumber(new CultureInfo("en-us")).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("123\n")]
+    [InlineData("1,000.1\n")]
+    public void nothing_may_follow_the_number(string number)
+    {
+        number.IsValidNumber(new CultureInfo("en-us")).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData(".5")]
+    [InlineData("-.5")]
+    [InlineData("-1,000.5")]
+    public void numbers_that_stay_valid(string number)
+    {
+        number.IsValidNumber(new CultureInfo("en-us")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void every_culture_accepts_a_number_written_with_its_own_separators()
+    {
+        foreach (var culture in CultureInfo.GetCultures(CultureTypes.AllCultures))
+        {
+            var format = culture.NumberFormat;
+            var number = $"1{format.NumberGroupSeparator}234{format.NumberDecimalSeparator}5";
+
+            number.IsValidNumber(culture).ShouldBeTrue(culture.Name);
+        }
+    }
+
     [Fact]
     public void to_bool()
     {
