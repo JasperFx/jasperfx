@@ -192,6 +192,46 @@ public class EventProjectionTeardownTests
         cleanupTypes(projection).ShouldBe([typeof(DocOne)]);
     }
 
+    /// <summary>
+    /// The source generator skips a Create or Transform with nothing to store and dispatches the rest, and a
+    /// generated dispatcher is exempt from method validation. So nothing refused this projection, and every
+    /// store was handed System.Void as a document type to wipe.
+    /// </summary>
+    [Fact]
+    public void a_method_with_nothing_to_store_is_no_teardown_target_when_validation_passes()
+    {
+        var projection = new SkipsWhatItCannotStoreProjection();
+
+        projection.AssembleAndAssertValidity();
+
+        cleanupTypes(projection).ShouldBe([typeof(DocOne)]);
+        projection.Options.StorageTypes.ShouldBe([typeof(DocOne)]);
+        projection.PublishedTypes().ShouldBe([typeof(DocOne)]);
+    }
+
+    [Fact]
+    public void a_method_with_nothing_to_store_is_no_teardown_target_when_validation_fails()
+    {
+        var projection = new CreateWithNothingToStoreProjection();
+
+        Should.Throw<InvalidProjectionException>(() => projection.AssembleAndAssertValidity());
+
+        projection.Options.CleanUps.ShouldBeEmpty();
+        projection.Options.StorageTypes.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(typeof(ReturnsTaskOfDocumentProjection))]
+    [InlineData(typeof(ReturnsValueTaskOfDocumentProjection))]
+    public void an_async_create_registers_the_document_it_returns(Type projectionType)
+    {
+        var projection = (EventProjection)Activator.CreateInstance(projectionType)!;
+
+        projection.AssembleAndAssertValidity();
+
+        cleanupTypes(projection).ShouldBe([typeof(DocOne)]);
+    }
+
     [Fact]
     public void an_explicitly_registered_type_survives_the_opt_out()
     {
@@ -219,6 +259,36 @@ public partial class CreatesTwoDocumentsProjection : EventProjection
     public DocOne Create(AEvent e) => new();
 
     public DocTwo Create(BEvent e) => new();
+}
+
+public partial class SkipsWhatItCannotStoreProjection : EventProjection
+{
+    public DocOne Create(AEvent e) => new();
+
+    public void Create(BEvent e)
+    {
+    }
+
+    public Task Create(CEvent e) => Task.CompletedTask;
+
+    public ValueTask Transform(DEvent e) => ValueTask.CompletedTask;
+}
+
+public class CreateWithNothingToStoreProjection : EventProjection
+{
+    public void Create(AEvent e)
+    {
+    }
+}
+
+public partial class ReturnsTaskOfDocumentProjection : EventProjection
+{
+    public Task<DocOne> Create(AEvent e) => Task.FromResult(new DocOne());
+}
+
+public partial class ReturnsValueTaskOfDocumentProjection : EventProjection
+{
+    public ValueTask<DocOne> Create(AEvent e) => ValueTask.FromResult(new DocOne());
 }
 
 public partial class AppendOnlyProjection : EventProjection

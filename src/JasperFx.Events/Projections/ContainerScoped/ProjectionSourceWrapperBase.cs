@@ -110,9 +110,10 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         var source = sp.GetRequiredService<TSource>();
         var description = source.Describe(store);
 
-        // jasperfx#1102: this wrapper is what was registered. The instance just resolved is a new one that
-        // has never seen the Options registration configured here, and is free to describe itself its own way.
-        description.PublishedTypes = SubscriptionDescriptor.PublishedTypesFor(this);
+        // This wrapper is what was registered and what runs. The instance just resolved is a new one that has
+        // never seen the name, version, lifecycle, Options or event filters registration put here, so all it
+        // keeps is what it says about itself.
+        description.ReadRegistrationFrom(this, store);
 
         return description;
     }

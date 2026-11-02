@@ -25,10 +25,6 @@ public class SubscriptionDescriptor : OptionsDescription
         // Explicitly build — no reflection via base(subject)
         Subject = subject.GetType().FullName ?? subject.GetType().Name;
         SubscriptionType = subject.Type;
-        Name = subject.Name;
-        Version = subject.Version;
-        ShardNames = subject.ShardNames();
-        Lifecycle = subject.Lifecycle;
 
         // The CLR type that implements this projection/subscription, plus — for self-aggregating
         // projections (Snapshot<T> / SingleStreamProjection<T>) — the aggregate/document type, so
@@ -51,8 +47,27 @@ public class SubscriptionDescriptor : OptionsDescription
             }
         }
 
+        ReadRegistrationFrom(subject, store);
+    }
+
+    /// <summary>
+    /// Take everything that depends on how a projection was registered from <paramref name="subject" />:
+    /// its name, version, lifecycle and shards, the metrics and spans those imply, and the events and types
+    /// it declares. A container-scoped wrapper calls this on the description of the instance it resolved,
+    /// which keeps whatever that instance said about itself and has seen none of this.
+    /// </summary>
+    internal void ReadRegistrationFrom(ISubscriptionSource subject, IEventStore store)
+    {
+        Name = subject.Name;
+        Version = subject.Version;
+        ShardNames = subject.ShardNames();
+        Lifecycle = subject.Lifecycle;
+
         AppliedEvents = appliedEventsFor(subject);
-        PublishedTypes = PublishedTypesFor(subject);
+        PublishedTypes = publishedTypesFor(subject);
+
+        _metrics.Clear();
+        _activities.Clear();
 
         if (Lifecycle == ProjectionLifecycle.Async)
         {
@@ -189,7 +204,7 @@ public class SubscriptionDescriptor : OptionsDescription
     }
 
     /// <inheritdoc cref="PublishedTypes" />
-    internal static TypeDescriptor[] PublishedTypesFor(ISubscriptionSource subject)
+    private static TypeDescriptor[] publishedTypesFor(ISubscriptionSource subject)
     {
         if (subject is not IPublishesTypes source) return [];
 
@@ -199,7 +214,6 @@ public class SubscriptionDescriptor : OptionsDescription
         try
         {
             return source.PublishedTypes()
-                .Where(canBeWritten)
                 .Select(TypeDescriptor.For)
                 .Distinct()
                 .OrderBy(x => x.FullName, StringComparer.Ordinal)
@@ -209,13 +223,6 @@ public class SubscriptionDescriptor : OptionsDescription
         {
             return [];
         }
-    }
-
-    // An event projection records the return type of every Create and Transform method from its
-    // constructor, ahead of validation, so a projection that nothing has validated yet can list these.
-    private static bool canBeWritten(Type type)
-    {
-        return type != typeof(void) && type != typeof(Task) && type != typeof(ValueTask);
     }
 
     /// <inheritdoc cref="AppliedEvents" />

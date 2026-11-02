@@ -60,7 +60,16 @@ public class EventProjectionApplication<TOperations>
             if (slot.ReturnType.Closes(typeof(Task<>))) return slot.ReturnType.GetGenericArguments()[0];
             if (slot.ReturnType.Closes(typeof(ValueTask<>))) return slot.ReturnType.GetGenericArguments()[0];
             return slot.ReturnType;
-        });
+        }).Where(canBeStored);
+    }
+
+    // Every Create and Transform method lands here from the projection's constructor, ahead of validation,
+    // and a generated dispatcher skips validation entirely: the generator leaves a method like this out and
+    // dispatches the rest. Stopped here because this list becomes the projection's published types, its
+    // teardown targets and the store's schema.
+    private static bool canBeStored(Type type)
+    {
+        return type != typeof(void) && type != typeof(Task) && type != typeof(ValueTask);
     }
 
     internal class ProjectMethodCollection : MethodCollection

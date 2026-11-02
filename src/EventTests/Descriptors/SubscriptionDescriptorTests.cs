@@ -198,6 +198,70 @@ public class SubscriptionDescriptorPublishedTypesTests
     }
 
     [Fact]
+    public void a_composite_reports_what_it_declares_itself()
+    {
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("OwnTeardown");
+        composite.StageFor(1).Add(new CreatesTwoDocumentsProjection());
+        composite.Options.DeleteViewTypeOnTeardown<Day>();
+
+        publishedBy(((ISubscriptionSource)composite).Describe(theStore))
+            .ShouldBe(namesOf(typeof(Day), typeof(DocOne), typeof(DocTwo)));
+    }
+
+    [Fact]
+    public void a_composite_with_no_members_still_reports_what_it_declares_itself()
+    {
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("OwnTeardown");
+        composite.Options.DeleteViewTypeOnTeardown<Day>();
+
+        composite.PublishedTypes().ShouldBe([typeof(Day)]);
+    }
+
+    /// <summary>
+    /// Polecat and Fisher read the first published type of a projection as its state type, so what the
+    /// composite declares for itself goes after its members rather than ahead of them.
+    /// </summary>
+    [Fact]
+    public void a_composite_lists_its_members_ahead_of_itself()
+    {
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("OwnTeardown");
+        composite.StageFor(1).Add(new CreatesTwoDocumentsProjection());
+        composite.Options.DeleteViewTypeOnTeardown<Day>();
+
+        composite.PublishedTypes().ShouldBe([typeof(DocOne), typeof(DocTwo), typeof(Day)]);
+    }
+
+    [Fact]
+    public void a_type_a_composite_and_its_member_both_name_is_listed_once()
+    {
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("OwnTeardown");
+        composite.StageFor(1).Add(new CreatesTwoDocumentsProjection());
+        composite.Options.DeleteViewTypeOnTeardown<DocOne>();
+
+        composite.PublishedTypes().ShouldBe([typeof(DocOne), typeof(DocTwo)]);
+    }
+
+    [Fact]
+    public void a_nested_composite_keeps_what_it_declares_itself()
+    {
+        var inner = new CompositeProjection<FakeOperations, FakeSession>("Inner");
+        inner.Options.DeleteViewTypeOnTeardown<Day>();
+
+        var outer = new CompositeProjection<FakeOperations, FakeSession>("Outer");
+        outer.StageFor(1).Add(inner);
+
+        outer.PublishedTypes().ShouldBe([typeof(Day)]);
+    }
+
+    [Fact]
+    public void a_composite_subclass_can_register_a_published_type()
+    {
+        var composite = new CompositeRegisteringItsOwnType();
+
+        composite.PublishedTypes().ShouldBe([typeof(Day)]);
+    }
+
+    [Fact]
     public void two_composite_members_writing_one_document_report_it_once()
     {
         var composite = new CompositeProjection<FakeOperations, FakeSession>("Shared");
@@ -473,7 +537,6 @@ public class SubscriptionDescriptorPublishedTypesTests
 
         Should.Throw<InvalidProjectionException>(() => projection.AssembleAndAssertValidity());
 
-        // Validation registers teardown targets before it fails, System.Void among them
         new SubscriptionDescriptor(projection, theStore).PublishedTypes.ShouldBeEmpty();
     }
 
@@ -565,6 +628,14 @@ public class SubscriptionDescriptorPublishedTypesTests
     public record ReaderFromBeforeTheField(string Name, TypeDescriptor? AggregateType);
 
     // ---- the projections ----
+
+    public class CompositeRegisteringItsOwnType : CompositeProjection<FakeOperations, FakeSession>
+    {
+        public CompositeRegisteringItsOwnType() : base("Registering")
+        {
+            RegisterPublishedType(typeof(Day));
+        }
+    }
 
     public class BareFakeProjection : IJasperFxProjection<FakeOperations>
     {
