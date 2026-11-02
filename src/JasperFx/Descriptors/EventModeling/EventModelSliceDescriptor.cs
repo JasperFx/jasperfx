@@ -86,7 +86,9 @@ public sealed record EventModelSliceDescriptor(
     /// When the code receives the slice through a kind a person can reach
     /// (<see cref="TriggerKindCompatibility.CanBeHumanTriggered"/>), the merge keeps the derived kind here
     /// and moves the <see cref="EventModeling.TriggerKind.Human"/> to <see cref="TriggeredBy"/>, so
-    /// viewers that label a trigger by this member keep labelling it by the route or handler.
+    /// viewers that label a trigger by this member keep labelling it by the route or handler. An HTTP
+    /// endpoint folded with a message handler keeps <see cref="EventModeling.TriggerKind.Http"/> here, in
+    /// either source order; see <see cref="AdditionalEntryPoints"/>.
     /// </remarks>
     public TriggerKind? TriggerKind { get; init; }
 
@@ -128,10 +130,33 @@ public sealed record EventModelSliceDescriptor(
     /// Detail of <see cref="HandlerType"/> for merging, the way a route name is detail of the trigger
     /// origin: it travels with the winning handler, a known method fills in an unknown one when both sides
     /// name the same handler type, and two different methods on the same type leave a
-    /// <see cref="HotspotOrigin.SourceDisagreement"/> on <see cref="EventModelRole.HandlerType"/>.
+    /// <see cref="HotspotOrigin.SourceDisagreement"/> on <see cref="EventModelRole.HandlerType"/>, unless
+    /// they are an endpoint and a message handler on one class (<see cref="AdditionalEntryPoints"/>).
     /// </para>
     /// </remarks>
     public string? HandlerMethod { get; init; }
+
+    /// <summary>
+    /// The ways into this slice beyond the one <see cref="TriggerKind"/> and <see cref="HandlerType"/> name
+    /// (jasperfx#1099). Empty on almost every slice.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Stamped by <see cref="Merge"/>, never by a source. Wolverine.HTTP names an endpoint's slice for its
+    /// request type so that the endpoint and the message handler for one command fold into one slice, and
+    /// both entry points are real, but <see cref="TriggerKind"/>, <see cref="HandlerType"/> and
+    /// <see cref="HandlerMethod"/> hold one value each. They keep the HTTP endpoint, the entry point
+    /// <see cref="TriggerOrigin"/> describes, and the message handler lands here.
+    /// </para>
+    /// <para>
+    /// Nothing else on the descriptor could hold it: a hotspot would report the fold as a problem, which is
+    /// the noise this exists to remove. Rendered nowhere by the slice's own <see cref="Elements"/>, so a
+    /// viewer that knows nothing of this member draws what it always did, one handler per slice. A console
+    /// reads it to offer the other handler for navigation, and <see cref="EventModelSpecifications.Link"/>
+    /// matches a specification's namespace against it as well as against <see cref="HandlerType"/>.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<EventModelEntryPoint> AdditionalEntryPoints { get; init; } = Array.Empty<EventModelEntryPoint>();
 
     /// <summary>
     /// Structured detail of the trigger for the kinds that have it — HTTP route + verb, gRPC
@@ -480,6 +505,15 @@ public sealed record EventModelSliceDescriptor(
     /// no disagreements is identical to one produced before jasperfx#704.
     /// </para>
     /// <para>
+    /// <b>An HTTP endpoint and a message handler for one command are one exception</b> (jasperfx#1099).
+    /// Two <see cref="EventModelProvenance.Derived"/> sources claiming
+    /// <see cref="EventModeling.TriggerKind.Http"/> and <see cref="EventModeling.TriggerKind.MessageHandler"/>
+    /// describe two ways into one slice, not a dispute: whichever came first,
+    /// <see cref="TriggerKind"/>, <see cref="HandlerType"/>, <see cref="HandlerMethod"/> and
+    /// <see cref="Origin"/> keep the HTTP side, the message handler moves to
+    /// <see cref="AdditionalEntryPoints"/>, and those roles raise nothing. Every other role merges as usual.
+    /// </para>
+    /// <para>
     /// <b><see cref="Hotspots"/> itself is unioned, never arbitrated.</b> Hotspots are annotations,
     /// not factual claims about the system, and letting a higher-rung source's hotspot list replace a
     /// lower one would discard exactly the findings this feature exists to record — including the
@@ -515,16 +549,33 @@ public sealed record EventModelSliceDescriptor(
         var claimedBy = new Dictionary<EventModelRole, EventModelProvenance>();
         var disagreements = new List<HotspotDescriptor>();
 
+        var foldsEntryPoints = foldsEntryPointsWith(other);
+
+        // jasperfx#1099. The roles that name one entry point. Tied in the fold, none of them is a dropped
+        // claim, only the second of two true answers, and the rung ladder still decides any that aren't tied.
+        bool settledByFold(EventModelRole role)
+            => foldsEntryPoints
+               && role is EventModelRole.TriggerKind or EventModelRole.HandlerType or EventModelRole.Origin
+               && ProvenanceFor(role) == other.ProvenanceFor(role);
+
         // True when other's claim on this role outranks ours -- or when we make no claim at all.
-        // False on a tie, which is what preserves the pre-jasperfx#703 first-wins behaviour.
-        bool takeOther(EventModelRole role)
+        // False on a tie, which is what preserves the pre-jasperfx#703 first-wins behaviour, except that
+        // a tie the fold settles goes to the HTTP side so the answer does not depend on source order.
+        bool theirsWins(EventModelRole role)
         {
             var mine = ProvenanceFor(role);
             var theirs = other.ProvenanceFor(role);
 
-            var takeTheirs = theirs is not null && (mine is null || theirs.Value.Outranks(mine.Value));
+            return theirs is not null
+                   && (mine is null || theirs.Value.Outranks(mine.Value)
+                                    || (settledByFold(role) && other.TriggerKind == EventModeling.TriggerKind.Http));
+        }
 
-            if ((takeTheirs ? theirs : mine) is { } rung) claimedBy[role] = rung;
+        bool takeOther(EventModelRole role)
+        {
+            var takeTheirs = theirsWins(role);
+
+            if ((takeTheirs ? other.ProvenanceFor(role) : ProvenanceFor(role)) is { } rung) claimedBy[role] = rung;
 
             return takeTheirs;
         }
@@ -532,6 +583,8 @@ public sealed record EventModelSliceDescriptor(
         // Both sides claimed the role and the merge kept only one of them. Record what was lost.
         void disagree(EventModelRole role, bool tookTheirs, string mineValue, string theirsValue)
         {
+            if (settledByFold(role)) return;
+
             // jasperfx#859. Each claim names the source that made it, not only the rung it sits on:
             // a rung can hold several sources, and spec-first work having a declared model file AND
             // specs -- both Declared by construction -- is the normal case rather than an edge one.
@@ -657,11 +710,7 @@ public sealed record EventModelSliceDescriptor(
         // two different methods on the same type disagree. A different type already disagreed above.
         string? mergeHandlerMethod()
         {
-            // The same rule mergeType applied: theirs wins only by outranking ours, or when we claim none.
-            var winnerIsMine = other.HandlerType is null
-                               || (HandlerType is not null
-                                   && !other.ProvenanceFor(EventModelRole.HandlerType)!.Value
-                                       .Outranks(ProvenanceFor(EventModelRole.HandlerType)!.Value));
+            var winnerIsMine = !theirsWins(EventModelRole.HandlerType);
             var winning = winnerIsMine ? HandlerMethod : other.HandlerMethod;
             var losing = winnerIsMine ? other.HandlerMethod : HandlerMethod;
 
@@ -803,6 +852,15 @@ public sealed record EventModelSliceDescriptor(
         takeOther(EventModelRole.Hotspots);
         var hotspots = union(union(Hotspots, other.Hotspots, hotspotKey), disagreements, hotspotKey);
 
+        var additionalEntryPoints = union(AdditionalEntryPoints, other.AdditionalEntryPoints, entryPointKey);
+        if (foldsEntryPoints)
+        {
+            var handler = TriggerKind == EventModeling.TriggerKind.MessageHandler ? this : other;
+            additionalEntryPoints = union(additionalEntryPoints,
+                [new EventModelEntryPoint(EventModeling.TriggerKind.MessageHandler, handler.HandlerType, handler.HandlerMethod, handler.Origin)],
+                entryPointKey);
+        }
+
         return new EventModelSliceDescriptor(Name, triggerLabel, triggerType, commandType, handlerType,
             emittedEvents, projectionTypes, readModelTypes)
         {
@@ -811,6 +869,7 @@ public sealed record EventModelSliceDescriptor(
             TriggeredBy = triggeredBy,
             TriggerOrigin = triggerOrigin,
             HandlerMethod = handlerMethod,
+            AdditionalEntryPoints = additionalEntryPoints,
             AggregateTypes = aggregateTypes,
             PublishedMessages = publishedMessages,
             ExternalSystems = externalSystems,
@@ -832,10 +891,14 @@ public sealed record EventModelSliceDescriptor(
 
     private static string hotspotKey(HotspotDescriptor hotspot) => $"{hotspot.Origin}:{hotspot.Text}";
 
+    private static string entryPointKey(EventModelEntryPoint entryPoint)
+        => $"{entryPoint.Kind}:{entryPoint.HandlerType?.FullName}:{entryPoint.HandlerMethod}";
+
     // jasperfx#954. A collision is the SAME source on the SAME rung naming two different handlers.
     // Across sources the same name with different handlers is the designed fold -- Wolverine.HTTP names
     // an endpoint's slice for its request type precisely so the endpoint and the message handler for
-    // that command become one slice -- and the per-role merge already records that as a disagreement.
+    // that command become one slice. The per-role merge records anything else of that shape as a
+    // disagreement, and foldsEntryPointsWith() below is the one exception.
     // "The same source" has to be PROVEN by a stamped Origin: two unattributed slices may well be two
     // sources, and those keep the per-role merge and its disagreement hotspot.
     private bool collidesWith(EventModelSliceDescriptor other)
@@ -845,6 +908,23 @@ public sealed record EventModelSliceDescriptor(
            && Origin == other.Origin
            && ProvenanceFor(EventModelRole.HandlerType) == other.ProvenanceFor(EventModelRole.HandlerType)
            && !SameType(HandlerType, other.HandlerType);
+
+    // jasperfx#1099. Both claims are true, nothing is wrong with either source and there is nothing for a
+    // reader to go and fix, so the fold above must not read as a disagreement -- and in a model with
+    // several such commands the disagreement count stopped meaning anything.
+    //
+    // Narrower than SplitsWhoFromHow on purpose. Only code can say a second entry point exists, so both
+    // kinds must sit on Derived: a declared Http met by a message handler is an endpoint the board wants
+    // and the code lacks, an observed kind outranks the code as usual, and unstamped sources read as
+    // Declared and merge exactly as they always have. And it takes two sources: one source saying both
+    // has contradicted itself.
+    private bool foldsEntryPointsWith(EventModelSliceDescriptor other)
+        => TriggerKind is { } mine
+           && other.TriggerKind is { } theirs
+           && TriggerKindCompatibility.AreHttpAndMessageHandler(mine, theirs)
+           && ProvenanceFor(EventModelRole.TriggerKind) == EventModelProvenance.Derived
+           && other.ProvenanceFor(EventModelRole.TriggerKind) == EventModelProvenance.Derived
+           && (Origin is null || Origin != other.Origin);
 
     /// <summary>
     /// Whether two type descriptors name the same type: by <see cref="TypeDescriptor.FullName"/> when

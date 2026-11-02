@@ -115,9 +115,12 @@ public static class EventModelSpecifications
             narrowed = narrowed.Where(x => string.Equals(x.Domain, domain, StringComparison.Ordinal)).ToList();
         }
 
+        // jasperfx#1099. A folded slice names only its endpoint on HandlerType, and it handles the command in
+        // the message handler's namespace just as much, so any entry point can answer.
         if (narrowed.Count > 1 && binding.Namespace is { } ns)
         {
-            narrowed = narrowed.Where(x => inNamespace(x.HandlerType ?? x.CommandType, ns)).ToList();
+            narrowed = narrowed.Where(x => inNamespace(x.HandlerType ?? x.CommandType, ns)
+                                           || x.AdditionalEntryPoints.Any(e => inNamespace(e.HandlerType, ns))).ToList();
         }
 
         if (narrowed.Count == 1) return new Resolution(narrowed[0], null);
