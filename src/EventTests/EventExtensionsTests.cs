@@ -35,6 +35,8 @@ public class EventExtensionsTests
         parent.Timestamp = DateTime.Today; // always use low fidelity dates for comparisons
         parent.Version = 3;
         parent.Sequence = 15;
+        parent.CorrelationId = Guid.NewGuid().ToString();
+        parent.CausationId = Guid.NewGuid().ToString();
 
         var child = parent.CloneEventWithNewData(parent.Data.Movements.First());
         child.StreamId.ShouldBe(parent.StreamId);
@@ -43,6 +45,23 @@ public class EventExtensionsTests
         child.Timestamp.ShouldBe(parent.Timestamp);
         child.Version.ShouldBe(parent.Version);
         child.Sequence.ShouldBe(parent.Sequence);
+        child.CorrelationId.ShouldBe(parent.CorrelationId);
+        child.CausationId.ShouldBe(parent.CausationId);
+    }
+
+    [Fact]
+    public void with_data_keeps_the_correlation_and_causation()
+    {
+        var parent = new Event<Travel>(Travel.Random(1))
+        {
+            CorrelationId = Guid.NewGuid().ToString(),
+            CausationId = Guid.NewGuid().ToString()
+        };
+
+        var child = parent.WithData(parent.Data.Movements.First());
+
+        child.CorrelationId.ShouldBe(parent.CorrelationId);
+        child.CausationId.ShouldBe(parent.CausationId);
     }
 
     [Fact]

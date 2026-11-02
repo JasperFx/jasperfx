@@ -2,6 +2,7 @@ using JasperFx.Core.Reflection;
 using JasperFx.Events;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using NSubstitute;
 using Shouldly;
@@ -24,9 +25,11 @@ public class SideEffectMessageMetadataTests
             CausationId = causationId
         };
 
-    private async Task publishFromSliceWith(params IEvent[] events)
+    private Task publishFromSliceWith(params IEvent[] events)
+        => publishFrom(new EventSlice<User, Guid>(Guid.NewGuid(), "foo", events));
+
+    private async Task publishFrom(EventSlice<User, Guid> slice)
     {
-        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", events);
         slice.As<IEventSlice<User>>().PublishMessage(new ShipOrder("first"));
 
         await slice.PublishMessagesAsync(theBatch);
@@ -319,6 +322,125 @@ public class SideEffectMessageMetadataTests
             .ShouldBe(["flow-A", "flow-B"]);
     }
 
+    // Fan out and enrichment leave clones in the slice. Without its source's id a clone reads as an appended
+    // event from a flow we can't name, and every projection that does either is back on the page's id.
+    // Note that slice.FanOut() and a slicer's fan out rules bind to different FanOut extension methods,
+    // so inline_fan_out_publishes_with_the_correlation_of_the_source_event is not covering this one
+    [Fact]
+    public async Task fanning_out_keeps_the_correlation_the_events_agree_on()
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventWith("flow-A"), eventWith("flow-A")]);
+        slice.FanOut<AEvent, BEvent>(_ => [new BEvent(), new BEvent()]);
+
+        await publishFrom(slice);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
+    [Fact]
+    public async Task replacing_events_keeps_the_correlation_the_events_agree_on()
+    {
+        var replaced = eventWith("flow-A");
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [replaced, eventWith("flow-A")]);
+
+        slice.ReplaceEvent(replaced, new BEvent());
+        slice.ReplaceEvent(1, new BEvent());
+
+        await publishFrom(slice);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
+    // The shape of a custom grouper, which builds its own events with WithData() and groups only those
+    [Fact]
+    public async Task a_slice_of_events_built_with_with_data_keeps_their_correlation()
+    {
+        var source = eventWith("flow-A");
+
+        await publishFromSliceWith(source.WithData(new BEvent()), source.WithData(new BEvent()));
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
+    [Theory]
+    [InlineData("flow-B")]
+    [InlineData(null)]
+    public async Task fanning_out_does_not_make_events_agree_that_did_not(string? other)
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventWith("flow-A"), eventWith(other)]);
+        slice.FanOut<AEvent, BEvent>(_ => [new BEvent()]);
+
+        await publishFrom(slice);
+
+        theBatch.PublishedWithMetadata.ShouldBeEmpty();
+        theBatch.PublishedWithTenantOnly.ShouldHaveSingleItem().TenantId.ShouldBe("foo");
+    }
+
+    // A clone holds its source's causation id, and that must not find its way onto the message any more
+    // than the source's does. See causation_is_left_out_even_when_every_event_agrees_on_it
+    [Fact]
+    public async Task causation_on_a_fanned_out_event_stays_off_the_message()
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventWith("flow-A", "message-1")]);
+        slice.FanOut<AEvent, BEvent>(_ => [new BEvent()]);
+
+        await publishFrom(slice);
+
+        var metadata = theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata;
+        metadata.CorrelationId.ShouldBe("flow-A");
+        metadata.CausationId.ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_projection_can_attribute_a_fanned_out_message_to_its_sources_flow()
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventWith("flow-A"), eventWith("flow-B")]);
+        slice.FanOut<AEvent, BEvent>(_ => [new BEvent()]);
+
+        slice.Events().Select(x => MessageMetadata.From(x).CorrelationId)
+            .ShouldBe(["flow-A", "flow-A", "flow-B", "flow-B"]);
+    }
+
+    [Theory]
+    [InlineData(FanoutMode.AfterGrouping)]
+    [InlineData(FanoutMode.BeforeGrouping)]
+    public async Task inline_fan_out_publishes_with_the_correlation_of_the_source_event(FanoutMode mode)
+    {
+        var sink = new RecordingSink();
+        var operations = operationsWith<MyAggregate, Guid>(sink);
+
+        var flowA = StreamAction.Start(Guid.NewGuid(), [eventForSlice(Guid.NewGuid(), "flow-A")]);
+        var flowB = StreamAction.Start(Guid.NewGuid(), [eventForSlice(Guid.NewGuid(), "flow-B")]);
+
+        await new FanningOutProjection(mode).As<IInlineProjection<FakeOperations>>()
+            .ApplyAsync(operations, [flowA, flowB], CancellationToken.None);
+
+        sink.PublishedWithTenantOnly.ShouldBeEmpty();
+        sink.PublishedWithMetadata.Select(x => x.Metadata.CorrelationId)
+            .ShouldBe(["flow-A", "flow-B"], ignoreOrder: true);
+    }
+
+    // The one way a clone's ids reach a stored document: a projection copying them onto it, as ApplyMetadata
+    // is there to let it do. The stores take a document's own correlation and causation from the session
+    [Fact]
+    public async Task apply_metadata_sees_the_correlation_and_causation_of_a_fanned_out_event()
+    {
+        var operations = operationsWith<MyAggregate, Guid>(new RecordingSink());
+
+        var source = eventForSlice(Guid.NewGuid(), "flow-A");
+        source.CausationId = "message-1";
+
+        var projection = new FanningOutProjection(FanoutMode.AfterGrouping);
+
+        await projection.As<IInlineProjection<FakeOperations>>()
+            .ApplyAsync(operations, [StreamAction.Start(Guid.NewGuid(), [source])], CancellationToken.None);
+
+        projection.MetadataSeen.ShouldBe([("flow-A", "message-1"), ("flow-A", "message-1")]);
+    }
+
     private static FakeOperations operationsWith<TDoc, TId>(IMessageSink sink) => new()
     {
         EnableSideEffectsOnInlineProjections = true,
@@ -349,6 +471,8 @@ public class SideEffectMessageMetadataTests
     private record ShipOrder(string Name);
 
     private record SliceEvent(Guid SliceId);
+
+    private record ChildEvent(Guid SliceId);
 
     private class ShippingSingleStreamProjection : SingleStreamProjection<MyAggregate, Guid>
     {
@@ -386,6 +510,41 @@ public class SideEffectMessageMetadataTests
         }
 
         public override MyAggregate? Evolve(MyAggregate? snapshot, Guid id, IEvent e) => snapshot ?? new MyAggregate();
+
+        public override ValueTask RaiseSideEffects(FakeOperations operations, IEventSlice<MyAggregate> slice)
+        {
+            slice.PublishMessage(new ShipOrder("plain"));
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private class FanningOutProjection
+        : JasperFxMultiStreamProjectionBase<MyAggregate, Guid, FakeOperations, FakeSession>
+    {
+        public FanningOutProjection(FanoutMode mode)
+        {
+            // Grouping on the child leaves slices holding nothing but clones
+            if (mode == FanoutMode.BeforeGrouping)
+            {
+                Identity<ChildEvent>(x => x.SliceId);
+            }
+            else
+            {
+                Identity<SliceEvent>(x => x.SliceId);
+            }
+
+            FanOut<SliceEvent, ChildEvent>(x => [new ChildEvent(x.SliceId)], mode);
+        }
+
+        public List<(string? CorrelationId, string? CausationId)> MetadataSeen { get; } = new();
+
+        public override MyAggregate? Evolve(MyAggregate? snapshot, Guid id, IEvent e) => snapshot ?? new MyAggregate();
+
+        public override MyAggregate ApplyMetadata(MyAggregate snapshot, IEvent lastEvent)
+        {
+            MetadataSeen.Add((lastEvent.CorrelationId, lastEvent.CausationId));
+            return snapshot;
+        }
 
         public override ValueTask RaiseSideEffects(FakeOperations operations, IEventSlice<MyAggregate> slice)
         {
