@@ -43,6 +43,11 @@ public class HighWaterAgent: IDisposable
     // can never run beside the fresh loop.
     private int _loopGeneration;
 
+    // wolverine#5318: one source per poll loop, linked to the daemon token. StopAsync (and a restart that retires
+    // the loop) cancels it so a loop parked in its FastPollingTime / SlowPollingTime wait exits at once instead of
+    // making the stop wait out the rest of the tick. A fresh source per launch keeps stop-then-start working.
+    private CancellationTokenSource? _loopCancellation;
+
     // jasperfx#1027: progress watchdog bookkeeping. The mark the watchdog last saw, when it first saw it, and
     // when it last probed the committed ceiling. Only touched inside checkState under the _remediating guard.
     private long _watchedMark = -1;
@@ -76,6 +81,7 @@ public class HighWaterAgent: IDisposable
         _timer?.Stop();
         _timer?.Dispose();
         _loop?.SafeDispose();
+        retireLoopCancellation(Interlocked.Exchange(ref _loopCancellation, null));
     }
 
     public async Task StartAsync()
@@ -133,11 +139,15 @@ public class HighWaterAgent: IDisposable
         // wedged (see _loopGeneration). Captured into the delegate below so there is no field-read race.
         var generation = Interlocked.Increment(ref _loopGeneration);
 
+        var loopCancellation = CancellationTokenSource.CreateLinkedTokenSource(_token);
+        retireLoopCancellation(Interlocked.Exchange(ref _loopCancellation, loopCancellation));
+        var loopToken = loopCancellation.Token;
+
         // #524 (defect C): StartNew over an async delegate hands back a Task<Task> that completes as soon as
         // detectChanges hits its first await — the real poll loop is the inner task. Unwrap so _loop *is* that
         // inner task; otherwise _loop.IsFaulted is always false and the checkState watchdog can never see the
         // loop fault, let alone restart it.
-        _loop = Task.Factory.StartNew(() => detectChanges(generation), _token,
+        _loop = Task.Factory.StartNew(() => detectChanges(generation, loopToken), _token,
             TaskCreationOptions.LongRunning | TaskCreationOptions.AttachedToParent, TaskScheduler.Default).Unwrap();
 
         _timer.Start();
@@ -150,15 +160,15 @@ public class HighWaterAgent: IDisposable
     // the database is down or failing over. Such a throw must never escape the poll loop and permanently kill
     // high-water progress, so log it and fall back to a plain delay before the loop continues. Cancellation is
     // the expected shutdown path and is swallowed quietly.
-    private async Task waitAsync(TimeSpan delayTime)
+    private async Task waitAsync(TimeSpan delayTime, CancellationToken loopToken)
     {
         try
         {
-            await _daemonWakeup.WaitAsync(delayTime, _token).ConfigureAwait(false);
+            await _daemonWakeup.WaitAsync(delayTime, loopToken).ConfigureAwait(false);
         }
         catch (Exception e)
         {
-            if (_token.IsCancellationRequested)
+            if (loopToken.IsCancellationRequested)
             {
                 return;
             }
@@ -169,12 +179,27 @@ public class HighWaterAgent: IDisposable
 
             try
             {
-                await Task.Delay(delayTime, _token).ConfigureAwait(false);
+                await Task.Delay(delayTime, loopToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
             }
         }
+    }
+
+    private static void retireLoopCancellation(CancellationTokenSource? source)
+    {
+        if (source == null) return;
+
+        try
+        {
+            source.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        source.Dispose();
     }
 
     // jasperfx#1027: true while this loop is the one the agent is running. A loop retired by RestartAsync can
@@ -184,7 +209,7 @@ public class HighWaterAgent: IDisposable
     private bool isCurrentLoop(int generation)
         => IsRunning && Volatile.Read(ref _loopGeneration) == generation;
 
-    private async Task detectChanges(int generation)
+    private async Task detectChanges(int generation, CancellationToken loopToken)
     {
         if (!IsRunning)
         {
@@ -213,9 +238,12 @@ public class HighWaterAgent: IDisposable
             _logger.LogError(e, "Failed while making the initial determination of the high water mark for database {Name}", _detector.DatabaseUri);
         }
 
-        await waitAsync(_settings.FastPollingTime).ConfigureAwait(false);
+        await waitAsync(_settings.FastPollingTime, loopToken).ConfigureAwait(false);
 
-        while (!_token.IsCancellationRequested)
+        // wolverine#5318: the loop token is linked to the daemon token, and Dispose, StopAsync and a restart cancel
+        // it. Once it is cancelled every poll wait returns at once, so the loop must exit on it, not on the daemon
+        // token alone, or a disposed agent's loop spins on Detect without ever waiting.
+        while (!loopToken.IsCancellationRequested)
         {
             // jasperfx#539: a superseded loop (RestartAsync bumped the generation) exits before doing any
             // work, so a wedged loop that later recovers can never run beside its replacement.
@@ -246,7 +274,7 @@ public class HighWaterAgent: IDisposable
                 }
 
                 _logger.LogError(ex, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseUri);
-                await waitAsync(_settings.SlowPollingTime).ConfigureAwait(false);
+                await waitAsync(_settings.SlowPollingTime, loopToken).ConfigureAwait(false);
 
                 activity?.AddException(ex);
 
@@ -257,7 +285,7 @@ public class HighWaterAgent: IDisposable
             {
                 _logger.LogError(e, "Failed while trying to detect high water statistics for database {Name}", _detector.DatabaseUri);
                 activity?.AddException(e);
-                await waitAsync(_settings.SlowPollingTime).ConfigureAwait(false);
+                await waitAsync(_settings.SlowPollingTime, loopToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -272,11 +300,11 @@ public class HighWaterAgent: IDisposable
             switch (status)
             {
                 case HighWaterStatus.Changed:
-                    await markProgressAsync(statistics, _settings.FastPollingTime, status, generation).ConfigureAwait(false);
+                    await markProgressAsync(statistics, _settings.FastPollingTime, status, generation, loopToken).ConfigureAwait(false);
                     break;
 
                 case HighWaterStatus.CaughtUp:
-                    await markProgressAsync(statistics, _settings.SlowPollingTime, status, generation).ConfigureAwait(false);
+                    await markProgressAsync(statistics, _settings.SlowPollingTime, status, generation, loopToken).ConfigureAwait(false);
                     break;
 
                 case HighWaterStatus.Stale:
@@ -287,7 +315,7 @@ public class HighWaterAgent: IDisposable
                     var safeHarborTime = _current!.Timestamp.Add(_settings.StaleSequenceThreshold);
                     if (safeHarborTime > statistics.Timestamp)
                     {
-                        await waitAsync(_settings.SlowPollingTime).ConfigureAwait(false);
+                        await waitAsync(_settings.SlowPollingTime, loopToken).ConfigureAwait(false);
                         continue;
                     }
 
@@ -316,7 +344,7 @@ public class HighWaterAgent: IDisposable
                     
                     _skipping.Add(1);
 
-                    await markProgressAsync(statistics, _settings.FastPollingTime, status, generation).ConfigureAwait(false);
+                    await markProgressAsync(statistics, _settings.FastPollingTime, status, generation, loopToken).ConfigureAwait(false);
                     break;
             }
         }
@@ -354,7 +382,7 @@ public class HighWaterAgent: IDisposable
     }
 
     private async Task markProgressAsync(HighWaterStatistics statistics, TimeSpan delayTime, HighWaterStatus status,
-        int generation)
+        int generation, CancellationToken loopToken)
     {
         if (!isCurrentLoop(generation))
         {
@@ -374,7 +402,7 @@ public class HighWaterAgent: IDisposable
                 _current = statistics;
             }
 
-            await waitAsync(delayTime).ConfigureAwait(false);
+            await waitAsync(delayTime, loopToken).ConfigureAwait(false);
             return;
         }
 
@@ -387,7 +415,7 @@ public class HighWaterAgent: IDisposable
 
         await _tracker.MarkHighWaterAsync(statistics.CurrentMark, lastAdvancedFrom(statistics));
 
-        await waitAsync(delayTime).ConfigureAwait(false);
+        await waitAsync(delayTime, loopToken).ConfigureAwait(false);
     }
 
     // Surface "when the current mark was observed" (jasperfx#449) so a monitor can compute
@@ -722,10 +750,28 @@ public class HighWaterAgent: IDisposable
             // sees the stop signal, and StopAsync hangs forever on a stop that did not cancel the token.
             IsRunning = false;
 
+            // wolverine#5318: cancel the loop's own token so a loop parked in its poll wait exits now. Without
+            // this the await below waited out the rest of FastPollingTime / SlowPollingTime on every stop.
+            var loopCancellation = Volatile.Read(ref _loopCancellation);
+            try
+            {
+                loopCancellation?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
             if (_loop != null)
             {
                 await _loop.ConfigureAwait(false);
                 _loop?.Dispose();
+            }
+
+            // Only dispose the source this stop cancelled; a concurrent start may already have swapped in a new one.
+            if (loopCancellation != null &&
+                Interlocked.CompareExchange(ref _loopCancellation, null, loopCancellation) == loopCancellation)
+            {
+                loopCancellation.Dispose();
             }
         }
         catch (Exception e)
