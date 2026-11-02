@@ -296,6 +296,31 @@ public class AggregationRunnerRaisedEventsTests
         theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
     }
 
+    [Fact]
+    public async Task a_fanned_out_slice_keeps_its_correlation()
+    {
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [eventInFlow("flow-A")]);
+        slice.FanOut<AEvent, BEvent>(_ => [new BEvent()]);
+
+        await publishFromAsync(slice);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
+    [Fact]
+    public async Task a_slice_with_an_enriched_event_keeps_its_correlation()
+    {
+        var enriched = eventInFlow("flow-A");
+        var slice = new EventSlice<User, Guid>(Guid.NewGuid(), "foo", [enriched, eventInFlow("flow-A")]);
+        slice.ReplaceEvent(enriched, new BEvent());
+
+        await publishFromAsync(slice);
+
+        theBatch.PublishedWithTenantOnly.ShouldBeEmpty();
+        theBatch.PublishedWithMetadata.ShouldHaveSingleItem().Metadata.CorrelationId.ShouldBe("flow-A");
+    }
+
     private Task publishFromAsync(EventSlice<User, Guid> slice)
         => applyAsync(slice, AggregationScope.SingleStream, StreamIdentity.AsGuid,
             s => s.PublishMessage(new ShipOrder()));

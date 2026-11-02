@@ -43,17 +43,28 @@ public class when_replacing_event_in_slice_for_enrichment
         
         newEvent.Sequence.ShouldBe(111);
         newEvent.Headers["color"].ShouldBe("blue");
+        newEvent.CorrelationId.ShouldBe(theOriginalEvent.CorrelationId);
+        newEvent.CausationId.ShouldBe(theOriginalEvent.CausationId);
     }
 
     [Fact]
     public void replace_by_index()
     {
         theSlice.ReplaceEvent(0, new ComplexEvent(1, new User(Guid.NewGuid(), "Bill")));
-        
+
         theSlice.Events()[0].ShouldBeOfType<Event<ComplexEvent>>()
             .Data.User.UserName.ShouldBe("Bill");
     }
-    
+
+    [Fact]
+    public void replace_by_index_keeps_the_correlation_and_causation()
+    {
+        var newEvent = theSlice.ReplaceEvent(2, new ComplexEvent(3, new User(Guid.NewGuid(), "Hank")));
+
+        newEvent.CorrelationId.ShouldBe(theOriginalEvent.CorrelationId);
+        newEvent.CausationId.ShouldBe(theOriginalEvent.CausationId);
+    }
+
     
 
     

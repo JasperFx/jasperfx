@@ -152,7 +152,9 @@ public static class EventTypeExtensions
             StreamId = @event.StreamId,
             StreamKey = @event.StreamKey,
             Timestamp = @event.Timestamp,
-            Headers = @event.Headers
+            Headers = @event.Headers,
+            CorrelationId = @event.CorrelationId,
+            CausationId = @event.CausationId
         };
     }
 
