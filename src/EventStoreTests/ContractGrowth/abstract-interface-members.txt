@@ -670,6 +670,7 @@ JasperFx.Events.Projections.IProjectionStepObserver :: System.Threading.Tasks.Va
 JasperFx.Events.Projections.IProjectionStorageSession :: Void DeleteForType(System.Type)
 JasperFx.Events.Projections.IProjectionStorageSession :: Void DeleteNamedResource(System.String)
 JasperFx.Events.Projections.IProjectionWrapper :: System.Object get_InnerProjection()
+JasperFx.Events.Projections.IPublishesTypes :: System.Collections.Generic.IEnumerable`1[System.Type] PublishedTypes()
 JasperFx.Events.Projections.ITenantedQuerySession`1 :: TQuerySession ForTenant(System.String)
 JasperFx.Events.Projections.IValidatedProjection`1 :: System.Collections.Generic.IEnumerable`1[System.String] ValidateConfiguration(T)
 JasperFx.Events.Protected.IEventDataMasking :: JasperFx.Events.Protected.IEventDataMasking AddHeader(System.String, System.Object)

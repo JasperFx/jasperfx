@@ -52,6 +52,7 @@ public class SubscriptionDescriptor : OptionsDescription
         }
 
         AppliedEvents = appliedEventsFor(subject);
+        PublishedTypes = PublishedTypesFor(subject);
 
         if (Lifecycle == ProjectionLifecycle.Async)
         {
@@ -151,6 +152,71 @@ public class SubscriptionDescriptor : OptionsDescription
     /// </para>
     /// </remarks>
     public TypeDescriptor[] AppliedEvents { get; set; } = [];
+
+    private TypeDescriptor[] _publishedTypes = [];
+
+    /// <summary>
+    /// The types this projection declares that it writes (jasperfx#1102): its aggregate document, every
+    /// document an event projection creates or stores, every member's documents for a composite, and
+    /// anything named for teardown through <see cref="AsyncOptions.DeleteViewTypeOnTeardown(Type)" />.
+    /// Distinct, in ordinal order by full name, so a descriptor does not reorder between runs. Never null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A list, where <see cref="AggregateType" /> is one type, because an event projection can write
+    /// several. The two answer different questions and neither replaces the other:
+    /// <see cref="AggregateType" /> is what is aggregated and is null for an event projection, and for a
+    /// composite this is what its members write.
+    /// </para>
+    /// <para>
+    /// These are the projection's own declarations, read from <c>PublishedTypes()</c> without running or
+    /// validating anything, so they are not all documents of the store: an EF Core projection's type is
+    /// an entity of its <c>DbContext</c>, and a teardown rule can name a type another projection also
+    /// writes.
+    /// </para>
+    /// <para>
+    /// <b>Empty is a legitimate answer</b> and does not mean "writes nothing". A subscription writes
+    /// nothing, but a flat table projection writes rows that have no type, and a bare
+    /// <c>IProjection</c> or an EF Core event projection never says what it writes.
+    /// </para>
+    /// </remarks>
+    public TypeDescriptor[] PublishedTypes
+    {
+        get => _publishedTypes;
+
+        // A payload that spells the field null reads the same as one written before it existed
+        set => _publishedTypes = value ?? [];
+    }
+
+    /// <inheritdoc cref="PublishedTypes" />
+    internal static TypeDescriptor[] PublishedTypesFor(ISubscriptionSource subject)
+    {
+        if (subject is not IPublishesTypes source) return [];
+
+        // Diagnostics-only metadata, for the same reason as ImplementationType above: PublishedTypes() is
+        // a public virtual that anybody can override, and one bad projection must not lose the whole
+        // Describe() pipeline.
+        try
+        {
+            return source.PublishedTypes()
+                .Where(canBeWritten)
+                .Select(TypeDescriptor.For)
+                .Distinct()
+                .OrderBy(x => x.FullName, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
+
+    // An event projection records the return type of every Create and Transform method from its
+    // constructor, ahead of validation, so a projection that nothing has validated yet can list these.
+    private static bool canBeWritten(Type type)
+    {
+        return type != typeof(void) && type != typeof(Task) && type != typeof(ValueTask);
+    }
 
     /// <inheritdoc cref="AppliedEvents" />
     private static TypeDescriptor[] appliedEventsFor(ISubscriptionSource subject)

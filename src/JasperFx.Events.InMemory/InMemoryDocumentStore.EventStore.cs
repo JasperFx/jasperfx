@@ -30,10 +30,17 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
 
     /// <inheritdoc />
     public Task<EventStoreUsage?> TryCreateUsage(CancellationToken token)
-        => Task.FromResult<EventStoreUsage?>(new EventStoreUsage(Subject, this)
+    {
+        var usage = new EventStoreUsage(Subject, this)
         {
             Database = new DatabaseUsage { Cardinality = DatabaseCardinality.Single }
-        });
+        };
+
+        // jasperfx#1102: left out, this reads as a store with no projections at all
+        Projections.Describe(usage, this);
+
+        return Task.FromResult<EventStoreUsage?>(usage);
+    }
 
     /// <inheritdoc />
     public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(string? tenantIdOrDatabaseIdentifier = null,
