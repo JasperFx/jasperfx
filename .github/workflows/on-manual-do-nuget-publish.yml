@@ -12,6 +12,11 @@ jobs:
   publish_job:
     runs-on: ubuntu-latest
 
+    # Trusted publishing: the job's OIDC token is exchanged for a short-lived NuGet key
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -26,7 +31,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: NuGet login
+        id: nuget_login
+        uses: NuGet/login@v1
+        with:
+          user: jeremydmiller
+
       - name: Nuget Push
         run: ./build.sh NugetPush
         env:
-          NugetApiKey: ${{ secrets.NUGET_API_KEY }}
+          NugetApiKey: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
