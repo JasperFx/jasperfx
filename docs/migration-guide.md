@@ -151,6 +151,8 @@ The types below were lifted out of Marten, Polecat and Fisher so that each store
   * Compaction leaves a stream that folds to nothing alone, where Marten and Polecat replaced it with an empty snapshot and deleted the events.
   * An archiver the store cannot call fails the compaction rather than being skipped, and compaction refuses an empty stream identity.
 
+* **`StreamArchivingCompliance` holds every store to archived events being opt-in.** The suite used to let a store return archived events from `FetchStreamAsync`. It now asserts that `FetchStreamAsync`, `QueryRawEvents`, `QueryEventsAsync` and `QueryEventData<T>` leave them out, and that a predicate naming `IEvent.IsArchived` reads them, replacing the implicit filter rather than sitting beside it. A store whose `Where(x => x.IsArchived)` still carries its default `is_archived` term matches nothing and fails that fact.
+
 * **Projection batches built on `ProjectionBatchBase` publish nothing outside `ShardExecutionMode.Continuous`** ([#1045](https://github.com/JasperFx/jasperfx/issues/1045)). A rebuild or catch-up replays history, so a message from one is a second delivery of something already sent, and a re-raised event permanently grows the stream on every rebuild. Neither the message hooks nor raised events were gated consistently across the stores. This takes effect in each store once it adopts the base.
 
 * **`FetchProjectionLagAsync`:** a shard with only tenant-qualified progress rows, under a store-global high-water mark, now reports those tenants' cells rather than "no row" ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
