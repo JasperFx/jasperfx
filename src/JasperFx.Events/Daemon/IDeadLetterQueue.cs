@@ -22,4 +22,11 @@ public interface IDaemonRuntime
     /// <see cref="DaemonSettings.MaxConcurrentSideEffectGateWarmupsPerDatabase"/>.
     /// </summary>
     SemaphoreSlim? SideEffectGateWarmupThrottle => null;
+
+    /// <summary>
+    /// The store-wide gate bounding how many projection batches are held in memory at once, from the
+    /// start of the build until the batch is committed or abandoned. Shared by every daemon of the store
+    /// in this process. Null = unbounded. See <see cref="DaemonSettings.MaxConcurrentBatchesInFlightPerNode"/>.
+    /// </summary>
+    SemaphoreSlim? BatchesInFlightThrottle => null;
 }

@@ -92,6 +92,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     public SemaphoreSlim? BatchWriteThrottle => _batchWriteThrottle;
 
+    // Owned by the store's settings, not by this daemon: a store runs one daemon per database, and the
+    // memory this bounds is the node's. Read live so every daemon of the store shares the same gate.
+    public SemaphoreSlim? BatchesInFlightThrottle => _projections.BatchesInFlightThrottle;
+
     // jasperfx#598/#610: bounds how many shards are simultaneously loading inside the blue/green
     // side-effect gate's warm-up window. Reaches the agents through IDaemonRuntime. Null = unbounded.
     private SemaphoreSlim? _warmupThrottle;

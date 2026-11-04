@@ -430,6 +430,38 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task started_agents_surface_the_store_wide_batches_in_flight_gate()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.MaxConcurrentBatchesInFlightPerNode = 3,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        var gate = harness.Projections.BatchesInFlightThrottle.ShouldNotBeNull();
+        gate.CurrentCount.ShouldBe(3);
+        harness.Daemon.CurrentAgents().ShouldAllBe(x => ReferenceEquals(x.BatchesInFlightThrottle, gate));
+    }
+
+    [Fact]
+    public async Task agents_have_no_batches_in_flight_gate_by_default()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        harness.Daemon.CurrentAgents().ShouldAllBe(x => x.BatchesInFlightThrottle == null);
+    }
+
+    [Fact]
     public async Task batch_write_governor_is_disabled_by_a_nonpositive_setting()
     {
         var detector = new StubPartitionedDetector();

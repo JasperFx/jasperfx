@@ -88,6 +88,14 @@ public interface IReadOnlyDaemonSettings
     int MaxConcurrentSideEffectGateWarmupsPerDatabase { get; }
 
     /// <summary>
+    ///     Cap on how many projection batches this store may hold in memory at once on this node, from the
+    ///     moment a batch starts being built until it has been committed or abandoned. Zero or negative (the
+    ///     default) is unbounded. See <see cref="DaemonSettings.MaxConcurrentBatchesInFlightPerNode"/>.
+    ///     A default interface member so an implementation compiled before it existed keeps loading.
+    /// </summary>
+    int MaxConcurrentBatchesInFlightPerNode => 0;
+
+    /// <summary>
     ///     Projection Daemon mode. The default is Disabled
     /// </summary>
     DaemonMode AsyncMode { get; }
@@ -273,6 +281,48 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// store × database). Zero or negative disables the governor.
     /// </summary>
     public int MaxConcurrentBatchWritesPerDatabase { get; set; } = 4;
+
+    private int _maxConcurrentBatchesInFlight;
+    private SemaphoreSlim? _batchesInFlightThrottle;
+
+    /// <summary>
+    /// Cap on how many projection batches this store may hold in memory at once on this node: the window
+    /// from the moment a batch starts being built (aggregates loaded, events applied, operations serialized
+    /// into the batch) until it has been committed, or has failed or been abandoned. Zero or negative (the
+    /// default) is unbounded, which is the behavior from before this setting existed.
+    ///
+    /// <para>
+    /// <see cref="MaxConcurrentBatchWritesPerDatabase"/> does not bound memory: it is taken only after the
+    /// batch is fully built, so every running agent can hold one built batch while it waits for a write
+    /// slot, and it applies per database. This one is shared by every daemon of this store in the process
+    /// (one daemon per database), so with per-tenant or per-database agents the memory held in built
+    /// batches is bounded by this number rather than by the agent count. Each store has its own budget.
+    /// </para>
+    ///
+    /// <para>
+    /// The slot is taken before the batch is built and before the per-database write slot, and released
+    /// after the batch is disposed. A composite projection's members ride the composite's batch, so a
+    /// composite takes one slot per page, not one per member. Set this before the first daemon of the store
+    /// is built; resizing later replaces the shared gate, and a batch that already holds a slot of the old
+    /// gate releases it there.
+    /// </para>
+    /// </summary>
+    public int MaxConcurrentBatchesInFlightPerNode
+    {
+        get => _maxConcurrentBatchesInFlight;
+        set
+        {
+            _maxConcurrentBatchesInFlight = value;
+            // The previous gate is deliberately not disposed: batches may still hold or wait on it.
+            _batchesInFlightThrottle = value > 0 ? new SemaphoreSlim(value) : null;
+        }
+    }
+
+    /// <summary>
+    /// The gate behind <see cref="MaxConcurrentBatchesInFlightPerNode"/>, shared by every daemon of this
+    /// store. Null = unbounded.
+    /// </summary>
+    internal SemaphoreSlim? BatchesInFlightThrottle => _batchesInFlightThrottle;
 
     /// <summary>
     /// jasperfx#420 (epic #486 WS3): cap on how many projection rebuild cells — the

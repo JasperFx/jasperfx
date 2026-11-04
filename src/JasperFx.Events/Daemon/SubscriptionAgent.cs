@@ -91,6 +91,8 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     // once StartAsync/ReplayAsync has run; the Nullo default yields null = unbounded.
     public SemaphoreSlim? BatchWriteThrottle => _runtime.BatchWriteThrottle;
 
+    public SemaphoreSlim? BatchesInFlightThrottle => _runtime.BatchesInFlightThrottle;
+
     public string ProjectionShardIdentity { get; }
 
     public CancellationToken CancellationToken => _cancellation.Token;

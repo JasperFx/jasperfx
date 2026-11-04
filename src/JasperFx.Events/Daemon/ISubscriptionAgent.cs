@@ -68,6 +68,14 @@ public interface ISubscriptionAgent : ISubscriptionController
     SemaphoreSlim? BatchWriteThrottle => null;
 
     /// <summary>
+    /// The store-wide gate bounding how many projection batches are held in memory at once on this node.
+    /// Taken before a batch is built and released once it is disposed, always before
+    /// <see cref="BatchWriteThrottle"/>. Null = unbounded. See
+    /// <see cref="DaemonSettings.MaxConcurrentBatchesInFlightPerNode"/>.
+    /// </summary>
+    SemaphoreSlim? BatchesInFlightThrottle => null;
+
+    /// <summary>
     /// jasperfx#598/#610: true while this agent is inside the blue/green side-effect gate's warm-up
     /// window — running normally in Continuous mode, but over events the PRIOR version of the
     /// projection already processed, so <c>RaiseSideEffects</c> must not fire for them. The agent

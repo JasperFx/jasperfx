@@ -143,8 +143,15 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
         using var activity = range.Agent.Metrics.TrackExecution(range);
 
+        SemaphoreSlim? inFlightSlot = null;
+
         try
         {
+            // Taken before the build so it bounds the memory of a built batch, and before the write throttle.
+            // Released below, after the batch has been disposed on every path.
+            inFlightSlot = await BatchesInFlight.AcquireAsync(range, _logger, _cancellation.Token)
+                .ConfigureAwait(false);
+
             // Deliberately not a using declaration. A composite member is handed the parent composite's
             // shared batch, which the composite executes and disposes once every stage has run; a member
             // that disposed it would release the batch's session while later stages and the composite's
@@ -180,6 +187,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         }
         finally
         {
+            inFlightSlot.SafeRelease();
             activity?.Stop();
         }
     }

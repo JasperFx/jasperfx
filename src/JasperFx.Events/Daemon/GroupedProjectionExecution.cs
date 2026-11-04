@@ -213,9 +213,15 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         using var activity = range.Agent.Metrics.TrackExecution(range);
 
         IProjectionBatch batch = null;
-        
+        SemaphoreSlim? inFlightSlot = null;
+
         try
         {
+            // Taken before the build so it bounds the memory of a built batch, and before the write throttle.
+            // Released in the finally below, after the batch has been disposed.
+            inFlightSlot = await BatchesInFlight.AcquireAsync(range, _logger, _cancellation.Token)
+                .ConfigureAwait(false);
+
             var options = _runner.ErrorHandlingOptions(Mode);
 
             // CANNOT dispose the batch with using declaration here in the case of Composite batches
@@ -291,12 +297,18 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         }
         finally
         {
-            if (range.BatchBehavior == BatchBehavior.Individual && batch is not null)
+            try
             {
-                await batch.DisposeAsync();
+                if (range.BatchBehavior == BatchBehavior.Individual && batch is not null)
+                {
+                    await batch.DisposeAsync();
+                }
             }
-            
-            activity?.Stop();
+            finally
+            {
+                inFlightSlot.SafeRelease();
+                activity?.Stop();
+            }
         }
     }
 
