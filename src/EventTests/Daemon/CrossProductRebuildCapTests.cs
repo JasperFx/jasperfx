@@ -272,14 +272,13 @@ public class CrossProductRebuildCapTests
                 projections.All.Add(source);
             }
 
-            Daemon = new JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>>(
-                Store, Database, new NulloLogger(), detector, projections);
+            Daemon = new CoordinatedDaemon(Store, Database, detector, projections);
         }
 
         public IEventStore<FakeOperations, FakeSession> Store { get; }
         public IEventDatabase Database { get; }
         public GatedInstrumentedLoader Loader { get; }
-        public JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>> Daemon { get; }
+        public CoordinatedDaemon Daemon { get; }
 
         public async ValueTask DisposeAsync()
         {
@@ -287,6 +286,16 @@ public class CrossProductRebuildCapTests
             Daemon.Dispose();
         }
     }
+
+    // The real daemon, declaring IProjectionDaemon the way a store's own daemon class does, so a projection
+    // coordinator can drive it (RebuiltShardResumeTests). JasperFxAsyncDaemon already carries every member.
+    internal sealed class CoordinatedDaemon(
+        IEventStore<FakeOperations, FakeSession> store,
+        IEventDatabase database,
+        IHighWaterDetector detector,
+        ProjectionGraph<IJasperFxProjection<FakeOperations>, FakeOperations, FakeSession> projections)
+        : JasperFxAsyncDaemon<FakeOperations, FakeSession, IJasperFxProjection<FakeOperations>>(store, database,
+            new NulloLogger(), detector, projections), IProjectionDaemon;
 
     // Minimal concrete ProjectionGraph — the daemon consumes it as DaemonSettings plus the
     // registered projection sources in All.
