@@ -2386,7 +2386,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             var agent = buildAgentForShard(asyncShard);
 
             await agent.CatchUpAsync(HighWaterMark(), state, cancellation);
-            throwIfRecordedExceptions(recorder, cancellation);
+            throwIfRecordedExceptions(recorder, agent, cancellation);
         }
     }
 
@@ -2461,7 +2461,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                     var agent = buildAgentForShard(tenantShard);
 
                     await agent.CatchUpAsync(ceiling, state, cancellation).ConfigureAwait(false);
-                    throwIfRecordedExceptions(recorder, cancellation);
+                    throwIfRecordedExceptions(recorder, agent, cancellation);
                 }
             }
             finally
@@ -2474,11 +2474,17 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
 
-    private void throwIfRecordedExceptions(Recorder recorder, CancellationToken cancellation)
+    // jasperfx#1134: the Recorder only hears about a failure once the tracker's block consumer gets around
+    // to delivering it, which can be after agent.CatchUpAsync has already returned. The agent records its own
+    // critical failure synchronously, so that is read here as well and CatchUpAsync no longer depends on the
+    // listener having caught up.
+    private void throwIfRecordedExceptions(Recorder recorder, SubscriptionAgent agent, CancellationToken cancellation)
     {
         var exceptions = recorder.States
             .Select(x => x.Exception)
+            .Append(agent.CriticalException)
             .Where(x => x != null)
+            .Distinct()
             .Where(x => cancellation.IsCancellationRequested || !isCancellationNoise(x!))
             .ToArray();
         if (exceptions.Length != 0)

@@ -177,8 +177,18 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         await MarkSuccessAsync(lastProcessed);
     }
 
+    /// <summary>
+    ///     The exception this agent most recently reported through <see cref="ReportCriticalFailureAsync(Exception)" />.
+    ///     Set synchronously, before the failure is published, so a caller that has awaited the work that
+    ///     faulted can read it without depending on the tracker's asynchronous delivery to listeners
+    ///     (jasperfx#1134).
+    /// </summary>
+    internal Exception? CriticalException { get; private set; }
+
     public async Task ReportCriticalFailureAsync(Exception ex)
     {
+        CriticalException = ex;
+
         try
         {
             await _cancellation.CancelAsync().ConfigureAwait(false);
