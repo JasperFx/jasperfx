@@ -1807,6 +1807,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     // event-subscription distribution) restoring continuous execution is the DRIVING CALLER's
     // responsibility after RebuildProjectionAsync returns — see Wolverine's EventSubscriptionAgent.
     // RebuildAsync. Restarting here unconditionally would double-start against a store coordinator.
+    //
+    // The coordinator only starts a shard that has no registered agent (or one Paused for longer than
+    // HealthCheckPollingTime), so the rebuild has to leave the shard unregistered for that to happen:
+    // see releaseRebuildAgentsAsync.
     private async Task rebuildProjection(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout, CancellationToken token)
     {
         using var claim = claimRebuild(source.Name, null);
@@ -1884,6 +1888,8 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
             await disposeAgentAsync(agent).ConfigureAwait(false);
         }
+
+        await releaseRebuildAgentsAsync(agents).ConfigureAwait(false);
 
         if (source.Lifecycle == ProjectionLifecycle.Inline)
         {
@@ -1995,6 +2001,41 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             }
 
             await disposeAgentAsync(agent).ConfigureAwait(false);
+        }
+
+        await releaseRebuildAgentsAsync(agents).ConfigureAwait(false);
+    }
+
+    // rebuildAgent registers each replay agent under its shard's identity once the replay finishes, and the
+    // rebuild then drains and disposes it, so without this the rebuilt shard stays registered as a Stopped
+    // agent that nothing will run again. The projection coordinator starts a shard that has no registered
+    // agent, or one Paused for longer than HealthCheckPollingTime, and leaves a Stopped one alone, which is
+    // what keeps it from restarting an agent that stopped on its own (ProgressionProgressOutOfOrderException)
+    // in a loop. So a rebuilt shard was never resumed, and new events went unprojected until a restart.
+    //
+    // Dropping the replay agent leaves the shard as StopAgentAsync, PauseShardAsync and a replay that fails
+    // leave it: unregistered. The coordinator starts it on its next pass once the rebuild claim is released,
+    // and a coordinator-less caller restarts it through StartAgentAsync exactly as before. Only the replay
+    // agent itself is removed, never another agent registered under the same identity.
+    private async Task releaseRebuildAgentsAsync(IReadOnlyList<ISubscriptionAgent> agents)
+    {
+        await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+
+        try
+        {
+            foreach (var agent in agents)
+            {
+                if (_agents.TryFind(agent.Name.Identity, out var registered) && ReferenceEquals(registered, agent))
+                {
+                    _agents = _agents.Remove(agent.Name.Identity);
+                }
+            }
+
+            syncTenantPolling();
+        }
+        finally
+        {
+            _semaphore.Release();
         }
     }
 
