@@ -36,8 +36,10 @@ namespace JasperFx.RuntimeCompiler
 		// the GC rarely runs and native memory grows by ~60-100 MB per compilation.
 		// The same assemblies are referenced every time, and a PortableExecutableReference
 		// is immutable and safe to share, so create one per path for the whole process.
-		private static readonly ConcurrentDictionary<string, MetadataReference> _referenceCache =
-			new(StringComparer.Ordinal);
+		// Keyed by path and last-write time (UTC ticks), so a DLL rewritten on disk during
+		// the life of the process gets a fresh reference instead of a stale one.
+		private static readonly ConcurrentDictionary<(string Path, long LastWrite), MetadataReference> _referenceCache =
+			new();
 
 		private readonly List<MetadataReference> _references = [];
 		private readonly HashSet<string> _referencePaths = new(StringComparer.Ordinal);
@@ -79,7 +81,9 @@ namespace JasperFx.RuntimeCompiler
 				if (!_referencePaths.Add(referencePath))
 					return;
 
-				var reference = _referenceCache.GetOrAdd(referencePath, static path => MetadataReference.CreateFromFile(path));
+				var lastWrite = File.GetLastWriteTimeUtc(referencePath).Ticks;
+				var reference = _referenceCache.GetOrAdd((referencePath, lastWrite),
+					static key => MetadataReference.CreateFromFile(key.Path));
 
 				_references.Add(reference);
 
