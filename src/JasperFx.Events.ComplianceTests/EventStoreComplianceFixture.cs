@@ -705,6 +705,55 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsTombstoneStream => false;
 
     /// <summary>
+    /// True in a store that can switch one open session between tenants — the
+    /// <c>session.ForTenant("red").Events.Append(...)</c> shape — so a single save carries events for
+    /// several tenants. Gates the in-one-save fact of
+    /// <see cref="ConjoinedEventTenancyCompliance{TFixture,TOperations,TQuerySession}"/>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>: declare-then-implement, like
+    /// <see cref="SupportsTombstoneStream"/>. A store flips it and overrides
+    /// <see cref="ForTenant"/> if its session is not an <c>ITenantedQuerySession&lt;TOperations&gt;</c>.
+    /// </remarks>
+    public virtual bool SupportsSessionTenantSwitching => false;
+
+    /// <summary>
+    /// The same unit of work, scoped to <paramref name="tenantId"/>: whatever is appended through the
+    /// returned session is saved by the original session's <c>SaveChangesAsync</c>.
+    /// </summary>
+    public virtual TOperations ForTenant(TOperations session, string tenantId)
+    {
+        if (session is Projections.ITenantedQuerySession<TOperations> tenanted)
+        {
+            return tenanted.ForTenant(tenantId);
+        }
+
+        throw new NotSupportedException(
+            $"{GetType().FullName} does not implement ForTenant, so it cannot run the in-one-save tenant compliance facts.");
+    }
+
+    /// <summary>
+    /// True in a store whose fixture implements <see cref="HoldAppendOpenAsync"/>. Gates the in-flight
+    /// append fact of <see cref="AsyncDaemonCompliance{TFixture,TOperations,TQuerySession}"/>.
+    /// </summary>
+    public virtual bool SupportsHoldingAnAppendOpen => false;
+
+    /// <summary>
+    /// Start appending <paramref name="event"/> to the stream and leave it <em>in flight</em>: the
+    /// event's sequence number is allocated and its row written, but the transaction is open, so the
+    /// event is not visible to other connections. Disposing the returned handle commits it.
+    /// </summary>
+    /// <remarks>
+    /// The seam exists because no shared surface can hold a transaction open. A typical
+    /// implementation opens its own connection, begins a transaction, inserts the row through the
+    /// store's own append SQL, and commits in <c>DisposeAsync</c>. The returned task completes only
+    /// once the row is written, so a caller may immediately commit later events behind it.
+    /// </remarks>
+    public virtual Task<IAsyncDisposable> HoldAppendOpenAsync(Guid streamId, object @event, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement HoldAppendOpenAsync, so it cannot run the in-flight append compliance fact.");
+
+    /// <summary>
     /// Queue an unarchive of the given stream on the session — <paramref name="streamIdentity"/> is
     /// a <see cref="Guid"/> or a <see cref="string"/>. Like <c>ArchiveStream</c>, this takes effect
     /// on SaveChanges rather than immediately.
