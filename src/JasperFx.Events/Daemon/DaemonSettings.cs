@@ -88,6 +88,14 @@ public interface IReadOnlyDaemonSettings
     int MaxConcurrentSideEffectGateWarmupsPerDatabase { get; }
 
     /// <summary>
+    ///     Under per-tenant agent distribution, build and commit each projection's tenant batches one at a
+    ///     time per store on this node. False (the default) leaves every tenant agent building its own batch.
+    ///     See <see cref="DaemonSettings.SerializeTenantProjectionBatches"/>. A default interface member so an
+    ///     implementation compiled before it existed keeps loading.
+    /// </summary>
+    bool SerializeTenantProjectionBatches => false;
+
+    /// <summary>
     ///     Projection Daemon mode. The default is Disabled
     /// </summary>
     DaemonMode AsyncMode { get; }
@@ -273,6 +281,23 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// store × database). Zero or negative disables the governor.
     /// </summary>
     public int MaxConcurrentBatchWritesPerDatabase { get; set; } = 4;
+
+    /// <summary>
+    /// Opt-in for per-tenant agent distribution, where every (projection x tenant) runs its own agent. When
+    /// true, the tenant agents of one projection build and commit their batches one at a time through a
+    /// single-threaded <see cref="TenantBatchQueue"/> shared by every daemon (database) of this store in the
+    /// process, in turn, so the memory held in built batches is one batch per projection on the node instead
+    /// of one per running tenant agent. The default is false.
+    ///
+    /// <para>
+    /// <see cref="MaxConcurrentBatchWritesPerDatabase"/> cannot bound that memory: it is taken after a batch is
+    /// built, so every agent can hold a built batch while it waits, and it applies per database. Turning this
+    /// on trades throughput for memory: one projection's tenants no longer build in parallel on this node, in
+    /// continuous mode as well as in rebuilds. Store-global shards (no tenant) are unaffected, and a composite
+    /// projection takes one turn per page for all of its members.
+    /// </para>
+    /// </summary>
+    public bool SerializeTenantProjectionBatches { get; set; }
 
     /// <summary>
     /// jasperfx#420 (epic #486 WS3): cap on how many projection rebuild cells — the

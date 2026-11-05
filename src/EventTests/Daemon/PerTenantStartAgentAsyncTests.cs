@@ -409,6 +409,38 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task started_tenant_agents_of_a_projection_share_its_batch_queue_when_opted_in()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.SerializeTenantProjectionBatches = true,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        var agents = harness.Daemon.CurrentAgents();
+        var queue = agents.First().TenantBatchQueue.ShouldNotBeNull();
+        agents.ShouldAllBe(x => ReferenceEquals(x.TenantBatchQueue, queue));
+    }
+
+    [Fact]
+    public async Task started_tenant_agents_have_no_batch_queue_by_default()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        harness.Daemon.CurrentAgents().ShouldAllBe(x => x.TenantBatchQueue == null);
+    }
+
+    [Fact]
     public async Task started_agents_surface_the_daemon_batch_write_governor()
     {
         // Epic #486 WS3: the governor flows daemon (IDaemonRuntime) -> agent -> execution via

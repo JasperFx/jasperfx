@@ -1,3 +1,4 @@
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
@@ -22,4 +23,11 @@ public interface IDaemonRuntime
     /// <see cref="DaemonSettings.MaxConcurrentSideEffectGateWarmupsPerDatabase"/>.
     /// </summary>
     SemaphoreSlim? SideEffectGateWarmupThrottle => null;
+
+    /// <summary>
+    /// The store-wide queue that the per-tenant shards of this projection build and commit their batches
+    /// through one at a time, or null when they each build their own. See
+    /// <see cref="DaemonSettings.SerializeTenantProjectionBatches"/>.
+    /// </summary>
+    TenantBatchQueue? TenantBatchQueueFor(ShardName name) => null;
 }

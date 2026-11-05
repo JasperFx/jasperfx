@@ -68,6 +68,13 @@ public interface ISubscriptionAgent : ISubscriptionController
     SemaphoreSlim? BatchWriteThrottle => null;
 
     /// <summary>
+    /// The store-wide queue this per-tenant agent's projection batches are built and committed through, one
+    /// at a time across every tenant of the projection on this node. Null = the agent builds its own. See
+    /// <see cref="DaemonSettings.SerializeTenantProjectionBatches"/>.
+    /// </summary>
+    TenantBatchQueue? TenantBatchQueue => null;
+
+    /// <summary>
     /// jasperfx#598/#610: true while this agent is inside the blue/green side-effect gate's warm-up
     /// window — running normally in Continuous mode, but over events the PRIOR version of the
     /// projection already processed, so <c>RaiseSideEffects</c> must not fire for them. The agent

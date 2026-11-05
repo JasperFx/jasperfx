@@ -12,6 +12,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 {
     private readonly Block<EventRange> _building;
     protected readonly CancellationTokenSource _cancellation = new();
+    private readonly CancellationTokenSource _abandonQueued;
     protected readonly IEventDatabase _database;
     protected readonly ILogger _logger;
     protected readonly AsyncOptions _options;
@@ -30,6 +31,9 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         _database = database;
         _projection = projection;
         _logger = logger;
+
+        // Fires on a hard stop or dispose through _cancellation, and on the start of a drain
+        _abandonQueued = CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);
 
         _building = new Block<EventRange>(processRangeAsync);
         _building.OnError = onBlockFailure;
@@ -96,8 +100,10 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
     public async Task StopAndDrainAsync(CancellationToken token)
     {
-        // Queued pages are left to whoever runs the shard next, from the progression the in-flight page marks
+        // Queued pages are left to whoever runs the shard next, from the progression the in-flight page marks.
+        // That includes a page still waiting for its turn on the tenant batch queue.
         _draining = true;
+        await _abandonQueued.CancelAsync().ConfigureAwait(false);
 
         try
         {
@@ -135,6 +141,20 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
     }
 
     private async Task processRangeAsync(EventRange range, CancellationToken _)
+    {
+        // A composite member writes into its parent's batch, inside the parent's turn. Queueing it again
+        // would wait on the very turn it is running in.
+        var queue = range.BatchBehavior == BatchBehavior.Individual ? range.Agent.TenantBatchQueue : null;
+        if (queue == null)
+        {
+            await executeRangeAsync(range).ConfigureAwait(false);
+            return;
+        }
+
+        await queue.RunAsync(() => executeRangeAsync(range), _abandonQueued.Token).ConfigureAwait(false);
+    }
+
+    private async Task executeRangeAsync(EventRange range)
     {
         if (_draining || _cancellation.IsCancellationRequested)
         {
