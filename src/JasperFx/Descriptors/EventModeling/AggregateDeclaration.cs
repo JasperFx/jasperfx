@@ -26,8 +26,8 @@ public enum AggregateDeclaration
     None = 2,
 
     /// <summary>
-    /// Decides through a Dynamic Consistency Boundary decider model rather than single-stream aggregates;
-    /// see <see cref="EventModelSliceDescriptor.DeciderModel"/>.
+    /// Decides through a Dynamic Consistency Boundary decider model rather than single-stream aggregates,
+    /// or beside the ones named with <c>StartsStream</c> / <c>Against</c> (jasperfx#1115); see <see cref="EventModelSliceDescriptor.DeciderModel"/>.
     /// </summary>
     DeciderModel = 3,
 }

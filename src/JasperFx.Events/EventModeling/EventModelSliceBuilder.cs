@@ -429,11 +429,19 @@ public class EventModelSliceBuilder
 
     /// <summary>
     /// The slice's aggregates and why it has them (jasperfx#994). An explicit declaration wins, then
-    /// NoAggregate, then a decider model; only a command slice that said none of those takes the default.
+    /// NoAggregate, then a decider model (which also wins the declaration beside explicit aggregates); only a command slice that said none of those takes the default.
     /// </summary>
     private (IReadOnlyList<TypeDescriptor> aggregates, AggregateDeclaration? declaration) resolveAggregates()
     {
-        if (_aggregateTypes.Count > 0) return (_aggregateTypes.ToList(), AggregateDeclaration.Explicit);
+        // A decider that decides which stream to start (or which aggregate to act on) is a real DCB shape
+        // (jasperfx#1115): keep the explicit aggregates, but the decider role wins the declaration so the
+        // descriptor, and tooling reading it, still says the slice is a DCB decision.
+        if (_aggregateTypes.Count > 0)
+        {
+            return (_aggregateTypes.ToList(),
+                _deciderModel is not null ? AggregateDeclaration.DeciderModel : AggregateDeclaration.Explicit);
+        }
+
         if (_noAggregate) return (Array.Empty<TypeDescriptor>(), AggregateDeclaration.None);
         if (_deciderModel is not null) return (Array.Empty<TypeDescriptor>(), AggregateDeclaration.DeciderModel);
 

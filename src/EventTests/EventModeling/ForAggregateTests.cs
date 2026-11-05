@@ -105,6 +105,25 @@ public class ForAggregateTests
     }
 
     [Fact]
+    public void a_decider_model_beside_explicit_aggregates_keeps_both_roles()
+    {
+        var model = new EventModelBuilder();
+        model.Command<BookSlot>().DeciderModel<SlotBooking>().StartsStream<Appointment>().Emits<SlotBooked>();
+        model.Command("Move").DeciderModel<SlotBooking>().Against<Appointment>();
+
+        var book = slice(model, nameof(BookSlot));
+        book.DeciderModel.ShouldBe(T<SlotBooking>());
+        book.StartsStream.ShouldBe(T<Appointment>());
+        book.AggregateTypes.ShouldBe([T<Appointment>()]);
+        book.AggregateDeclaration.ShouldBe(AggregateDeclaration.DeciderModel);
+
+        var move = slice(model, "Move");
+        move.DeciderModel.ShouldBe(T<SlotBooking>());
+        move.AggregateTypes.ShouldBe([T<Appointment>()]);
+        move.AggregateDeclaration.ShouldBe(AggregateDeclaration.DeciderModel);
+    }
+
+    [Fact]
     public void a_view_says_how_its_read_model_is_projected()
     {
         // JasperFx/wolverine#4865: what code generation needs to know about a view
