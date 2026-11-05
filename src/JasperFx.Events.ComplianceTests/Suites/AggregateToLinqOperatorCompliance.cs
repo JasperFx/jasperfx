@@ -25,6 +25,7 @@ namespace JasperFx.Events.ComplianceTests;
 /// not from anything the fold itself computed.
 /// </para>
 /// </remarks>
+[RequiresCapability("SupportsAggregateToLinqOperators")]
 public abstract class AggregateToLinqOperatorCompliance<TFixture, TOperations, TQuerySession>
     : EventStoreComplianceSuite<TFixture, TOperations, TQuerySession>
     where TFixture : EventStoreComplianceFixture<TOperations, TQuerySession>, new()

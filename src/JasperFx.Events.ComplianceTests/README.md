@@ -1090,3 +1090,27 @@ that `GroupBy` is tenant-scoped is a suite asserting that `GroupBy` translates.
 
 New cross-store event sourcing behavior should land as a compliance suite first, and only then be
 enrolled by each product.
+
+## Guarding against a suite left out silently (jasperfx#1091)
+
+A store can enroll in the suites partially, and nothing used to tell a suite left out on purpose from
+one forgotten (marten#5788: `SupportsNumericRevisions => true`, no `NumericRevisionCompliance` subclass).
+Add one test to the store's compliance assembly:
+
+```csharp
+[Fact]
+public void every_compliance_suite_is_enrolled_or_excused()
+    => ComplianceSuiteInventory.AssertEnrolled(
+        typeof(some_compliance_class).Assembly,
+        new MyDocumentComplianceFixture(),   // or the event-store fixture; each family is checked separately
+        excused: new Dictionary<Type, string>
+        {
+            [typeof(SingleTenantedEventSlicingCompliance<,,>)] = "the precondition cannot be built here: ...",
+        });
+```
+
+It works over types, not names. It fails when a leaf abstract suite has no concrete subclass closed over
+the fixture and no excuse; when an excused suite is enrolled anyway; when an excused suite is gated by a
+capability flag (`[RequiresCapability("SupportsX")]` on the suite) that is `true` on the fixture; and when
+an excuse names a suite that does not exist. Suites gated by one flag across all facts carry the
+attribute; suites gated by several flags, or by a few facts, do not.

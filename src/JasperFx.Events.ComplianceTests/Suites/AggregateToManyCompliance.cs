@@ -119,6 +119,7 @@ public partial class ComplianceMemberLoyaltyProjection: ComplianceMemberLoyaltyP
 /// <c>SupportsAggregateToLinqOperators</c>.
 /// </para>
 /// </remarks>
+[RequiresCapability("SupportsAggregateToLinqOperators")]
 public abstract class AggregateToManyCompliance<TFixture, TOperations, TQuerySession>
     : EventStoreComplianceSuite<TFixture, TOperations, TQuerySession>
     where TFixture : EventStoreComplianceFixture<TOperations, TQuerySession>, new()
