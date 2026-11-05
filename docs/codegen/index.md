@@ -89,6 +89,23 @@ JasperFx supports three strategies for loading generated types, controlled by th
 
 See [CLI: codegen Command](./cli) for tooling that writes generated code ahead of time.
 
+### Many hosts in one process: reusing compiled assemblies
+
+In `Dynamic` mode every host compiles its generated source as it starts. A process that starts many hosts of the same
+application, such as a test suite on host pools, compiles identical source once per host, which costs real time. One
+suite of 585 tests on three pooled hosts made 513 compilations of 158 distinct sources.
+
+Turn on `ReuseCompiledAssemblies` and the runtime compiler compiles each distinct source once for the whole process:
+
+```csharp
+opts.CodeGeneration.ReuseCompiledAssemblies = true; // GenerationRules, wherever your tool exposes it
+```
+
+A host whose generated source and referenced assemblies match an earlier compilation is given that assembly instead of
+compiling again. The cache key is the source plus every referenced assembly's name, build (module version id) and load
+context, so a rebuilt dependency, or the same source in another load context, compiles fresh. It's off by default, and
+`Static` mode never compiles, so it changes nothing there. Compiled assemblies are never unloaded, with or without it.
+
 ## Next Steps
 
 - [Frames](./frames) -- learn how the Frame model works and how to write custom frames.
