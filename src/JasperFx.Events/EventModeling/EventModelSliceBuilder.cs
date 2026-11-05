@@ -406,6 +406,12 @@ public class EventModelSliceBuilder
 
     private EventModelSliceBuilder startStream(TypeDescriptor type)
     {
+        if (_startsStream is not null && !_startsStream.Equals(type))
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' already starts the {_startsStream.Name} stream, so it cannot also start the {type.Name} stream. A slice starts one stream; model the other as a separate slice");
+        }
+
         _startsStream = type;
         return addAggregate(type);
     }
