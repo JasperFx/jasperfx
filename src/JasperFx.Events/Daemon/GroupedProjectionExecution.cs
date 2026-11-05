@@ -10,6 +10,7 @@ namespace JasperFx.Events.Daemon;
 public class GroupedProjectionExecution : ISubscriptionExecution
 {
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly CancellationTokenSource _abandonQueued;
     private readonly IBlock<EventRange> _grouping;
     private readonly ILogger _logger;
     private readonly IGroupedProjectionRunner _runner;
@@ -19,6 +20,9 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     {
         ShardName = shardName;
         _logger = logger;
+
+        // Fires on a hard stop or dispose through _cancellation, and on the start of a drain
+        _abandonQueued = CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);
 
         var block = new Block<EventRange>(processRangeAsync);
         block.OnError = onBlockFailure;
@@ -101,6 +105,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         // Queued pages, grouped or not, are left to whoever runs the shard next, from the progression the
         // in-flight page marks. A page still being grouped when the drain starts is dropped before it's applied.
         _draining = true;
+        await _abandonQueued.CancelAsync().ConfigureAwait(false);
         _grouping.Complete();
 
         try
@@ -204,6 +209,20 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     }
 
     private async Task processRangeAsync(EventRange range, CancellationToken _)
+    {
+        // A null range is a page the grouping step dropped. A composite member writes into its parent's batch,
+        // inside the parent's turn; queueing it again would wait on the very turn it is running in.
+        var queue = range?.BatchBehavior == BatchBehavior.Individual ? range.Agent.TenantBatchQueue : null;
+        if (queue == null)
+        {
+            await executeRangeAsync(range!).ConfigureAwait(false);
+            return;
+        }
+
+        await queue.RunAsync(() => executeRangeAsync(range!), _abandonQueued.Token).ConfigureAwait(false);
+    }
+
+    private async Task executeRangeAsync(EventRange range)
     {
         if (_draining || _cancellation.IsCancellationRequested)
         {

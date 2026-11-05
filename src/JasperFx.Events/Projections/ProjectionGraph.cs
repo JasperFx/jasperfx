@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using ImTools;
@@ -39,6 +40,17 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     public ErrorHandlingOptions RebuildErrors { get; } = new();
     
     
+    // One per projection (any tenant), created on first use. Lives on the graph because the graph exists once per
+    // store per process, while the store runs one daemon per database. See SerializeTenantProjectionBatches.
+    private readonly ConcurrentDictionary<(string Name, string ShardKey, uint Version), TenantBatchQueue>
+        _tenantBatchQueues = new();
+
+    internal TenantBatchQueue TenantBatchQueueFor(ShardName name)
+    {
+        return _tenantBatchQueues.GetOrAdd((name.Name, name.ShardKey, name.Version),
+            static (_, n) => new TenantBatchQueue(n.ForTenant(null).Identity), name);
+    }
+
     // This has to be public for CritterStackPro
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> AllShards()
     {
