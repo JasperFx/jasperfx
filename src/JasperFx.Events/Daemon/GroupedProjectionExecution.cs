@@ -65,6 +65,22 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         return _runner.TryBuildReplayExecutor(out executor);
     }
 
+    public bool TryBuildBackfillExecutor([NotNullWhen(true)] out IBackfillExecutor? executor)
+    {
+        if (_runner is IBackfillingRunner runner)
+        {
+            return runner.TryBuildBackfillExecutor(ShardName, out executor);
+        }
+
+        executor = null;
+        return false;
+    }
+
+    public void ResetAggregateCaches()
+    {
+        (_runner as IBackfillingRunner)?.ResetAggregateCaches();
+    }
+
     public async ValueTask DisposeAsync()
     {
         _grouping.Complete();

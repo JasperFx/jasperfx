@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Concurrent;
 using System.Runtime.ExceptionServices;
 using ImTools;
@@ -10,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>
+public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IBackfillingRunner, IAggregateCaching<TId, TDoc>
     where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
     private readonly object _cacheLock = new();
@@ -321,6 +322,17 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
         return false;
     }
 
+    public bool TryBuildBackfillExecutor(ShardName shardName, [NotNullWhen(true)] out IBackfillExecutor? executor)
+    {
+        if (Projection is IProjectionBackfillSource<TOperations, TQuerySession> source)
+        {
+            return source.TryBuildBackfillExecutor(_store, _database, shardName, _logger, out executor);
+        }
+
+        executor = null;
+        return false;
+    }
+
     ErrorHandlingOptions IGroupedProjectionRunner.ErrorHandlingOptions(ShardExecutionMode mode)
     {
         return _store.ErrorHandlingOptions(mode);
@@ -470,6 +482,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 removeFromCache(cache, slice.Id);
                 storage.Delete(slice.Id);
                 break;
+        }
+    }
+
+    public void ResetAggregateCaches()
+    {
+        lock (_cacheLock)
+        {
+            _caches = ImHashMap<string, IAggregateCache<TId, TDoc>>.Empty;
         }
     }
 

@@ -40,6 +40,14 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
             projectionBase.AssembleAndAssertValidity();
         }
 
+        // A container-scoped projection is resolved per batch, so there is no one projection to fold a backfill
+        // and hand it over. Refuse instead of leaving the backfill silently unrun.
+        if (source is IProjectionBackfillSource<TOperations, TQuerySession> { HasBackfills: true })
+        {
+            throw new InvalidProjectionException(
+                $"Projection {source.Name} declares backfills, which a scoped or transient registration cannot run. Register it as a singleton.");
+        }
+
         base.Name = source.Name;
         base.Version = source.Version;
         ProjectionType = source.ImplementationType;

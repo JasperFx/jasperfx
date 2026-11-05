@@ -19,5 +19,11 @@ internal enum CommandType
     // daemon's side-effect-gate warm-up throttle. The wait CANNOT happen on the command loop -- that would
     // wedge the agent's high-water and completion bookkeeping for the whole queue time -- so the grant
     // arrives as a command and the loop resumes loading from there.
-    WarmupSlotGranted
+    WarmupSlotGranted,
+
+    // Backfills (see IBackfillExecutor): settled for a shard that starts from nothing, the shard held for a
+    // hand-over, and released again after it.
+    BackfillsSettled,
+    HoldForBackfill,
+    BackfillHandedOver
 }

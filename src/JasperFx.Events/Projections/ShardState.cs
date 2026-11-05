@@ -156,6 +156,12 @@ public class ShardState
     public ShardFailure? Failure { get; set; }
 
     /// <summary>
+    /// The backfills this shard still owes or just handed over (<see cref="IBackfillExecutor" />). Null when it
+    /// owes none. The shard's own sequence and mode are unaffected: it keeps projecting while they run.
+    /// </summary>
+    public IReadOnlyList<BackfillProgress>? Backfills { get; set; }
+
+    /// <summary>
     /// The node number that is currently running this shard
     /// </summary>
     public int? RunningOnNode { get; set; }

@@ -27,6 +27,20 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     private bool _replaying;
     private Task? _replayTask;
 
+    // Whether this agent has taken on its projection's backfills. Command-loop only.
+    private bool _backfillsSettled;
+
+    // A backfill folds alongside the live shard on _backfillTask and only asks for the shard to stand still
+    // for its hand-over: _holdingForBackfill stops loading, and _backfillHold completes with the committed
+    // position once nothing is in flight. _backfillHold is written by the backfill task before it posts
+    // Command.HoldForBackfill; the flag is command-loop only.
+    private Task? _backfillTask;
+    private bool _holdingForBackfill;
+    private TaskCompletionSource<long>? _backfillHold;
+
+    // Replaced, never mutated: stamp() reads it from the heartbeat timer and other threads
+    private volatile IReadOnlyList<BackfillProgress>? _backfillProgress;
+
     // jasperfx#598/#610: blue/green side-effect gate state. _sideEffectGateMark is the highest PRIOR
     // version's persisted progression (0 = no gate); while committed progression sits below it this
     // agent runs normally but suppresses side effects, and clamps its loading ceiling to the mark so
@@ -370,6 +384,8 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             state.SideEffectGateMark = mark;
         }
 
+        state.Backfills = _backfillProgress;
+
         return state;
     }
 
@@ -488,6 +504,15 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
         try
         {
+            // A full rebuild is replayed by code that knows the backfilled members. A partial rewind leaves
+            // them to the next continuous start, whose backfill folds from the start of the store anyway.
+            if (request.Floor == 0 && _execution.TryBuildBackfillExecutor(out var backfills))
+            {
+                await backfills.SettleAsync(_cancellation.Token).ConfigureAwait(false);
+            }
+
+            _backfillsSettled = true;
+
             if (!request.DisableOptimizedReplay && _execution.TryBuildReplayExecutor(out var executor))
             {
                 _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
@@ -623,6 +648,23 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 LastCommitted = LastEnqueued = command.LastCommitted;
                 _bufferedCeiling = LastCommitted; // jasperfx#525
 
+                if (!_backfillsSettled && _execution.TryBuildBackfillExecutor(out var backfills))
+                {
+                    _backfillsSettled = true;
+
+                    if (LastCommitted == 0)
+                    {
+                        // Nothing projected yet, so the new Apply produces the backfilled members itself
+                        _replaying = true;
+                        _replayTask = Task.Run(() => settleBackfillsAsync(backfills));
+                        return;
+                    }
+
+                    // The shard keeps projecting; the backfill only holds it for the hand-over
+                    var backfillRequest = new BackfillRequest(ErrorOptions, _runtime, Options.BatchSize) { Report = publishBackfillAsync };
+                    _backfillTask = Task.Run(() => runBackfillsAsync(backfills, backfillRequest));
+                }
+
                 // The Mode guard matters for jasperfx#480: a bounded rebuild that disabled the
                 // optimized replay (ReplayAsync above) posts Start in Rebuild mode with a replay
                 // executor available — kicking off the executor here would overshoot the custom
@@ -637,33 +679,32 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 // execution with nothing left to suppress. Before #598 this could not happen because
                 // the warm-up had already pushed committed progression to the mark before Continuous
                 // ever started.
-                if (Mode != ShardExecutionMode.Rebuild && !_sideEffectsSuppressed && LastCommitted == 0 &&
-                    HighWaterMark > 0 && _execution.TryBuildReplayExecutor(out var executor))
+                if (tryStartOptimizedReplay())
                 {
-                    _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
-                        Name.Identity);
-                    var replayRequest =
-                        new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime);
-                    if (Name.TenantId != null)
-                    {
-                        // marten#4717: a tenant-scoped composite replays only to its own tenant's
-                        // high-water (this agent's seeded HighWaterMark), not the store-wide max.
-                        replayRequest = replayRequest with { StartingHighWater = HighWaterMark };
-                    }
-
-                    // #4721: run the optimized rebuild OFF this command-loop consumer. The replay executor
-                    // posts a RangeCompleted command per page via MarkSuccessAsync; if we awaited it inline
-                    // here, those posts would pile up in the bounded command channel whose only reader is
-                    // THIS handler — once the channel fills (10k) the post blocks, the reader is blocked
-                    // awaiting it, and the shard silently wedges at a batch boundary. Running it on a
-                    // separate task frees this reader to drain those posts. The _replaying flag suppresses
-                    // continuous loading until the rebuild signals completion with Command.ReplayCompleted.
-                    _replaying = true;
-                    _replayTask = Task.Run(() => runOptimizedRebuildAsync(executor, replayRequest));
                     return;
                 }
 
+                break;
 
+            case CommandType.BackfillsSettled:
+                _replaying = false;
+
+                if (tryStartOptimizedReplay())
+                {
+                    return;
+                }
+
+                break;
+
+            case CommandType.HoldForBackfill:
+                _holdingForBackfill = true;
+                releaseBackfillHoldWhenDrained();
+                break;
+
+            case CommandType.BackfillHandedOver:
+                // The hand-over rewrote documents behind any cached aggregate
+                _execution.ResetAggregateCaches();
+                _holdingForBackfill = false;
                 break;
 
             case CommandType.ReplayCompleted:
@@ -690,6 +731,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     _rebuild?.TrySetResult();
                 }
 
+                releaseBackfillHoldWhenDrained();
                 break;
 
             case CommandType.RangeBuffered:
@@ -707,6 +749,43 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 // the standing was already published by the waiter; fall through and start loading.
                 break;
         }
+
+        await continueLoadingAsync().ConfigureAwait(false);
+    }
+
+    private bool tryStartOptimizedReplay()
+    {
+        if (Mode == ShardExecutionMode.Rebuild || _sideEffectsSuppressed || LastCommitted != 0 ||
+            HighWaterMark <= 0 || !_execution.TryBuildReplayExecutor(out var executor))
+        {
+            return false;
+        }
+
+        _logger.LogInformation("Starting optimized rebuild for projection/subscription {ShardName}",
+            Name.Identity);
+        var replayRequest =
+            new SubscriptionExecutionRequest(0, ShardExecutionMode.CatchUp, ErrorOptions, _runtime);
+        if (Name.TenantId != null)
+        {
+            // marten#4717: a tenant-scoped composite replays only to its own tenant's
+            // high-water (this agent's seeded HighWaterMark), not the store-wide max.
+            replayRequest = replayRequest with { StartingHighWater = HighWaterMark };
+        }
+
+        // #4721: run the optimized rebuild OFF this command-loop consumer. The replay executor
+        // posts a RangeCompleted command per page via MarkSuccessAsync; if we awaited it inline
+        // here, those posts would pile up in the bounded command channel whose only reader is
+        // THIS handler — once the channel fills (10k) the post blocks, the reader is blocked
+        // awaiting it, and the shard silently wedges at a batch boundary. Running it on a
+        // separate task frees this reader to drain those posts. The _replaying flag suppresses
+        // continuous loading until the rebuild signals completion with Command.ReplayCompleted.
+        _replaying = true;
+        _replayTask = Task.Run(() => runOptimizedRebuildAsync(executor, replayRequest));
+        return true;
+    }
+
+    private async Task continueLoadingAsync()
+    {
 
         // jasperfx#598/#610: the warm-up window closes the moment COMMITTED progression reaches the prior
         // version's mark. Committed (not enqueued, not buffered) is the whole point: it is what the next
@@ -726,6 +805,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // (above) but must NOT kick off continuous loading — otherwise the normal loader would race
         // the rebuild over the same events. Command.ReplayCompleted clears the flag and falls through.
         if (_replaying)
+        {
+            return;
+        }
+
+        // A backfill hand-over needs the shard still: nothing loaded, nothing in flight
+        if (_holdingForBackfill)
         {
             return;
         }
@@ -817,6 +902,112 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 "Error trying to perform an optimized rebuild/replay of subscription {ShardName}",
                 Name.Identity);
             await ReportCriticalFailureAsync(e).ConfigureAwait(false);
+        }
+    }
+
+    private async Task settleBackfillsAsync(IBackfillExecutor executor)
+    {
+        try
+        {
+            await executor.SettleAsync(_cancellation.Token).ConfigureAwait(false);
+
+            if (Status == AgentStatus.Running && !_cancellation.IsCancellationRequested)
+            {
+                await _commandBlock.PostAsync(Command.BackfillsSettled()).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Shutting down
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error trying to settle the backfills of projection {ShardName}", Name.Identity);
+            await ReportCriticalFailureAsync(e).ConfigureAwait(false);
+        }
+    }
+
+    private async Task runBackfillsAsync(IBackfillExecutor executor, BackfillRequest request)
+    {
+        try
+        {
+            if (await executor.CatchUpAsync(() => LastCommitted, request, _cancellation.Token).ConfigureAwait(false))
+            {
+                var hold = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _backfillHold = hold;
+                await _commandBlock.PostAsync(Command.HoldForBackfill()).ConfigureAwait(false);
+
+                var ceiling = await hold.Task.WaitAsync(_cancellation.Token).ConfigureAwait(false);
+
+                _logger.LogInformation("Projection agent {Name} is held at {Ceiling} for a backfill hand-over",
+                    ProjectionShardIdentity, ceiling);
+
+                await executor.HandOverAsync(ceiling, request, _cancellation.Token).ConfigureAwait(false);
+            }
+
+            // Published once as completed by the executor; nothing is owed any more
+            _backfillProgress = null;
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            // Shutting down -- the backfill resumes from its own recorded position on the next start.
+            return;
+        }
+        catch (Exception e)
+        {
+            // The live projection does not depend on the backfill, so it keeps running; the backfill resumes
+            // from its recorded position on the next start
+            _logger.LogError(e, "Error trying to backfill projection {ShardName}", Name.Identity);
+
+            // Kept on every state until the next start, so an observer sees the backfill is stuck
+            var failure = ShardFailure.For(e, _timeProvider.GetUtcNow());
+            _backfillProgress = (_backfillProgress ?? [])
+                .Select(x => x.Completed ? x : x with { Failure = failure })
+                .ToList();
+            await publishBackfillStateAsync().ConfigureAwait(false);
+        }
+
+        try
+        {
+            await _commandBlock.PostAsync(Command.BackfillHandedOver()).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _logger.LogDebug(e, "Could not release the backfill hold of {Name}", ProjectionShardIdentity);
+        }
+    }
+
+    // Called from the backfill's own task only, so the read-replace of _backfillProgress does not race
+    private Task publishBackfillAsync(BackfillProgress progress)
+    {
+        _backfillProgress = (_backfillProgress ?? [])
+            .Where(x => x.Name != progress.Name)
+            .Append(progress)
+            .OrderBy(x => x.Name)
+            .ToList();
+
+        return publishBackfillStateAsync();
+    }
+
+    private async Task publishBackfillStateAsync()
+    {
+        try
+        {
+            await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted) { Action = ShardAction.Updated }))
+                .ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _logger.LogDebug(e, "Error publishing the backfill progress of {Name}", ProjectionShardIdentity);
+        }
+    }
+
+    // Command-loop only
+    private void releaseBackfillHoldWhenDrained()
+    {
+        if (_holdingForBackfill && LastCommitted >= LastEnqueued)
+        {
+            _backfillHold?.TrySetResult(LastCommitted);
         }
     }
 

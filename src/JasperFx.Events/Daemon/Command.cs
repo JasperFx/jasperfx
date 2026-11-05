@@ -23,6 +23,12 @@ public class Command
         return new Command { Type = CommandType.ReplayCompleted };
     }
 
+    internal static Command BackfillsSettled() => new() { Type = CommandType.BackfillsSettled };
+
+    internal static Command HoldForBackfill() => new() { Type = CommandType.HoldForBackfill };
+
+    internal static Command BackfillHandedOver() => new() { Type = CommandType.BackfillHandedOver };
+
     public static Command HighWaterMarkUpdated(long sequence)
     {
         return new Command { HighWaterMark = sequence, Type = CommandType.HighWater };

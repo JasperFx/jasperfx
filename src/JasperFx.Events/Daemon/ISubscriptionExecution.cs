@@ -16,6 +16,23 @@ public interface ISubscriptionExecution: IAsyncDisposable
 
     ShardExecutionMode Mode { get; set; }
     bool TryBuildReplayExecutor([NotNullWhen(true)]out IReplayExecutor? executor);
+
+    /// <summary>
+    ///     The backfills this shard owes, if any. See <see cref="IBackfillExecutor" />.
+    /// </summary>
+    bool TryBuildBackfillExecutor([NotNullWhen(true)] out IBackfillExecutor? executor)
+    {
+        executor = null;
+        return false;
+    }
+
+    /// <summary>
+    ///     Drop cached aggregates, because a backfill hand-over rewrote the documents behind them.
+    /// </summary>
+    void ResetAggregateCaches()
+    {
+    }
+
     Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage events, CancellationToken cancellation);
     
     Task ProcessRangeAsync(EventRange range);

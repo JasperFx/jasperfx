@@ -123,6 +123,16 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         return false;
     }
 
+    public virtual bool TryBuildBackfillExecutor([NotNullWhen(true)] out IBackfillExecutor? executor)
+    {
+        executor = default;
+        return false;
+    }
+
+    public virtual void ResetAggregateCaches()
+    {
+    }
+
     public Task ProcessRangeAsync(EventRange range)
     {
         return processRangeAsync(range, CancellationToken.None);
