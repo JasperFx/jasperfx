@@ -1247,10 +1247,17 @@ public sealed record EventModelDescriptor(
         var hotspots = new List<HotspotDescriptor>();
         var hotspotKeys = new HashSet<string>(StringComparer.Ordinal);
         var assignments = new List<DomainAssignmentDescriptor>();
+        var declaredAggregates = new List<TypeDescriptor>();
 
         foreach (var descriptor in descriptors)
         {
             assignments.AddRange(descriptor.DomainAssignments);
+
+            // jasperfx#1117. Only aggregates a person declared count: the store derives one for every
+            // single-stream projection, which would make every View look like a write model's fold.
+            declaredAggregates.AddRange(descriptor.Aggregates
+                .Where(x => (x.Provenance ?? EventModelProvenance.Declared) == EventModelProvenance.Declared)
+                .Select(x => x.Type));
 
             foreach (var slice in descriptor.Slices)
             {
@@ -1301,10 +1308,48 @@ public sealed record EventModelDescriptor(
         // when they are applied (EventModelDomains.Resolve), where the type they disagree about is known.
         var domainAssignments = assignments.Distinct().ToList();
 
+        placeSnapshotsOfDeclaredAggregates(slices, declaredAggregates);
+
         return new EventModelDescriptor(name, slices)
         {
             Aggregates = aggregates, Hotspots = hotspots, DomainAssignments = domainAssignments,
         };
+    }
+
+    /// <summary>
+    /// jasperfx#1117. A store-derived View slice whose read model is an aggregate the declared model names
+    /// (an inline snapshot, say) is that aggregate's own fold, not a separate view: it joins the domain and
+    /// chapter of the declared slices that decide against the aggregate, rather than landing in
+    /// "(no domain) / (no chapter)". Left alone when it already has a placement, when the declaring slices
+    /// have none, or when they disagree about it.
+    /// </summary>
+    private static void placeSnapshotsOfDeclaredAggregates(List<EventModelSliceDescriptor> slices,
+        List<TypeDescriptor> declaredAggregates)
+    {
+        if (declaredAggregates.Count == 0) return;
+
+        for (var i = 0; i < slices.Count; i++)
+        {
+            var view = slices[i];
+            if (view.Domain is not null || view.Chapter is not null) continue;
+            if (view.Pattern != SlicePattern.View || view.ReadModelTypes.Count == 0) continue;
+            if (view.Provenance != EventModelProvenance.Derived) continue;
+
+            var aggregate = view.ReadModelTypes[0];
+            if (!declaredAggregates.Any(x => EventModelSliceDescriptor.SameType(x, aggregate))) continue;
+
+            var placements = slices
+                .Where(x => !ReferenceEquals(x, view) && x.Chapter is not null)
+                .Where(x => x.AggregateTypes.Any(t => EventModelSliceDescriptor.SameType(t, aggregate))
+                            || (x.StartsStream is { } starts && EventModelSliceDescriptor.SameType(starts, aggregate)))
+                .Select(x => (x.Domain, x.Chapter))
+                .Distinct()
+                .ToList();
+
+            if (placements.Count != 1) continue;
+
+            slices[i] = view with { Domain = placements[0].Domain, Chapter = placements[0].Chapter };
+        }
     }
 
     private static AggregateDescriptor mergeIdentity(AggregateDescriptor entry, AggregateDescriptor first,
