@@ -67,7 +67,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     {
         var identity = slice.Id?.ToString() ?? string.Empty;
         var steps = new List<ProjectionStepResultRaw>();
-        var identitySetter = new NulloIdentitySetter<TDoc, TId>();
+        var identitySetter = new MemberIdentitySetter<TDoc, TId>();
 
         TDoc? snapshot = default;
 
@@ -89,6 +89,13 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 // reflection re-implementation.
                 var (result, action) = await DetermineActionAsync(
                     session, snapshot, slice.Id, identitySetter, [@event], cancellation).ConfigureAwait(false);
+
+                // The daemon assigns the identity (and metadata) after the fold, through
+                // tryApplyMetadata; do the same so stepped documents carry their real id.
+                if (action != ActionType.Delete)
+                {
+                    (_, result) = tryApplyMetadata([@event], result, slice.Id, identitySetter);
+                }
 
                 snapshot = action == ActionType.Delete ? default : result;
             }
@@ -116,4 +123,30 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         return new ProjectionTimelineRaw(steps, serialize(snapshot));
     }
+}
+
+/// <summary>
+///     Identity setter for the projection stepper, which has no storage to supply one. Assigns the
+///     identity to the document's id member (found by <see cref="DocumentIdentity" />) so stepped
+///     documents carry the same id the daemon would store.
+/// </summary>
+internal class MemberIdentitySetter<TDoc, TId> : IIdentitySetter<TDoc, TId> where TDoc : notnull
+{
+    private static readonly System.Reflection.MemberInfo? _member =
+        DocumentIdentity.FindIdMember(typeof(TDoc), t => t == typeof(TId));
+
+    public void SetIdentity(TDoc document, TId identity)
+    {
+        switch (_member)
+        {
+            case System.Reflection.PropertyInfo { SetMethod: not null } p:
+                p.SetValue(document, identity);
+                break;
+            case System.Reflection.FieldInfo { IsInitOnly: false } f:
+                f.SetValue(document, identity);
+                break;
+        }
+    }
+
+    public TId Identity(TDoc document) => throw new NotSupportedException();
 }

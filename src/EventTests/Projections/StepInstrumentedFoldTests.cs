@@ -122,6 +122,33 @@ public class StepInstrumentedFoldTests
         StateOf(timeline.FinalState!.Value).ACount.ShouldBe(2);
     }
 
+    // jasperfx#1112: the stepper must assign the slice id like the daemon's storage does.
+    [Fact]
+    public async Task stepped_documents_carry_the_slice_identity()
+    {
+        var projection = new IdlessProjection();
+        projection.AssembleAndAssertValidity();
+
+        var stream = Guid.NewGuid();
+        var result = await projection.BuildTimelinesAsync(
+            new[] { A(stream, 1, 1), A(stream, 2, 2) }, new FakeSession(), Serialize, ToRecord, null,
+            CancellationToken.None);
+
+        var timeline = result.AggregatesByIdentity[stream.ToString()];
+        StateOf(timeline.Steps[0].After!.Value).Id.ShouldBe(stream);
+        StateOf(timeline.FinalState!.Value).Id.ShouldBe(stream);
+    }
+
+    private sealed class IdlessProjection : SingleStreamProjection<MyAggregate, Guid>
+    {
+        public override MyAggregate? Evolve(MyAggregate? snapshot, Guid id, IEvent e)
+        {
+            snapshot ??= new MyAggregate();
+            snapshot.ACount++;
+            return snapshot;
+        }
+    }
+
     private static MyAggregate StateOf(JsonElement element) =>
         element.Deserialize<MyAggregate>()!;
 
