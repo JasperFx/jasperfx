@@ -70,46 +70,61 @@ internal class CompositeReplayExecutor : IReplayExecutor
 
         while (floor < ceiling && !cancellation.IsCancellationRequested)
         {
-            var eventRequest = new EventRequest
+            // Under a tenant load budget, each page holds a page's worth of it from its load until it is processed
+            var governor = agent.TenantLoadGovernor;
+            if (governor != null &&
+                !await governor.ReserveAsync(_options.BatchSize, cancellation).ConfigureAwait(false))
             {
-                Floor = floor,
-                HighWater = ceiling,
-                BatchSize = _options.BatchSize,
-                Name = _shardName,
-                ErrorOptions = request.ErrorHandling,
-                Runtime = request.Runtime,
-                Metrics = agent.Metrics
-            };
-
-            var page = await _loader.LoadAsync(eventRequest, cancellation).ConfigureAwait(false);
-            page.HighWaterMark = ceiling;
-
-            if (page.Count == 0)
-            {
-                // No more matching events below the ceiling. Commit the empty range anyway so the stored
-                // progression moves to the ceiling with the in-memory one; MarkSuccessAsync alone leaves
-                // the row missing or behind, and the next continuous page then fails to update it.
-                var emptyRange = new EventRange(agent, page.Floor, ceiling) { Events = page };
-                await _execution.ProcessRangeAsync(emptyRange).ConfigureAwait(false);
-                break;
-            }
-
-            // A top-level Individual range makes the composite execution commit the combined member work
-            // and advance progression (MarkSuccessAsync) as one unit for this page.
-            var range = new EventRange(agent, page.Floor, page.Ceiling) { Events = page };
-            await _execution.ProcessRangeAsync(range).ConfigureAwait(false);
-
-            // The composite execution swallows a member failure and pauses/stops the agent rather than
-            // throwing. Honor the all-or-nothing contract: stop the single pass without advancing further.
-            if (agent.Status != AgentStatus.Running)
-            {
-                _logger.LogWarning(
-                    "Stopping single-pass composite rebuild for {ShardName} at {Floor}; agent status is {Status}",
-                    _shardName.Identity, page.Floor, agent.Status);
                 return;
             }
 
-            floor = page.Ceiling;
+            try
+            {
+                var eventRequest = new EventRequest
+                {
+                    Floor = floor,
+                    HighWater = ceiling,
+                    BatchSize = _options.BatchSize,
+                    Name = _shardName,
+                    ErrorOptions = request.ErrorHandling,
+                    Runtime = request.Runtime,
+                    Metrics = agent.Metrics
+                };
+
+                var page = await _loader.LoadAsync(eventRequest, cancellation).ConfigureAwait(false);
+                page.HighWaterMark = ceiling;
+
+                if (page.Count == 0)
+                {
+                    // No more matching events below the ceiling. Commit the empty range anyway so the stored
+                    // progression moves to the ceiling with the in-memory one; MarkSuccessAsync alone leaves
+                    // the row missing or behind, and the next continuous page then fails to update it.
+                    var emptyRange = new EventRange(agent, page.Floor, ceiling) { Events = page };
+                    await _execution.ProcessRangeAsync(emptyRange).ConfigureAwait(false);
+                    break;
+                }
+
+                // A top-level Individual range makes the composite execution commit the combined member work
+                // and advance progression (MarkSuccessAsync) as one unit for this page.
+                var range = new EventRange(agent, page.Floor, page.Ceiling) { Events = page };
+                await _execution.ProcessRangeAsync(range).ConfigureAwait(false);
+
+                // The composite execution swallows a member failure and pauses/stops the agent rather than
+                // throwing. Honor the all-or-nothing contract: stop the single pass without advancing further.
+                if (agent.Status != AgentStatus.Running)
+                {
+                    _logger.LogWarning(
+                        "Stopping single-pass composite rebuild for {ShardName} at {Floor}; agent status is {Status}",
+                        _shardName.Identity, page.Floor, agent.Status);
+                    return;
+                }
+
+                floor = page.Ceiling;
+            }
+            finally
+            {
+                governor?.Release(_options.BatchSize);
+            }
         }
     }
 }

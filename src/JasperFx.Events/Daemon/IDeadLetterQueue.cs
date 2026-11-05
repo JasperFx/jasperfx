@@ -30,4 +30,10 @@ public interface IDaemonRuntime
     /// <see cref="DaemonSettings.SerializeTenantProjectionBatches"/>.
     /// </summary>
     TenantBatchQueue? TenantBatchQueueFor(ShardName name) => null;
+
+    /// <summary>
+    /// The store-wide budget on events loaded and uncommitted by per-tenant shards on this node, or null when
+    /// unbounded. See <see cref="DaemonSettings.TenantLoadBudget"/>.
+    /// </summary>
+    TenantLoadGovernor? TenantLoadGovernorFor(ShardName name) => null;
 }

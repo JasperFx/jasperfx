@@ -96,6 +96,21 @@ public interface IReadOnlyDaemonSettings
     bool SerializeTenantProjectionBatches => false;
 
     /// <summary>
+    ///     Under per-tenant agent distribution, how many events this store's tenant agents may hold loaded but
+    ///     uncommitted on this node, rotating which tenants may load when it is tight. Zero or negative (the
+    ///     default) is unbounded. See <see cref="DaemonSettings.TenantLoadBudget"/>. A default interface member so
+    ///     an implementation compiled before it existed keeps loading.
+    /// </summary>
+    int TenantLoadBudget => 0;
+
+    /// <summary>
+    ///     The fraction of the GC's high memory load threshold at which the tenant load budget stops handing out
+    ///     new pages until in-flight events drain. Null = the event budget only. See
+    ///     <see cref="DaemonSettings.TenantLoadMemoryThreshold"/>.
+    /// </summary>
+    double? TenantLoadMemoryThreshold => 0.9;
+
+    /// <summary>
     ///     Projection Daemon mode. The default is Disabled
     /// </summary>
     DaemonMode AsyncMode { get; }
@@ -298,6 +313,30 @@ public class DaemonSettings: IReadOnlyDaemonSettings
     /// </para>
     /// </summary>
     public bool SerializeTenantProjectionBatches { get; set; }
+
+    /// <summary>
+    /// Opt-in for per-tenant agent distribution: how many events this store's tenant agents may hold in memory on
+    /// this node, loaded but not yet committed, across every projection and every database of the store. Zero or
+    /// negative (the default) is unbounded, which leaves each agent bounded only by its own
+    /// <see cref="AsyncOptions.MaximumHopperSize"/>.
+    ///
+    /// <para>
+    /// With per-tenant agents, a hopper per agent multiplies by the tenant count. With a budget, each agent reserves
+    /// a page before it loads. While there is room, loads go straight through. When there isn't, agents wait in
+    /// line and are let in one page at a time, in turn, so every tenant keeps moving and none falls behind
+    /// indefinitely; a waiting agent stays running and assigned, it just doesn't load. A load is always allowed
+    /// when nothing is in flight, so a budget smaller than a page slows the store down rather than stopping it.
+    /// See <see cref="TenantLoadGovernor"/>. Set this before the first daemon of the store is built.
+    /// </para>
+    /// </summary>
+    public int TenantLoadBudget { get; set; }
+
+    /// <summary>
+    /// With <see cref="TenantLoadBudget"/> set, the fraction of the GC's high memory load threshold
+    /// (<see cref="GCMemoryInfo.HighMemoryLoadThresholdBytes"/>) at which no new pages are handed out until the
+    /// in-flight events drain, whatever the budget still allows. The default is 0.9. Null = the event budget only.
+    /// </summary>
+    public double? TenantLoadMemoryThreshold { get; set; } = 0.9;
 
     /// <summary>
     /// jasperfx#420 (epic #486 WS3): cap on how many projection rebuild cells — the

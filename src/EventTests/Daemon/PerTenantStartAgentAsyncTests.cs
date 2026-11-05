@@ -428,6 +428,40 @@ public class PerTenantStartAgentAsyncTests
     }
 
     [Fact]
+    public async Task started_tenant_agents_share_the_store_load_budget_when_one_is_set()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+        detector.SetTenantMark("t2", 42);
+
+        await using var harness = new DaemonHarness(detector,
+            settings => settings.TenantLoadBudget = 5000,
+            shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+        await harness.Daemon.StartAgentAsync("Trip:All:t2", CancellationToken.None);
+
+        var agents = harness.Daemon.CurrentAgents();
+        var governor = agents.First().TenantLoadGovernor.ShouldNotBeNull();
+        governor.Budget.ShouldBe(5000);
+        governor.MemoryLoadThreshold.ShouldBe(0.9);
+        agents.ShouldAllBe(x => ReferenceEquals(x.TenantLoadGovernor, governor));
+    }
+
+    [Fact]
+    public async Task started_tenant_agents_have_no_load_budget_by_default()
+    {
+        var detector = new StubPartitionedDetector();
+        detector.SetTenantMark("t1", 42);
+
+        await using var harness = new DaemonHarness(detector, shardFor(new ShardName("Trip")));
+
+        await harness.Daemon.StartAgentAsync("Trip:All:t1", CancellationToken.None);
+
+        harness.Daemon.CurrentAgents().ShouldAllBe(x => x.TenantLoadGovernor == null);
+    }
+
+    [Fact]
     public async Task started_tenant_agents_have_no_batch_queue_by_default()
     {
         var detector = new StubPartitionedDetector();

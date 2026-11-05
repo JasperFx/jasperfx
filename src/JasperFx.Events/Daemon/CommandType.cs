@@ -19,5 +19,9 @@ internal enum CommandType
     // daemon's side-effect-gate warm-up throttle. The wait CANNOT happen on the command loop -- that would
     // wedge the agent's high-water and completion bookkeeping for the whole queue time -- so the grant
     // arrives as a command and the loop resumes loading from there.
-    WarmupSlotGranted
+    WarmupSlotGranted,
+
+    // Posted once the store's tenant load budget has reserved this agent's next page. Like the warm-up slot, the
+    // wait happens off the command loop, so the grant arrives as a command and the loop resumes loading from there.
+    LoadGranted
 }

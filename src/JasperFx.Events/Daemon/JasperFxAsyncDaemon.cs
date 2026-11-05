@@ -101,6 +101,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             : null;
     }
 
+    // Owned by the store's projection graph for the same reason: the budget is the node's memory
+    public TenantLoadGovernor? TenantLoadGovernorFor(ShardName name)
+    {
+        return name.TenantId != null ? _projections.TenantLoadGovernor : null;
+    }
+
     // jasperfx#598/#610: bounds how many shards are simultaneously loading inside the blue/green
     // side-effect gate's warm-up window. Reaches the agents through IDaemonRuntime. Null = unbounded.
     private SemaphoreSlim? _warmupThrottle;
