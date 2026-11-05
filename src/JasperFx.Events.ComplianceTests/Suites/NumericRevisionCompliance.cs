@@ -378,6 +378,7 @@ public abstract class NumericRevisionComplianceBase<TFixture, TDoc> : DocumentSt
 /// <see cref="DocumentComplianceConfig.NumericRevisionTypes" />.
 /// </para>
 /// </remarks>
+[RequiresCapability("SupportsNumericRevisions")]
 public abstract class NumericRevisionCompliance<TFixture>
     : NumericRevisionComplianceBase<TFixture, ComplianceLedgerEntry>
     where TFixture : DocumentStorageComplianceFixture, new()

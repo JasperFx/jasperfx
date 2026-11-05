@@ -24,6 +24,7 @@ namespace JasperFx.Events.ComplianceTests;
 /// outlive rebuild teardown, so facts cannot share one.
 /// </para>
 /// </remarks>
+[RequiresCapability("SupportsProjectionFloors")]
 public abstract class ProjectionFloorCompliance<TFixture, TOperations, TQuerySession>
     : EventStoreComplianceSuite<TFixture, TOperations, TQuerySession>
     where TFixture : EventStoreComplianceFixture<TOperations, TQuerySession>, new()

@@ -45,6 +45,7 @@ public record ExplorerJoined(string Explorer);
 /// what every fact below asserts twice.
 /// </para>
 /// </remarks>
+[RequiresCapability("SupportsStreamQueryPlans")]
 public abstract class StreamQueryPlanCompliance<TFixture, TOperations, TQuerySession>
     : EventStoreComplianceSuite<TFixture, TOperations, TQuerySession>
     where TFixture : EventStoreComplianceFixture<TOperations, TQuerySession>, new()
