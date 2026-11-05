@@ -170,6 +170,18 @@ public class ForAggregateTests
     }
 
     [Fact]
+    public void starting_a_second_different_stream_throws_rather_than_replacing_the_first()
+    {
+        var model = new EventModelBuilder();
+
+        Should.Throw<InvalidOperationException>(() =>
+            model.Command("A").StartsStream<Appointment>().StartsStream<Legacy.Appointment>());
+
+        // Declaring the same stream twice is harmless
+        model.Command("B").StartsStream<Appointment>().StartsStream<Appointment>();
+    }
+
+    [Fact]
     public void a_second_for_aggregate_replaces_the_first()
     {
         var model = new EventModelBuilder();
