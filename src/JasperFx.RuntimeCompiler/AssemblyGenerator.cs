@@ -11,7 +11,10 @@ using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Model;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace JasperFx.RuntimeCompiler
 {
@@ -257,9 +260,60 @@ namespace JasperFx.RuntimeCompiler
             
 			var generator = generator1;
 
-			var assembly = generator.Generate(code);
+			if (!generatedAssembly.Rules.ReuseCompiledAssemblies)
+			{
+				generatedAssembly.AttachAssembly(generator.Generate(code));
+				return;
+			}
+
+			// jasperfx#1114: one compilation per distinct source and reference set in the process, however many hosts ask.
+			var source = code;
+			var key = ReuseKey(source, generator._assemblies);
+			var compiled = _compiled.GetOrAdd(key, _ => new Lazy<Assembly>(() => generator.Generate(source)));
+			Assembly assembly;
+			try
+			{
+				assembly = compiled.Value;
+			}
+			catch
+			{
+				// A failed compilation is not cached: the next host compiles again and sees its own error.
+				_compiled.TryRemove(new KeyValuePair<string, Lazy<Assembly>>(key, compiled));
+				throw;
+			}
 
 			generatedAssembly.AttachAssembly(assembly);
+		}
+
+		// jasperfx#1114: assemblies compiled with GenerationRules.ReuseCompiledAssemblies, by ReuseKey. Process-wide, like the
+		// metadata references above, and never emptied: a compiled assembly is never unloaded anyway.
+		private static readonly ConcurrentDictionary<string, Lazy<Assembly>> _compiled = new();
+
+		internal static int ReusedAssemblyCount => _compiled.Count;
+
+		/// <summary>
+		/// What makes two compilations the same one (jasperfx#1114): the generated source, and every referenced assembly's name,
+		/// build (its module version id) and load context. Source alone is not enough: the same source compiled against another
+		/// build of a referenced assembly, or a copy loaded into another context, is a different assembly.
+		/// </summary>
+		internal static string ReuseKey(string code, IEnumerable<Assembly> references)
+		{
+			using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+			hash.AppendData(Encoding.UTF8.GetBytes(code));
+
+			foreach (var line in references.Select(identityOf).Order(StringComparer.Ordinal))
+			{
+				hash.AppendData(Encoding.UTF8.GetBytes("\n" + line));
+			}
+
+			return Convert.ToHexString(hash.GetHashAndReset());
+		}
+
+		private static string identityOf(Assembly assembly)
+		{
+			var context = AssemblyLoadContext.GetLoadContext(assembly);
+			var where = context is null ? "-" : $"{context.Name}#{RuntimeHelpers.GetHashCode(context)}";
+			return $"{assembly.FullName}|{assembly.ManifestModule.ModuleVersionId}|{where}";
 		}
 		
 		

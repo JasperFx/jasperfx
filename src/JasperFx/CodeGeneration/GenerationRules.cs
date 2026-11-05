@@ -98,6 +98,19 @@ public class GenerationRules
 
     public string GeneratedNamespace { get; set; } = "Internal.Generated";
 
+    /// <summary>
+    /// Opt in to reusing a compiled assembly across hosts in one process (jasperfx#1114). In Dynamic mode every host compiles
+    /// its own generated source as it starts, so a process that starts many hosts of one application (a test suite on host
+    /// pools, say) compiles identical source once per host. With this on, the runtime compiler keeps one process-wide cache,
+    /// keyed on the generated source plus the identity of every referenced assembly (name, build and load context), and a
+    /// host whose source and references match an earlier compilation is given that assembly instead of compiling it again.
+    /// </summary>
+    /// <remarks>
+    /// Off by default. Only Dynamic (and Auto, when it compiles) mode compiles anything; Static mode never does. The cached
+    /// assemblies are never unloaded, as compiled assemblies already are not.
+    /// </remarks>
+    public bool ReuseCompiledAssemblies { get; set; }
+
     public TypeLoadMode TypeLoadMode
     {
         get => _typeLoadMode;
