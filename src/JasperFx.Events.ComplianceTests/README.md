@@ -441,6 +441,9 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | `FetchLatest` / `ProjectLatest` across lifecycles | `FetchLatestCompliance` |
 | Archiving a stream and its consequences | `StreamArchivingCompliance` |
 | Hard-deleting a stream with `TombstoneStream` (opt-in, `SupportsTombstoneStream`) | `StreamTombstoningCompliance` |
+| A tombstoned stream's natural key can be claimed again, plain and conjoined (`SupportsNaturalKeys` + `SupportsTombstoneStream`) | `NaturalKeyCompliance` |
+| Two tenants starting one stream id in a single save get two streams (opt-in, `SupportsSessionTenantSwitching`, `ForTenant` seam) | `ConjoinedEventTenancyCompliance` |
+| An in-flight append below committed events is not stepped over by the daemon (opt-in, `SupportsHoldingAnAppendOpen`, `HoldAppendOpenAsync` seam) | `AsyncDaemonCompliance` |
 | The event store explorer surface | `EventStoreExplorerCompliance` |
 | Flat-table event projections | `FlatTableProjectionCompliance` |
 | String stream identity, read and write surface | `StringStreamIdentityCompliance` |

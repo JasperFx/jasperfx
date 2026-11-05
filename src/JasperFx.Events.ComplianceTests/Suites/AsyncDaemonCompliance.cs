@@ -113,6 +113,58 @@ public abstract class AsyncDaemonCompliance<TFixture, TOperations, TQuerySession
         tally.RemovedCount.ShouldBe(0);
     }
 
+    /// <summary>
+    /// An append that has allocated its sequence number but not committed must hold the high water
+    /// mark: events committed <em>above</em> it are projected, and the in-flight one is projected too
+    /// once it commits, rather than being stepped over for good (polecat#852).
+    /// </summary>
+    /// <remarks>
+    /// The held event is on stream A, the committed one on stream B, so a store that skips the gap
+    /// loses A's projection outright rather than merely projecting late. The pause while the append is
+    /// held gives the daemon several polls to get it wrong; without it the fact would pass on a store
+    /// that only skips <em>eventually</em>. Needs the fixture's <c>HoldAppendOpenAsync</c> seam.
+    /// </remarks>
+    [Fact]
+    public async Task an_in_flight_append_below_committed_events_is_not_stepped_over()
+    {
+        SkipUnlessDaemonIsSupported();
+        Assert.SkipUnless(theFixture.SupportsHoldingAnAppendOpen,
+            "This event store's fixture cannot hold an append open");
+
+        var held = Guid.NewGuid();
+        var committed = Guid.NewGuid();
+
+        var hold = await theFixture.HoldAppendOpenAsync(held, new ItemAdded("in flight"), Cancellation);
+        try
+        {
+            await using (var session = OpenSession())
+            {
+                EventsFor(session).StartStream<DaemonItemTally>(committed, new ItemAdded("one"), new ItemAdded("two"));
+                await SaveChangesAsync(session);
+            }
+
+            await StartDaemonAsync();
+
+            await Task.Delay(TimeSpan.FromSeconds(5), Cancellation);
+        }
+        finally
+        {
+            await hold.DisposeAsync();
+        }
+
+        await WaitForNonStaleProjectionDataAsync(_timeout);
+
+        await using var query = OpenSession();
+
+        var theCommitted = await LoadDocumentAsync<DaemonItemTally>(query, committed);
+        theCommitted.ShouldNotBeNull();
+        theCommitted.AddedCount.ShouldBe(2);
+
+        var theHeld = await LoadDocumentAsync<DaemonItemTally>(query, held);
+        theHeld.ShouldNotBeNull();
+        theHeld.AddedCount.ShouldBe(1);
+    }
+
     private void SkipUnlessProgressionLastUpdatedIsSupported()
     {
         SkipUnlessDaemonIsSupported();

@@ -256,6 +256,50 @@ public abstract class ConjoinedEventTenancyCompliance<TFixture, TOperations, TQu
         others[0].Data.ShouldBeOfType<ConsignmentBooked>().Destination.ShouldBe("Lisbon");
     }
 
+    /// <summary>
+    /// Two tenants starting a stream with the same id in <em>one</em> save get two streams
+    /// (polecat#905). The unit of work finds a pending stream by id, so it has to find it by
+    /// (tenant, id): matched on the id alone, the second tenant's events land in the first tenant's
+    /// stream — a data-isolation failure that throws nothing.
+    /// </summary>
+    /// <remarks>
+    /// Gated on <c>SupportsSessionTenantSwitching</c> because the shared surface has no way to put two
+    /// tenants into one unit of work; the fixture's <c>ForTenant</c> seam is that way. The other
+    /// stream-id facts here save per tenant and so never reach the shared pending-stream lookup.
+    /// </remarks>
+    [Fact]
+    public async Task two_tenants_starting_one_stream_id_in_a_single_save_get_two_streams()
+    {
+        Assert.SkipUnless(theFixture.SupportsSessionTenantSwitching,
+            "This event store cannot switch one session between tenants");
+
+        var streamId = Guid.NewGuid();
+
+        await using (var session = await openForTenantAsync(TenantA))
+        {
+            EventsFor(theFixture.ForTenant(session, TenantA))
+                .StartStream<ComplianceConsignment>(streamId, new ConsignmentBooked("Boston"), new ConsignmentScanned("Depot"));
+            EventsFor(theFixture.ForTenant(session, TenantB))
+                .StartStream<ComplianceConsignment>(streamId, new ConsignmentBooked("Lisbon"));
+
+            await SaveChangesAsync(session);
+        }
+
+        await using (var a = await openForTenantAsync(TenantA))
+        {
+            var events = await EventsFor(a).FetchStreamAsync(streamId, token: Cancellation);
+            events.Count.ShouldBe(2);
+            events[0].Data.ShouldBeOfType<ConsignmentBooked>().Destination.ShouldBe("Boston");
+            events.Select(x => x.Version).ShouldBe(new long[] { 1, 2 });
+        }
+
+        await using var b = await openForTenantAsync(TenantB);
+        var others = await EventsFor(b).FetchStreamAsync(streamId, token: Cancellation);
+        others.Count.ShouldBe(1);
+        others[0].Data.ShouldBeOfType<ConsignmentBooked>().Destination.ShouldBe("Lisbon");
+        others[0].Version.ShouldBe(1);
+    }
+
     [Fact]
     public async Task stream_state_is_scoped_to_the_tenant()
     {

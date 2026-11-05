@@ -740,6 +740,101 @@ public abstract class NaturalKeyCompliance<TFixture, TOperations, TQuerySession>
         order.Total.ShouldBe(8.00m);
     }
 
+    // ---------- tombstoning ----------
+
+    /// <summary>
+    /// Tombstoning a stream deletes its natural key with it, so a new stream may claim the key
+    /// (polecat#865). A store that leaves the lookup row behind answers the claim with
+    /// <see cref="DuplicateNaturalKeyException" />, and until it does the key resolves to a stream
+    /// that no longer exists.
+    /// </summary>
+    [Fact]
+    public async Task a_tombstoned_streams_natural_key_can_be_claimed_by_a_new_stream()
+    {
+        SkipUnlessNaturalKeysAreSupported();
+        SkipUnlessTombstoningIsSupported();
+
+        var number = aNumber("ORD-TOMB");
+        var original = await anOrderAsync(number);
+
+        await tombstoneAsync(original);
+
+        await using (var query = OpenSession())
+        {
+            (await EventsFor(query).FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(number, Cancellation))
+                .ShouldBeNull();
+        }
+
+        var replacement = await anOrderAsync(number);
+
+        await using var session = OpenSession();
+        var order = await EventsFor(session)
+            .FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(number, Cancellation);
+        order.ShouldNotBeNull();
+        order.Id.ShouldBe(replacement);
+    }
+
+    /// <summary>
+    /// The same under conjoined tenancy, where the lookup is keyed on (tenant, key) and the delete
+    /// has to find the row by both. It must also leave the other tenant's identical key alone
+    /// (polecat#865, which was found there).
+    /// </summary>
+    [Fact]
+    public async Task under_conjoined_tenancy_a_tombstoned_natural_key_can_be_claimed_and_other_tenants_keep_theirs()
+    {
+        SkipUnlessNaturalKeysAreSupported();
+        SkipUnlessTombstoningIsSupported();
+
+        Assert.SkipUnless(theFixture.SupportsConjoinedEventTenancy,
+            "This event store cannot slice one database by tenant");
+
+        await useConfigurationAsync(_tenantedConfiguration);
+
+        var shared = aNumber("ORD-TOMB-T");
+
+        var acme = await anOrderForTenantAsync("acme", shared);
+        var globex = await anOrderForTenantAsync("globex", shared);
+
+        await using (var session = await openForTenantAsync("acme"))
+        {
+            EventsFor(session).TombstoneStream(acme);
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = await openForTenantAsync("acme"))
+        {
+            (await EventsFor(session).FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(shared, Cancellation))
+                .ShouldBeNull();
+        }
+
+        await using (var session = await openForTenantAsync("globex"))
+        {
+            var theirs = await EventsFor(session)
+                .FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(shared, Cancellation);
+            theirs.ShouldNotBeNull();
+            theirs.Id.ShouldBe(globex);
+        }
+
+        var replacement = await anOrderForTenantAsync("acme", shared);
+
+        await using var again = await openForTenantAsync("acme");
+        var claimed = await EventsFor(again)
+            .FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(shared, Cancellation);
+        claimed.ShouldNotBeNull();
+        claimed.Id.ShouldBe(replacement);
+    }
+
+    private void SkipUnlessTombstoningIsSupported()
+        => Assert.SkipUnless(theFixture.SupportsTombstoneStream,
+            "This event store does not implement IEventStoreOperations.TombstoneStream");
+
+    private async Task tombstoneAsync(Guid streamId)
+    {
+        await using var session = OpenSession();
+        EventsFor(session).TombstoneStream(streamId);
+        await SaveChangesAsync(session);
+    }
+
     // ---------- tenancy ----------
 
     /// <summary>
