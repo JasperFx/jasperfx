@@ -42,6 +42,12 @@ public class Command
         return new Command { Type = CommandType.WarmupSlotGranted };
     }
 
+    // The store's tenant load budget reserved this agent's next page. Carries no sequence.
+    internal static Command LoadGranted()
+    {
+        return new Command { Type = CommandType.LoadGranted };
+    }
+
     public static Command Started(long highWater, long lastCommitted)
     {
         return new Command { HighWaterMark = highWater, LastCommitted = lastCommitted };

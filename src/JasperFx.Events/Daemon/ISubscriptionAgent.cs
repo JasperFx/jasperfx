@@ -75,6 +75,13 @@ public interface ISubscriptionAgent : ISubscriptionController
     TenantBatchQueue? TenantBatchQueue => null;
 
     /// <summary>
+    /// The store-wide budget this per-tenant agent reserves a page of before it loads, and that a replay executor
+    /// reserves from for each page it loads for this agent. Null = unbounded. See
+    /// <see cref="DaemonSettings.TenantLoadBudget"/>.
+    /// </summary>
+    TenantLoadGovernor? TenantLoadGovernor => null;
+
+    /// <summary>
     /// jasperfx#598/#610: true while this agent is inside the blue/green side-effect gate's warm-up
     /// window — running normally in Continuous mode, but over events the PRIOR version of the
     /// projection already processed, so <c>RaiseSideEffects</c> must not fire for them. The agent

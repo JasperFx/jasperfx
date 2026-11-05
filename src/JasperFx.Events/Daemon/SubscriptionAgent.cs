@@ -112,6 +112,16 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     // pumping pages instead of stalling. Only touched on the command-loop thread.
     private long _bufferedCeiling;
 
+    // The store's tenant load budget, when this is a tenant shard and one is configured. Bound at StartAsync and
+    // ReplayAsync. The pages it covers are released as they commit, and everything still held on stop or failure.
+    private TenantLoadGovernor? _loadGovernor;
+    private int _loadGrantPending; // 1 while a granted reservation for the next page has not been used
+    private readonly object _loadedLock = new();
+    private readonly Queue<(long Ceiling, int Events)> _loadedPages = new();
+    private long _loadedEvents;
+
+    public TenantLoadGovernor? TenantLoadGovernor => _loadGovernor;
+
     // Volatile: the warm-up slot waiter (jasperfx#598) runs off the command loop and reads this to
     // decide whether the slot it just won still has an owner.
     private volatile bool _disposed;
@@ -132,6 +142,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // jasperfx#598: hand back the warm-up slot before anything else, so a shard torn down mid
         // warm-up cannot starve the next one out of the throttle for the daemon's lifetime.
         releaseWarmupSlot();
+        releaseLoadBudget();
 
         await stopHeartbeatAsync().ConfigureAwait(false);
 
@@ -172,6 +183,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         {
             await _cancellation.CancelAsync().ConfigureAwait(false);
             await _execution.HardStopAsync().ConfigureAwait(false);
+            releaseLoadBudget();
 
             // jasperfx#565: every failure path in the daemon funnels through here, so this is the one
             // place the reason gets classified. Published on the ShardState AND held on the agent, because
@@ -258,6 +270,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             // warm-up throttle for the daemon's lifetime.
             releaseWarmupSlot();
 
+            // Pages a drained execution never committed would otherwise hold the store's load budget forever
+            releaseLoadBudget();
+
             // jasperfx#1022: a drained agent cannot run again (its command block is complete), so nothing is
             // lost by stopping its heartbeat here, whether or not anything disposes it afterward.
             await stopHeartbeatAsync().ConfigureAwait(false);
@@ -306,6 +321,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _execution.Mode = request.Mode;
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
+        bindLoadGovernor();
 
         // jasperfx#565: a fresh start supersedes whatever paused this agent last. Clearing it here (rather
         // than leaving the last reason hanging around) is what keeps a supervisor from alerting on a
@@ -484,6 +500,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _execution.Mode = ShardExecutionMode.Rebuild;
         ErrorOptions = request.ErrorHandling;
         _runtime = request.Runtime;
+        bindLoadGovernor();
         Failure = null; // jasperfx#565: see StartAsync
         LastCommitted = request.Floor; // Force it to start here!
         _bufferedCeiling = request.Floor; // jasperfx#525
@@ -581,6 +598,22 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
 
     public async Task Apply(Command command, CancellationToken _)
+    {
+        try
+        {
+            await applyAsync(command).ConfigureAwait(false);
+        }
+        finally
+        {
+            // A grant this pass did not load with goes straight back, so the next agent in line isn't kept waiting
+            if (command.Type == CommandType.LoadGranted)
+            {
+                returnUnusedLoadGrant();
+            }
+        }
+    }
+
+    private async Task applyAsync(Command command)
     {
         if (_cancellation.IsCancellationRequested)
         {
@@ -684,6 +717,8 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     _bufferedCeiling = LastCommitted; // jasperfx#525: keep the buffered marker >= committed
                 }
 
+                releaseLoadedThrough(LastCommitted);
+
                 await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)));
 
                 if (LastCommitted == HighWaterMark && Mode == ShardExecutionMode.Rebuild)
@@ -702,6 +737,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     _bufferedCeiling = command.LastCommitted;
                 }
 
+                releaseLoadedThrough(command.LastCommitted);
+
+                break;
+
+            case CommandType.LoadGranted:
+                // The tenant load budget reserved this agent's next page. Fall through and load with it; the
+                // finally in Apply hands it back if nothing below loads.
                 break;
 
             case CommandType.WarmupSlotGranted:
@@ -772,7 +814,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // You could maybe get a full size batch, so go get the next
         if (ceiling - LastEnqueued > Options.BatchSize)
         {
-            await loadNextAsync().ConfigureAwait(false);
+            await loadNextWithinBudgetAsync().ConfigureAwait(false);
         }
         else
         {
@@ -781,7 +823,7 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             var twoBatchSize = 2 * Options.BatchSize;
             if (inflight < twoBatchSize)
             {
-                await loadNextAsync().ConfigureAwait(false);
+                await loadNextWithinBudgetAsync().ConfigureAwait(false);
             }
         }
     }
@@ -849,7 +891,124 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
-    private async Task loadNextAsync()
+    private async Task loadNextWithinBudgetAsync()
+    {
+        var governor = _loadGovernor;
+        if (governor == null)
+        {
+            await loadNextAsync().ConfigureAwait(false);
+            return;
+        }
+
+        var reserved = Options.BatchSize;
+        if (Interlocked.Exchange(ref _loadGrantPending, 0) == 0 && !governor.TryReserve(this, reserved, onLoadGranted))
+        {
+            // In line for the budget. The grant posts Command.LoadGranted and the loop resumes loading from there.
+            return;
+        }
+
+        var page = await loadNextAsync().ConfigureAwait(false);
+
+        // Keep only what the page actually holds until it commits
+        var held = Math.Min(page?.Count ?? 0, reserved);
+        if (held > 0)
+        {
+            lock (_loadedLock)
+            {
+                _loadedPages.Enqueue((page!.Ceiling, held));
+                _loadedEvents += held;
+            }
+        }
+
+        governor.Release(reserved - held);
+
+        // A stop or dispose that ran while this page was loading found nothing recorded yet. Checked after recording,
+        // so either this or the stop's own release gives the page back.
+        if (_disposed || _cancellation.IsCancellationRequested)
+        {
+            releaseLoadBudget();
+        }
+    }
+
+    // Runs off the command loop, once the governor has taken the reservation for this agent
+    private void onLoadGranted()
+    {
+        Interlocked.Exchange(ref _loadGrantPending, 1);
+
+        // Checked after publishing the grant, so this and releaseLoadBudget cannot both miss it
+        if (_disposed || _cancellation.IsCancellationRequested)
+        {
+            returnUnusedLoadGrant();
+            return;
+        }
+
+        try
+        {
+            _commandBlock.Post(Command.LoadGranted());
+        }
+        catch (Exception e)
+        {
+            _logger.LogDebug(e, "Could not deliver a tenant load budget grant to {Name}; releasing it",
+                ProjectionShardIdentity);
+            returnUnusedLoadGrant();
+        }
+    }
+
+    private void returnUnusedLoadGrant()
+    {
+        if (Interlocked.Exchange(ref _loadGrantPending, 0) == 1)
+        {
+            _loadGovernor?.Release(Options.BatchSize);
+        }
+    }
+
+    private void releaseLoadedThrough(long ceiling)
+    {
+        var governor = _loadGovernor;
+        if (governor == null) return;
+
+        long released = 0;
+        lock (_loadedLock)
+        {
+            while (_loadedPages.TryPeek(out var page) && page.Ceiling <= ceiling)
+            {
+                _loadedPages.Dequeue();
+                _loadedEvents -= page.Events;
+                released += page.Events;
+            }
+        }
+
+        governor.Release(released);
+    }
+
+    // On stop, dispose or failure: leave the line and give back the unused grant and every uncommitted page
+    private void releaseLoadBudget()
+    {
+        var governor = _loadGovernor;
+        if (governor == null) return;
+
+        governor.Withdraw(this);
+        returnUnusedLoadGrant();
+
+        long held;
+        lock (_loadedLock)
+        {
+            held = _loadedEvents;
+            _loadedEvents = 0;
+            _loadedPages.Clear();
+        }
+
+        governor.Release(held);
+    }
+
+    private void bindLoadGovernor()
+    {
+        // A restarted agent starts over from what it last committed, so nothing it loaded before is still held
+        releaseLoadBudget();
+        _loadGovernor = _runtime.TenantLoadGovernorFor(Name);
+    }
+
+    private async Task<EventPage?> loadNextAsync()
     {
         var request = new EventRequest
         {
@@ -881,11 +1040,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             LastEnqueued = page.Ceiling;
 
             await _execution.EnqueueAsync(page, this);
+            return page;
         }
         catch (Exception e)
         {
             _logger.LogError(e, "Error trying to load events");
             await ReportCriticalFailureAsync(e).ConfigureAwait(false);
+            return null;
         }
     }
 }

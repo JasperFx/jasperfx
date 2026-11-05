@@ -51,6 +51,24 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
             static (_, n) => new TenantBatchQueue(n.ForTenant(null).Identity), name);
     }
 
+    private readonly object _tenantLoadGovernorLock = new();
+    private TenantLoadGovernor? _tenantLoadGovernor;
+
+    // One per store per process, shared by every projection and database. Created on first use from the settings
+    // as they stand then. See TenantLoadBudget.
+    internal TenantLoadGovernor? TenantLoadGovernor
+    {
+        get
+        {
+            if (TenantLoadBudget <= 0) return null;
+
+            lock (_tenantLoadGovernorLock)
+            {
+                return _tenantLoadGovernor ??= new TenantLoadGovernor(TenantLoadBudget, TenantLoadMemoryThreshold);
+            }
+        }
+    }
+
     // This has to be public for CritterStackPro
     public IReadOnlyList<AsyncShard<TOperations, TQuerySession>> AllShards()
     {
