@@ -1673,7 +1673,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         if (projection != null)
         {
-            return rebuildProjection(projection, shardTimeout, token);
+            return rebuildStoreWide(projection, shardTimeout, token);
         }
 
         throw new ArgumentOutOfRangeException("TView",
@@ -1684,7 +1684,7 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     {
         if (_projections.TryFindProjection(projectionName, out var source))
         {
-            return rebuildProjection(source, shardTimeout, token);
+            return rebuildStoreWide(source, shardTimeout, token);
         }
         
         throw new ArgumentOutOfRangeException(nameof(projectionName),
@@ -1719,19 +1719,27 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                 $"No registered projection matches the name '{projectionName}'. Available names are {_projections.AllProjectionNames().Join(", ")}");
         }
 
-        // CritterWatch#303 / #371: store-global rebuild (null tenant). Under per-tenant event
-        // partitioning the store-global mt_events_sequence is stale, so the plain store-global rebuild
-        // gates on Tracker.HighWaterMark==0 and aborts — it would visit NO tenant's shard. Fan out and
-        // rebuild every registered tenant's shard instead, exactly as CatchUpAsync does. Non-partitioned
-        // stores (no ICrossTenantRebuildSource / no tenant high-water) fall through to the unchanged
-        // store-global rebuild, so single-tenant behavior is byte-for-byte.
-        if (_tenantHighWater != null && Database is ICrossTenantRebuildSource crossTenantSource
-            && _projections.TryFindProjection(projectionName, out var source))
+        // A null tenant is the store-wide rebuild, which fans out per tenant under partitioning
+        return RebuildProjectionAsync(projectionName, shardTimeout, token);
+    }
+
+    // CritterWatch#303 / #371: every store-wide rebuild, whichever overload asked for it. Under per-tenant event
+    // partitioning each tenant numbers its events from 1, so one store-global replay cannot page them: a page
+    // holds several tenants' events with the same seq_ids, its ceiling is its last event's, and the next page
+    // starts above it, silently skipping every other tenant's events at or below that ceiling that didn't fit.
+    // (Where the store reads its high water from a stale store-global sequence instead, the replay aborts on a
+    // high water of 0 and visits no tenant at all.) Fan out and rebuild every registered tenant's shard instead,
+    // exactly as CatchUpAsync does. Non-partitioned stores (no ICrossTenantRebuildSource / no tenant high-water)
+    // keep the unchanged store-global rebuild, so single-tenant behavior is byte-for-byte.
+    private Task rebuildStoreWide(IProjectionSource<TOperations, TQuerySession> source, TimeSpan shardTimeout,
+        CancellationToken token)
+    {
+        if (_tenantHighWater != null && Database is ICrossTenantRebuildSource crossTenantSource)
         {
             return rebuildProjectionAllTenants(crossTenantSource, source, shardTimeout, token);
         }
 
-        return RebuildProjectionAsync(projectionName, shardTimeout, token);
+        return rebuildProjection(source, shardTimeout, token);
     }
 
     // CritterWatch#303 / #371: visit EVERY registered tenant's shard for a store-global rebuild under

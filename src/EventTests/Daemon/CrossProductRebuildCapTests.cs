@@ -212,6 +212,23 @@ public class CrossProductRebuildCapTests
     // way Marten/Polecat do under per-tenant event partitioning.
     // ---------------------------------------------------------------------------------------------
 
+    [Fact]
+    public async Task the_rebuild_overloads_without_a_tenant_also_run_every_tenant_cell()
+    {
+        // These overloads (the CLI's `projections rebuild` among them) used to run ONE store-global replay
+        // under partitioning. Each tenant numbers its events from 1, so that replay paged several tenants'
+        // events with the same seq_ids and skipped whatever didn't fit below each page's ceiling.
+        var tenants = tenantsNamed(3);
+        await using var harness = new RebuildHarness(tenants, ["ProjA", "ProjB"], gated: false);
+
+        await harness.Daemon.RebuildProjectionAsync("ProjA", TestTimeout, TestContext.Current.CancellationToken)
+            .WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        await harness.Daemon.RebuildProjectionAsync("ProjB", TestContext.Current.CancellationToken)
+            .WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        harness.Loader.CellsLoaded.OrderBy(x => x).ShouldBe(expectedCells(["ProjA", "ProjB"], tenants));
+    }
+
     internal sealed class RebuildHarness : IAsyncDisposable
     {
         public RebuildHarness(string[] tenants, string[] projectionNames,
