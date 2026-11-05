@@ -51,4 +51,28 @@ public class Bug_1086_metadata_references_are_shared
             type.CompiledType.ShouldNotBeNull();
         }
     }
+
+    [Fact]
+    public void a_rewritten_dll_gets_a_fresh_metadata_reference()
+    {
+        var path = typeof(Bug_1086_metadata_references_are_shared).Assembly.Location;
+        var original = System.IO.File.GetLastWriteTimeUtc(path);
+        try
+        {
+            var first = new AssemblyGenerator();
+            first.ReferenceAssembly(typeof(Bug_1086_metadata_references_are_shared).Assembly);
+
+            System.IO.File.SetLastWriteTimeUtc(path, original.AddMinutes(1));
+
+            var second = new AssemblyGenerator();
+            second.ReferenceAssembly(typeof(Bug_1086_metadata_references_are_shared).Assembly);
+
+            var changed = first.References.First(x => x.Display == path);
+            second.References.First(x => x.Display == path).ShouldNotBeSameAs(changed);
+        }
+        finally
+        {
+            System.IO.File.SetLastWriteTimeUtc(path, original);
+        }
+    }
 }
