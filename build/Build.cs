@@ -400,8 +400,32 @@ partial class Build : NukeBuild
                 "<JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>", one,
                 assertTarget, mustContain: null, mustNotContain: "error JFXEVT900:");
 
+            // jasperfx#1138: the SDK's conflict resolution dropped a pinned copy (it lands in
+            // _ConflictPackageFiles) and the higher-versioned bundled copy was then removed by a project
+            // target, so nothing reached the compiler. The refused answer: a generator whose version
+            // differs from the runtime's never produces nothing without saying so.
+            const string lostTarget = "JasperFxEventsReportLostSourceGenerator";
+            var dropped = $"""<_ConflictPackageFiles Include="{copyA}" />""";
+
+            Arrange("a_generator_at_another_version_never_produces_nothing_without_saying_so", "", dropped,
+                lostTarget, mustContain: "warning JFXEVT1138:", mustNotContain: null);
+
+            // A version difference on its own is harmless: the higher copy reaches the compiler and runs.
+            Arrange("dropped_lower_copy_with_higher_copy_compiled", "", $"""
+                {dropped}
+                        <Analyzer Include="{copyB}" />
+                """, lostTarget, mustContain: null, mustNotContain: "warning JFXEVT1138:");
+
+            // A project with no generator anywhere, the ordinary non-event-sourced project, stays silent.
+            Arrange("no_generator_anywhere", "", "", lostTarget,
+                mustContain: null, mustNotContain: "warning JFXEVT1138:");
+
+            Arrange("lost_generator_report_turned_off",
+                "<JasperFxEventsReportLostSourceGenerator>false</JasperFxEventsReportLostSourceGenerator>", dropped,
+                lostTarget, mustContain: null, mustNotContain: "warning JFXEVT1138:");
+
             Serilog.Log.Information(
-                "Shipped MSBuild targets verified in 6 arrangements: {File}", ShippedEventsTargets);
+                "Shipped MSBuild targets verified in 10 arrangements: {File}", ShippedEventsTargets);
         });
 
     Target NugetPack => _ => _
