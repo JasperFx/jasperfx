@@ -86,12 +86,11 @@ public static class AssemblyFinder
 
         foreach (var file in files)
         {
-            if (file.Contains("/runtimes") || file.Contains("/native"))
+            if (ShouldSkipFile(Path.GetRelativePath(assemblyPath, file)))
             {
-                // Skip any path that is in a runtime or native directory.
                 continue;
             }
-            
+
             var name = Path.GetFileNameWithoutExtension(file);
             Assembly? assembly = null;
 
@@ -118,6 +117,47 @@ public static class AssemblyFinder
         }
     }
 
+
+    private static readonly char[] _separators = ['/', '\\'];
+
+    /// <summary>
+    ///     Whether the scan should pass over a file without trying to load it, given its path
+    ///     relative to the folder being scanned. That is a file under a <c>runtimes</c> or
+    ///     <c>native</c> folder, which hold RID-specific and native binaries (such as the code
+    ///     coverage collector's <c>covrun64.dll</c>) that the default load context either resolves
+    ///     through deps.json or cannot load at all, or a satellite resource assembly in a culture
+    ///     folder (<c>de/App.resources.dll</c>), which holds no types and fails to load by name.
+    ///     Trying any of them only produces failed loads.
+    /// </summary>
+    /// <remarks>
+    ///     jasperfx#1143: this used to test the full path for "/runtimes" or "/native", which never
+    ///     matched on Windows, where the paths use '\\', and on Linux skipped everything when the
+    ///     application itself lived under a folder whose name began with "native". Only the folder
+    ///     segments below the scanned folder are compared now, splitting on both separators.
+    ///     A satellite is recognized by the lower-case ".resources.dll" suffix the build gives it and
+    ///     by sitting in a subfolder, so an ordinary top-level assembly named "Company.Resources" is
+    ///     still scanned.
+    /// </remarks>
+    internal static bool ShouldSkipFile(string relativePath)
+    {
+        var segments = relativePath.Split(_separators, StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 2)
+        {
+            return false;
+        }
+
+        // The last segment is the file name itself.
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            if (segments[i].Equals("runtimes", StringComparison.OrdinalIgnoreCase) ||
+                segments[i].Equals("native", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return segments[^1].EndsWith(".resources.dll", StringComparison.Ordinal);
+    }
 
     /// <summary>
     ///     Find assembly files matching a given filter
