@@ -9,13 +9,28 @@ internal class HostWrapperCommand : IJasperFxCommand
 {
     private readonly Func<IHost> _hostSource;
     private readonly IJasperFxCommand _inner;
-    private readonly PropertyInfo[] _props;
+    private readonly Action<object, IServiceProvider> _inject;
 
     public HostWrapperCommand(IJasperFxCommand inner, Func<IHost> hostSource, PropertyInfo[] props)
+        : this(inner, hostSource, (command, services) =>
+        {
+            foreach (var prop in props)
+            {
+                prop.SetValue(command, services.GetRequiredService(prop.PropertyType));
+            }
+        })
+    {
+    }
+
+    /// <summary>
+    ///     jasperfx#1141: <paramref name="inject"/> is the source-generated injector, which sets the
+    ///     [InjectService] properties without the reflection a Native AOT image has no metadata for.
+    /// </summary>
+    public HostWrapperCommand(IJasperFxCommand inner, Func<IHost> hostSource, Action<object, IServiceProvider> inject)
     {
         _inner = inner;
         _hostSource = hostSource;
-        _props = props;
+        _inject = inject;
     }
 
     public Type InputType => _inner.InputType;
@@ -26,12 +41,7 @@ internal class HostWrapperCommand : IJasperFxCommand
         using var host = _hostSource();
         using var scope = host.Services.CreateScope();
 
-        foreach (var prop in _props)
-        {
-            var serviceType = prop.PropertyType;
-            var service = scope.ServiceProvider.GetRequiredService(serviceType);
-            prop.SetValue(_inner, service);
-        }
+        _inject(_inner, scope.ServiceProvider);
 
         return await _inner.Execute(input);
     }

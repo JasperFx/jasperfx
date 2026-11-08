@@ -39,7 +39,14 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
         // Collect all discovered commands
         var collected = commandCandidates.Collect();
 
-        context.RegisterSourceOutput(collected, static (spc, commands) => Execute(spc, commands!));
+        // The registering module initializer needs ModuleInitializerAttribute (absent on
+        // netstandard2.0) and GeneratedCommandRegistry (absent from JasperFx before jasperfx#1141).
+        var canRegister = context.CompilationProvider.Select(static (compilation, _) =>
+            compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.ModuleInitializerAttribute") != null
+            && compilation.GetTypeByMetadataName("JasperFx.CommandLine.GeneratedCommandRegistry") != null);
+
+        context.RegisterSourceOutput(collected.Combine(canRegister),
+            static (spc, pair) => Execute(spc, pair.Left!, pair.Right));
     }
 
     private static CommandInfo? AnalyzeCandidate(GeneratorSyntaxContext ctx, System.Threading.CancellationToken ct)
@@ -86,8 +93,21 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
             }
         }
 
+        // jasperfx#1141: the module initializer below builds commands and their input models
+        // through `new T()` delegates instead of Activator.CreateInstance, whose target constructor
+        // a Native AOT image does not keep for a type that is only reached through typeof(...).
+        var inputType = FindInputType(symbol);
+        var inputTypeName = inputType != null && CanConstruct(inputType, symbol.ContainingAssembly)
+            ? inputType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+            : null;
+
+        var injections = CollectInjections(symbol, out var injectable);
+
         return new CommandInfo
         {
+            Injections = injectable ? injections : new List<InjectionInfo>(),
+            CanConstruct = CanConstruct(symbol, symbol.ContainingAssembly),
+            InputTypeName = inputTypeName,
             FullyQualifiedTypeName = fullName,
             CommandName = commandName.ToLower(),
         };
@@ -124,7 +144,89 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
         return true;
     }
 
-    private static void Execute(SourceProductionContext context, ImmutableArray<CommandInfo?> commands)
+    // The public [InjectService] properties, mirroring the reflective path in
+    // CommandLineHostingExtensions (Type.GetProperties() + HasAttribute<InjectServiceAttribute>).
+    // `injectable` is false when generated code cannot set one of them, in which case no injector
+    // is emitted and the reflective path stays in charge of that command.
+    private static List<InjectionInfo> CollectInjections(INamedTypeSymbol command, out bool injectable)
+    {
+        injectable = true;
+        var injections = new List<InjectionInfo>();
+        var seen = new HashSet<string>();
+
+        for (var type = command; type != null; type = type.BaseType)
+        {
+            foreach (var property in type.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (property.IsStatic || property.IsIndexer || property.DeclaredAccessibility != Accessibility.Public) continue;
+                if (!seen.Add(property.Name)) continue;
+
+                var hasAttribute = property.GetAttributes().Any(a =>
+                    a.AttributeClass?.Name == "InjectServiceAttribute"
+                    && a.AttributeClass.ContainingNamespace?.ToDisplayString() == "JasperFx.CommandLine");
+                if (!hasAttribute) continue;
+
+                var sameAssembly = SymbolEqualityComparer.Default.Equals(property.ContainingAssembly, command.ContainingAssembly);
+                if (property.SetMethod == null || property.SetMethod.IsInitOnly
+                    || !IsAccessible(property.SetMethod.DeclaredAccessibility, sameAssembly))
+                {
+                    injectable = false;
+                    continue;
+                }
+
+                injections.Add(new InjectionInfo
+                {
+                    PropertyName = property.Name,
+                    ServiceTypeName = property.Type.WithNullableAnnotation(NullableAnnotation.NotAnnotated)
+                        .ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)
+                });
+            }
+        }
+
+        return injections;
+    }
+
+    private static INamedTypeSymbol? FindInputType(INamedTypeSymbol commandSymbol)
+    {
+        for (var current = commandSymbol.BaseType; current != null; current = current.BaseType)
+        {
+            var originalDef = current.OriginalDefinition?.ToDisplayString();
+            if ((originalDef == JasperFxCommandName || originalDef == JasperFxAsyncCommandName)
+                && current.TypeArguments.Length == 1)
+            {
+                return current.TypeArguments[0] as INamedTypeSymbol;
+            }
+        }
+
+        return null;
+    }
+
+    // True when generated code in `from` can write `new T()`: a concrete class or struct that
+    // `from` can name, with a parameterless constructor `from` can call.
+    private static bool CanConstruct(INamedTypeSymbol type, IAssemblySymbol from)
+    {
+        if (type.IsAbstract || type.IsStatic || type.IsUnboundGenericType) return false;
+        if (type.TypeKind != TypeKind.Class && type.TypeKind != TypeKind.Struct) return false;
+        if (type.TypeArguments.Any(a => a is ITypeParameterSymbol)) return false;
+
+        var sameAssembly = SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, from);
+        for (INamedTypeSymbol? t = type; t != null; t = t.ContainingType)
+        {
+            if (!IsAccessible(t.DeclaredAccessibility, sameAssembly)) return false;
+        }
+
+        if (type.TypeKind == TypeKind.Struct) return true;
+
+        return type.InstanceConstructors.Any(c => c.Parameters.Length == 0 && IsAccessible(c.DeclaredAccessibility, sameAssembly));
+    }
+
+    private static bool IsAccessible(Accessibility accessibility, bool sameAssembly)
+    {
+        return accessibility == Accessibility.Public
+               || (sameAssembly && (accessibility == Accessibility.Internal || accessibility == Accessibility.ProtectedOrInternal));
+    }
+
+    private static void Execute(SourceProductionContext context, ImmutableArray<CommandInfo?> commands, bool canRegister)
     {
         var validCommands = commands
             .Where(c => c != null)
@@ -159,9 +261,58 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
         }
 
         sb.AppendLine("    };");
+
+        if (canRegister)
+        {
+            AppendRegistration(sb, validCommands);
+        }
+
         sb.AppendLine("}");
 
         context.AddSource("DiscoveredCommands.g.cs", sb.ToString());
+    }
+
+    private static void AppendRegistration(StringBuilder sb, List<CommandInfo> validCommands)
+    {
+        sb.AppendLine();
+        // Runs when the module is initialized: eagerly at startup in a Native AOT image, and on
+        // first touch under the JIT (CommandFactory forces that through RunModuleConstructor).
+        // CA2255 warns libraries off [ModuleInitializer]; registering is exactly what this is for.
+        sb.AppendLine("#pragma warning disable CA2255");
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Register()");
+        sb.AppendLine("    {");
+
+        foreach (var cmd in validCommands)
+        {
+            var factory = cmd.CanConstruct ? $"static () => new {cmd.FullyQualifiedTypeName}()" : "null";
+            if (cmd.Injections.Count == 0)
+            {
+                sb.AppendLine($"        global::JasperFx.CommandLine.GeneratedCommandRegistry.RegisterCommand(typeof({cmd.FullyQualifiedTypeName}), {factory});");
+                continue;
+            }
+
+            // [InjectService] properties, set without the reflection a Native AOT image has no
+            // metadata for. Same contract as GetRequiredService: an unregistered service throws.
+            sb.AppendLine($"        global::JasperFx.CommandLine.GeneratedCommandRegistry.RegisterCommand(typeof({cmd.FullyQualifiedTypeName}), {factory},");
+            sb.AppendLine("            static (command, services) =>");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                var target = ({cmd.FullyQualifiedTypeName})command;");
+            foreach (var injection in cmd.Injections)
+            {
+                sb.AppendLine($"                target.{injection.PropertyName} = ({injection.ServiceTypeName})(services.GetService(typeof({injection.ServiceTypeName}))");
+                sb.AppendLine($"                    ?? throw new global::System.InvalidOperationException(\"No service for type '{injection.ServiceTypeName.Replace("global::", "")}' has been registered.\"));");
+            }
+            sb.AppendLine("            });");
+        }
+
+        foreach (var input in validCommands.Select(c => c.InputTypeName).Where(x => x != null).Distinct().OrderBy(x => x))
+        {
+            sb.AppendLine($"        global::JasperFx.CommandLine.GeneratedCommandRegistry.RegisterInput(typeof({input}), static () => new {input}());");
+        }
+
+        sb.AppendLine("    }");
+        sb.AppendLine("#pragma warning restore CA2255");
     }
 }
 
@@ -169,4 +320,13 @@ internal sealed class CommandInfo
 {
     public string FullyQualifiedTypeName { get; set; } = "";
     public string CommandName { get; set; } = "";
+    public bool CanConstruct { get; set; }
+    public string? InputTypeName { get; set; }
+    public List<InjectionInfo> Injections { get; set; } = new();
+}
+
+internal sealed class InjectionInfo
+{
+    public string PropertyName { get; set; } = "";
+    public string ServiceTypeName { get; set; } = "";
 }

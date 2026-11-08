@@ -39,22 +39,33 @@ graph LR
 ### 1. Reference the right packages
 
 ```xml
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
         <TargetFramework>net10.0</TargetFramework>
         <IsAotCompatible>true</IsAotCompatible>
-        <PublishAot>true</PublishAot>
 
-        <!-- Recommended: fail the publish build on any new IL warning -->
-        <WarningsAsErrors>IL2026;IL2046;IL2055;IL2065;IL2067;IL2070;IL2072;IL2075;IL2090;IL2091;IL2111;IL3050;IL3051</WarningsAsErrors>
+        <!-- One version for every JasperFx package, including the source generator -->
+        <JasperFxVersion>2.100.1</JasperFxVersion>
+    </PropertyGroup>
+
+    <!--
+    PublishAot only for the configuration you publish. Set unconditionally, the SDK also writes
+    IsDynamicCodeSupported=false into the runtimeconfig that `dotnet run` uses, and
+    TypeLoadMode.Dynamic then refuses to run in development.
+    -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <PublishAot>true</PublishAot>
     </PropertyGroup>
 
     <ItemGroup>
         <!-- Critter Stack foundation -->
-        <PackageReference Include="JasperFx" Version="2.0.0-alpha.12" />
-        <PackageReference Include="JasperFx.Events" Version="2.0.0-alpha.5" />
+        <PackageReference Include="JasperFx" Version="$(JasperFxVersion)" />
+        <PackageReference Include="JasperFx.Events" Version="$(JasperFxVersion)" />
+
+        <!-- Compile-time only: command, parser and extension manifests for this app -->
+        <PackageReference Include="JasperFx.SourceGenerator" Version="$(JasperFxVersion)"
+                          PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 
         <!-- Marten / Wolverine / Polecat as needed -->
         <!--   <PackageReference Include="Marten" Version="..." /> -->
@@ -68,7 +79,7 @@ graph LR
     so the trimmer drops the entire Microsoft.CodeAnalysis.* graph.
     -->
     <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-        <PackageReference Include="JasperFx.RuntimeCompiler" Version="2.0.0-alpha.2" />
+        <PackageReference Include="JasperFx.RuntimeCompiler" Version="..." />
     </ItemGroup>
 
 </Project>
@@ -77,9 +88,11 @@ graph LR
 Key points:
 
 - **`IsAotCompatible=true`** turns on the IL2026 / IL2070 / IL2075 / IL3050 analyzers so any new reflective surface in *your* code surfaces at compile time.
-- **`PublishAot=true`** triggers Native AOT at publish.
-- **`WarningsAsErrors=IL...`** is the policy enforcer — without it the analyzer warnings are easy to lose in build noise. The list above mirrors what the [JasperFx AOT smoke-test consumer in CI](https://github.com/JasperFx/jasperfx/tree/main/src/JasperFx.AotSmoke) uses.
+- **`PublishAot=true`** triggers Native AOT at publish. Keep it out of the configuration you develop in, as the comment above says, or pass `-p:PublishAot=true` to `dotnet publish` instead.
+- **`JasperFx.SourceGenerator`** is what lets the JasperFx command line run inside the native binary (see [Running the command line in an AOT binary](#running-the-command-line-in-an-aot-binary)). The package is named `JasperFx.SourceGenerator`; it is an analyzer, so it adds nothing to the published binary.
 - **`JasperFx.RuntimeCompiler` is conditional on `Debug`** so the production publish (`Configuration=Release`) never sees Roslyn. Adjust the condition to whatever fits your build pipeline; the rule is just "not referenced in the AOT publish."
+
+To fail the build on new IL warnings in your own code, promote them with `<WarningsAsErrors>IL2026;IL2046;IL2055;IL2065;IL2067;IL2070;IL2072;IL2075;IL2090;IL2091;IL2111;IL3050;IL3051</WarningsAsErrors>`, the list the [JasperFx AOT smoke-test consumer in CI](https://github.com/JasperFx/jasperfx/tree/main/src/JasperFx.AotSmoke) uses. An app that calls `RunJasperFxCommands` then has to suppress that call site, as shown below.
 
 ### 2. Configure JasperFx for Static mode
 
@@ -210,7 +223,7 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 
 ### Annotated (RUC / RDC; available in dev, warns at AOT publish)
 
-- All of `JasperFx.CommandLine` — `CommandFactory`, `CommandExecutor`, `CommandLineHostingExtensions`. The CLI is a dev-time tool. AOT consumers route command discovery through the [`JasperFx.SourceGenerator`-emitted `DiscoveredCommands` manifest](#source-generated-command-manifest) instead of reflective assembly scanning.
+- All of `JasperFx.CommandLine` — `CommandFactory`, `CommandExecutor`, `CommandLineHostingExtensions`. The annotations stay because the reflective fallback is still there for assemblies built without `JasperFx.SourceGenerator`; an attribute cannot tell whether the generator ran. With the generator wired in, the command line does run in an AOT binary and the call site can be suppressed: see [Running the command line in an AOT binary](#running-the-command-line-in-an-aot-binary).
 - `TypeRepository` / `AssemblyFinder` / `AssemblyTypes` — assembly scanning is fundamentally trim-hostile. Command discovery and extension/option discovery route around it via the [`DiscoveredCommands`](#source-generated-command-manifest) and [`DiscoveredExtensions`](#source-generated-extension-manifest) manifests.
 - `JasperFx.Core.IoC` convention-based registration (`AssemblyScanner.Scan`, `IRegistrationConvention` impls). AOT consumers use explicit `services.AddSingleton<TService, TImpl>()` registrations.
 - `JasperFx.Core.Reflection.LambdaBuilder` + `ValueTypeInfo` — expression-tree compilation via FastExpressionCompiler. AOT consumers source-generate accessor delegates.
@@ -220,18 +233,69 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 
 ### Source-generated command manifest
 
-`JasperFx.SourceGenerator` emits a `JasperFx.Generated.DiscoveredCommands` class in the consuming app's assembly. When present, `CommandFactory.RegisterCommandsFromExtensionAssemblies` short-circuits and reads commands from the static manifest instead of scanning assemblies — fully AOT-clean.
+`JasperFx.SourceGenerator` emits a `JasperFx.Generated.DiscoveredCommands` class into every assembly that declares JasperFx commands. Alongside the list of command types it emits a `[ModuleInitializer]` that registers, as ordinary code the trimmer can see:
 
-To enable it, reference the source generator in your csproj:
+- each command type, with a `new T()` factory when it has an accessible parameterless constructor;
+- a `new T()` factory for each command's input type;
+- for a command with `[InjectService]` properties, a delegate that sets them from the application's services.
+
+`CommandFactory.RegisterCommands(assembly)`, which `RegisterCommandsFromExtensionAssemblies` calls for each `[JasperFxAssembly]` assembly, reads that registration first. Only an assembly built without the generator falls back to scanning its exported types, creating commands with `Activator.CreateInstance` and finding `[InjectService]` properties with `Type.GetProperties()`. None of those three works in a Native AOT image. JasperFx and JasperFx.Events ship built with the generator; reference it in your own app for your app's commands:
 
 ```xml
 <ItemGroup>
-    <PackageReference Include="JasperFx.SourceGeneration" Version="2.0.0-alpha.2"
-                      PrivateAssets="all" />
+    <PackageReference Include="JasperFx.SourceGenerator" Version="$(JasperFxVersion)"
+                      PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 </ItemGroup>
 ```
 
-The generator runs at compile time, so this reference doesn't end up in your published binary.
+The same generator emits a source-generated input parser for each command's input type, so command-line parsing needs no reflection either.
+
+### Running the command line in an AOT binary
+
+`codegen write` is still a dev-time job: it needs Roslyn, so run it with `dotnet run` before you publish. But an app that ends in `RunJasperFxCommands` goes through the command line on every start, since `run` is the default command, and the rest of the commands (`check-env`, `describe`, `resources`, `projections`, `help`, your own) are as useful from the published binary as they are in development. With `JasperFx.SourceGenerator` referenced, they work from a Native AOT binary:
+
+```csharp
+using System.Diagnostics.CodeAnalysis;
+using JasperFx;
+using JasperFx.CodeGeneration;
+
+public static class Program
+{
+    // ApplyJasperFxExtensions and RunJasperFxCommands keep [RequiresUnreferencedCode] and
+    // [RequiresDynamicCode] for assemblies built without JasperFx.SourceGenerator. With the generator
+    // in every assembly that contributes commands, suppress them here.
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "JasperFx.SourceGenerator registers the commands, their factories and their input parsers.")]
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Every command input has a source-generated parser.")]
+    public static async Task<int> Main(string[] args)
+    {
+        var builder = WebApplication.CreateSlimBuilder(args);
+
+        builder.Services.CritterStackDefaults(opts =>
+        {
+            opts.Production.GeneratedCodeMode = TypeLoadMode.Static;
+            opts.Development.GeneratedCodeMode = TypeLoadMode.Dynamic;
+        });
+
+        builder.Host.ApplyJasperFxExtensions();
+
+        var app = builder.Build();
+        app.MapGet("/", () => "Hello World!");
+
+        return await app.RunJasperFxCommands(args);
+    }
+}
+```
+
+A top-level `Program.cs` has nowhere to put the attributes, which is why this is written as an explicit `Main`.
+
+Notes:
+
+- The warnings still appear on the call sites without the suppression. That is expected and does not mean the generator is missing; it means the analyzer cannot see it.
+- **Every assembly that contributes commands must be built with the generator.** A command from an assembly without it is found by scanning, which in a Native AOT image finds nothing, so that command is missing from `help` rather than failing loudly.
+- `ApplyJasperFxExtensions` also creates the extension type an assembly names in `[JasperFxAssembly(typeof(...))]` with `Activator.CreateInstance`. That constructor survives trimming only if something else keeps it.
+- JasperFx's CI publishes [`src/JasperFx.AotCliSmoke`](https://github.com/JasperFx/jasperfx/tree/main/src/JasperFx.AotCliSmoke), an app shaped like the one above, with Native AOT on every pull request, and runs `help`, `help <command>`, an application command with `[InjectService]`, `check-env`, `describe` and `run` from the native binary ([jasperfx#1141](https://github.com/JasperFx/jasperfx/issues/1141)).
 
 ### Source-generated extension manifest
 

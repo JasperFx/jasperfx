@@ -461,6 +461,26 @@ public class CommandFactory : ICommandFactory
     {
         if (assembly.IsDynamic) return false;
 
+        // jasperfx#1141: prefer the commands the generated [ModuleInitializer] registered. They
+        // arrive as ordinary code the trimmer keeps, with `new T()` factories, so this path needs
+        // neither the by-name manifest lookup below (which a Native AOT image cannot satisfy, since
+        // ILC keeps no reflection metadata for the manifest class) nor IsJasperFxCommandType's
+        // interface walk (whose interface metadata ILC also drops). Native AOT runs module
+        // initializers at startup; under the JIT one runs on first touch of the module, so force it.
+        runModuleInitializer(assembly);
+
+        var registered = GeneratedCommandRegistry.CommandTypesFor(assembly);
+        if (registered != null)
+        {
+            foreach (var type in registered)
+            {
+                _commandTypes[CommandNameFor(type)] = type;
+            }
+
+            registerExtensionType(assembly);
+            return true;
+        }
+
         // The source generator emits this class in the JasperFx.Generated namespace of the
         // assembly it runs against.
         var manifestType = assembly.GetType("JasperFx.Generated.DiscoveredCommands");
@@ -481,15 +501,33 @@ public class CommandFactory : ICommandFactory
         }
 
         // Mirror RegisterCommands: also register the assembly's extension type, if any.
-        if (assembly.TryGetAttribute<JasperFxAssemblyAttribute>(out var attribute)
-            && attribute.ExtensionType != null)
-        {
-            _extensionTypes.Add(attribute.ExtensionType);
-        }
+        registerExtensionType(assembly);
 
         // NOTE: deliberately no console output here. RegisterCommands(Assembly) calls this, and
         // that low-level API must stay side-effect free — writing to the shared AnsiConsole during
         // command registration perturbs callers that redirect Console.Out (e.g. test harnesses).
         return true;
+    }
+
+    private void registerExtensionType(Assembly assembly)
+    {
+        if (assembly.TryGetAttribute<JasperFxAssemblyAttribute>(out var attribute)
+            && attribute.ExtensionType != null)
+        {
+            _extensionTypes.Add(attribute.ExtensionType);
+        }
+    }
+
+    private static void runModuleInitializer(Assembly assembly)
+    {
+        try
+        {
+            System.Runtime.CompilerServices.RuntimeHelpers.RunModuleConstructor(assembly.ManifestModule.ModuleHandle);
+        }
+        catch (Exception)
+        {
+            // Best effort: without it, an assembly whose module is not yet initialized falls
+            // through to the by-name manifest lookup, which works everywhere but Native AOT.
+        }
     }
 }
