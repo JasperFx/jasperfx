@@ -33,6 +33,81 @@ env:
   NUKE_TELEMETRY_OPTOUT: true
 
 jobs:
+  # The unit test suites again on Windows. Linux CI cannot catch path-separator and other
+  # platform assumptions, such as AssemblyFinder skipping runtimes/native folders only for '/'
+  # (jasperfx#1143). This runs the same suites as the Linux `build` job; the CLI and AOT smoke
+  # tests stay Linux-only.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      # The Windows runner's git converts to CRLF on checkout. Keep the committed line endings so
+      # tests that compare generated code with committed fixtures behave as they do on Linux.
+      - name: Keep committed line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      - name: Install .NET 9.0.x
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install .NET 10.0.x
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: compile
+        run: ./build.ps1 compile
+        shell: pwsh
+
+      - name: test-core
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-core
+        shell: pwsh
+
+      - name: test-codegen
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-codegen
+        shell: pwsh
+
+      - name: test-codegen-fsharp
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-codegen-fsharp
+        shell: pwsh
+
+      - name: test-command-line
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-command-line
+        shell: pwsh
+
+      - name: test-events
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-events
+        shell: pwsh
+
+      - name: test-event-store
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-event-store
+        shell: pwsh
+
+      - name: test-source-generators
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-source-generators
+        shell: pwsh
+
+      - name: test-aspire
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-aspire
+        shell: pwsh
+
+      - name: test-microsoft-extensions-ai
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-microsoft-extensions-ai
+        shell: pwsh
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
