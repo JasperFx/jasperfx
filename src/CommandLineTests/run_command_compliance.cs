@@ -156,14 +156,25 @@ public class run_command_compliance
     [Fact]
     public void override_the_content_root()
     {
-        var input = new RunInput
+        // The host builds a PhysicalFileProvider over the content root, so the folder has to exist.
+        // "/bin" did on Linux and macOS, but resolves to a missing D:\bin\ on Windows.
+        var contentRoot = Directory.CreateTempSubdirectory("jasperfx-content-root-").FullName;
+
+        try
         {
-            ContentRootFlag = "/bin",
-            HostBuilder = Host.CreateDefaultBuilder()
-        };
-        
-        var host = input.BuildHost();
-        host.Services.GetRequiredService<IHostEnvironment>().ContentRootPath.ShouldBe("/bin");
+            var input = new RunInput
+            {
+                ContentRootFlag = contentRoot,
+                HostBuilder = Host.CreateDefaultBuilder()
+            };
+
+            using var host = input.BuildHost();
+            host.Services.GetRequiredService<IHostEnvironment>().ContentRootPath.ShouldBe(contentRoot);
+        }
+        finally
+        {
+            Directory.Delete(contentRoot, true);
+        }
     }
 
     [Fact]
