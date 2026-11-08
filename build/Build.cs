@@ -306,7 +306,10 @@ partial class Build : NukeBuild
                     Assert.Fail($"The native binary did not exit within a minute for '{string.Join(" ", args)}'.");
                 }
 
-                var text = stdout.Result + stderr.Result;
+                // Spectre.Console detects CI (GITHUB_ACTIONS) and writes ANSI styling even to redirected
+                // output, which splits text like "run - Start" around escape sequences. Assert on plain text.
+                var text = System.Text.RegularExpressions.Regex.Replace(stdout.Result + stderr.Result,
+                    @"\x1B\[[0-9;?]*[ -/]*[@-~]", "");
                 Serilog.Log.Information("{Binary} {Args} exited {ExitCode}:\n{Output}", "JasperFx.AotCliSmoke",
                     string.Join(" ", args), process.ExitCode, text);
                 return (process.ExitCode, text);
