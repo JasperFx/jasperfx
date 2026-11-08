@@ -58,6 +58,13 @@ public enum SourceGeneratorEvidence
 /// </summary>
 public static class SourceGeneratorMarker
 {
+    /// <summary>The version of this JasperFx.Events runtime, which a pinned generator has to match (jasperfx#1138).</summary>
+    internal static string RuntimeVersion =>
+        typeof(SourceGeneratorMarker).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            .Split('+')[0]
+        ?? typeof(SourceGeneratorMarker).Assembly.GetName().Version?.ToString()
+        ?? "unknown";
+
     /// <summary>
     /// What <paramref name="assembly" />'s metadata says about the generator having run over it.
     /// </summary>
@@ -114,6 +121,11 @@ public static class SourceGeneratorMarker
                "ExcludeAssets=\"analyzers\" or PrivateAssets=\"all\", which suppress the analyzer for downstream " +
                "projects while the build still succeeds with no warning. Aggregate types are usually plain POCOs " +
                "that name no store type, so such a project compiles perfectly happily with no analyzer at all. " +
+               "If the project pins JasperFx.Events.SourceGenerator, pin it to the same version as the JasperFx.Events " +
+               $"runtime ({RuntimeVersion}): when a store package (Marten, Polecat) bundles a copy of the generator at " +
+               "another version, the .NET SDK keeps only the copy with the higher assembly version, and a target that " +
+               "then removes the store's bundled copy leaves no generator at all. The build says JFXEVT1138 when that " +
+               "happens (jasperfx#1138). " +
                "(A generator older than this marker also leaves no trace when it finds no candidates, so if you " +
                "are certain the analyzer runs there, bump the JasperFx.Events / Marten package and look for a " +
                "JFXEVT diagnostic instead.)";

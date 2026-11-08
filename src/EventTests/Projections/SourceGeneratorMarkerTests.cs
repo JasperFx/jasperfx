@@ -57,6 +57,18 @@ public class SourceGeneratorMarkerTests
     }
 
     [Fact]
+    public void an_unconfirmed_assembly_names_a_generator_pinned_to_another_version_than_the_runtime()
+    {
+        // jasperfx#1138: Wolverine pinned the generator at 2.100.0 while Polecat brought the 2.100.1 runtime and a
+        // bundled 2.100.1 generator. The SDK kept the bundled copy, a project target removed it, and nothing ran.
+        var message = SourceGeneratorMarker.DescribeGeneratorReach([typeof(string).Assembly], "the aggregate Foo");
+
+        var runtime = typeof(SourceGeneratorMarker).Assembly.GetName().Version!;
+        message.ShouldContain($"same version as the JasperFx.Events runtime ({runtime.Major}.{runtime.Minor}.{runtime.Build}");
+        message.ShouldContain("JFXEVT1138");
+    }
+
+    [Fact]
     public void confirmation_in_either_scanned_assembly_is_enough()
     {
         // The runtime scans the aggregate's assembly AND the projection's, so a projection-specific
