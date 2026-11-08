@@ -97,6 +97,48 @@
   </Target>
 
   <!--
+    jasperfx#1138 — a pinned generator at another version than a store's bundled copy can leave NONE.
+
+    The .NET SDK's package file conflict resolution (_HandlePackageFileConflicts, in
+    Microsoft.NET.ConflictResolution.targets) treats two analyzers with one file name as a conflict and
+    keeps only the one with the higher assembly version. A standalone JasperFx.Events.SourceGenerator
+    pinned at 2.100.0 beside Polecat 5.49.0, which bundles a 2.100.1 copy, therefore reaches the dedupe
+    above as the bundled copy alone. A project target that removes the store's bundled copy, written
+    for the equal-version case where both survive (Wolverine's PolecatTests had one), then removes the
+    only copy left. Nothing generates, the marker included, and the build passes: the first sign is
+    "No source-generated dispatcher found" at run time.
+
+    This runs AFTER CoreCompile so it reads the analyzers the compiler was actually given, whatever
+    order the BeforeTargets hooks ran in, and it fires only when the SDK dropped a copy of the generator
+    and no copy reached the compiler. A version difference on its own is left alone: the higher copy
+    runs and generates normally. Set JasperFxEventsReportLostSourceGenerator=false to silence it.
+  -->
+  <Target Name="JasperFxEventsReportLostSourceGenerator"
+          AfterTargets="CoreCompile"
+          Condition="'$(JasperFxEventsReportLostSourceGenerator)' != 'false'">
+
+    <ItemGroup>
+      <_JasperFxEventsCompiledGenerator Include="@(Analyzer)"
+                                        Condition="'%(Filename)%(Extension)' == 'JasperFx.Events.SourceGenerator.dll'" />
+      <_JasperFxEventsDroppedGenerator Include="@(_ConflictPackageFiles)"
+                                       Condition="'%(Filename)%(Extension)' == 'JasperFx.Events.SourceGenerator.dll'" />
+      <_JasperFxEventsRuntimeReference Include="@(ReferencePath)"
+                                       Condition="'%(Filename)%(Extension)' == 'JasperFx.Events.dll' and '%(ReferencePath.NuGetPackageVersion)' != ''" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_JasperFxEventsDroppedList>@(_JasperFxEventsDroppedGenerator->'%(Identity)', ', ')</_JasperFxEventsDroppedList>
+      <_JasperFxEventsRuntimeVersion>@(_JasperFxEventsRuntimeReference->'%(NuGetPackageVersion)')</_JasperFxEventsRuntimeVersion>
+      <_JasperFxEventsRuntimeText>the JasperFx.Events runtime's version</_JasperFxEventsRuntimeText>
+      <_JasperFxEventsRuntimeText Condition="'$(_JasperFxEventsRuntimeVersion)' != ''">the JasperFx.Events runtime's version, $(_JasperFxEventsRuntimeVersion)</_JasperFxEventsRuntimeText>
+    </PropertyGroup>
+
+    <Warning Condition="'@(_JasperFxEventsCompiledGenerator)' == '' and '@(_JasperFxEventsDroppedGenerator)' != ''"
+             Code="JFXEVT1138"
+             Text="No copy of the JasperFx.Events aggregate source generator reached the compiler for $(MSBuildProjectName), so no evolvers, dispatchers or generator marker were emitted and every conventional projection or aggregate here will fail at run time with &quot;No source-generated dispatcher found&quot;. The .NET SDK dropped $(_JasperFxEventsDroppedList) because another copy had a higher assembly version, and that copy was then removed before compiling, usually by a project target that drops a store package's bundled copy (JasperFx.Events already keeps exactly one copy, jasperfx#891, so such a target can go). Pin JasperFx.Events.SourceGenerator to $(_JasperFxEventsRuntimeText), or remove the target that drops the bundled copy. See jasperfx#1138." />
+  </Target>
+
+  <!--
     jasperfx#892 — an opt-in, build-time answer to "did the generator actually run in this project?".
 
     Conventional Apply/Create/ShouldDelete methods have no runtime fallback, and an aggregate type is

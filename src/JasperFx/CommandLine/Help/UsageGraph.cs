@@ -18,9 +18,20 @@ public class UsageGraph
     [RequiresUnreferencedCode("Walks commandType to derive its input type and reads input-type properties / fields via InputParser.GetHandlers. The source-generated handler registry (GeneratedParserRegistry) is used when present.")]
     [RequiresDynamicCode("InputParser.BuildHandler closes generic List<T> for enumerable arguments / flags when falling back from the generated registry.")]
     public UsageGraph(Type commandType)
+        : this(commandType, commandType.FindInterfaceThatCloses(typeof(IJasperFxCommand<>))!.GetTypeInfo()
+            .GetGenericArguments().First())
     {
-        _inputType = commandType.FindInterfaceThatCloses(typeof(IJasperFxCommand<>))!.GetTypeInfo()
-            .GetGenericArguments().First();
+    }
+
+    /// <summary>
+    ///     Builds the usage graph from an input type the caller already knows statically,
+    ///     so no interface walk over the command type is needed (jasperfx#1141).
+    /// </summary>
+    [RequiresUnreferencedCode("Reads input-type properties / fields via InputParser.GetHandlers when no source-generated parser is registered.")]
+    [RequiresDynamicCode("InputParser.BuildHandler closes generic List<T> for enumerable arguments / flags when falling back from the generated registry.")]
+    public UsageGraph(Type commandType, Type inputType)
+    {
+        _inputType = inputType;
 
         CommandName = CommandFactory.CommandNameFor(commandType);
         commandType.ForAttribute<DescriptionAttribute>(att => { Description = att.Description; });

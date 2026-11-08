@@ -264,6 +264,124 @@ partial class Build : NukeBuild
                 $"The unrooted native binary exited {unrooted}, expected 2 (type not found). Without the companion ILC should have trimmed the type; if it did not, the rooted pass proves nothing.");
         });
 
+    /// <summary>
+    /// jasperfx#1141: the JasperFx command line, run from a Native AOT binary. Publishes
+    /// src/JasperFx.AotCliSmoke (a WebApplication wired like the app in the issue) with PublishAot, then
+    /// runs the native binary through help, help &lt;command&gt;, an application command, check-env,
+    /// describe and run. Before #1141 the native binary failed every one of them, `run` included, so
+    /// an AOT app that ended in RunJasperFxCommands could not start at all, while the same app worked
+    /// under `dotnet run`. Runs on every PR from its own job in dotnet.yml.
+    /// </summary>
+    Target SmokeTestAotCli => _ => _
+        .Executes(() =>
+        {
+            var project = RootDirectory / "src" / "JasperFx.AotCliSmoke" / "JasperFx.AotCliSmoke.csproj";
+            var rid = System.Runtime.InteropServices.RuntimeInformation.RuntimeIdentifier;
+            var output = ArtifactsDirectory / "aot-cli";
+            var binary = output / (OperatingSystem.IsWindows() ? "JasperFx.AotCliSmoke.exe" : "JasperFx.AotCliSmoke");
+
+            DotNet($"publish \"{project}\" -c Release -r {rid} -o \"{output}\"");
+
+            (int exitCode, string text) run(params string[] args)
+            {
+                var start = new System.Diagnostics.ProcessStartInfo(binary.ToString())
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    WorkingDirectory = output
+                };
+                foreach (var arg in args) start.ArgumentList.Add(arg);
+
+                // Lets `run` prove itself and exit (StopAfterStart in the smoke app), on a free port.
+                start.Environment["AOT_CLI_SMOKE_STOP_AFTER_START"] = "true";
+                start.Environment["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
+
+                using var process = System.Diagnostics.Process.Start(start)!;
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(TimeSpan.FromMinutes(1)))
+                {
+                    process.Kill(entireProcessTree: true);
+                    Assert.Fail($"The native binary did not exit within a minute for '{string.Join(" ", args)}'.");
+                }
+
+                // Spectre.Console detects CI (GITHUB_ACTIONS) and writes ANSI styling even to redirected
+                // output, which splits text like "run - Start" around escape sequences. Assert on plain text.
+                var text = System.Text.RegularExpressions.Regex.Replace(stdout.Result + stderr.Result,
+                    @"\x1B\[[0-9;?]*[ -/]*[@-~]", "");
+                Serilog.Log.Information("{Binary} {Args} exited {ExitCode}:\n{Output}", "JasperFx.AotCliSmoke",
+                    string.Join(" ", args), process.ExitCode, text);
+                return (process.ExitCode, text);
+            }
+
+            void noException(string text, string args)
+            {
+                Assert.False(text.Contains("Exception", StringComparison.Ordinal),
+                    $"The native binary threw for '{args}' (see the output above).");
+            }
+
+            // Every command from all three assemblies: JasperFx's own, JasperFx.Events' and the app's.
+            var help = run("help");
+            noException(help.text, "help");
+            Assert.True(help.exitCode == 0, $"'help' exited {help.exitCode}.");
+            foreach (var command in new[]
+                     {
+                         "check-env", "codegen", "describe", "help", "resources", "run",
+                         "event-query", "projection-run", "projections", "stream-query",
+                         "greet"
+                     })
+            {
+                Assert.True(help.text.Contains($"  {command} ", StringComparison.Ordinal),
+                    $"'help' did not list the '{command}' command.");
+            }
+
+            // `help <command>` renders usage and exits non-zero by design (see smoke-test-help in
+            // dotnet.yml), so only the output is checked.
+            foreach (var (command, expected) in new[]
+                     {
+                         ("run", "run - Start and run this .Net application"),
+                         ("projections", "projections - Asynchronous projection"),
+                         ("greet", "[-t, --tags <tags1 tags2 tags3 ...>]")
+                     })
+            {
+                var usage = run("help", command);
+                noException(usage.text, $"help {command}");
+                Assert.True(usage.text.Contains(expected, StringComparison.Ordinal),
+                    $"'help {command}' did not render its usage.");
+            }
+
+            // An application command: generated factory, generated parser (with an enumerable flag the
+            // reflective parser would close List<T> for) and a generated [InjectService] injector.
+            var greet = run("greet", "World", "--shout", "--tags", "a", "b");
+            noException(greet.text, "greet");
+            Assert.True(greet.exitCode == 0, $"'greet' exited {greet.exitCode}.");
+            Assert.True(greet.text.Contains("HELLO, WORLD", StringComparison.Ordinal)
+                        && greet.text.Contains("tags: a,b", StringComparison.Ordinal),
+                "'greet' did not parse its input or inject its service.");
+
+            var checkEnv = run("check-env");
+            noException(checkEnv.text, "check-env");
+            Assert.True(checkEnv.exitCode == 0, $"'check-env' exited {checkEnv.exitCode}.");
+
+            var describe = run("describe");
+            noException(describe.text, "describe");
+            Assert.True(describe.exitCode == 0, $"'describe' exited {describe.exitCode}.");
+            Assert.True(describe.text.Contains("Referenced Assemblies", StringComparison.Ordinal),
+                "'describe' did not write its referenced assemblies.");
+
+            // `run`, both by name and as the default with no arguments: the case in the issue.
+            foreach (var args in new[] { new[] { "run" }, Array.Empty<string>() })
+            {
+                var name = args.Length == 0 ? "(no arguments)" : "run";
+                var started = run(args);
+                noException(started.text, name);
+                Assert.True(started.exitCode == 0, $"'{name}' exited {started.exitCode}.");
+                Assert.True(started.text.Contains("AOT CLI smoke: host started", StringComparison.Ordinal),
+                    $"'{name}' did not start the host.");
+            }
+        });
+
     AbsolutePath ArtifactsDirectory => RootDirectory / "artifacts";
 
     AbsolutePath ShippedEventsTargets =>
@@ -400,8 +518,32 @@ partial class Build : NukeBuild
                 "<JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>", one,
                 assertTarget, mustContain: null, mustNotContain: "error JFXEVT900:");
 
+            // jasperfx#1138: the SDK's conflict resolution dropped a pinned copy (it lands in
+            // _ConflictPackageFiles) and the higher-versioned bundled copy was then removed by a project
+            // target, so nothing reached the compiler. The refused answer: a generator whose version
+            // differs from the runtime's never produces nothing without saying so.
+            const string lostTarget = "JasperFxEventsReportLostSourceGenerator";
+            var dropped = $"""<_ConflictPackageFiles Include="{copyA}" />""";
+
+            Arrange("a_generator_at_another_version_never_produces_nothing_without_saying_so", "", dropped,
+                lostTarget, mustContain: "warning JFXEVT1138:", mustNotContain: null);
+
+            // A version difference on its own is harmless: the higher copy reaches the compiler and runs.
+            Arrange("dropped_lower_copy_with_higher_copy_compiled", "", $"""
+                {dropped}
+                        <Analyzer Include="{copyB}" />
+                """, lostTarget, mustContain: null, mustNotContain: "warning JFXEVT1138:");
+
+            // A project with no generator anywhere, the ordinary non-event-sourced project, stays silent.
+            Arrange("no_generator_anywhere", "", "", lostTarget,
+                mustContain: null, mustNotContain: "warning JFXEVT1138:");
+
+            Arrange("lost_generator_report_turned_off",
+                "<JasperFxEventsReportLostSourceGenerator>false</JasperFxEventsReportLostSourceGenerator>", dropped,
+                lostTarget, mustContain: null, mustNotContain: "warning JFXEVT1138:");
+
             Serilog.Log.Information(
-                "Shipped MSBuild targets verified in 6 arrangements: {File}", ShippedEventsTargets);
+                "Shipped MSBuild targets verified in 10 arrangements: {File}", ShippedEventsTargets);
         });
 
     Target NugetPack => _ => _
