@@ -193,8 +193,18 @@ public class TenantBatchQueueTests
     public async Task a_composite_member_runs_inside_its_parents_turn_without_queueing()
     {
         var queue = new TenantBatchQueue("Trip:All");
+        var holderStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var holder = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var holding = queue.RunAsync(() => holder.Task, CancellationToken.None);
+        var holding = queue.RunAsync(() =>
+        {
+            holderStarted.SetResult();
+            return holder.Task;
+        }, CancellationToken.None);
+
+        // The holder counts as Waiting until the queue's reader picks it up, which happens on the thread pool.
+        // Wait for it to be holding the turn, so the Waiting check below only sees what the member did.
+        await holderStarted.Task.WaitAsync(Timeout);
+        queue.Waiting.ShouldBe(0);
 
         var harness = new ExecutionHarness(queue);
         var execution = harness.AddExecution("t1", out var agent);
