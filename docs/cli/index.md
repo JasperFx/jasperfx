@@ -95,9 +95,31 @@ Like `help` itself, this runs without starting the host (no database/broker conn
 cheap to call. The [Aspire dashboard integration](/cli/aspire#dynamic-command-discovery) uses it to
 discover a service's verbs.
 
+## Native AOT
+
+The command line runs from a Native AOT binary as well as under `dotnet run`. `help`, `describe`,
+`check-env`, `resources`, `projections`, `run` and your own commands all work from the published
+binary, as long as every assembly that contributes commands is built with `JasperFx.SourceGenerator`.
+The generator registers each command, its input and its `[InjectService]` properties as ordinary code,
+so nothing is found by reflection at run time. JasperFx and JasperFx.Events ship built with it; add it
+to your own application for your own commands:
+
+```xml
+<ItemGroup>
+    <PackageReference Include="JasperFx.SourceGenerator" Version="$(JasperFxVersion)"
+                      PrivateAssets="all" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+</ItemGroup>
+```
+
+`codegen write` still needs Roslyn, so run it with `dotnet run` before you publish.
+`ApplyJasperFxExtensions` and `RunJasperFxCommands` keep their trimming warnings for assemblies built
+without the generator; see [Running the command line in an AOT binary](/codegen/aot#running-the-command-line-in-an-aot-binary)
+for the `Main` that suppresses them and the rest of the details. Since JasperFx 2.101.0.
+
 ## Topics
 
 - [Writing Commands](/cli/writing-commands) -- Create synchronous and async commands
 - [Arguments and Flags](/cli/arguments-flags) -- Define inputs with attributes
 - [Environment Checks](/cli/environment-checks) -- Validate runtime dependencies
 - [Describe](/cli/describe) -- Customize the describe output
+- [Publishing AOT](/codegen/aot) -- Native AOT publishing, including the command line
