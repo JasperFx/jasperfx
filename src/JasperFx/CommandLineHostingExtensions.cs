@@ -13,6 +13,19 @@ namespace JasperFx;
 
 public static class CommandLineHostingExtensions
 {
+    // jasperfx#1141. These annotations are static, so they fire whether or not
+    // JasperFx.SourceGenerator is wired in; the messages say when it is safe to suppress them.
+    // The JasperFx.AotCliSmoke gate (./build.sh smoke-test-aot-cli) publishes an app that does
+    // exactly that with Native AOT and runs its commands.
+    internal const string ApplyExtensionsTrimMessage =
+        "Finds [JasperFxAssembly] extension assemblies and creates their declared extension types with Activator.CreateInstance; commands come from each assembly's JasperFx.SourceGenerator registration, falling back to a reflective scan. When JasperFx.SourceGenerator ran over every assembly that contributes commands, and no extension type depends on reflection, a trimmed or Native AOT app can suppress this warning at the call site. See https://shared-libs.jasperfx.net/codegen/aot.";
+
+    internal const string RunCommandsTrimMessage =
+        "Resolves commands from the entry and extension assemblies through each assembly's JasperFx.SourceGenerator registration, falling back to a reflective scan and Activator.CreateInstance for any assembly built without it. When JasperFx.SourceGenerator ran over every assembly that contributes commands, a trimmed or Native AOT app can suppress this warning at the call site. See https://shared-libs.jasperfx.net/codegen/aot.";
+
+    internal const string RunCommandsDynamicCodeMessage =
+        "Command input parsing closes List<T> with MakeGenericType for enumerable arguments and flags of an input type without a source-generated parser. JasperFx.SourceGenerator emits those parsers, so with it in place a Native AOT app can suppress this warning at the call site. See https://shared-libs.jasperfx.net/codegen/aot.";
+
     /// <summary>
     ///     Discover and apply JasperFx extensions to this application during
     ///     bootstrapping. This is only necessary when using the WebApplication
@@ -20,7 +33,7 @@ public static class CommandLineHostingExtensions
     /// </summary>
     /// <param name="builder"></param>
     /// <returns></returns>
-    [RequiresUnreferencedCode("Scans extension assemblies for JasperFx commands and instantiates extension types via Activator.CreateInstance. Apps targeting trim/AOT should emit the JasperFx.Generated.DiscoveredCommands manifest via JasperFx.SourceGenerator.")]
+    [RequiresUnreferencedCode(ApplyExtensionsTrimMessage)]
     public static IHostBuilder ApplyJasperFxExtensions(this IHostBuilder builder)
     {
         var factory = new CommandFactory();
@@ -39,8 +52,8 @@ public static class CommandLineHostingExtensions
     /// <param name="args"></param>
     /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
     /// <returns></returns>
-    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
-    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
+    [RequiresUnreferencedCode(RunCommandsTrimMessage)]
+    [RequiresDynamicCode(RunCommandsDynamicCodeMessage)]
     public static Task<int> RunJasperFxCommands(this IHostBuilder builder, string[] args, string? optionsFile = null)
     {
         return execute(builder, Assembly.GetEntryAssembly(), args, optionsFile);
@@ -55,8 +68,8 @@ public static class CommandLineHostingExtensions
     /// <param name="args"></param>
     /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
     /// <returns></returns>
-    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
-    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
+    [RequiresUnreferencedCode(RunCommandsTrimMessage)]
+    [RequiresDynamicCode(RunCommandsDynamicCodeMessage)]
     public static int RunJasperFxCommandsSynchronously(this IHostBuilder builder, string[] args, string? optionsFile = null)
     {
         return execute(builder, Assembly.GetEntryAssembly(), args, optionsFile).GetAwaiter().GetResult();
@@ -71,8 +84,8 @@ public static class CommandLineHostingExtensions
     /// <param name="args"></param>
     /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
     /// <returns></returns>
-    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
-    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
+    [RequiresUnreferencedCode(RunCommandsTrimMessage)]
+    [RequiresDynamicCode(RunCommandsDynamicCodeMessage)]
     public static Task<int> RunJasperFxCommands(this IHost host, string[] args, string? optionsFile = null)
     {
         return execute(new PreBuiltHostBuilder(host), Assembly.GetEntryAssembly(), args, optionsFile);
@@ -87,8 +100,8 @@ public static class CommandLineHostingExtensions
     /// <param name="args"></param>
     /// <param name="optionsFile">Optionally configure an expected "opts" file</param>
     /// <returns></returns>
-    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
-    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
+    [RequiresUnreferencedCode(RunCommandsTrimMessage)]
+    [RequiresDynamicCode(RunCommandsDynamicCodeMessage)]
     public static int RunJasperFxCommandsSynchronously(this IHost host, string[] args, string? optionsFile = null)
     {
         return execute(new PreBuiltHostBuilder(host), Assembly.GetEntryAssembly(), args, optionsFile).GetAwaiter().GetResult();
@@ -173,6 +186,10 @@ public static class CommandLineHostingExtensions
                     factory.ApplyExtensions(source);
                     i.HostBuilder = source;
                 }
+                else if (GeneratedCommandRegistry.TryGetInjector(commandRun.Command.GetType(), out var inject))
+                {
+                    commandRun.Command = new HostWrapperCommand(commandRun.Command, source.Build, inject);
+                }
                 else
                 {
                     var props = commandRun.Command.GetType().GetProperties()
@@ -198,8 +215,8 @@ public static class CommandLineHostingExtensions
     /// <param name="host">An already built IHost</param>
     /// <param name="args"></param>
     /// <returns></returns>
-    [RequiresUnreferencedCode("Dispatches to commands resolved reflectively from the entry/extension assemblies. Apps targeting trim/AOT should pre-register commands via the source-generated DiscoveredCommands manifest.")]
-    [RequiresDynamicCode("Command input parsing closes generic List<T> via MakeGenericType for enumerable arguments / flags.")]
+    [RequiresUnreferencedCode(RunCommandsTrimMessage)]
+    [RequiresDynamicCode(RunCommandsDynamicCodeMessage)]
     public static Task<int> RunJasperFxCommands(this IHost host, string[] args)
     {
         // Workaround for IISExpress / VS2019 erroneously putting crap arguments

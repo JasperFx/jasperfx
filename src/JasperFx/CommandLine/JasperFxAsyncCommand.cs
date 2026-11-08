@@ -15,7 +15,7 @@ public abstract class JasperFxAsyncCommand<T> : IJasperFxCommand<T>
         Justification = "Same as IL2026 — the UsageGraph closes List<elementType> for enumerable arguments via InputParser.BuildHandler, reached only through annotated CommandFactory entry points.")]
     protected JasperFxAsyncCommand()
     {
-        Usages = new UsageGraph(GetType());
+        Usages = new UsageGraph(GetType(), typeof(T));
     }
 
     public UsageGraph Usages { get; }

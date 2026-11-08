@@ -148,3 +148,31 @@ jobs:
         if: ${{ success() || failure() }}
         run: ./build.sh smoke-test-aot
         shell: bash
+
+  # jasperfx#1141: the command line, run from a Native AOT binary. Publishes src/JasperFx.AotCliSmoke
+  # with PublishAot and drives the native binary through help, help <command>, an application command,
+  # check-env, describe and run (see SmokeTestAotCli in build/Build.cs). Its own job so the ILC publish
+  # runs alongside the main build rather than inside its 20 minute budget.
+  aot-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install .NET 9.0.x
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install .NET 10.0.x
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install the native AOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: smoke-test-aot-cli
+        run: ./build.sh smoke-test-aot-cli
+        shell: bash

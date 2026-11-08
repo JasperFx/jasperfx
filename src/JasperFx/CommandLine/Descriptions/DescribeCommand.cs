@@ -169,11 +169,30 @@ public class ReferencedAssemblies : SystemPartBase
         table.AddColumn("Assembly Name", textAlign:Justify.Left);
         table.AddColumn("Version");
 
-        var referenced = Assembly.GetEntryAssembly()!.GetReferencedAssemblies();
-        foreach (var assemblyName in referenced) table.AddRow(assemblyName.Name!, assemblyName.Version!.ToString());
+        foreach (var assemblyName in referencedAssemblies())
+        {
+            table.AddRow(assemblyName.Name!, assemblyName.Version?.ToString() ?? "");
+        }
 
         description.WriteToConsole();
 
         return Task.CompletedTask;
+    }
+
+    private static AssemblyName[] referencedAssemblies()
+    {
+        try
+        {
+            return Assembly.GetEntryAssembly()!.GetReferencedAssemblies();
+        }
+        catch (PlatformNotSupportedException)
+        {
+            // jasperfx#1141: a Native AOT image does not implement GetReferencedAssemblies() (see
+            // GH-742). List the assemblies compiled into the image instead.
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .Select(x => x.GetName())
+                .OrderBy(x => x.Name)
+                .ToArray();
+        }
     }
 }
