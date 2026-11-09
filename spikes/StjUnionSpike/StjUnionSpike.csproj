@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+      Spike for jasperfx#1037: System.Text.Json 11 union serialization.
+
+      net11.0 ONLY, and deliberately NOT in jasperfx.slnx: CI installs the 9.0 and 10.0 SDKs, and
+      the C# union keyword does not compile against net10 (CS0518, IUnion is not defined). Run it
+      by hand with a .NET 11 SDK:
+
+          dotnet test spikes/StjUnionSpike
+
+      The plural TargetFrameworks is required: Directory.Build.props sets TargetFrameworks to
+      net9.0;net10.0 and a singular TargetFramework would lose to it.
+    -->
+    <PropertyGroup>
+        <TargetFrameworks>net11.0</TargetFrameworks>
+        <LangVersion>preview</LangVersion>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <OutputType>Exe</OutputType>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <!-- SYSLIB1227 is one of the findings: the source generator warns at build time when
+             every case of a union is a JSON object and no classifier is set. Kept visible as a
+             warning, not an error. -->
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Shouldly" />
+        <PackageReference Include="xunit.v3" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+        <Using Include="Shouldly" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\JasperFx.Events\JasperFx.Events.csproj" />
+    </ItemGroup>
+</Project>
