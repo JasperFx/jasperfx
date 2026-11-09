@@ -84,6 +84,65 @@ public interface IEventDatabase
             : throw new NotSupportedException(
                 "Per-tenant FetchHighestEventSequenceNumber is not implemented on this IEventDatabase. Use an event store that implements per-tenant partitioning.");
 
+    /// <summary>
+    ///     jasperfx#1150: for each position, the timestamp of the first event after it, which is how old the
+    ///     oldest event a projection or subscription shard has not processed yet is. Monitoring turns that
+    ///     into projection lag measured in time rather than in events.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Semantics.</b> For each position, the store's timestamp of the event with the lowest sequence
+    ///     strictly greater than <c>Sequence</c>; null when there is no such event, meaning the shard is caught
+    ///     up. The result has exactly one entry per position, in the order given, echoing each position's
+    ///     tenant and sequence, duplicates included.
+    /// </para>
+    /// <para>
+    ///     <b>Tenants.</b> A null <c>TenantId</c> considers every event in this database. A non-null one
+    ///     considers only that tenant's events where events carry a tenant, that is under conjoined tenancy
+    ///     and under per-tenant partitioning, where each tenant also draws its own sequence. Pass the shard's
+    ///     <see cref="ShardName.TenantId" />, which is only non-null under per-tenant partitioning.
+    /// </para>
+    /// <para>
+    ///     <b>Archived events do not count.</b> The async daemon skips archived events, so one cannot be
+    ///     waiting on a shard, and reads leave archived events out unless the caller opts in. A shard whose
+    ///     only remaining events are archived is caught up.
+    /// </para>
+    /// <para>
+    ///     <b>Cost.</b> Implementations answer the whole list in one round trip per database, and each lookup
+    ///     must be an index seek on the sequence (<c>seq_id &gt; @n order by seq_id limit 1</c>), never a scan
+    ///     or a count. Callers should ask only for shards that are behind.
+    /// </para>
+    /// <para>
+    ///     The default implementation throws <see cref="NotSupportedException" /> rather than answering:
+    ///     a null timestamp is the meaningful "caught up" answer, so a store that has not implemented this
+    ///     must not borrow it and report a lagging shard as current.
+    /// </para>
+    /// </remarks>
+    /// <param name="positions">
+    ///     The positions to look past: normally each lagging shard's tenant and persisted progression.
+    /// </param>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<PendingEventAge>> FetchFirstEventTimestampsAfterAsync(
+        IReadOnlyList<(string? TenantId, long Sequence)> positions, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(FetchFirstEventTimestampsAfterAsync)} (jasperfx#1150), so it cannot report the age of the oldest unprocessed event.");
+
+    /// <summary>
+    ///     jasperfx#1150: the timestamp of the first event after <paramref name="sequence" />, or null when
+    ///     there is none. A convenience over
+    ///     <see cref="FetchFirstEventTimestampsAfterAsync" />,
+    ///     with the same semantics; prefer the batched form when asking about more than one shard.
+    /// </summary>
+    /// <param name="sequence">The position to look past, normally a shard's persisted progression.</param>
+    /// <param name="tenantId">Tenant to scope the lookup to. Null means every tenant in this database.</param>
+    /// <param name="token"></param>
+    async Task<DateTimeOffset?> FetchFirstEventTimestampAfterAsync(long sequence, string? tenantId,
+        CancellationToken token = default)
+    {
+        var ages = await FetchFirstEventTimestampsAfterAsync([(tenantId, sequence)], token).ConfigureAwait(false);
+        return ages.Count == 0 ? null : ages[0].Timestamp;
+    }
+
 
     /// <summary>
     ///     Check the current progress of all asynchronous projections

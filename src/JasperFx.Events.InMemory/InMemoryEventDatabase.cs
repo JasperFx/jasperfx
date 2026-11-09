@@ -58,6 +58,11 @@ public sealed class InMemoryEventDatabase : IEventDatabase
     public Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, CancellationToken token)
         => Task.FromResult(_store.EventSequenceFloorAt(timestamp));
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<PendingEventAge>> FetchFirstEventTimestampsAfterAsync(
+        IReadOnlyList<(string? TenantId, long Sequence)> positions, CancellationToken token = default)
+        => Task.FromResult(_store.FirstEventTimestampsAfter(positions));
+
     // jasperfx#809: projection start floors, keyed by projection name (no version) and tenant
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Projection, string Tenant), long> _floors = new();
 

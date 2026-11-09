@@ -104,6 +104,10 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
 
     public override bool SupportsProjectionFloors => true;
 
+    public override bool SupportsPendingEventAges => true;
+
+    public override bool SupportsStreamArchiving => false;
+
     public override bool SupportsExplorerSurface => false;
 
     public override bool SupportsFlatTableProjections => false;

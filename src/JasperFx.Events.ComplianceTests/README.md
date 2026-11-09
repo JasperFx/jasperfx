@@ -455,6 +455,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Projection rebuild and catch-up semantics | `RebuildAndCatchUpCompliance` |
 | The projection error path and dead letters | `DeadLetterCompliance` |
 | The persisted projection start floor on `IEventDatabase` (jasperfx#809) | `ProjectionFloorCompliance` |
+| The age of the oldest unprocessed event, `FetchFirstEventTimestampsAfterAsync` on `IEventDatabase` (jasperfx#1150) | `PendingEventAgeCompliance` |
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |
 | The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |

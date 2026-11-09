@@ -844,6 +844,29 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsProjectionFloors => false;
 
     /// <summary>
+    /// True in a store whose <see cref="IEventDatabase" /> implements
+    /// <see cref="IEventDatabase.FetchFirstEventTimestampsAfterAsync" /> (jasperfx#1150), the age of the oldest
+    /// event a shard has not processed yet. Gates
+    /// <see cref="PendingEventAgeCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>: the member ships with a throwing default, so a store that has not
+    /// implemented it keeps a green suite. Implement it as one round trip of sequence seeks, then flip this.
+    /// </remarks>
+    public virtual bool SupportsPendingEventAges => false;
+
+    /// <summary>
+    /// True in a store that implements <see cref="IEventStoreOperations.ArchiveStream(System.Guid)" />, so a
+    /// suite other than <see cref="StreamArchivingCompliance{TFixture,TOperations,TQuerySession}" /> can archive a
+    /// stream to prove its own reads leave archived events out.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>true</strong>, because every production store archives. Only a store that
+    /// throws from <c>ArchiveStream</c>, like the in-memory prototyping store, turns it off.
+    /// </remarks>
+    public virtual bool SupportsStreamArchiving => true;
+
+    /// <summary>
     /// True in a store whose registrar replays <see cref="ComplianceSubscription.IncludedEventTypes"/>
     /// onto its own subscription registration, so a declared allow list actually reaches the daemon.
     /// Gates the one event-filter fact of
