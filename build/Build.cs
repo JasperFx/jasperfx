@@ -54,7 +54,7 @@ partial class Build : NukeBuild
                 .EnableNoRestore());
         });
 
-    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestInMemoryEventStore, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot, SmokeTestBuildTargets);
+    Target Test => _ => _.DependsOn(TestCore, TestCodegen, TestCodegenFSharp, TestCommandLine, TestEvents, TestEventStore, TestInMemoryEventStore, TestStress, TestSourceGenerators, TestAspire, TestMicrosoftExtensionsAI, SmokeTestAot, SmokeTestBuildTargets);
     
     Target TestCore => _ => _
         .DependsOn(Compile)
@@ -138,6 +138,21 @@ partial class Build : NukeBuild
         {
             DotNetTest(c => c
                 .SetProjectFile(Solution.InMemoryEventStoreTests)
+                .SetConfiguration(Configuration)
+                .EnableNoBuild()
+                .EnableNoRestore());
+        });
+
+    // Tests that deliberately drive many threads, or many rounds of a race, to provoke a concurrency bug.
+    // They have their own project, which runs its tests one at a time, so they never compete for the thread
+    // pool with the timing-sensitive tests in the other suites (#1148: the coordinator overlap tests running
+    // beside HighWaterAgent's 200ms staleness watchdog in EventTests).
+    Target TestStress => _ => _
+        .DependsOn(Compile)
+        .Executes(() =>
+        {
+            DotNetTest(c => c
+                .SetProjectFile(Solution.StressTests)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());

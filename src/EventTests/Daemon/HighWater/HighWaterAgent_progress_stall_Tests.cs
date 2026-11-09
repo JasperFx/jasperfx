@@ -14,12 +14,12 @@ namespace EventTests.Daemon.HighWater;
 // the mark, so none of this can ever advance it past what the detector reports.
 public class HighWaterAgent_progress_stall_Tests
 {
-    private static DaemonSettings settings(TimeSpan? stallThreshold) => new()
+    private static DaemonSettings settings(TimeSpan? stallThreshold, TimeSpan? stalenessThreshold = null) => new()
     {
         FastPollingTime = 10.Milliseconds(),
         SlowPollingTime = 10.Milliseconds(),
         HealthCheckPollingTime = 40.Milliseconds(),
-        HighWaterStalenessThreshold = 200.Milliseconds(),
+        HighWaterStalenessThreshold = stalenessThreshold ?? 200.Milliseconds(),
         HighWaterProgressStallThreshold = stallThreshold
     };
 
@@ -98,6 +98,12 @@ public class HighWaterAgent_progress_stall_Tests
     }
 
     // Null turns the check off entirely: not even the probe query runs.
+    //
+    // The staleness watchdog is a separate restart path, and it is not what this test is about. At the shared
+    // 200ms threshold, a loaded CI runner that delays one 10ms polling cycle past 200ms gets a legitimate
+    // staleness restart, and the "no Restarted" assertion below failed on it (a Windows run on jasperfx#1149)
+    // even though the stall probe never ran. A staleness threshold far beyond the test's one-second window
+    // leaves the stall probe as the only thing that could restart the loop.
     [Fact]
     public async Task a_null_threshold_disables_the_probe()
     {
@@ -108,7 +114,7 @@ public class HighWaterAgent_progress_stall_Tests
         using var subscription = tracker.Subscribe(recorder);
 
         var agent = new HighWaterAgent(new Meter("jasperfx.tests.highwater.stall-off"), detector, tracker,
-            NullLogger.Instance, settings(null), cts.Token);
+            NullLogger.Instance, settings(null, stalenessThreshold: 1.Minutes()), cts.Token);
         await agent.StartAsync();
 
         await Task.Delay(1.Seconds(), TestContext.Current.CancellationToken);

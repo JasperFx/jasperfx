@@ -49,24 +49,6 @@ public class RecentlyUsedAggregateWriteCacheTests
     }
 
     [Fact]
-    public void exactly_one_of_many_concurrent_takers_wins_an_entry()
-    {
-        var key = keyFor(Guid.NewGuid());
-        theCache.Store(key, new Basket(), 7);
-
-        var winners = 0;
-        Parallel.For(0, 64, i =>
-        {
-            if (theCache.TryTake(key, out _, out _))
-            {
-                Interlocked.Increment(ref winners);
-            }
-        });
-
-        winners.ShouldBe(1);
-    }
-
-    [Fact]
     public void evict_drops_the_entry()
     {
         var key = keyFor(Guid.NewGuid());

@@ -199,45 +199,4 @@ public class RecentlyUsedCacheCompactionTests
 
         assertFullyConsistent(cache, ids, ids.Where(id => !removed.Contains(id)).ToHashSet());
     }
-
-    [Fact]
-    public void concurrent_store_and_compact_stays_consistent()
-    {
-        // RecentlyUsedCache claims thread safety (#226). Hammer Store and
-        // CompactIfNecessary concurrently, then verify the quiesced cache
-        // is internally consistent: Count agrees with TryFind for every
-        // key ever stored, and the limit holds after a final compaction.
-        var cache = new RecentlyUsedCache<Guid, Item> { Limit = 100 };
-        const int writerCount = 4;
-        const int perWriter = 500;
-
-        var batches = Enumerable.Range(0, writerCount)
-            .Select(_ => Enumerable.Range(0, perWriter)
-                .Select(_ => Guid.NewGuid()).ToArray())
-            .ToArray();
-
-        Parallel.For(0, writerCount + 1, worker =>
-        {
-            if (worker == writerCount)
-            {
-                for (var i = 0; i < 200; i++)
-                {
-                    cache.CompactIfNecessary();
-                }
-            }
-            else
-            {
-                foreach (var id in batches[worker])
-                {
-                    cache.Store(id, new Item(id));
-                }
-            }
-        });
-
-        cache.CompactIfNecessary();
-        cache.Count.ShouldBe(100);
-
-        var findable = batches.SelectMany(x => x).Count(id => cache.TryFind(id, out _));
-        findable.ShouldBe(100);
-    }
 }
