@@ -261,6 +261,20 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
             return below.Count == 0 ? null : below.Max(x => x.Sequence);
         }
     }
+
+    // jasperfx#1150: events are held in sequence order, so the first match past the position is the lowest
+    internal IReadOnlyList<PendingEventAge> FirstEventTimestampsAfter(
+        IReadOnlyList<(string? TenantId, long Sequence)> positions)
+    {
+        using (EnterReadGate())
+        {
+            return positions
+                .Select(p => new PendingEventAge(p.TenantId, p.Sequence, _events
+                    .FirstOrDefault(x => x.Sequence > p.Sequence && !x.IsArchived
+                                         && (p.TenantId is null || x.TenantId == p.TenantId))?.Timestamp))
+                .ToList();
+        }
+    }
 }
 
 internal static class StreamStateTenantExtensions
