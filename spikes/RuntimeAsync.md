@@ -51,6 +51,7 @@ var syntaxTree = CSharpSyntaxTree.ParseText(code, options);
 | net11 rc3 | **4.14.0** | on | **The flag is ignored without a warning.** Still emits state machines. |
 | net10.0.14 | 5.9.0 | on | **Does not compile.** `SYSLIB5007`: `AsyncHelpers` is "for evaluation purposes only" in net10. |
 | net10.0.14 | 5.9.0 | on, with `SYSLIB5007` suppressed | Emits runtime-async IL. **Loading it fails** with `TypeLoadException ... because the format is invalid`. |
+| net10.0.14 | 5.9.0 | on, with `SYSLIB5007` suppressed, and the process started with `DOTNET_RuntimeAsync=1` | Runtime-async. Runs. The net10 runtime support exists but is switched off by default. |
 
 The non-async method that returns a `Task` (`PassThrough`) is left alone in every case, which is
 expected.
@@ -59,11 +60,13 @@ expected.
 
 - **Gate on net11 at compile time** (`#if NET11_0_OR_GREATER`, or a property set in the net11.0
   build). Do not gate on a runtime probe. On net10 the compiler refuses the code, and if the refusal
-  is suppressed the runtime refuses to load the type. A net11.0 build of JasperFx.RuntimeCompiler
+  is suppressed the runtime refuses to load the type unless the whole process was started with
+  `DOTNET_RuntimeAsync=1`, which JasperFx cannot require of its users. A net11.0 build of JasperFx.RuntimeCompiler
   only runs on net11+, so a compile-time gate is enough.
 - **Pin Roslyn to 5.x on net11.0 in `Directory.Packages.props`.** Today there is no net11.0
-  condition, so net11.0 gets the unconditional `[4.14.0,6.0.0)` range, and NuGet resolves the
-  lowest version in a range: 4.14.0. With 4.14.0 the flag does nothing and says nothing. Both 5.0.0
+  condition, so net11.0 would get the unconditional `[4.14.0,6.0.0)` range, and NuGet resolves the
+  lowest version in a range, which is 4.14.0. This was not restored for real, because nothing
+  targets net11.0 until #1039. With 4.14.0 the flag does nothing and says nothing. Both 5.0.0
   (the net10.0 pin) and 5.9.0 work, but 5.0.0 predates .NET 11. Track the SDK's Roslyn instead (the
   RC3 SDK ships 5.12.0).
 - **Make it opt-in or opt-out (plan decision D4).** `CSharpParseOptions` is per-compilation, so a
