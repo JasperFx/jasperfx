@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+      jasperfx#1038 spike. Compiles generated-style C# in memory with Roslyn the way
+      JasperFx.RuntimeCompiler's AssemblyGenerator does, once with and once without the
+      runtime-async feature flag, and reports what came out. Not part of jasperfx.slnx.
+
+        dotnet run -f net11.0                         # Roslyn 5.9.0 (default)
+        dotnet run -f net10.0
+        dotnet run -f net11.0 -p:RoslynVersion=5.0.0  # the version RuntimeCompiler pins on net10.0
+    -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RoslynVersion Condition="'$(RoslynVersion)' == ''">5.9.0</RoslynVersion>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(RoslynVersion)" />
+    </ItemGroup>
+</Project>

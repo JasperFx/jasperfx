@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+      jasperfx#1038 spike, csproj half. The same async code built for net10.0 and net11.0, with the
+      runtime-async compiler feature turned on for net11.0 only - the shape #1040 would put in
+      Directory.Build.props. Build it with -p:RuntimeAsync=false to see what the net11.0 SDK does
+      without the flag.
+
+        dotnet run -f net11.0
+        dotnet run -f net10.0
+        dotnet run -f net11.0 -p:RuntimeAsync=false
+    -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RuntimeAsync Condition="'$(RuntimeAsync)' == ''">true</RuntimeAsync>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(RuntimeAsync)' == 'true' And $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net11.0'))">
+        <Features>$(Features);runtime-async=on</Features>
+    </PropertyGroup>
+</Project>

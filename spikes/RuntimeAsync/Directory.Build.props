@@ -1,0 +1,4 @@
+<Project>
+    <!-- Scoped to spikes/RuntimeAsync only, so spikes beside it (StjUnionSpike) keep the repo props.
+         Stops the repo-root Directory.Build.props (net9.0;net10.0, LangVersion 13) reaching these spikes. -->
+</Project>
