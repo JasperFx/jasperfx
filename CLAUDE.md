@@ -36,7 +36,8 @@ src/
 ├── CodegenTests/                # Tests for JasperFx/CodeGeneration
 ├── CommandLineTests/            # Tests for JasperFx/CommandLine
 ├── EventTests/                  # Tests for JasperFx.Events
-└── EventStoreTests/             # Additional event store tests
+├── EventStoreTests/             # Additional event store tests
+└── StressTests/                 # Concurrency stress tests, run one at a time
 ```
 
 ## Build Commands
@@ -47,6 +48,7 @@ src/
 ./build.sh test-codegen     # Code generation tests only
 ./build.sh test-command-line # CLI tests only
 ./build.sh test-events      # Event tests only
+./build.sh test-stress      # Concurrency stress tests only
 ./build.sh test             # All tests
 ./build.sh nuget-pack       # Package for NuGet
 ./build.sh clean            # Clean outputs
@@ -75,6 +77,7 @@ Build configuration: `build/Build.cs`
 - NSubstitute for mocking, Shouldly for assertions
 - Custom `SpecificationExtensions` in each test project for `ShouldHaveTheSameElementsAs()` etc.
 - CI runs with `DISABLE_TEST_PARALLELIZATION=true`
+- Tests that drive many threads or many rounds of a race go in `StressTests/`, not beside the code they cover. That project runs its tests one at a time, so they can't starve the timing-sensitive tests in the other suites of thread-pool threads.
 
 ## Additional Documentation
 

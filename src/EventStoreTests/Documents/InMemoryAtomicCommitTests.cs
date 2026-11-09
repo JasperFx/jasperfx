@@ -132,24 +132,6 @@ public class InMemoryAtomicCommitTests
         listener.Commits.ShouldBe(2);
     }
 
-    [Fact]
-    public async Task concurrent_units_of_work_all_land()
-    {
-        var store = new InMemoryDocumentStore();
-
-        var notes = Enumerable.Range(0, 200).Select(i => new Note { Text = $"note {i}" }).ToArray();
-
-        await Parallel.ForEachAsync(notes, TestContext.Current.CancellationToken, async (note, token) =>
-        {
-            await using var session = store.LightweightSession();
-            session.Store(note);
-            await session.SaveChangesAsync(token);
-        });
-
-        await using var query = store.QuerySession();
-        query.Query<Note>().Count().ShouldBe(200);
-    }
-
     private static async Task<Ticket> loadTicket(InMemoryDocumentStore store, Guid id)
     {
         await using var session = store.QuerySession();

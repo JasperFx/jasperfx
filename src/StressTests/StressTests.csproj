@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!--
+        Tests that deliberately drive many threads, or many rounds of a race, to provoke a concurrency bug.
+        They live here rather than beside the code they cover because xunit runs test classes in parallel
+        inside an assembly: a stress test there competes for the thread pool with the timing-sensitive tests
+        in the same project (HighWaterAgent's 200ms staleness watchdog among them) and makes those flaky on
+        slow CI runners. This assembly runs its own tests one at a time; see NoXUnitParallelization.cs.
+    -->
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <!-- An xunit v3 test project is its own MTP executable and won't build without it. -->
+        <OutputType>Exe</OutputType>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+        <PackageReference Include="NSubstitute" />
+        <PackageReference Include="Shouldly" />
+        <PackageReference Include="xunit.v3" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\JasperFx\JasperFx.csproj" />
+        <ProjectReference Include="..\JasperFx.Events\JasperFx.Events.csproj" />
+        <ProjectReference Include="..\JasperFx.Events.InMemory\JasperFx.Events.InMemory.csproj" />
+    </ItemGroup>
+</Project>

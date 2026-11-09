@@ -88,6 +88,11 @@ jobs:
         run: ./build.ps1 test-events
         shell: pwsh
 
+      - name: test-stress
+        if: ${{ success() || failure() }}
+        run: ./build.ps1 test-stress
+        shell: pwsh
+
       - name: test-event-store
         if: ${{ success() || failure() }}
         run: ./build.ps1 test-event-store
@@ -155,6 +160,11 @@ jobs:
       - name: test-events
         if: ${{ success() || failure() }}
         run: ./build.sh test-events
+        shell: bash
+
+      - name: test-stress
+        if: ${{ success() || failure() }}
+        run: ./build.sh test-stress
         shell: bash
 
       - name: test-event-store

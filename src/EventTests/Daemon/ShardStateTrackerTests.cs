@@ -518,47 +518,6 @@ public class ShardStateTrackerTests : IDisposable
         return parked;
     }
 
-    [Fact]
-    public async Task publish_then_wait_from_another_thread_never_loses_the_wakeup()
-    {
-        // The shape Marten's HighWaterAgentTests hit: a publication in flight on one thread while the wait
-        // is being set up on another, and nothing further is ever published for that shard. Repeat it
-        // enough times to land inside the old window.
-        for (var i = 0; i < 200; i++)
-        {
-            using var tracker = new ShardStateTracker(new NulloLogger());
-            var ready = new ManualResetEventSlim(false);
-
-            var publisher = Task.Run(async () =>
-            {
-                ready.Wait();
-                await tracker.PublishAsync(new ShardState("Trip:All", 45) { AgentStatus = "Running" });
-            }, TestContext.Current.CancellationToken);
-
-            ready.Set();
-
-            var state = await tracker.WaitForShardState("Trip:All", 45, 10.Seconds());
-            state.Sequence.ShouldBe(45);
-
-            await publisher;
-        }
-    }
-
-    [Fact]
-    public async Task concurrent_subscribers_are_never_silently_dropped()
-    {
-        // Subscribe was a read-modify-write on a plain field, so two threads adding themselves at once
-        // could leave one of them off the list entirely — a permanently lost wakeup, not a delayed one.
-        var observers = Enumerable.Range(0, 100).Select(_ => new Observer()).ToArray();
-
-        Parallel.ForEach(observers, observer => theTracker.Subscribe(observer));
-
-        await theTracker.PublishAsync(new ShardState("Trip:All", 45));
-        await theTracker.Complete();
-
-        observers.ShouldAllBe(x => x.States.Count == 1);
-    }
-
     /// <summary>
     /// Occupies the tracker's consumer thread inside a delivery until released, so a test can prove a
     /// following publication has not been walked yet.
