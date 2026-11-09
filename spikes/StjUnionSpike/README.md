@@ -3,7 +3,12 @@
 How System.Text.Json in .NET 11 serializes C# 15 unions, and what that means for union events in
 JasperFx.Events (jasperfx#1053) and for the union type-test SQL in Weasel (weasel#744).
 
-Every claim below is pinned by a test in this folder. To rerun them, use a .NET 11 SDK:
+The runtime behaviour below is pinned by the tests in this folder. Three findings are
+compile-time and come from builds, not tests: CS0592 for `[JsonPolymorphic]` on a union, CS0518 /
+CS0656 when a net10 target uses the `union` keyword, and the SYSLIB1227 warning, which shows up
+when you build this project. The SQL column of the "what is stored" table, and the
+recommendations at the end, are advice for the downstream issues and were not measured. To
+rerun the tests, use a .NET 11 SDK:
 
 ```bash
 dotnet test spikes/StjUnionSpike
@@ -48,7 +53,9 @@ dotnet test spikes/StjUnionSpike
   `null` `Value`.
 - **A trap for #1053:** on a variable typed as the union, C# union patterns test the case.
   `pet is IUnion` is `false` and `pet is Dog` is `true`. Detection code must test `object`
-  (JasperFx's `Append(object)` path already does) or `Type`, never a union-typed variable.
+  (JasperFx's `Append(object)` path already does), `Type`, or an unconstrained generic `T`.
+  Never test a union-typed variable. `x is IUnion` inside `IsUnion<T>(T x)` called with a `Pet`
+  sees the union and returns `true`.
 - A hand-written `[Union]` struct implementing `IUnion` gets exactly the same STJ treatment as a
   keyword union.
 - There are two ways to list the cases, and they agree:
@@ -140,8 +147,9 @@ source-gen context.
 | Structural classifier | bare case (same bytes as default) | Property presence: a case's distinguishing property exists (`?` / `jsonb_path_exists`, `JSON_PATH_EXISTS`, `json_type(data, '$.Prop') IS NOT NULL`). Absence matters too when one shape contains another |
 | Discriminator (case types carry it) | case including its own `$kind` | `data->>'$kind' = 'withdrawn'` and its equivalents |
 
-Writing never depends on the classifier. A read-side classifier choice therefore never changes
-stored data, and existing rows stay valid if the classifier changes later.
+A classifier never changes the bytes that are written, so changing the classifier later does not
+invalidate stored data. It can make a write *fail*, though: the structural classifier refuses an
+overlapping union even when writing.
 
 ## 4. Union events (`UnionEventTests`)
 
@@ -175,7 +183,8 @@ stored data, and existing rows stay valid if the classifier changes later.
 - Unwrap with `IUnion.Value` in `Append`, looping for nested unions and rejecting a default
   union.
 - Put all of it behind `#if NET11_0_OR_GREATER`.
-- Avoid `is IUnion` on any statically union-typed variable.
+- Avoid `is IUnion` on any statically union-typed variable. On `object` and on generic `T` it is
+  safe.
 - For `Apply(union)`, register one handler per case. Generated code can pass the case straight
   through, relying on the implicit conversion.
 

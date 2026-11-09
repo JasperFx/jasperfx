@@ -49,6 +49,16 @@ public class UnionShapeTests
         (pet is Cat).ShouldBeFalse();
     }
 
+    private static bool IsUnion<T>(T value) => value is IUnion;
+
+    [Fact]
+    public void through_a_generic_type_parameter_the_union_itself_is_tested()
+    {
+        // Generic event paths (Append<T>, codegen over T @event) see the union, not the case
+        IsUnion(new Pet(new Dog("Rex", 3))).ShouldBeTrue();
+        IsUnion(new Dog("Rex", 3)).ShouldBeFalse();
+    }
+
     [Fact]
     public void the_default_union_value_has_a_null_Value()
     {
