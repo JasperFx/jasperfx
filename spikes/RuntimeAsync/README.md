@@ -9,8 +9,8 @@ Spike results for #1040, which makes the change for real. Two questions:
 The answer to both is **yes, on net11.0 only, and only with Roslyn 5.x**. Measured on 2026-11-09
 with SDK `11.0.100-rc.3.26522.148` (runtime `11.0.0-rc.3`) and runtime `10.0.14`, on macOS arm64.
 
-Neither spike project is in `jasperfx.slnx`. `spikes/Directory.Build.props` and
-`spikes/Directory.Packages.props` stop the repo-wide `net9.0;net10.0` targets, LangVersion 13 and
+Neither spike project is in `jasperfx.slnx`. `spikes/RuntimeAsync/Directory.Build.props` and
+`spikes/RuntimeAsync/Directory.Packages.props` stop the repo-wide `net9.0;net10.0` targets, LangVersion 13 and
 central package versions from reaching them.
 
 ## How to tell whether it worked
@@ -20,7 +20,7 @@ has no `[AsyncStateMachine]` attribute and no compiler-generated `<Name>d__N` st
 Both spikes check for all three. They do not only check that the code runs, because state-machine
 code runs too.
 
-## 1. In-memory compilation (`spikes/RuntimeAsyncSpike`)
+## 1. In-memory compilation (`spikes/RuntimeAsync/RuntimeAsyncSpike`)
 
 The spike compiles handler-shaped code the way `AssemblyGenerator.Generate(string)` does: one
 `CSharpSyntaxTree.ParseText`, `CSharpCompilation.Create`, references taken from the running
@@ -29,9 +29,9 @@ runtime's assemblies, and `Emit` to a stream loaded into an `AssemblyLoadContext
 non-async method that returns a `Task`. It then runs the loaded code and checks the result.
 
 ```
-dotnet run -f net11.0 --project spikes/RuntimeAsyncSpike                          # Roslyn 5.9.0
-dotnet run -f net10.0 --project spikes/RuntimeAsyncSpike
-dotnet run -f net11.0 --project spikes/RuntimeAsyncSpike -p:RoslynVersion=5.0.0
+dotnet run -f net11.0 --project spikes/RuntimeAsync/RuntimeAsyncSpike                          # Roslyn 5.9.0
+dotnet run -f net10.0 --project spikes/RuntimeAsync/RuntimeAsyncSpike
+dotnet run -f net11.0 --project spikes/RuntimeAsync/RuntimeAsyncSpike -p:RoslynVersion=5.0.0
 ```
 
 The change is one line:
@@ -77,7 +77,7 @@ expected.
   probe. Roslyn decides whether runtime-async is available from the referenced corelib
   (`System.Runtime.CompilerServices.AsyncHelpers`, which is not experimental in net11).
 
-## 2. Csproj flag (`spikes/RuntimeAsyncCsprojFlag`)
+## 2. Csproj flag (`spikes/RuntimeAsync/RuntimeAsyncCsprojFlag`)
 
 The same async code is multi-targeted `net10.0;net11.0`, with the feature turned on for net11.0
 only. This is the shape that would go in `Directory.Build.props`:
@@ -89,9 +89,9 @@ only. This is the shape that would go in `Directory.Build.props`:
 ```
 
 ```
-dotnet run -f net11.0 --project spikes/RuntimeAsyncCsprojFlag
-dotnet run -f net10.0 --project spikes/RuntimeAsyncCsprojFlag
-dotnet run -f net11.0 --project spikes/RuntimeAsyncCsprojFlag -p:RuntimeAsync=false   # after deleting bin/ and obj/
+dotnet run -f net11.0 --project spikes/RuntimeAsync/RuntimeAsyncCsprojFlag
+dotnet run -f net10.0 --project spikes/RuntimeAsync/RuntimeAsyncCsprojFlag
+dotnet run -f net11.0 --project spikes/RuntimeAsync/RuntimeAsyncCsprojFlag -p:RuntimeAsync=false   # after deleting bin/ and obj/
 ```
 
 | TFM | Flag | Result |
