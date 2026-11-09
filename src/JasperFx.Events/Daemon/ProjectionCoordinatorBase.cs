@@ -48,6 +48,17 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
     private CancellationTokenSource? _cancellation;
     private Task? _runner;
 
+    // #1148: one lifecycle transition at a time. _cancellation and _runner are shared fields that
+    // Start/Pause/Stop read, await across, then dispose and replace, and CancellationTokenSource is not
+    // safe to dispose concurrently with any other member. Overlapping callers are real: RunCommand stops
+    // the host again when ApplicationStopping fires, so a WebApplicationFactory/Alba teardown has two
+    // IHost.StopAsync calls in flight, and Marten's ProjectionCoordinator.DisposeAsync is a third path
+    // into StopAsync. Holding this across the whole transition (not just the runner teardown) also keeps
+    // the daemon fan-out, disposal and ReleaseAllLocks from running twice at once, and stops a ResumeAsync
+    // from starting a fresh loop between a StopAsync's drain and its lock release. The leadership loop
+    // itself never takes it, so draining the runner while holding it cannot deadlock.
+    private readonly SemaphoreSlim _lifecycle = new(1, 1);
+
     /// <summary>
     /// The distributor that decides which (database × shards) sets this node should
     /// try to run, and negotiates the per-set leadership locks. Null when the coordinator
@@ -124,6 +135,20 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
             return;
         }
 
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await startRunnerAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
+    // Caller must hold _lifecycle.
+    private async Task startRunnerAsync()
+    {
         // #592: cancel AND drain any existing loop before starting another one. Disposing a
         // CancellationTokenSource does not cancel it, so the previous StartAsync used to leave
         // executeAsync polling forever against a token that never trips, over a task that no
@@ -140,12 +165,14 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
         // what every caller already assumes.
         await stopRunnerAsync().ConfigureAwait(false);
 
-        _cancellation = new CancellationTokenSource();
-        _runner = Task.Run(() => executeAsync(_cancellation.Token), _cancellation.Token);
+        // Captured locally so the runner never reads the field, which a later stop disposes and clears.
+        var cancellation = new CancellationTokenSource();
+        _cancellation = cancellation;
+        _runner = Task.Run(() => executeAsync(cancellation.Token), cancellation.Token);
     }
 
     // Cancel the leadership loop, wait for it to actually exit, and clear the bookkeeping so
-    // nothing can await or cancel a dead runner twice.
+    // nothing can await or cancel a dead runner twice. Caller must hold _lifecycle.
     private async Task stopRunnerAsync()
     {
         if (_cancellation == null && _runner == null) return;
@@ -164,6 +191,20 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
 
     /// <inheritdoc />
     public async Task PauseAsync()
+    {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await pauseCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
+    // Caller must hold _lifecycle.
+    private async Task pauseCoreAsync()
     {
         _logger.LogInformation("Pausing ProjectionCoordinator");
 
@@ -200,9 +241,29 @@ public abstract class ProjectionCoordinatorBase : IProjectionCoordinator
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Safe to call concurrently with itself and with <see cref="StartAsync"/>, <see cref="PauseAsync"/>
+    /// and <see cref="ResumeAsync"/>: lifecycle calls are serialized, so an overlapping stop waits for the
+    /// one in flight and then finds nothing left to tear down (#1148). The token is deliberately not used
+    /// for that wait, so a shutdown always completes its teardown.
+    /// </remarks>
     public virtual async Task StopAsync(CancellationToken cancellationToken)
     {
-        await PauseAsync().ConfigureAwait(false);
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await stopCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
+    // Caller must hold _lifecycle.
+    private async Task stopCoreAsync()
+    {
+        await pauseCoreAsync().ConfigureAwait(false);
 
         foreach (var daemon in ResolvedDaemons())
         {

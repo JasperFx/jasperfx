@@ -437,6 +437,102 @@ public class ProjectionCoordinatorBaseTests
         await Should.NotThrowAsync(() => coordinator.PauseAsync());
     }
 
+    // ---- #1148: overlapping lifecycle calls ----
+    //
+    // The fixes above made repeated calls safe one after another, but nothing serialized calls that
+    // overlap. RunCommand stops the host a second time when ApplicationStopping fires, so a
+    // WebApplicationFactory/Alba teardown has two IHost.StopAsync calls in flight and both reach the
+    // coordinator. stopRunnerAsync read _cancellation, awaited, then disposed it, so the second caller
+    // could call CancelAsync on a source the first had just disposed (ObjectDisposedException).
+
+    private static readonly TimeSpan OverlapTimeout = TimeSpan.FromSeconds(10);
+
+    [Fact]
+    public async Task overlapping_stops_and_pauses_never_throw_and_tear_down_once()
+    {
+        const int callers = 32;
+
+        for (var round = 0; round < 200; round++)
+        {
+            var daemon = new FakeDaemon();
+            var coordinator = BuildCoordinator(new FakeDistributor([]), daemon, TimeSpan.FromMilliseconds(5));
+            await coordinator.StartAsync(CancellationToken.None);
+            coordinator.ForceResolve();
+
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var calls = Enumerable.Range(0, callers)
+                .Select(i => Task.Run(async () =>
+                {
+                    await gate.Task;
+                    if (i % 2 == 0)
+                    {
+                        await coordinator.StopAsync(CancellationToken.None);
+                    }
+                    else
+                    {
+                        await coordinator.PauseAsync();
+                    }
+                }))
+                .ToArray();
+
+            gate.SetResult();
+            // Bounded so a regression fails instead of hanging the run: the unserialized code could
+            // also deadlock here, with callers stuck behind a runner nothing would ever cancel.
+            await Should.NotThrowAsync(() => Task.WhenAll(calls).WaitAsync(OverlapTimeout));
+
+            // The first stop to run disposed the daemon and purged the cache, so no other caller
+            // fanned out over it a second time.
+            daemon.DisposeCount.ShouldBe(1);
+        }
+    }
+
+    [Fact]
+    public async Task overlapping_resumes_and_stops_never_orphan_a_leadership_loop()
+    {
+        const int callers = 16;
+        var distributors = new List<FakeDistributor>();
+
+        for (var round = 0; round < 30; round++)
+        {
+            var set = new FakeProjectionSet("db1", [TheShard], 100);
+            var distributor = new FakeDistributor([set]);
+            distributors.Add(distributor);
+
+            var coordinator = BuildCoordinator(distributor, new FakeDaemon(), TimeSpan.FromMilliseconds(5));
+            await coordinator.StartAsync(CancellationToken.None);
+
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var calls = Enumerable.Range(0, callers)
+                .Select(i => Task.Run(async () =>
+                {
+                    await gate.Task;
+                    if (i % 3 == 0)
+                    {
+                        await coordinator.StopAsync(CancellationToken.None);
+                    }
+                    else
+                    {
+                        // Two StartAsync calls that overlap used to each build a runner, and the
+                        // second overwrote the first, leaving a loop nothing would ever cancel.
+                        await coordinator.ResumeAsync();
+                    }
+                }))
+                .ToArray();
+
+            gate.SetResult();
+            // Bounded so a regression fails instead of hanging the run: the unserialized code could
+            // also deadlock here, with callers stuck behind a runner nothing would ever cancel.
+            await Should.NotThrowAsync(() => Task.WhenAll(calls).WaitAsync(OverlapTimeout));
+
+            await coordinator.StopAsync(CancellationToken.None).WaitAsync(OverlapTimeout);
+        }
+
+        // Every coordinator is stopped, so no leadership loop may still be polling for locks.
+        var afterStop = distributors.Select(x => Volatile.Read(ref x.AttainAttempts)).ToArray();
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        distributors.Select(x => Volatile.Read(ref x.AttainAttempts)).ToArray().ShouldBe(afterStop);
+    }
+
     // #352: a coordinator can be legitimately constructed but never started when the async
     // daemon is Disabled — the store's BuildDistributor returns null because there is nothing
     // to coordinate. The ctor must not reject that; the lifecycle methods must no-op cleanly.
