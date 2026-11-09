@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -31,6 +32,28 @@ partial class Build : NukeBuild
     [Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")]
     readonly Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
 
+    // The one framework every target that must pin to a single TFM runs on (the F# gate, the CLI smoke
+    // commands). Was a literal net9.0 in several places, which breaks the moment net9.0 is dropped from
+    // TargetFrameworks. net10.0 is in the set before and after that, so it is safe on both sides.
+    [Parameter("Target framework for single-framework targets (F# gate, command smoke tests) - Default is 'net10.0'")]
+    readonly string SingleFramework = "net10.0";
+
+    [Parameter("Package version for NugetPack, overriding JasperFxVersion in Directory.Build.props (e.g. 3.0.0-local.1)")]
+    readonly string Version;
+
+    [Parameter("Folder to publish packed .nupkg files into as a local NuGet feed (NugetPack)")]
+    readonly string Feed;
+
+    // Which Stoat/Bobcat gate this run belongs to. Test targets inherit it through the environment; it is
+    // logged so a run's correlation is visible in the build output rather than silent.
+    static void ReportRunTag(string target)
+    {
+        var tag = Environment.GetEnvironmentVariable("BOBCAT_RUN_TAG");
+        Serilog.Log.Information(string.IsNullOrEmpty(tag)
+            ? "{Target}: BOBCAT_RUN_TAG is not set; this run is not correlated to a Stoat gate"
+            : "{Target}: running under BOBCAT_RUN_TAG={Tag}", target, tag);
+    }
+
     Target Clean => _ => _
         .Before(Restore)
         .Executes(() =>
@@ -60,6 +83,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestCore");
             DotNetTest(c => c
                 .SetProjectFile(Solution.CoreTests)
                 .SetConfiguration(Configuration)
@@ -71,6 +95,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestCodegen");
             DotNetTest(c => c
                 .SetProjectFile(Solution.CodegenTests)
                 .SetConfiguration(Configuration)
@@ -89,9 +114,10 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestCodegenFSharp");
             DotNetTest(c => c
                 .SetProjectFile(Solution.src.CodegenTests_FSharp)
-                .SetFramework("net9.0")
+                .SetFramework(SingleFramework)
                 .SetConfiguration(Configuration)
                 .EnableNoBuild()
                 .EnableNoRestore());
@@ -101,6 +127,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestCommandLine");
             DotNetTest(c => c
                 .SetProjectFile(Solution.CommandLineTests)
                 .SetConfiguration(Configuration)
@@ -112,6 +139,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestEvents");
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventTests)
                 .SetConfiguration(Configuration)
@@ -123,6 +151,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestEventStore");
             DotNetTest(c => c
                 .SetProjectFile(Solution.EventStoreTests)
                 .SetConfiguration(Configuration)
@@ -136,6 +165,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestInMemoryEventStore");
             DotNetTest(c => c
                 .SetProjectFile(Solution.InMemoryEventStoreTests)
                 .SetConfiguration(Configuration)
@@ -151,6 +181,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestStress");
             DotNetTest(c => c
                 .SetProjectFile(Solution.StressTests)
                 .SetConfiguration(Configuration)
@@ -166,6 +197,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestSourceGenerators");
             DotNetTest(c => c
                 .SetProjectFile(Solution.src.JasperFx_SourceGenerator_Tests)
                 .SetConfiguration(Configuration)
@@ -185,6 +217,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestAspire");
             DotNetTest(c => c
                 .SetProjectFile(Solution.src.JasperFx_Aspire_Tests)
                 .SetConfiguration(Configuration)
@@ -198,6 +231,7 @@ partial class Build : NukeBuild
         .DependsOn(Compile)
         .Executes(() =>
         {
+            ReportRunTag("TestMicrosoftExtensionsAI");
             DotNetTest(c => c
                 .SetProjectFile(Solution.src.JasperFx_Events_MicrosoftExtensionsAI_Tests)
                 .SetConfiguration(Configuration)
@@ -208,16 +242,17 @@ partial class Build : NukeBuild
     Target SmokeTestCommands => _ => _.DependsOn(Compile)
         .Executes(() =>
         {
-            DotNet("run --framework net9.0 -- check-env", Solution.TestHarnesses.CommandLineRunner.Directory);
-            DotNet("run --framework net9.0 -- describe", Solution.TestHarnesses.CommandLineRunner.Directory);
-            DotNet("run --framework net9.0 -- describe --file description.txt", Solution.TestHarnesses.CommandLineRunner.Directory);
-            DotNet("run --framework net9.0 -- describe --environment Testing --applicationName Different --contentRoot /bin", Solution.TestHarnesses.CommandLineRunner.Directory);
-            DotNet("run --framework net9.0 -- describe --environment=Testing --applicationName=Different --contentRoot=/bin", Solution.TestHarnesses.CommandLineRunner.Directory);
-            DotNet("run --framework net9.0 -- codegen preview --start", Solution.TestHarnesses.GeneratorTarget.Directory);
+            ReportRunTag("SmokeTestCommands");
+            DotNet($"run --framework {SingleFramework} -- check-env", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet($"run --framework {SingleFramework} -- describe", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet($"run --framework {SingleFramework} -- describe --file description.txt", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet($"run --framework {SingleFramework} -- describe --environment Testing --applicationName Different --contentRoot /bin", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet($"run --framework {SingleFramework} -- describe --environment=Testing --applicationName=Different --contentRoot=/bin", Solution.TestHarnesses.CommandLineRunner.Directory);
+            DotNet($"run --framework {SingleFramework} -- codegen preview --start", Solution.TestHarnesses.GeneratorTarget.Directory);
 
             // Validate the `--language fsharp` codegen flag is wired through the CLI and emits F#.
             // (Compilable/runnable pre-generated F# is proven downstream against real handler chains.)
-            DotNet("run --framework net9.0 -- codegen preview --language fsharp --start", Solution.TestHarnesses.GeneratorTarget.Directory);
+            DotNet($"run --framework {SingleFramework} -- codegen preview --language fsharp --start", Solution.TestHarnesses.GeneratorTarget.Directory);
         });
 
     /// <summary>
@@ -583,7 +618,19 @@ partial class Build : NukeBuild
                 DotNetPack(s => s
                     .SetProject(project)
                     .SetOutputDirectory(ArtifactsDirectory)
-                    .SetConfiguration(Configuration.Release));
+                    .SetConfiguration(Configuration.Release)
+                    .When(_ => !string.IsNullOrEmpty(Version), x => x.SetProperty("JasperFxVersion", Version)));
+            }
+
+            if (!string.IsNullOrEmpty(Feed))
+            {
+                Directory.CreateDirectory(Feed);
+                foreach (var package in ArtifactsDirectory.GlobFiles("*.nupkg"))
+                {
+                    File.Copy(package, Path.Combine(Feed, package.Name), true);
+                }
+
+                Serilog.Log.Information("Copied packed packages into the local feed {Feed}", Feed);
             }
         });
     
