@@ -4,6 +4,7 @@ using JasperFx.Descriptors;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
+using JasperFx.OpenTelemetry;
 using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.InMemory;
@@ -22,6 +23,7 @@ namespace JasperFx.Events.InMemory;
 /// </remarks>
 public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSession, IInMemoryQuerySession>
 {
+    private readonly OpenTelemetryOptions _openTelemetry = new("JasperFx.Events.InMemory");
     private InMemoryEventDatabase? _database;
 
     internal InMemoryEventDatabase Database => _database ??= new InMemoryEventDatabase(this);
@@ -52,10 +54,10 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
         => throw InMemoryEventRegistry.NotSupported("The async daemon");
 
     /// <inheritdoc />
-    public Meter Meter { get; } = new("JasperFx.Events.InMemory");
+    public Meter Meter => _openTelemetry.Meter;
 
     /// <inheritdoc />
-    public ActivitySource ActivitySource { get; } = new("JasperFx.Events.InMemory");
+    public ActivitySource ActivitySource => _openTelemetry.ActivitySource;
 
     /// <inheritdoc />
     public string MetricsPrefix => "inmemory";
@@ -108,8 +110,15 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     IEventRegistry IEventStore<IInMemoryDocumentSession, IInMemoryQuerySession>.Registry => Events;
 
     /// <inheritdoc />
-    public Type IdentityTypeForProjectedType(Type aggregateType)
+    public Type IdentityTypeForProjectedType(Type aggregateType) => IdentityTypeFor(aggregateType);
+
+    /// <inheritdoc />
+    public Type IdentityTypeFor(Type aggregateType)
         => InMemoryAggregateIdentity.ResolveIdType(aggregateType, Events.StreamIdentity);
+
+    /// <inheritdoc />
+    public NaturalKeyDefinition? FindNaturalKeyDefinition(Type aggregateType)
+        => Projections.TryFindAggregate(aggregateType, out var projection) ? projection.NaturalKeyDefinition : null;
 
     /// <inheritdoc />
     public string DefaultDatabaseName => InMemoryEventDatabase.Name;

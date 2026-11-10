@@ -437,7 +437,7 @@ public class JasperFxOptions : SystemPartBase
     public static string? ResolveProjectRoot(string currentPath)
     {
         // In CI (like Azure DevOps), the current directory is often the project root
-        // In local dev, we are usually in bin/Debug/net9.0
+        // In local dev, we are usually in bin/Debug/net10.0
         var directory = new DirectoryInfo(currentPath);
         while (directory != null)
         {

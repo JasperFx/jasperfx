@@ -71,6 +71,8 @@ public class CompositeProjectionSource<TOperations, TQuerySession> :
                 RegisterPublishedType(publishedType);
             }
         }
+
+        Options.DeleteTablesPublishedBy(projection);
     }
 
     public SubscriptionType Type => SubscriptionType.EventProjection;

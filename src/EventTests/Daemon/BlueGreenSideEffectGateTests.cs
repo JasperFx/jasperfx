@@ -161,11 +161,27 @@ public class BlueGreenSideEffectGateTests
     }
 
     [Fact]
-    public async Task no_gate_without_the_opt_in()
+    public async Task the_gate_is_on_by_default()
     {
-        // Same fresh-deploy state, but the projection did not opt in: today's behavior, one continuous
-        // catch-up over the whole history with side effects firing throughout.
+        // jasperfx#1075: the projection says nothing, and still gets the fresh-deploy behavior.
+        new AsyncOptions().GateSideEffectsBehindPriorVersion.ShouldBeTrue();
+
         await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3));
+        harness.SetProgress("Trips:V2:All", 1000);
+
+        await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(true, 0L, 1000L));
+        (await harness.Execution.NextPageAsync()).ShouldBe(new Page(false, 1000L, HighWater));
+    }
+
+    [Fact]
+    public async Task no_gate_when_turned_off()
+    {
+        // Same fresh-deploy state, but the projection turned the gate off: the pre-3.0 behavior, one
+        // continuous catch-up over the whole history with side effects firing throughout.
+        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
+            options => options.GateSideEffectsBehindPriorVersion = false);
         harness.SetProgress("Trips:V2:All", 1000);
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);

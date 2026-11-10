@@ -389,6 +389,44 @@ public abstract class FetchForWritingCompliance<TFixture, TOperations, TQuerySes
         });
     }
 
+    // jasperfx#1047: nothing pinned what this argument means, so Marten and Polecat could read it as the
+    // version after the append and Fisher as the version before, and every suite passed.
+    [Fact]
+    public async Task an_appends_expected_version_is_the_version_after_the_append()
+    {
+        var streamId = await anOpenAccountAsync();
+
+        await using var session = OpenSession();
+        EventsFor(session).Append(streamId, 3L, new MoneyDeposited(1), new MoneyDeposited(2));
+        await SaveChangesAsync(session);
+
+        var state = await EventsFor(session).FetchStreamStateAsync(streamId, Cancellation);
+        state.ShouldNotBeNull();
+        state.Version.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task an_append_is_refused_when_the_stream_is_already_at_the_expected_version()
+    {
+        var streamId = await anOpenAccountAsync(new MoneyDeposited(100));
+
+        await using var session = OpenSession();
+        EventsFor(session).Append(streamId, 2L, new MoneyDeposited(1));
+
+        await ShouldFailWithAsync<ConcurrencyException>(() => SaveChangesAsync(session));
+    }
+
+    [Fact]
+    public async Task an_append_refuses_an_expected_version_below_its_own_event_count()
+    {
+        var streamId = await anOpenAccountAsync();
+
+        await using var session = OpenSession();
+
+        Should.Throw<ArgumentOutOfRangeException>(() =>
+            EventsFor(session).Append(streamId, 1L, new MoneyDeposited(1), new MoneyDeposited(2)));
+    }
+
     [Fact]
     public async Task append_optimistic_against_an_existing_stream()
     {

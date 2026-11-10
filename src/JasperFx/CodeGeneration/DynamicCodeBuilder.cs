@@ -291,15 +291,36 @@ public class DynamicCodeBuilder
     ///     The assembly containing the pre-built types. If null, this falls back to the entry assembly of
     ///     the running application
     /// </param>
+    /// <exception cref="ExpectedTypeMissingException">
+    ///     The static loader is in effect, so a type that could not be attached here has no fallback
+    ///     and could only fail later, at first use.
+    /// </exception>
     public async Task LoadPrebuiltTypes(Assembly? assembly = null)
     {
         foreach (var collection in Collections)
         {
+            var target = assembly ?? collection.Rules.ApplicationAssembly;
+            var @namespace = $"{collection.Rules.GeneratedNamespace}.{collection.ChildNamespace}";
+
+            var missing = new List<ICodeFile>();
             foreach (var file in collection.BuildFiles())
             {
-                var @namespace = $"{collection.Rules.GeneratedNamespace}.{collection.ChildNamespace}";
-                await file.AttachTypes(collection.Rules, assembly ?? collection.Rules.ApplicationAssembly, Services,
-                    @namespace);
+                if (!await file.AttachTypes(collection.Rules, target, Services, @namespace))
+                {
+                    missing.Add(file);
+                }
+            }
+
+            // jasperfx#1041: this used to drop the result, which is the one place an empty static scan went
+            // unremarked. A miss is not news to the other loaders (they compile on demand) or to a codegen
+            // command (generating the missing types is the point), and a collection with nothing to attach
+            // never gets here, which is what keeps an application with no generated code out of it.
+            if (missing.Count > 0 && !WithinCodegenCommand && collection.Rules.Loader is StaticTypeLoader)
+            {
+                throw new ExpectedTypeMissingException(
+                    $"Could not load {missing.Count} expected pre-built type(s) from assembly {target.FullName}: " +
+                    $"{missing.Select(x => x.FileName).Join(", ")}. " +
+                    target.DescribeMissingPreGeneratedTypes(collection.Rules));
             }
         }
     }

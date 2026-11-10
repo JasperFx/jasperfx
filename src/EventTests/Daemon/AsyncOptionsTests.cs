@@ -23,6 +23,32 @@ public class AsyncOptionsTests
     }
 
     [Fact]
+    public void hopper_defaults_to_two_pages()
+    {
+        // jasperfx#1076: a flat 5,000 made memory follow behind shards x 5,000 however small BatchSize was.
+        new AsyncOptions().MaximumHopperSize.ShouldBe(1000);
+    }
+
+    [Fact]
+    public void hopper_default_follows_a_batch_size_set_later()
+    {
+        var options = new AsyncOptions { BatchSize = 100 };
+
+        options.MaximumHopperSize.ShouldBe(200);
+
+        options.BatchSize = 250;
+        options.MaximumHopperSize.ShouldBe(500);
+    }
+
+    [Fact]
+    public void explicit_hopper_wins_over_the_derived_default()
+    {
+        var options = new AsyncOptions { MaximumHopperSize = 5000, BatchSize = 100 };
+
+        options.MaximumHopperSize.ShouldBe(5000);
+    }
+
+    [Fact]
     public async Task determine_starting_position_if_rebuild()
     {
         var options = new AsyncOptions();

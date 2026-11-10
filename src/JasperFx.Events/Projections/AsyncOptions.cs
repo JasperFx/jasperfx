@@ -18,6 +18,7 @@ public record DeleteTableData(string TableIdentifier): IProjectionCleanupActions
 public class AsyncOptions
 {
     private readonly List<IProjectionCleanupActions> _cleanups = new();
+    private int? _maximumHopperSize;
 
     public IReadOnlyList<IProjectionCleanupActions> CleanUps => _cleanups;
 
@@ -28,9 +29,16 @@ public class AsyncOptions
 
     /// <summary>
     ///     The maximum number of events to be held in memory in preparation
-    ///     for determining projection updates.
+    ///     for determining projection updates. Defaults to two pages, 2 x <see cref="BatchSize"/>, unless
+    ///     set explicitly. A shard that is behind holds this many events while it waits for a write slot,
+    ///     so memory follows behind shards x hopper depth, and a deeper hopper does not buy throughput
+    ///     when the writes are what is slow (jasperfx#1076).
     /// </summary>
-    public int MaximumHopperSize { get; set; } = 5000;
+    public int MaximumHopperSize
+    {
+        get => _maximumHopperSize ?? 2 * BatchSize;
+        set => _maximumHopperSize = value;
+    }
 
     /// <summary>
     ///     Optional list of stored document or feature types that this projection
@@ -48,13 +56,19 @@ public class AsyncOptions
     public bool TeardownDataOnRebuild { get; set; } = true;
 
     /// <summary>
-    /// jasperfx#480, opt-in for blue/green projection deploys. When a NEW version of this projection
+    /// jasperfx#1046: the home of <see cref="JasperFxEventProjectionBase{TOperations,TQuerySession}.DeletePublishedTypesOnTeardown" />.
+    /// False means <see cref="CleanUps" /> is the whole of this projection's document teardown.
+    /// </summary>
+    internal bool DeletePublishedTypesOnTeardown { get; set; } = true;
+
+    /// <summary>
+    /// jasperfx#480, for blue/green projection deploys. When a NEW version of this projection
     /// (ShardName.Version > 1) starts continuous execution and a PRIOR version's progression row is
     /// ahead of this version's own progress, the new version catches up to the prior version's mark
     /// with side effects suppressed and only emits them past that mark — so RaiseSideEffects (raised
     /// events / published messages) only fires for events the previous version never processed.
-    /// Default is false, i.e. the new version emits side effects over the whole replay exactly as
-    /// before.
+    /// Default is true as of JasperFx 3.0 (jasperfx#1075). Set it to false to have the new version emit
+    /// side effects over the whole replay, as earlier releases did.
     ///
     /// <para>
     /// jasperfx#598/#610: the suppressed catch-up runs on a normally started, normally assignable
@@ -66,7 +80,7 @@ public class AsyncOptions
     /// warm up at once.
     /// </para>
     /// </summary>
-    public bool GateSideEffectsBehindPriorVersion { get; set; }
+    public bool GateSideEffectsBehindPriorVersion { get; set; } = true;
 
     /// <summary>
     /// The maximum number of aggregates that will be cached per tenant in a 2nd level,
@@ -119,6 +133,22 @@ public class AsyncOptions
     public void DeleteDataInTableOnTeardown(string tableIdentifier)
     {
         _cleanups.Add(new DeleteTableData(tableIdentifier));
+    }
+
+    /// <summary>
+    /// jasperfx#1046: a wrapper is not its inner projection's type, so <see cref="ProjectionTeardownPlan" />
+    /// cannot see <see cref="IPublishesTables" /> through one, and a wrapped flat table would be left out of
+    /// the rebuild. Options are what every wrapper does adopt, so a wrapper records the tables here.
+    /// </summary>
+    internal void DeleteTablesPublishedBy(object projection)
+    {
+        if (projection is not IPublishesTables publisher) return;
+
+        foreach (var table in publisher.PublishedTableNames())
+        {
+            var cleanUp = new DeleteTableData(table);
+            if (!_cleanups.Contains(cleanUp)) _cleanups.Add(cleanUp);
+        }
     }
 
     internal async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name, ShardExecutionMode mode,

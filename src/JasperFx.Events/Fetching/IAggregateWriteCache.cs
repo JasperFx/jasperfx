@@ -104,11 +104,44 @@ public interface IAggregateWriteCache
     /// Store a snapshot known to be at <paramref name="version" /> of its stream.
     /// </summary>
     /// <remarks>
-    /// The version has to be the one the events were committed at, and a store should take it from
-    /// the committed <see cref="StreamAction" /> rather than off the document — an aggregate is free
-    /// to carry a <c>Version</c> property meaning something else entirely.
+    /// The version has to be the one this instance actually reflects. A store should know that from
+    /// the fetch or the projection that produced it rather than reading it off the document, since an
+    /// aggregate is free to carry a <c>Version</c> property meaning something else entirely, and must
+    /// not assume it from the commit: an entry labelled past what it contains is served as current
+    /// state. <see cref="AggregateWriteCacheSession" /> holds that rule for a store.
     /// </remarks>
     void Store(AggregateCacheKey key, object aggregate, long version);
+
+    /// <summary>
+    /// Store a snapshot unless this key already holds one at a later version.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// jasperfx#1050. Commits finish in whatever order they finish, so a session that read a stream at
+    /// version 5 can write back after one that committed version 7. Against plain <see cref="Store" />
+    /// that replaces the newer entry with the older one. Equal versions take the new instance, since
+    /// both describe the same state.
+    /// </para>
+    /// <para>
+    /// A default so that an existing implementation keeps compiling and still gets the guard. It is
+    /// built from <see cref="TryTake" /> and so reads as a take to anything counting them, and the two
+    /// steps are not atomic: a fetch landing between them misses, and a write landing between them can
+    /// still be replaced, both of which only cost a load. An implementation that can compare and swap
+    /// should override it, as <see cref="RecentlyUsedAggregateWriteCache" /> does.
+    /// </para>
+    /// </remarks>
+    /// <returns><see langword="true" /> when the snapshot was stored.</returns>
+    bool StoreIfNewer(AggregateCacheKey key, object aggregate, long version)
+    {
+        if (TryTake(key, out var existing, out var existingVersion) && existingVersion > version)
+        {
+            Store(key, existing, existingVersion);
+            return false;
+        }
+
+        Store(key, aggregate, version);
+        return true;
+    }
 
     /// <summary>
     /// Drop any entry for this key. Always safe: the next fetch simply reloads.
@@ -139,6 +172,8 @@ public sealed class NulloAggregateWriteCache: IAggregateWriteCache
         // Nothing. Deliberately not even recording the key -- the point of this type is that a
         // store on the default path allocates and retains nothing.
     }
+
+    public bool StoreIfNewer(AggregateCacheKey key, object aggregate, long version) => false;
 
     public void Evict(AggregateCacheKey key)
     {
