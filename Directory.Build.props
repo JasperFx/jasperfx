@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project>
     <PropertyGroup>
-        <JasperFxVersion>2.102.0</JasperFxVersion>
+        <JasperFxVersion>3.0.0</JasperFxVersion>
+        <VersionSuffix>-alpha.1</VersionSuffix>
         <LangVersion>14</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
