@@ -192,7 +192,7 @@ partial class Build : NukeBuild
     // Both source generator suites. These are in the solution (so `compile` builds them, and they
     // break the build if they stop compiling) but were in no test target, meaning 45 tests covering
     // the two Roslyn generators built and never ran. Single-framework by project: both test
-    // projects pin TargetFramework=net9.0 to match the netstandard2.0 generators they host.
+    // projects pin TargetFramework=net10.0 to match the netstandard2.0 generators they host.
     Target TestSourceGenerators => _ => _
         .DependsOn(Compile)
         .Executes(() =>

@@ -2,14 +2,14 @@
 <Project>
     <PropertyGroup>
         <JasperFxVersion>2.102.0</JasperFxVersion>
-        <LangVersion>13</LangVersion>
+        <LangVersion>14</LangVersion>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <Authors>Jeremy D. Miller;Jaedyn Tonee</Authors>
         <PackageIcon>logo.jpg</PackageIcon>
         <PackageProjectUrl>http://github.com/jasperfx/jasperfx</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable>
@@ -34,7 +34,7 @@
         <!--
           Without this, a failing test prints only
 
-            error run failed: Tests failed: '.../TestResults/EventStoreTests_net9.0_x64.log'
+            error run failed: Tests failed: '.../TestResults/EventStoreTests_net10.0_x64.log'
 
           and the test name, assertion and stack trace go to that file. On a CI runner the file is
           never published, so the log is all anyone gets - a red build with no way to tell what

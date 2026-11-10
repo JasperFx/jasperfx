@@ -49,15 +49,16 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      - name: Install .NET 9.0.x
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 9.0.x
-
       - name: Install .NET 10.0.x
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+
+      - name: Install .NET 11.0.x (RC)
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+          dotnet-quality: preview
 
       - name: compile
         run: ./build.ps1 compile
@@ -120,15 +121,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install .NET 9.0.x
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 9.0.x
-
       - name: Install .NET 10.0.x
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+
+      - name: Install .NET 11.0.x (RC)
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+          dotnet-quality: preview
 
       - name: compile
         run: ./build.sh compile
@@ -217,7 +219,7 @@ jobs:
           fail=0
           smoke() {
             echo "::group::dotnet run -- $*"
-            output=$(dotnet run --project src/CommandLineRunner --framework net9.0 -- "$@" 2>&1) || true
+            output=$(dotnet run --project src/CommandLineRunner --framework net10.0 -- "$@" 2>&1) || true
             echo "$output"
             echo "::endgroup::"
             if echo "$output" | grep -qE 'Unhandled exception|System\.[A-Za-z.]+Exception'; then
@@ -245,15 +247,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install .NET 9.0.x
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 9.0.x
-
       - name: Install .NET 10.0.x
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+
+      - name: Install .NET 11.0.x (RC)
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 11.0.x
+          dotnet-quality: preview
 
       - name: Install the native AOT toolchain
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
