@@ -87,6 +87,51 @@ public class MessagePublishingTests
         theSink.ClosedOver.ShouldBe([message.GetType()]);
     }
 
+    // jasperfx#1171. CompileFast emits IL through DynamicMethod and throws PlatformNotSupportedException in a
+    // Native AOT image, so every projection side effect published through ProjectionBatchBase paused its
+    // shard there. The interpreted branch is what such an image builds; these facts take it on a JIT runtime,
+    // where RuntimeFeature.IsDynamicCodeSupported cannot be flipped, and hold it to the same contract.
+
+    [Fact]
+    public async Task the_interpreted_tenant_publisher_closes_over_the_runtime_type()
+    {
+        object message = new ShipOrder("order-6");
+
+        await MessagePublishing.InterpretedTenantPublisher(message.GetType())(theSink, message, "tenant-c");
+
+        theSink.ClosedOver.ShouldBe([typeof(ShipOrder)]);
+        theSink.Messages.ShouldBe([message]);
+        theSink.Tenants.ShouldBe(["tenant-c"]);
+    }
+
+    [Fact]
+    public async Task the_interpreted_metadata_publisher_closes_over_the_runtime_type_and_keeps_the_metadata()
+    {
+        object message = new ShipOrder("order-7");
+        var metadata = new MessageMetadata("tenant-d") { CorrelationId = "c-3" }.WithHeader("region", "apac");
+
+        await MessagePublishing.InterpretedMetadataPublisher(message.GetType())(theSink, message, metadata);
+
+        theSink.ClosedOver.ShouldBe([typeof(ShipOrder)]);
+
+        var received = theSink.Metadata.ShouldHaveSingleItem();
+        received.TenantId.ShouldBe("tenant-d");
+        received.CorrelationId.ShouldBe("c-3");
+        received.Headers!["region"].ShouldBe("apac");
+    }
+
+    [Fact]
+    public async Task the_interpreted_publisher_handles_the_shapes_the_compiled_one_does()
+    {
+        await MessagePublishing.InterpretedTenantPublisher(typeof(OrderId))(theSink, new OrderId(9), "t");
+        await MessagePublishing.InterpretedTenantPublisher(typeof(InternalMessage))(theSink, new InternalMessage(), "t");
+        await MessagePublishing.InterpretedTenantPublisher(typeof(Wrapper<ShipOrder>))(theSink,
+            new Wrapper<ShipOrder>(new ShipOrder("order-8")), "t");
+
+        theSink.ClosedOver.ShouldBe([typeof(OrderId), typeof(InternalMessage), typeof(Wrapper<ShipOrder>)]);
+        theSink.Messages[0].ShouldBe(new OrderId(9));
+    }
+
     public record ShipOrder(string Id);
 
     public record CancelOrder(string Id);
