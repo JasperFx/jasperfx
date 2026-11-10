@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using FastExpressionCompiler;
 
 namespace JasperFx.Events;
@@ -26,9 +27,15 @@ namespace JasperFx.Events;
 /// a sink is entitled to read <c>typeof(T)</c>, and on Marten alone it would learn nothing.
 /// </para>
 /// <para>
-/// Not AOT-safe, hence the annotations: the per-type cache miss closes a generic method over a runtime
-/// type. They stop here because <see cref="Projections.IProjectionBatch.PublishMessageAsync(object, string)" />
-/// is not annotated, and annotating that interface would break every implementer.
+/// The per-type cache miss closes a generic method over a runtime type, hence the annotations. They stop
+/// here because <see cref="Projections.IProjectionBatch.PublishMessageAsync(object, string)" /> is not
+/// annotated, and annotating that interface would break every implementer. The delegate is compiled with
+/// FastExpressionCompiler where dynamic code is available and by the expression interpreter
+/// (<see cref="LambdaExpression.Compile(bool)" />) where it is not, as <see cref="JasperFx.Core.Reflection.LambdaBuilder" />
+/// does: <c>CompileFast</c> emits IL through <c>DynamicMethod</c> and throws
+/// <see cref="PlatformNotSupportedException" /> in a Native AOT image, which paused every projection shard
+/// that published a side effect (jasperfx#1171). Fisher's copy of this class, which the lift replaced, used
+/// <c>Compile()</c> and ran natively.
 /// </para>
 /// </remarks>
 public static class MessagePublishing
@@ -68,20 +75,36 @@ public static class MessagePublishing
     [RequiresDynamicCode("Closes a generic method over a runtime type.")]
     private static Func<IMessageSink, object, string, ValueTask> buildTenantPublisher(Type messageType)
         => build<Func<IMessageSink, object, string, ValueTask>>(_withTenant, messageType, typeof(string),
-            "tenantId");
+            "tenantId", RuntimeFeature.IsDynamicCodeSupported);
 
     [RequiresDynamicCode("Closes a generic method over a runtime type.")]
     private static Func<IMessageSink, object, MessageMetadata, ValueTask> buildMetadataPublisher(Type messageType)
         => build<Func<IMessageSink, object, MessageMetadata, ValueTask>>(_withMetadata, messageType,
-            typeof(MessageMetadata), "metadata");
+            typeof(MessageMetadata), "metadata", RuntimeFeature.IsDynamicCodeSupported);
+
+    /// <summary>
+    /// The publisher a Native AOT image builds, where <see cref="RuntimeFeature.IsDynamicCodeSupported" /> is
+    /// false: the same expression, run by the interpreter rather than compiled to IL. Internal so the tests
+    /// can take this branch on a JIT runtime, where the feature switch cannot be flipped.
+    /// </summary>
+    [RequiresDynamicCode("Closes a generic method over a runtime type.")]
+    internal static Func<IMessageSink, object, string, ValueTask> InterpretedTenantPublisher(Type messageType)
+        => build<Func<IMessageSink, object, string, ValueTask>>(_withTenant, messageType, typeof(string),
+            "tenantId", dynamicCode: false);
+
+    /// <inheritdoc cref="InterpretedTenantPublisher" />
+    [RequiresDynamicCode("Closes a generic method over a runtime type.")]
+    internal static Func<IMessageSink, object, MessageMetadata, ValueTask> InterpretedMetadataPublisher(Type messageType)
+        => build<Func<IMessageSink, object, MessageMetadata, ValueTask>>(_withMetadata, messageType,
+            typeof(MessageMetadata), "metadata", dynamicCode: false);
 
     [RequiresDynamicCode("Closes a generic method over a runtime type.")]
     [UnconditionalSuppressMessage("Trimming", "IL2026",
-        Justification = "FastExpressionCompiler.CompileFast on the cache-miss path, over a call whose target and argument types are already rooted by the message instance in hand.")]
+        Justification = "Compiles the expression on the cache-miss path, over a call whose target and argument types are already rooted by the message instance in hand.")]
     [UnconditionalSuppressMessage("Trimming", "IL2060",
         Justification = "MakeGenericMethod over the message's own runtime type, which an instance in hand keeps alive.")]
     private static TDelegate build<TDelegate>(MethodInfo definition, Type messageType, Type secondParameterType,
-        string secondParameterName) where TDelegate : Delegate
+        string secondParameterName, bool dynamicCode) where TDelegate : Delegate
     {
         var closed = definition.MakeGenericMethod(messageType);
 
@@ -90,7 +113,11 @@ public static class MessagePublishing
         var second = Expression.Parameter(secondParameterType, secondParameterName);
 
         var call = Expression.Call(sink, closed, Expression.Convert(message, messageType), second);
+        var lambda = Expression.Lambda<TDelegate>(call, sink, message, second);
 
-        return Expression.Lambda<TDelegate>(call, sink, message, second).CompileFast();
+        // CompileFast emits IL through DynamicMethod, which a Native AOT image refuses with
+        // PlatformNotSupportedException (jasperfx#1171). The interpreter runs the same tree without emitting
+        // anything, and a publish is not on a hot enough path for the difference to matter.
+        return dynamicCode ? lambda.CompileFast() : lambda.Compile(preferInterpretation: true);
     }
 }
