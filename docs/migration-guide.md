@@ -51,6 +51,10 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
   * **Schema effect:** none.
   * **Opt out:** set `MaximumHopperSize` explicitly, which always wins over the derived default. `MaximumHopperSize = 5000` restores the old behavior.
 
+### Exceptions
+
+* **`StreamLockedException` derives from `ConcurrencyException`** ([#1169](https://github.com/JasperFx/jasperfx/issues/1169)). A stream lock timeout is the same user-facing failure as an optimistic concurrency conflict (a 409, retry), so it now shares the type. Code that does `catch (ConcurrencyException)` and retries also catches lock timeouts, which is usually what is wanted. Code that caught `ConcurrencyException` and treated it as a version mismatch only should catch `StreamLockedException` first. `ConcurrencyException.Id` carries the stream id, and `DocType` is null.
+
 ### For event store authors
 
 The types below were lifted out of Marten, Polecat and Fisher so that each store can delete its own copy. Adopting them is expected to land in the same change as the JasperFx 3.0 pin bump: where a store keeps a type of the same name, any file importing both namespaces stops compiling with `CS0104`.
