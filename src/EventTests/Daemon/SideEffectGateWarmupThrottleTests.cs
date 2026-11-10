@@ -153,9 +153,12 @@ public class SideEffectGateWarmupThrottleTests
 
         agent.Agent.SideEffectsSuppressed.ShouldBeTrue();
 
+        // The flip and the committed write are two steps of one command-loop pass, with a tracker publish
+        // between them, so a poller that keys on LastCommitted can land in that gap and read the flag a
+        // moment early (jasperfx#1174's CI run did). Wait on the flag, then check what drove it.
         agent.ReleasePages();
-        await waitFor(() => agent.Agent.LastCommitted >= GateMark, "the warm-up to reach the prior mark");
-        agent.Agent.SideEffectsSuppressed.ShouldBeFalse();
+        await waitFor(() => !agent.Agent.SideEffectsSuppressed, "the warm-up to reach the prior mark and lift the gate");
+        agent.Agent.LastCommitted.ShouldBeGreaterThanOrEqualTo(GateMark);
 
         // Everything up to the mark ran suppressed, everything past it ran live.
         agent.Pages.Where(x => x.Ceiling <= GateMark).ShouldAllBe(x => x.Suppressed);
