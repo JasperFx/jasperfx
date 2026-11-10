@@ -134,6 +134,10 @@ public partial class EventRegistry : IEventRegistry
             throw new ArgumentNullException(nameof(eventData));
         }
 
+        // A C# union is stored as its active case, so each case gets its own event type name and the
+        // stored JSON (which STJ writes as the bare case anyway) can be read back by that name.
+        eventData = UnionTypes.Unwrap(eventData);
+
         var info = EventMappingFor(eventData.GetType());
         return info.Wrap(eventData);
     }
@@ -154,7 +158,12 @@ public partial class EventRegistry : IEventRegistry
 
     public virtual void AddEventType(Type eventType)
     {
-        EventMappingFor(eventType);
+        // A union is never stored as itself (BuildEvent unwraps it), so registering one means
+        // registering each of its cases.
+        foreach (var type in eventType.ExpandToCaseTypes())
+        {
+            EventMappingFor(type);
+        }
     }
 
     /// <summary>

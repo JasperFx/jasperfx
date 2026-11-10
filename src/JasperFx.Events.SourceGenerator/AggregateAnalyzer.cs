@@ -51,6 +51,19 @@ internal sealed class ConventionalMethodInfo
     // EventProjection-specific
     public bool HasOperations { get; set; }
     public ITypeSymbol? EntityReturnType { get; set; } // For Create/Transform: the unwrapped return type
+
+    // jasperfx#1053: set when this entry is one case of an Apply method whose event parameter is a C#
+    // union. EventType is then the case type, and the generated call rebuilds the union the method
+    // takes, outermost first, as new Outer(new Inner(data)).
+    public List<ITypeSymbol>? UnionWrappers { get; set; }
+
+    public ConventionalMethodInfo CloneForUnionCase(ITypeSymbol caseType, List<ITypeSymbol> wrappers)
+    {
+        var clone = (ConventionalMethodInfo)MemberwiseClone();
+        clone.EventType = caseType;
+        clone.UnionWrappers = wrappers;
+        return clone;
+    }
 }
 
 /// <summary>
@@ -686,10 +699,76 @@ internal static class AggregateAnalyzer
                 var info = AnalyzeMethod(method, aggregateType, isOnAggregate);
                 if (info != null)
                 {
-                    results.Add(info);
+                    results.AddRange(ExpandUnionCases(info));
                 }
             }
         }
+    }
+
+    internal const string UnionAttributeFullName = "System.Runtime.CompilerServices.UnionAttribute";
+    internal const string UnionInterfaceFullName = "System.Runtime.CompilerServices.IUnion";
+
+    /// <summary>
+    /// jasperfx#1053: an <c>Apply(AccountEvent e)</c> whose parameter is a C# union handles every case of
+    /// it. Events are stored as the active case (EventRegistry.BuildEvent unwraps the union), so the
+    /// dispatcher needs one arm per case type, each rebuilding the union to call the method. Only Apply
+    /// is expanded, and only when the event arrives bare: an <c>IEvent&lt;AccountEvent&gt;</c> can never
+    /// match a stored <c>Event&lt;Deposited&gt;</c>.
+    /// </summary>
+    internal static IEnumerable<ConventionalMethodInfo> ExpandUnionCases(ConventionalMethodInfo info)
+    {
+        if (info.MethodName != "Apply" || info.UsesIEventWrapper || !IsUnionType(info.EventType))
+        {
+            yield return info;
+            yield break;
+        }
+
+        foreach (var (caseType, wrappers) in UnionCases(info.EventType, new List<ITypeSymbol>()))
+        {
+            yield return info.CloneForUnionCase(caseType, wrappers);
+        }
+    }
+
+    private static IEnumerable<(ITypeSymbol CaseType, List<ITypeSymbol> Wrappers)> UnionCases(
+        ITypeSymbol unionType, List<ITypeSymbol> outer)
+    {
+        var wrappers = new List<ITypeSymbol>(outer) { unionType };
+        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+
+        foreach (var ctor in ((INamedTypeSymbol)unionType).InstanceConstructors)
+        {
+            if (ctor.DeclaredAccessibility != Accessibility.Public || ctor.Parameters.Length != 1) continue;
+
+            var caseType = StripNullable(ctor.Parameters[0].Type);
+            if (!seen.Add(caseType)) continue;
+
+            if (IsUnionType(caseType))
+            {
+                foreach (var nested in UnionCases(caseType, wrappers)) yield return nested;
+            }
+            else
+            {
+                yield return (caseType, wrappers);
+            }
+        }
+    }
+
+    private static ITypeSymbol StripNullable(ITypeSymbol type)
+    {
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
+        {
+            return nullable.TypeArguments[0];
+        }
+
+        return type.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
+    }
+
+    internal static bool IsUnionType(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol named) return false;
+
+        return named.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == UnionAttributeFullName)
+               || named.AllInterfaces.Any(i => i.ToDisplayString() == UnionInterfaceFullName);
     }
 
     private static bool IsFrameworkBase(INamedTypeSymbol type)

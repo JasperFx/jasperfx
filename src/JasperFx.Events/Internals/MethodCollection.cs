@@ -101,7 +101,10 @@ internal abstract class MethodCollection
 
     internal IEnumerable<Type> EventTypes()
     {
-        return Methods.Where(x => x.EventType != null).Select(x => x.EventType!).Distinct();
+        // A handler taking a C# union handles every case of it. Events are stored as the active case
+        // (EventRegistry.BuildEvent unwraps), so the union type itself never appears in the event store
+        // and is replaced here by its cases rather than kept beside them.
+        return Methods.Where(x => x.EventType != null).SelectMany(x => x.EventType!.ExpandToCaseTypes()).Distinct();
     }
 
     internal abstract void validateMethod(MethodSlot method);
@@ -155,6 +158,26 @@ internal abstract class MethodCollection
         }
 
         return invalidMethods.ToArray();
+    }
+
+    /// <summary>
+    ///     jasperfx#1053: refuse a C# union event parameter anywhere but a bare Apply(TUnion). Runs whether or
+    ///     not a source-generated dispatcher was found, because with one the rest of the method validation is
+    ///     skipped, and a misplaced union would otherwise be listened for and silently never dispatched.
+    /// </summary>
+    internal static void AssertNoUnsupportedUnionUsage(Type projectionType, params MethodCollection[] collections)
+    {
+        var offenders = collections.SelectMany(x => x.Methods).Where(x => x.HasUnsupportedUnionUsage()).ToArray();
+        if (offenders.Length == 0) return;
+
+        var messages = new List<string> { $"Projection {projectionType.FullNameInCode()} has validation errors:" };
+        foreach (var slot in offenders)
+        {
+            messages.Add($"{slot.Signature()}");
+            messages.Add($" - {MethodSlot.UnsupportedUnionUsage} ('{slot.EventType!.FullNameInCode()}')");
+        }
+
+        throw new InvalidProjectionException(messages.ToArray());
     }
 
     public bool IsEmpty()

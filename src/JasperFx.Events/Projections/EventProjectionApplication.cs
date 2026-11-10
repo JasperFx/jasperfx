@@ -116,6 +116,11 @@ public class EventProjectionApplication<TOperations>
         return _projectMethods.Methods.Any() || _createMethods.Methods.Any();
     }
 
+    public void AssertNoUnsupportedUnionUsage()
+    {
+        MethodCollection.AssertNoUnsupportedUnionUsage(_projectionType, _projectMethods, _createMethods);
+    }
+
     public void AssertMethodValidity()
     {
         if (!_projectMethods.Methods.Any() && !_createMethods.Methods.Any())

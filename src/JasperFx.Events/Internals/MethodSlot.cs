@@ -105,6 +105,7 @@ public class MethodSlot
         else
         {
             validateArguments(collection);
+            validateUnionUsage();
         }
 
         if (collection.ValidReturnTypes.Any() && !collection.ValidReturnTypes.Contains(ReturnType))
@@ -114,6 +115,32 @@ public class MethodSlot
             AddError(message);
         }
     }
+
+    public static readonly string UnsupportedUnionUsage =
+        "C# union event parameters are only supported as the bare event parameter of an Apply method, " +
+        "Apply(TUnion). Events are stored as the union's active case, so take the case types here, or " +
+        "IEvent and switch on e.Data";
+
+    // jasperfx#1053: events are stored as the active case of a union, and only a bare Apply(TUnion) is
+    // dispatched per case by the source generator. Anywhere else (Create, ShouldDelete, Project, a
+    // constructor, IEvent<TUnion>) the projection would listen for the cases and then match none of them.
+    internal bool HasUnsupportedUnionUsage()
+    {
+        if (EventType == null || !EventType.IsUnion()) return false;
+
+        var wrapped = typeof(IEvent<>).MakeGenericType(EventType);
+        return Method.Name != ApplyMethodName || Method.GetParameters().Any(x => x.ParameterType == wrapped);
+    }
+
+    private void validateUnionUsage()
+    {
+        if (HasUnsupportedUnionUsage())
+        {
+            _errors.Add($"{UnsupportedUnionUsage} ('{EventType!.FullNameInCode()}' in {Signature()})");
+        }
+    }
+
+    private const string ApplyMethodName = "Apply";
 
     internal void AddError(string error)
     {
