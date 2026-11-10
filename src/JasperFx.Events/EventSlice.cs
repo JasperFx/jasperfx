@@ -169,28 +169,40 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     void IEventSlice<TDoc>.AppendEvent<TEvent>(Guid streamId, TEvent @event)
     {
         RaisedEvents ??= new();
-        RaisedEvents.Add(new Event<TEvent>(@event)
-        {
-            StreamId = streamId
-        });
+        var e = raisedEvent(@event);
+        e.StreamId = streamId;
+        RaisedEvents.Add(e);
     }
 
     void IEventSlice<TDoc>.AppendEvent<TEvent>(string streamKey, TEvent @event)
     {
         RaisedEvents ??= new();
-        RaisedEvents.Add(new Event<TEvent>(@event)
-        {
-            StreamKey = streamKey
-        });
+        var e = raisedEvent(@event);
+        e.StreamKey = streamKey;
+        RaisedEvents.Add(e);
     }
 
     void IEventSlice<TDoc>.AppendEvent<TEvent>(TEvent @event)
     {
         RaisedEvents ??= new();
-        var e = new Event<TEvent>(@event);
+        var e = raisedEvent(@event);
         _identitySetter(e, Id);
 
         RaisedEvents.Add(e);
+    }
+
+    // A raised union event is stored as its active case, the same as one appended through BuildEvent.
+    [UnconditionalSuppressMessage("AOT", "IL3050:RequiresDynamicCode",
+        Justification = "Event<T> is only closed over a runtime type when the raised event is a C# union; its case types are registered event types.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Event<T> is only closed over a runtime type when the raised event is a C# union; its case types are registered event types.")]
+    private static IEvent raisedEvent<TEvent>(TEvent @event) where TEvent : notnull
+    {
+        object boxed = @event;
+        var data = UnionTypes.Unwrap(boxed);
+        if (ReferenceEquals(data, boxed)) return new Event<TEvent>(@event);
+
+        return typeof(Event<>).CloseAndBuildAs<IEvent>(data, data.GetType());
     }
 
     void IEventSlice<TDoc>.PublishMessage(object message)

@@ -101,7 +101,10 @@ internal abstract class MethodCollection
 
     internal IEnumerable<Type> EventTypes()
     {
-        return Methods.Where(x => x.EventType != null).Select(x => x.EventType!).Distinct();
+        // A handler taking a C# union handles every case of it. Events are stored as the active case
+        // (EventRegistry.BuildEvent unwraps), so the union type itself never appears in the event store
+        // and is replaced here by its cases rather than kept beside them.
+        return Methods.Where(x => x.EventType != null).SelectMany(x => x.EventType!.ExpandToCaseTypes()).Distinct();
     }
 
     internal abstract void validateMethod(MethodSlot method);

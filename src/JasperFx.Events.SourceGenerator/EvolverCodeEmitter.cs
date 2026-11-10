@@ -902,7 +902,10 @@ internal static class EvolverCodeEmitter
         return methods
             .GroupBy<ConventionalMethodInfo, ITypeSymbol>(m => m.EventType, SymbolEqualityComparer.Default)
             .Select(g => g
-                .OrderBy(m => m.IsOnAggregate)
+                // A method written for the case itself beats an Apply(union) that also covers it
+                // (jasperfx#1053): the explicit case handler is the more specific declaration.
+                .OrderBy(m => m.UnionWrappers != null)
+                .ThenBy(m => m.IsOnAggregate)
                 .ThenByDescending(m => m.Symbol.Parameters.Length)
                 .First())
             .OrderByDescending(m => GetTypeDepth(m.EventType))
@@ -1577,7 +1580,9 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("        {");
 
         var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+        // An explicit Apply(Case) beats an Apply(union) covering the same case (jasperfx#1053), and
+        // OrderBy is stable, so applies[0] below keeps the declaration order otherwise.
+        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").OrderBy(m => m.UnionWrappers != null).ToList();
 
         // Each event type gets one case. Include event types referenced by
         // event-shaped public constructors (Bucket 1) so e.g.
@@ -1691,7 +1696,9 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("        {");
 
         var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+        // An explicit Apply(Case) beats an Apply(union) covering the same case (jasperfx#1053), and
+        // OrderBy is stable, so applies[0] below keeps the declaration order otherwise.
+        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").OrderBy(m => m.UnionWrappers != null).ToList();
 
         var allEventTypes = info.Methods
             .Select(m => m.EventType)
@@ -1837,7 +1844,7 @@ internal static class EvolverCodeEmitter
             }
             else
             {
-                parts.Add(dataVar);
+                parts.Add(UnionArgument(method, dataVar));
             }
         }
 
@@ -1865,7 +1872,9 @@ internal static class EvolverCodeEmitter
 
         // Create + Apply
         var createMethods = info.Methods.Where(m => m.MethodName == "Create").ToList();
-        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").ToList();
+        // An explicit Apply(Case) beats an Apply(union) covering the same case (jasperfx#1053), and
+        // OrderBy is stable, so applies[0] below keeps the declaration order otherwise.
+        var applyMethods = info.Methods.Where(m => m.MethodName == "Apply").OrderBy(m => m.UnionWrappers != null).ToList();
 
         // ShouldDelete - set snapshot to null and continue processing (allows re-creation).
         // The arm is unguarded, so it owns its event type: a separate Create/Apply arm for the same
@@ -2411,7 +2420,7 @@ internal static class EvolverCodeEmitter
             else
             {
                 // Event data
-                parts.Add(dataVar);
+                parts.Add(UnionArgument(method, dataVar));
             }
         }
 
@@ -2503,11 +2512,30 @@ internal static class EvolverCodeEmitter
             else
             {
                 // Event data
-                parts.Add(dataVar ?? $"(({Fqn(paramType)})e.Data)");
+                parts.Add(dataVar == null ? $"(({Fqn(paramType)})e.Data)" : UnionArgument(method, dataVar));
             }
         }
 
         return string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// jasperfx#1053: the event argument for one case of an Apply(union) method. The switch arm binds
+    /// the stored case, and the method takes the union, so rebuild it through the union's public case
+    /// constructor(s). A constructor works for keyword unions and hand-written [Union] structs alike,
+    /// where the implicit case-to-union conversion needs the C# 15 language version.
+    /// </summary>
+    private static string UnionArgument(ConventionalMethodInfo method, string dataVar)
+    {
+        if (method.UnionWrappers == null || method.UnionWrappers.Count == 0) return dataVar;
+
+        var expression = dataVar;
+        for (var i = method.UnionWrappers.Count - 1; i >= 0; i--)
+        {
+            expression = $"new {Fqn(method.UnionWrappers[i])}({expression})";
+        }
+
+        return expression;
     }
 
     private static string BuildCreateArgs(ConventionalMethodInfo method, string? dataVar, string eventVar,
@@ -2579,7 +2607,7 @@ internal static class EvolverCodeEmitter
             }
             else
             {
-                parts.Add(dataVar);
+                parts.Add(UnionArgument(method, dataVar));
             }
         }
 
@@ -2606,6 +2634,11 @@ internal static class EvolverCodeEmitter
 
     private static bool IsEventDataType(ITypeSymbol paramType, ConventionalMethodInfo method)
     {
+        if (method.UnionWrappers is { Count: > 0 } wrappers)
+        {
+            return SymbolEqualityComparer.Default.Equals(paramType, wrappers[0]);
+        }
+
         return SymbolEqualityComparer.Default.Equals(paramType, method.EventType);
     }
 
