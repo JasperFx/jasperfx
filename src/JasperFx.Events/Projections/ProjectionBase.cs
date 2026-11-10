@@ -49,10 +49,10 @@ public abstract class ProjectionBase : EventFilterable, IHasLogger
     public uint Version { get; set; } = 1;
 
     /// <summary>
-    /// jasperfx#480, opt-in for blue/green projection deploys. When a new version of this projection
+    /// jasperfx#480 / jasperfx#1075, blue/green projection deploys, on by default as of 3.0. When a new version of this projection
     /// (Version > 1) starts up behind a prior version's persisted progression, the async daemon first
     /// replays up to the prior version's mark with side effects suppressed, and only emits side
-    /// effects (raised events / published messages) for events past that mark. Default is false.
+    /// effects (raised events / published messages) for events past that mark. Default is true; set false to restore 2.x behavior.
     /// </summary>
     public bool GateSideEffectsBehindPriorVersion
     {

@@ -1,5 +1,23 @@
 # Migration Guide
 
+## Key Changes in 3.0.0
+
+### `GateSideEffectsBehindPriorVersion` is on by default
+
+`AsyncOptions.GateSideEffectsBehindPriorVersion` (and `ProjectionBase.GateSideEffectsBehindPriorVersion`)
+now default to `true` for every event store (Marten, Polecat, Fisher). It was opt-in in 2.x.
+
+What it does during a blue/green or rolling deploy: when a new version of a projection
+(`Version > 1`) starts behind a prior version's persisted progression, the daemon catches the new
+version up to the prior version's mark with side effects suppressed (`RaiseSideEffects` events and
+published messages), and only emits them for events past that mark. The previous version already
+emitted the earlier ones, so they are not sent twice. Projections at version 1, and shards that
+subscribe from "present", are unaffected.
+
+To restore the 2.x behavior, use your store's restore helper (`RestoreV9Defaults()` in Marten, and the
+Polecat 6 / Fisher 2 equivalents), or set `GateSideEffectsBehindPriorVersion = false` on the projection
+or its `AsyncOptions`.
+
 ## Key Changes in 2.0.0
 
 JasperFx 2.0 is the foundation release of the [Critter Stack 2026](https://github.com/JasperFx/jasperfx/issues/217) wave. It ships in lockstep with Marten 9.0, Wolverine 6.0, Polecat 4.0, and Weasel 9.0. Most of the changes below are mechanical pin bumps + namespace adjustments; a few API shapes changed in ways that downstream code will notice.

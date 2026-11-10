@@ -161,11 +161,12 @@ public class BlueGreenSideEffectGateTests
     }
 
     [Fact]
-    public async Task no_gate_without_the_opt_in()
+    public async Task no_gate_when_opted_out()
     {
-        // Same fresh-deploy state, but the projection did not opt in: today's behavior, one continuous
-        // catch-up over the whole history with side effects firing throughout.
-        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3));
+        // Same fresh-deploy state, but the projection opted out (the gate is on by default as of 3.0):
+        // one continuous catch-up over the whole history with side effects firing throughout.
+        await using var harness = new GateHarness(ShardName.Compose("Trips", version: 3),
+            options => options.GateSideEffectsBehindPriorVersion = false);
         harness.SetProgress("Trips:V2:All", 1000);
 
         await harness.Daemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);

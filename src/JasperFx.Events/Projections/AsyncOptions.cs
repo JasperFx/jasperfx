@@ -48,13 +48,15 @@ public class AsyncOptions
     public bool TeardownDataOnRebuild { get; set; } = true;
 
     /// <summary>
-    /// jasperfx#480, opt-in for blue/green projection deploys. When a NEW version of this projection
+    /// jasperfx#480 / jasperfx#1075, blue/green projection deploys. On by default as of JasperFx 3.0
+    /// (it was opt-in in 2.x; each store's restore helper, e.g. Marten's <c>RestoreV9Defaults()</c>, puts
+    /// it back to false). When a NEW version of this projection
     /// (ShardName.Version > 1) starts continuous execution and a PRIOR version's progression row is
     /// ahead of this version's own progress, the new version catches up to the prior version's mark
     /// with side effects suppressed and only emits them past that mark — so RaiseSideEffects (raised
     /// events / published messages) only fires for events the previous version never processed.
-    /// Default is false, i.e. the new version emits side effects over the whole replay exactly as
-    /// before.
+    /// Set to false to have the new version emit side effects over the whole replay, as in 2.x. Projections
+    /// that are never versioned past 1 are unaffected.
     ///
     /// <para>
     /// jasperfx#598/#610: the suppressed catch-up runs on a normally started, normally assignable
@@ -66,7 +68,7 @@ public class AsyncOptions
     /// warm up at once.
     /// </para>
     /// </summary>
-    public bool GateSideEffectsBehindPriorVersion { get; set; }
+    public bool GateSideEffectsBehindPriorVersion { get; set; } = true;
 
     /// <summary>
     /// The maximum number of aggregates that will be cached per tenant in a 2nd level,
