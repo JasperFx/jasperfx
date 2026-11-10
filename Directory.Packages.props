@@ -17,12 +17,22 @@
     <PackageVersion Include="Microsoft.Extensions.ObjectPool" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="11.0.0-rc.3.26522.148" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0-rc.3.26522.148" />
+    <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="11.0.0-rc.3.26522.148" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="11.0.0-rc.3.26522.148" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="11.0.0-rc.3.26522.148" />
+    <PackageVersion Include="Microsoft.Extensions.ObjectPool" Version="11.0.0-rc.3.26522.148" />
+  </ItemGroup>
+
   <!--
     Roslyn. Three different consumers want three different answers, and the difference is
     load-bearing, so this cannot collapse to a single version:
 
-      - JasperFx.RuntimeCompiler ships runtime compilation and tracks the SDK's Roslyn, so it gets
-        the per-TFM pin below with no override.
+      - JasperFx.RuntimeCompiler ships runtime compilation and tracks the SDK's Roslyn. It is the
+        only multi-targeted consumer, so it gets the default below (5.0.0 on net10.0,
+        5.9.0 on net11.0) with no override.
       - The two source generators are netstandard2.0 and must stay pinned LOW. A generator
         compiled against Roslyn 4.14+ will not load in an older consumer's compiler. They carry
         VersionOverride in their csproj (4.3.0 and 4.8.0 respectively).
@@ -38,6 +48,11 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.Scripting" Version="[4.14.0,6.0.0)" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageVersion Update="Microsoft.CodeAnalysis" Version="5.9.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.Scripting" Version="5.9.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
     <PackageVersion Update="Microsoft.CodeAnalysis" Version="5.9.0" />
     <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
     <PackageVersion Update="Microsoft.CodeAnalysis.Scripting" Version="5.9.0" />

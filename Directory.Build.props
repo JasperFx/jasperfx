@@ -9,7 +9,7 @@
         <PackageProjectUrl>http://github.com/jasperfx/jasperfx</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <TargetFrameworks>net10.0</TargetFrameworks>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
         <NoWarn>1570;1571;1572;1573;1574;1587;1591;1701;1702;1711;1735;0618</NoWarn>
         <ImplicitUsings>true</ImplicitUsings>
         <Nullable>enable</Nullable>
@@ -25,6 +25,27 @@
     -->
     <PropertyGroup>
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+        <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+        <!--
+          Without this, a failing test prints only
+
+            error run failed: Tests failed: '.../TestResults/EventStoreTests_net10.0_x64.log'
+
+          and the test name, assertion and stack trace go to that file. On a CI runner the file is
+          never published, so the log is all anyone gets - a red build with no way to tell what
+          broke. The VSTest bridge printed failures inline, and this restores that.
+        -->
+        <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+    </PropertyGroup>
+
+    <!--
+      Runtime-async (jasperfx#1040, plan decision D4). Opt-in: build with -p:JasperFxRuntimeAsync=true to compile the net11.0
+      assemblies with the C# compiler's runtime-async feature. net11.0 only: on net10.0 the compiler refuses it (SYSLIB5007) and
+      the runtime will not load it. Needs Roslyn 5.x (the SDK's). Changing it does not trigger a recompile, so clean bin/ and obj/
+      between a build with it and a build without.
+    -->
+    <PropertyGroup Condition="'$(JasperFxRuntimeAsync)' == 'true' And '$(TargetFramework)' == 'net11.0'">
+        <Features>$(Features);runtime-async=on</Features>
     </PropertyGroup>
 
     <ItemGroup>
