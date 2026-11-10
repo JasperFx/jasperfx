@@ -8,8 +8,7 @@
 
         <!-- Aspire 13.x is net10-first; AppHost projects (where this package is referenced)
              target net10.0. Single-target to keep the Aspire dependency clean. -->
-        <TargetFramework>net10.0</TargetFramework>
-        <TargetFrameworks></TargetFrameworks>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>
