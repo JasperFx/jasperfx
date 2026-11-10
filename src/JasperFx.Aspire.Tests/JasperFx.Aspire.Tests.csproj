@@ -7,8 +7,7 @@
              test project is its own MTP executable and won't build without it. -->
         <OutputType>Exe</OutputType>
         <!-- JasperFx.Aspire is net10-only (Aspire 13 is net10-first). -->
-        <TargetFramework>net10.0</TargetFramework>
-        <TargetFrameworks></TargetFrameworks>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>
