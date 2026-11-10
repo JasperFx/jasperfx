@@ -518,6 +518,10 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         // discovery is independent of how the aggregation itself is dispatched.
         assertNaturalKeyValidity();
 
+        // Also ahead of the short circuit: a generated dispatcher skips the conventional method
+        // validation, and a misplaced union parameter is never dispatched (jasperfx#1053).
+        _application.AssertNoUnsupportedUnionUsage();
+
         // If a source-generated evolver was found (either for Apply/Create or Evolve/EvolveAsync),
         // skip conventional method validation — the evolver handles everything
         if (_generatedEvolverEventTypes != null)

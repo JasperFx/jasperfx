@@ -204,6 +204,9 @@ public abstract class JasperFxEventProjectionBase<TOperations, TQuerySession> :
     {
         registerPublishedTypesForTeardown();
 
+        // A misplaced union parameter is never dispatched, generated dispatcher or not (jasperfx#1053).
+        _application.AssertNoUnsupportedUnionUsage();
+
         var applyMethod = GetType()!.GetMethod(nameof(ApplyAsync))!;
         var isOverridden = applyMethod.DeclaringType!.Assembly != typeof(JasperFxEventProjectionBase<,>).Assembly;
         if (isOverridden)

@@ -160,6 +160,26 @@ internal abstract class MethodCollection
         return invalidMethods.ToArray();
     }
 
+    /// <summary>
+    ///     jasperfx#1053: refuse a C# union event parameter anywhere but a bare Apply(TUnion). Runs whether or
+    ///     not a source-generated dispatcher was found, because with one the rest of the method validation is
+    ///     skipped, and a misplaced union would otherwise be listened for and silently never dispatched.
+    /// </summary>
+    internal static void AssertNoUnsupportedUnionUsage(Type projectionType, params MethodCollection[] collections)
+    {
+        var offenders = collections.SelectMany(x => x.Methods).Where(x => x.HasUnsupportedUnionUsage()).ToArray();
+        if (offenders.Length == 0) return;
+
+        var messages = new List<string> { $"Projection {projectionType.FullNameInCode()} has validation errors:" };
+        foreach (var slot in offenders)
+        {
+            messages.Add($"{slot.Signature()}");
+            messages.Add($" - {MethodSlot.UnsupportedUnionUsage} ('{slot.EventType!.FullNameInCode()}')");
+        }
+
+        throw new InvalidProjectionException(messages.ToArray());
+    }
+
     public bool IsEmpty()
     {
         return !Methods.Any();

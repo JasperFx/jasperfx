@@ -287,6 +287,19 @@ public class apply_union_method_discovery
         snapshot.Balance.ShouldBe(6m);
     }
 
+    [Theory]
+    [InlineData(typeof(CreateFromUnionProjection))]
+    [InlineData(typeof(WrappedUnionApplyProjection))]
+    public void a_union_anywhere_but_a_bare_apply_parameter_is_refused(Type projectionType)
+    {
+        var projection = (JasperFx.Events.Projections.ProjectionBase)Activator.CreateInstance(projectionType)!;
+
+        var ex = Should.Throw<JasperFx.Events.Projections.InvalidProjectionException>(
+            () => projection.AssembleAndAssertValidity());
+
+        ex.Message.ShouldContain("only supported as the bare event parameter of an Apply method");
+    }
+
     private static IEvent Build(object data) => new EventRegistry().BuildEvent(data);
 
     private static IGeneratedSyncEvolver<T, Guid> EvolverFor<T>() where T : notnull

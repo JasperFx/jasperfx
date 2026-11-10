@@ -120,4 +120,20 @@ public partial class ProjectedAccountProjection : SingleStreamProjection<Project
         if (e.Value is UnionWithdrawn w) account.Balance -= w.Amount;
     }
 }
+
+// Unsupported shapes: the projection would listen for the cases and dispatch none of them, so
+// AssembleAndAssertValidity has to refuse these.
+public class CreateFromUnionProjection : SingleStreamProjection<ProjectedAccount, Guid>
+{
+    public ProjectedAccount Create(AccountEvent e) => new();
+
+    public void Apply(ProjectedAccount account, UnionDeposited e) => account.Balance += e.Amount;
+}
+
+public class WrappedUnionApplyProjection : SingleStreamProjection<ProjectedAccount, Guid>
+{
+    public void Apply(ProjectedAccount account, JasperFx.Events.IEvent<AccountEvent> e)
+    {
+    }
+}
 #endif

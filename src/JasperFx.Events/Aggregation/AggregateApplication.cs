@@ -84,6 +84,12 @@ internal class AggregateApplication<TAggregate, TQuerySession> : IAggregator<TAg
         return !_applyMethods.IsEmpty() || !_createMethods.IsEmpty() || _shouldDeleteMethods.Methods.Any();
     }
 
+    public void AssertNoUnsupportedUnionUsage()
+    {
+        MethodCollection.AssertNoUnsupportedUnionUsage(_projectionType ?? typeof(TAggregate), _applyMethods,
+            _createMethods, _shouldDeleteMethods);
+    }
+
     public void AssertValidity()
     {
         if (_applyMethods.IsEmpty() && _createMethods.IsEmpty())
