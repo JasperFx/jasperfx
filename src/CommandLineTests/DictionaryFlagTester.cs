@@ -1,5 +1,7 @@
 using System.Reflection;
 using JasperFx.CommandLine;
+using JasperFx.CommandLine.Parsing;
+using JasperFx.CommandLine.Parsing.Generated;
 using Shouldly;
 
 namespace CommandLineTests
@@ -29,6 +31,40 @@ namespace CommandLineTests
             input.PropFlag["age"].ShouldBe("43");
         }
         
+        [Fact]
+        public void a_key_with_colons_in_it_is_kept_whole()
+        {
+            // GH-1132: --config:Logging:LogLevel:Default Warning used to come out
+            // with a key of just "Default"
+            var run = forArgs("dict --prop:Logging:LogLevel:Default Warning");
+
+            var input = run.Input.ShouldBeOfType<DictInput>();
+            input.PropFlag["Logging:LogLevel:Default"].ShouldBe("Warning");
+        }
+
+        [Fact]
+        public void a_key_with_colons_in_it_is_kept_whole_by_both_parsers()
+        {
+            // The test assembly runs the source generator, so BuildRun() above goes through the
+            // generated parser. Drive the reflection handler and the generated handler directly
+            // to prove both strip only the "--prop:" prefix
+            var reflected = InputParser.GetHandlers(typeof(DictInput)).OfType<DictionaryFlag>().Single();
+            var generated = GeneratedParserRegistry.TryGetHandlers(typeof(DictInput))
+                .ShouldNotBeNull()
+                .OfType<GeneratedDictionaryFlag>().Single();
+
+            foreach (ITokenHandler handler in new ITokenHandler[] { reflected, generated })
+            {
+                var input = new DictInput();
+                var tokens = new Queue<string>(["--prop:Logging:LogLevel:Default", "Warning"]);
+
+                handler.Handle(input, tokens).ShouldBeTrue();
+
+                input.PropFlag.Keys.ShouldBe(["Logging:LogLevel:Default"]);
+                input.PropFlag["Logging:LogLevel:Default"].ShouldBe("Warning");
+            }
+        }
+
         [Fact]
         public void use_prop_flags_when_dict_has_to_be_built()
         {
