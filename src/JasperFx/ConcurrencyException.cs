@@ -3,6 +3,11 @@ using JasperFx.Core.Reflection;
 
 namespace JasperFx;
 
+/// <summary>
+/// Thrown when an optimistic concurrency check fails, such as a stale document revision or an unexpected
+/// stream version. <c>JasperFx.Events.StreamLockedException</c> derives from this type as of 3.0, so
+/// catching it also catches a stream lock timeout, which is the same retryable conflict.
+/// </summary>
 public class ConcurrencyException: Exception
 {
     public static string ToMessage(Type docType, object id)

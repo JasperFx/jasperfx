@@ -190,6 +190,23 @@ public class LiftedStoreExceptionTests
     }
 
     [Fact]
+    public void catch_concurrency_exception_sees_a_stream_locked_exception()
+    {
+        var caught = false;
+        try
+        {
+            throw new StreamLockedException(13, new TimeoutException());
+        }
+        catch (JasperFx.ConcurrencyException e)
+        {
+            caught = true;
+            e.Id.ShouldBe(13);
+        }
+
+        caught.ShouldBeTrue();
+    }
+
+    [Fact]
     public void default_tenant_usage_disabled_has_the_standard_message()
     {
         new DefaultTenantUsageDisabledException().Message.ShouldBe(
