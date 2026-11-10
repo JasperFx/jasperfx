@@ -183,10 +183,57 @@ public class LiftedStoreExceptionTests
 
         ex.StreamId.ShouldBe(13);
         ex.InnerException.ShouldBeSameAs(inner);
-        ex.Message.ShouldBe("Stream '13' may be locked for updates");
+        ex.Message.ShouldBe(
+            "Stream '13' may be locked for updates; retry the operation, or reduce the number of concurrent writers");
 
         // Polecat passes a nullable inner; that stays expressible.
         new StreamLockedException(13, null).InnerException.ShouldBeNull();
+    }
+
+    [Fact]
+    public void stream_locked_from_one_stream_still_has_a_one_element_stream_ids()
+    {
+        // jasperfx#1172: StreamIds is always populated, so a policy or log that reads it does not
+        // need to know which constructor the store used.
+        var ex = new StreamLockedException(13, null);
+
+        ex.StreamIds.ShouldBe([13]);
+        ex.StreamIds[0].ShouldBeSameAs(ex.StreamId);
+    }
+
+    [Fact]
+    public void stream_locked_for_several_streams_carries_every_id_and_names_them_all()
+    {
+        // Fisher's case: SQLite takes one writer per file, so every stream the unit of work was
+        // appending to lost the lock together. StreamId and Id carry the first, for code written
+        // against the single-stream shape.
+        var inner = new TimeoutException("database is locked");
+        var ex = new StreamLockedException(["ledger/1", "ledger/2"], inner);
+
+        ex.StreamIds.ShouldBe(["ledger/1", "ledger/2"]);
+        ex.StreamId.ShouldBe("ledger/1");
+        ex.Id.ShouldBe("ledger/1");
+        ex.InnerException.ShouldBeSameAs(inner);
+        ex.Message.ShouldBe(
+            "Streams 'ledger/1', 'ledger/2' may be locked for updates; retry the operation, or reduce the number of concurrent writers");
+    }
+
+    [Fact]
+    public void stream_locked_for_a_list_of_one_keeps_the_single_stream_wording()
+    {
+        var ex = new StreamLockedException([13], null);
+
+        ex.StreamIds.ShouldBe([13]);
+        ex.Message.ShouldBe(new StreamLockedException(13, null).Message);
+    }
+
+    [Fact]
+    public void stream_locked_refuses_an_empty_list_of_streams()
+    {
+        // A locked-stream failure that names no stream would be a worse answer than the
+        // database's own exception, so the store keeps that one instead.
+        Should.Throw<ArgumentException>(() => new StreamLockedException(Array.Empty<object>(), null))
+            .ParamName.ShouldBe("streamIds");
     }
 
     [Fact]
