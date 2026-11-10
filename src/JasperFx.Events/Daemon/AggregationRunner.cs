@@ -13,7 +13,7 @@ namespace JasperFx.Events.Daemon;
 public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>
     where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
-    private readonly object _cacheLock = new();
+    private readonly Lock _cacheLock = new();
     private readonly IEventDatabase _database;
     private readonly ILogger _logger;
     private readonly IEventStore<TOperations, TQuerySession> _store;

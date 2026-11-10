@@ -395,6 +395,8 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
             listeners = _listeners;
         }
 
+        if (listeners.IsEmpty) return;
+
         foreach (var observer in listeners)
         {
             try
@@ -417,6 +419,8 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
         {
             listeners = _listeners;
         }
+
+        if (listeners.IsEmpty) return;
 
         foreach (var observer in listeners)
         {
