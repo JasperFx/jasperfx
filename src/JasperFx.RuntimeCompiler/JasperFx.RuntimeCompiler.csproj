@@ -3,7 +3,6 @@
         <Description>Runtime Roslyn Compilation and Code Generation Chicanery</Description>
         <PackageId>JasperFx.RuntimeCompiler</PackageId>
         <VersionPrefix>6.0.0</VersionPrefix>
-        <VersionSuffix>alpha.1</VersionSuffix>
     </PropertyGroup>
     <ItemGroup>
 
