@@ -300,8 +300,23 @@ public static partial class StringExtensions
     /// <returns></returns>
     public static string ToHash(this string text)
     {
-        var parts = MD5.HashData(Encoding.UTF8.GetBytes(text));
-        return Convert.ToHexString(parts).ToLowerInvariant();
+        const int stackLimit = 256;
+        var max = Encoding.UTF8.GetMaxByteCount(text.Length);
+        byte[]? rented = null;
+        Span<byte> input = max <= stackLimit
+            ? stackalloc byte[stackLimit]
+            : rented = System.Buffers.ArrayPool<byte>.Shared.Rent(max);
+        try
+        {
+            var length = Encoding.UTF8.GetBytes(text, input);
+            Span<byte> hash = stackalloc byte[MD5.HashSizeInBytes];
+            MD5.HashData(input[..length], hash);
+            return Convert.ToHexStringLower(hash);
+        }
+        finally
+        {
+            if (rented != null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 
     /// <summary>

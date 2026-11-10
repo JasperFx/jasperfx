@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace JasperFx.Core.Reflection;
 
-public static class TypeNameExtensions
+public static partial class TypeNameExtensions
 {
     public static readonly Dictionary<Type, string> Aliases = new()
     {
@@ -319,8 +319,11 @@ public static class TypeNameExtensions
     
     public static string Sanitize(this string value)
     {
-        return Regex.Replace(value, @"[\#\<\>\,\.\]\[\`\+\-]", "_").Replace(" ", "");
+        return SanitizeRegex().Replace(value, "_").Replace(" ", "");
     }
+
+    [GeneratedRegex(@"[\#\<\>\,\.\]\[\`\+\-]")]
+    private static partial Regex SanitizeRegex();
 
     public static string ToTypeNamePart(this Type type)
     {

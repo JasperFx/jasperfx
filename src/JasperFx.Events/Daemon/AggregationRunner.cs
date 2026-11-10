@@ -13,7 +13,7 @@ namespace JasperFx.Events.Daemon;
 public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>
     where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
-    private readonly object _cacheLock = new();
+    private readonly Lock _cacheLock = new();
     private readonly IEventDatabase _database;
     private readonly ILogger _logger;
     private readonly IEventStore<TOperations, TQuerySession> _store;
@@ -32,7 +32,7 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     // stream spanning several pages is written exactly once per flush window instead of once per page. Guarded
     // by _bufferLock because slices within a range are applied on a parallel Block. Non-null only while a
     // deferred rebuild is active (RebuildFlushThreshold > 0, Rebuild mode, Individual batch).
-    private readonly object _bufferLock = new();
+    private readonly Lock _bufferLock = new();
     private RebuildFlushWindow? _flush;
     private bool _deferWrites;
 

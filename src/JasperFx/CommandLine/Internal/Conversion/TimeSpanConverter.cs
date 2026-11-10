@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace JasperFx.CommandLine.Internal.Conversion;
 
-public class TimeSpanConverter
+public partial class TimeSpanConverter
 {
     private const string TimespanPattern =
         @"
@@ -12,10 +12,12 @@ public class TimeSpanConverter
 (?<units>[a-z]*)    # units is expressed as a word
 $                   # match the entire string";
 
+    [GeneratedRegex(TimespanPattern, RegexOptions.IgnorePatternWhitespace)]
+    private static partial Regex TimespanRegex();
 
     public static TimeSpan GetTimeSpan(string timeString)
     {
-        var match = Regex.Match(timeString.Trim(), TimespanPattern, RegexOptions.IgnorePatternWhitespace);
+        var match = TimespanRegex().Match(timeString.Trim());
         if (!match.Success)
         {
             return TimeSpan.Parse(timeString);
