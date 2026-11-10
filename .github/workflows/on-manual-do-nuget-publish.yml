@@ -1,6 +1,12 @@
 name: JasperFx NuGet Manual Publish
 
-on: [ workflow_dispatch ]
+on:
+  workflow_dispatch:
+    inputs:
+      allow_republish:
+        description: "Push even when JasperFxVersion is already on nuget.org (retry a publish that failed partway, or ship a package whose own version moved, such as JasperFx.RuntimeCompiler). Packages already published are skipped as duplicates."
+        type: boolean
+        default: false
 
 env:
   config: Release
@@ -39,6 +45,6 @@ jobs:
           user: jeremydmiller
 
       - name: Nuget Push
-        run: ./build.sh NugetPush
+        run: ./build.sh NugetPush ${{ inputs.allow_republish == true && '--allow-republish' || '' }}
         env:
           NugetApiKey: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
