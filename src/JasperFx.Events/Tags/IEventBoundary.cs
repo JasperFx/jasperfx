@@ -16,9 +16,10 @@ namespace JasperFx.Events.Tags;
 ///     Lifted from Marten's <c>Marten.Events.Dcb.IEventBoundary&lt;T&gt;</c>
 ///     and Polecat's <c>Polecat.Events.Dcb.IEventBoundary&lt;T&gt;</c> into
 ///     <c>JasperFx.Events.Tags</c> per the dedupe pillar
-///     (<see href="https://github.com/JasperFx/jasperfx/issues/214"/>). Each
-///     product retains its own concrete <c>EventBoundary&lt;T&gt;</c> behind
-///     this contract — only the shape is shared.
+///     (<see href="https://github.com/JasperFx/jasperfx/issues/214"/>).
+///     <see cref="EventBoundary{T}"/> is the shared implementation
+///     (jasperfx#1044); how the consistency check is enforced stays with each
+///     product.
 ///     </para>
 /// </summary>
 /// <typeparam name="T">

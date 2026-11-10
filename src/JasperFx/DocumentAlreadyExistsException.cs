@@ -29,7 +29,7 @@ namespace JasperFx;
 /// <b>Ctors:</b> both the inner-exception form (Marten, inner is nullable since Marten passes
 /// <c>null</c> from its closed-shape insert path) and the no-inner form (Polecat). The legacy
 /// <c>(SerializationInfo, StreamingContext)</c> ctor is dropped — binary exception serialization is
-/// obsolete on .NET 8+ (SYSLIB0051) and JasperFx targets net9/net10.
+/// obsolete on .NET 8+ (SYSLIB0051) and JasperFx targets net10.
 /// </description></item>
 /// </list>
 /// </remarks>

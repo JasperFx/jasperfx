@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
@@ -269,7 +270,9 @@ public static partial class StringExtensions
             + decimalSeparator +
             @"\d+)\z";
 
-        return new Regex(_validNumberPattern, RegexOptions.ECMAScript).IsMatch(number);
+        // jasperfx#1041: the pattern depends on the culture's separators, so [GeneratedRegex] cannot apply. The
+        // static IsMatch goes through the framework's bounded Regex cache, which saves parsing it on every call.
+        return Regex.IsMatch(number, _validNumberPattern, RegexOptions.ECMAScript);
     }
 
     public static List<string> getPathParts(this string path)
@@ -536,19 +539,37 @@ public static partial class StringExtensions
             return 0;
         }
 
-        Span<byte> bytes = Encoding.UTF8.GetBytes(text);
+        // jasperfx#1041: Wolverine computes this per message to pick a partition, so the bytes go through a
+        // stack buffer. Any UTF-16 code unit is at most three UTF-8 bytes, which is what lets a short string
+        // skip counting them. The values are persisted downstream, so a change here has to keep every one of
+        // them: see java_compliant_hash_values_are_pinned.
+        const int stackLimit = 256;
+
+        var byteCount = text.Length <= stackLimit / 3 ? stackLimit : Encoding.UTF8.GetByteCount(text);
+
+        byte[]? rented = null;
+        Span<byte> buffer = byteCount <= stackLimit
+            ? stackalloc byte[stackLimit]
+            : rented = ArrayPool<byte>.Shared.Rent(byteCount);
+
+        var written = Encoding.UTF8.GetBytes(text, buffer);
 
         int hashCode = 0;
 
-        foreach (var b in bytes)
+        foreach (var b in buffer[..written])
         {
             //hashCode = (hashCode << 5) - hashCode + b
             hashCode = 31 * hashCode + b;
         }
 
+        if (rented != null)
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+
         return hashCode;
     }
-    
+
 
     /// <summary>
     /// Converts a pascal cased string to snake case for

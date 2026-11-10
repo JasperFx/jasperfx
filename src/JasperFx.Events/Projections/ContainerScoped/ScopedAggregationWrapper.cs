@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 using JasperFx.Core.Reflection;
+using JasperFx.Descriptors;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Grouping;
@@ -20,7 +22,7 @@ namespace JasperFx.Events.Projections.ContainerScoped;
     Justification = "Class-level: generic type-argument flow on the IoC wrapper. TSource/TDoc/TId/TOperations/TQuerySession are preserved by the IoC registration of the projection on the caller side.")]
 public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySession> :
     ProjectionSourceWrapperBase<TSource, TOperations, TQuerySession>, IJasperFxProjection<TOperations>,
-    IAggregateProjection
+    IAggregateProjection, ISteppableAggregation<TQuerySession>
     where TOperations : TQuerySession, IStorageOperations
     where TSource : JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
     where TDoc : notnull
@@ -62,7 +64,41 @@ public class ScopedAggregationWrapper<TSource, TDoc, TId, TOperations, TQuerySes
         var projection = (IJasperFxProjection<TOperations>)sp.GetRequiredService<TSource>();
         await projection.ApplyAsync(operations, events, cancellation);
     }
-    
+
+    // jasperfx#1049: a Scoped or Transient projection reaches the graph as this wrapper, so without these
+    // a step-through refused it as "not an aggregation", while the stores' AggregatorFor<T> path replayed it.
+    async Task<MultiAggregateProjectionResult> ISteppableAggregation<TQuerySession>.BuildTimelinesAsync(
+        IReadOnlyList<IEvent> events, TQuerySession session, Func<object?, JsonElement?> serialize,
+        Func<IEvent, EventRecord> toRecord, IProjectionStepObserver? observer, CancellationToken cancellation)
+    {
+        await using var scope = _serviceProvider.CreateAsyncScope();
+
+        return await scope.ServiceProvider.GetRequiredService<TSource>()
+            .BuildTimelinesAsync(events, session, serialize, toRecord, observer, cancellation).ConfigureAwait(false);
+    }
+
+    async Task<MultiAggregateProjectionResult> ISteppableAggregation<TQuerySession>.BuildTimelinesAsync(
+        IReadOnlyList<IEvent> events, TQuerySession session, ProjectionStateSerializer states,
+        Func<IEvent, EventRecord> toRecord, IProjectionStepObserver? observer, CancellationToken cancellation)
+    {
+        await using var scope = _serviceProvider.CreateAsyncScope();
+
+        return await scope.ServiceProvider.GetRequiredService<TSource>()
+            .BuildTimelinesAsync(events, session, states, toRecord, observer, cancellation).ConfigureAwait(false);
+    }
+
+    async Task<ProjectionTimeline<JsonElement?>> ISteppableAggregation<TQuerySession>.BuildTimelineAsync(
+        object identity, IReadOnlyList<EventRecord> events, Func<EventRecord, IEvent?> toEvent,
+        TQuerySession session, JsonElement? startingState, ProjectionStateSerializer states,
+        CancellationToken cancellation)
+    {
+        await using var scope = _serviceProvider.CreateAsyncScope();
+
+        return await scope.ServiceProvider.GetRequiredService<TSource>()
+            .BuildTimelineAsync(identity, events, toEvent, session, startingState, states, cancellation)
+            .ConfigureAwait(false);
+    }
+
     internal class EventSlicer : IEventSlicer
     {
         private readonly TQuerySession _session;

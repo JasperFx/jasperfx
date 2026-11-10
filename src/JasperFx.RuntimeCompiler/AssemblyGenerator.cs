@@ -59,6 +59,34 @@ namespace JasperFx.RuntimeCompiler
 		public string? AssemblyName { get; set; }
 
 		/// <summary>
+		/// Compile with the C# compiler's runtime-async feature (jasperfx#1040). Off by default, and honored only by the
+		/// net11.0 build of this assembly; ignored on net10.0, where the runtime would refuse to load the result.
+		/// <see cref="GenerationRules.UseRuntimeAsync"/> sets this for <see cref="Compile(GeneratedAssembly, IServiceVariableSource?)"/>.
+		/// </summary>
+		public bool UseRuntimeAsync { get; set; }
+
+		internal static bool RuntimeAsyncSupported =>
+#if NET11_0_OR_GREATER
+			true;
+#else
+			false;
+#endif
+
+		internal CSharpParseOptions ParseOptions
+		{
+			get
+			{
+				var options = CSharpParseOptions.Default;
+				if (UseRuntimeAsync && RuntimeAsyncSupported)
+				{
+					options = options.WithFeatures([new KeyValuePair<string, string>("runtime-async", "on")]);
+				}
+
+				return options;
+			}
+		}
+
+		/// <summary>
 		/// Tells Roslyn to reference the given assembly and any of its dependencies
 		/// when compiling code
 		/// </summary>
@@ -195,7 +223,7 @@ namespace JasperFx.RuntimeCompiler
 		public Assembly Generate(string code)
 		{
 			var assemblyName = AssemblyName ?? Path.GetRandomFileName();
-			var syntaxTree = CSharpSyntaxTree.ParseText(code);
+			var syntaxTree = CSharpSyntaxTree.ParseText(code, ParseOptions);
 
 			var references = _references.ToArray();
 			var compilation = CSharpCompilation.Create(assemblyName, [syntaxTree], references,
@@ -258,6 +286,7 @@ namespace JasperFx.RuntimeCompiler
 			assemblies
 				.Each(x => generator1.ReferenceAssembly(x));
             
+			generator1.UseRuntimeAsync = generatedAssembly.Rules.UseRuntimeAsync;
 			var generator = generator1;
 
 			if (!generatedAssembly.Rules.ReuseCompiledAssemblies)
@@ -268,7 +297,7 @@ namespace JasperFx.RuntimeCompiler
 
 			// jasperfx#1114: one compilation per distinct source and reference set in the process, however many hosts ask.
 			var source = code;
-			var key = ReuseKey(source, generator._assemblies);
+			var key = ReuseKey(source, generator._assemblies, generator.UseRuntimeAsync && RuntimeAsyncSupported);
 			var compiled = _compiled.GetOrAdd(key, _ => new Lazy<Assembly>(() => generator.Generate(source)));
 			Assembly assembly;
 			try
@@ -296,10 +325,11 @@ namespace JasperFx.RuntimeCompiler
 		/// build (its module version id) and load context. Source alone is not enough: the same source compiled against another
 		/// build of a referenced assembly, or a copy loaded into another context, is a different assembly.
 		/// </summary>
-		internal static string ReuseKey(string code, IEnumerable<Assembly> references)
+		internal static string ReuseKey(string code, IEnumerable<Assembly> references, bool runtimeAsync = false)
 		{
 			using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 			hash.AppendData(Encoding.UTF8.GetBytes(code));
+			if (runtimeAsync) hash.AppendData("\nruntime-async"u8);
 
 			foreach (var line in references.Select(identityOf).Order(StringComparer.Ordinal))
 			{

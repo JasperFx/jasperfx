@@ -48,6 +48,7 @@ public abstract class ProjectionSourceWrapperBase<TSource, TOperations, TQuerySe
         Version = source.Version;
 
         replaceOptions(source.Options);
+        Options.DeleteTablesPublishedBy(source);
 
         if (source is EventFilterable filterable)
         {

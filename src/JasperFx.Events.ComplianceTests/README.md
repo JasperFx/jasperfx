@@ -124,6 +124,10 @@ ordering, the commit probe and the shared `IMessageSink` half; a consumer suppli
 members. Only `ProjectionSideEffectCompliance` needs these, so a store that has no message outbox
 simply leaves `SupportsMessageOutbox` false and never writes them.
 
+The library half also implements the shared `JasperFx.Events.Documents.IMessageOutbox` and
+`IMessageBatch` (jasperfx#1045), explicitly so that it cannot collide with the members below. A store
+whose options are typed to the shared interfaces deletes these two partials and writes nothing.
+
 ```csharp
 namespace JasperFx.Events.ComplianceTests;
 
@@ -213,24 +217,6 @@ the flag). The suite ANDs predicates into a single tree itself, so the parser me
 exclusion below: the suite pins tag predicate semantics (tag matching, AND composition, tenant
 scoping, unregistered-tag throw), never a provider operator set. Marten's hstore-mode fact stayed
 behind as one engine's storage layout.
-
-`SingleTenantedEventSlicingCompliance` (jasperfx#724) is opt-in for a different reason: it needs no
-registrar seam at all, but the precondition it constructs is unusual enough that a store should adopt
-it knowingly. On a single-tenanted store, events whose `tenant_id` values disagree must still fold into
-one aggregate — wolverine#2053 / marten#4085 — and only the *async daemon* ever got that wrong, so the
-suite drives the daemon rather than asserting on a live aggregate. Note its guard: it stamps
-disagreeing tenant ids through `IEvent.TenantId`, then reads the events back and **skips** if the store
-normalised them away, because an unmixed store satisfies the assertion for a reason that has nothing to
-do with the behaviour under test. Vacuous green is worse than a skip, since only one of the two is
-visible.
-
-**`SingleTenantedEventSlicingCompliance` is obsolete and goes away in 3.0 (jasperfx#727).** The guard did
-its job and exposed the problem: Fisher normalizes the appended tenant ids, and Polecat refuses the
-second, differently-tenanted append (`ExistingStreamIdCollisionException`). So the suite skips on both,
-and it can only execute on Marten, which had the fix all along. A compliance suite that holds only the
-compliant store to the contract is a Marten test with extra ceremony, so that coverage moves to a
-Marten-local regression test (marten#5305). Existing enrollments compile with an obsolete warning until
-3.0. Don't add new ones.
 
 `AggregateToManyCompliance` and `AggregateToLinqOperatorCompliance` (jasperfx#754) are opt-in
 through fixture seam members rather than the registrar: the `AggregateToAsync` /
@@ -334,7 +320,7 @@ see `Local/ComplianceSideEffectProjectionPlaceholder.cs` for the exact spelling)
 suite's projection has to *override* `RaiseSideEffects` and so must derive from the product's own
 `SingleStreamProjection<TDoc, TId>`. And **two more per-consumer partials**,
 `RecordingMessageOutbox` and `RecordingMessageBatch`, for the same reason as `ComplianceSubscription`:
-`IMessageOutbox` and `IMessageBatch` are per-product types whose members genuinely differ — Marten
+each product's `IMessageOutbox` and `IMessageBatch` have members that differ — Marten
 declares `IMessageBatch : IMessageSink, IChangeListener`, so its hooks take
 `(IDocumentSession, IChangeSet, CancellationToken)`, while Polecat's and Fisher's take a bare
 `CancellationToken`. The library owns the recording, the ordering and the probe; a consumer writes
@@ -410,7 +396,7 @@ Both current consumers accept a `ComplianceSourceDir` property that swaps the pu
 working copy, so a new wave can be validated against a real store before the JasperFx release:
 
 ```bash
-dotnet test src/EventSourcingTests/EventSourcingTests.csproj -f net9.0 \
+dotnet test src/EventSourcingTests/EventSourcingTests.csproj -f net10.0 \
     -p:ComplianceSourceDir=/path/to/jasperfx/src/JasperFx.Events.ComplianceTests
 ```
 
@@ -445,6 +431,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Two tenants starting one stream id in a single save get two streams (opt-in, `SupportsSessionTenantSwitching`, `ForTenant` seam) | `ConjoinedEventTenancyCompliance` |
 | An in-flight append below committed events is not stepped over by the daemon (opt-in, `SupportsHoldingAnAppendOpen`, `HoldAppendOpenAsync` seam) | `AsyncDaemonCompliance` |
 | The event store explorer surface | `EventStoreExplorerCompliance` |
+| Projection step-through over real rows (opt-in, for a store that has adopted `ProjectionStepThrough`) | `ProjectionStepThroughCompliance` |
 | Flat-table event projections | `FlatTableProjectionCompliance` |
 | String stream identity, read and write surface | `StringStreamIdentityCompliance` |
 | Multi-stream projection grouping and fan-out | `MultiStreamProjectionCompliance` |
@@ -461,7 +448,6 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | The stream-state queryable (`QueryStreamStates`) | `StreamStateQueryCompliance` |
 | The event-body queryable (`QueryEventData<T>`) | `EventDataQueryCompliance` |
 | Subscriptions — delivery, rewind, filters, session writes, the change listener | `SubscriptionCompliance` |
-| Single-tenanted slicing of disagreeing tenant ids | `SingleTenantedEventSlicingCompliance` (**obsolete**, removed in 3.0, jasperfx#727) |
 | Composite projections — staging and member teardown | `CompositeProjectionCompliance` |
 | `AggregateToAsync` over an event query | `AggregateToLinqOperatorCompliance` |
 | `AggregateToManyAsync` through a registered projection | `AggregateToManyCompliance` |

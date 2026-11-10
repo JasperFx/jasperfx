@@ -28,7 +28,7 @@ namespace JasperFx.Events.Documents;
 /// <para>
 /// This contract is deliberately tiny — it is the *document* slice a store-agnostic consumer needs
 /// alongside <c>JasperFx.Events</c>, not a document store facade. Patching, bulk insert, LINQ joins /
-/// grouping / <c>Include</c>, soft-delete semantics, document metadata, session listeners, the
+/// grouping / <c>Include</c>, soft-delete semantics, document metadata, the
 /// stores' <c>Advanced</c> surfaces and schema management are all out of scope by design; a consumer
 /// that needs those takes a dependency on a concrete store. See
 /// <see href="https://github.com/JasperFx/jasperfx/issues/647" />.
@@ -185,6 +185,32 @@ public interface IDocumentReadOperations : IAsyncDisposable
             _ => throw new NotSupportedException(
                 $"{GetType().FullName} does not implement {nameof(IDocumentReadOperations)}.{nameof(LoadAsync)}<T>(object), so it cannot load a document of type {typeof(T).FullName} by an identity of type {id.GetType().FullName}. The default implementation forwards only the canonical Guid and string identities to their own overloads; resolving a strong-typed identifier requires the store's own value type registration, so the store has to override this member.")
         };
+
+    /// <summary>
+    /// Whether a document of type <typeparamref name="T" /> exists with this identity, without the caller
+    /// having to hold the document. True exactly when <see cref="LoadAsync{T}(object,CancellationToken)" />
+    /// would return one, so a soft-deleted document and another tenant's document do not exist.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="object" /> rather than an overload per identity type, because the consumer is generic
+    /// over the identity: Wolverine's <c>[DocumentExists&lt;T&gt;]</c> holds a <c>TId</c>, and Polecat's and
+    /// Fisher's typed overloads leave it switching on the type and refusing a strong-typed identifier.
+    /// Marten declares exactly this member, so a Marten session satisfies it with no change. See
+    /// <see href="https://github.com/JasperFx/jasperfx/issues/1052" />.
+    /// </para>
+    /// <para>
+    /// The default answers correctly by loading the document. That costs a read and a deserialize a store
+    /// can avoid, so it is a starting point, and it inherits the identity types
+    /// <see cref="LoadAsync{T}(object,CancellationToken)" /> resolves.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, on the same terms as
+    /// <see cref="LoadAsync{T}(object,CancellationToken)" />.
+    /// </exception>
+    async Task<bool> CheckExistsAsync<T>(object id, CancellationToken token = default) where T : notnull
+        => await LoadAsync<T>(id, token).ConfigureAwait(false) is not null;
 
     /// <summary>
     /// Load every document of type <typeparamref name="T" /> whose <see cref="Guid" /> identity is in

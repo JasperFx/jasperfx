@@ -1,5 +1,180 @@
 # Migration Guide
 
+## Key Changes in 3.0.0
+
+JasperFx 3.0 is the foundation of the Critter Stack .NET 11 release train, alongside Weasel 10, Marten 10, Polecat 6, Fisher 2 and Wolverine 7.
+
+::: warning In progress
+This section grows as the 3.0 work lands, so it describes the `3.0` branch rather than a released package.
+:::
+
+### Foundation
+
+* **.NET 9 support was dropped.** JasperFx 3.0 targets `net10.0`. `net11.0` joins it once the .NET 11 SDK is on the build machines. Stay on JasperFx 2.x if you still need .NET 9.
+
+* **`JasperFx.RuntimeCompiler` moves to 6.0.0**, because it follows the same target framework change and depends on JasperFx 3.
+
+* **`Microsoft.Extensions.*` packages have a 10.0.0 floor.**
+
+* **`JasperFx.RuntimeCompiler` compiles with Roslyn 5.9**, and **`FastExpressionCompiler` moves to 6.0**, which itself drops `netstandard2.0` and `net9.0` and renames `ClosureInfo` to `CompilerContext`. Neither name appears in JasperFx's public API, but code of yours that uses FastExpressionCompiler directly will meet the rename.
+
+### Testing
+
+* **`JasperFx.Events.ComplianceTests` depends on xunit.v3 4.x**, which runs on Microsoft.Testing.Platform 2.x. A test project that enrolls in the compliance suites has to move to xunit.v3 4.x with it, because 3.x beside platform 2.x fails at run time. Add `"test": { "runner": "Microsoft.Testing.Platform" }` to `global.json`, and pass a project to `dotnet test` with `--project` rather than as a positional path.
+
+### Changed defaults
+
+* **`GateSideEffectsBehindPriorVersion` is on by default for every event store** ([#1075](https://github.com/JasperFx/jasperfx/issues/1075)).
+
+  When a new version of a projection (`Version > 1`) starts behind the highest prior version's progress during a blue/green or rolling deploy, it now catches up to that version's mark with side effects suppressed. `RaiseSideEffects`, raised events and published messages only fire for events the prior version never processed. Before 3.0 the new version emitted them over the whole replay, so the same messages could go out twice.
+
+  * **Schema effect:** none. The gate reads the existing progression rows.
+  * **Cost:** each start of a `Version > 1` shard reads the store's projection progress once. Projections at version 1 do not pay this, and neither do shards that subscribe from the present, which have no prior replay to gate.
+  * **Pacing:** a gated shard starts normally and reports `ShardState.SideEffectsSuppressed` while it warms up. `DaemonSettings.MaxConcurrentSideEffectGateWarmupsPerDatabase` limits how many warm up at once.
+  * **Opt out:** set `GateSideEffectsBehindPriorVersion = false` on the projection, or use your store's restore helper (`RestoreV9Defaults()` in Marten, and the Polecat 6 and Fisher 2 equivalents) to put every changed default back.
+
+  A shard that subscribes from the present used to log a warning when this was set. It now logs at `Information`, since the combination is no longer one anyone chose.
+
+* **`AsyncOptions.MaximumHopperSize` now defaults to 2 x `BatchSize`** instead of a flat 5,000 ([#1076](https://github.com/JasperFx/jasperfx/issues/1076)).
+
+  A shard that is behind keeps loading pages until it holds this many events, and those pages then wait for a write slot, so memory followed behind shards x 5,000 events however small `BatchSize` was. Shrinking `BatchSize` to save memory made that worse, because it meant more pages of prefetch per shard.
+
+  * **Effect:** far less memory on write-bound shards at the default `BatchSize` of 500. Measured against the real agent with a simulated database, peak in-flight events fell by 77% with no measurable change in throughput.
+  * **Larger batches:** the default follows `BatchSize` in both directions, so a `BatchSize` above 2,500 now gets a deeper hopper than it had before. Set `MaximumHopperSize` if you tuned around the old cap.
+  * **Schema effect:** none.
+  * **Opt out:** set `MaximumHopperSize` explicitly, which always wins over the derived default. `MaximumHopperSize = 5000` restores the old behavior.
+
+### For event store authors
+
+The types below were lifted out of Marten, Polecat and Fisher so that each store can delete its own copy. Adopting them is expected to land in the same change as the JasperFx 3.0 pin bump: where a store keeps a type of the same name, any file importing both namespaces stops compiling with `CS0104`.
+
+* **`EventBoundary<T>` and `TagValueStringifier` are now in `JasperFx.Events.Tags`** ([#1044](https://github.com/JasperFx/jasperfx/issues/1044)).
+
+  Build the boundary from `FetchForWritingByTags`, and pass the same `IEventOperations` the fetch went through, because that decides the tenant of what it appends. Under `ForTenant` that means the tenant-scoped operations, not the root session's. The boundary does not enforce consistency: the store still checks `LastSeenSequence` at `SaveChangesAsync`.
+
+  Behavior that differs from the stores' own copies:
+
+  * An event routed by a tag stamps the tag's aggregate type on a stream that has none.
+  * On a Guid-identity store, a string or numeric tag no longer names a stream. The next tag that can name one does, and failing that the event gets its own new stream.
+  * On a string-identity store, any tag value names a stream, in invariant form.
+  * A `Guid.Empty` tag value reaches the store's `Append` guard rather than being accepted.
+  * Under Marten's `UseMandatoryStreamTypeDeclaration`, an event no tag can route now throws `StreamTypeMissingException` at `AppendOne`.
+
+* **`EventRegistry` now owns masking rules, binary serializers, tag types and the name and alias caches** ([#1043](https://github.com/JasperFx/jasperfx/issues/1043)).
+
+  Override `AliasFor` rather than `AggregateAliasFor`, which is now the caching wrapper around it. A store that keeps overriding `AggregateAliasFor` must move both alias overrides together, or `AggregateTypeFor` and `TryResolveAggregateType` come back empty. Call `RegisterDotNetTypeNames` wherever you build an event mapping: stores override `EventMappingFor` and never reach the base one, so this is how the name cache hears about a registration. A bare `EventRegistry.AggregateTypeFor` now throws `ArgumentOutOfRangeException` on an unknown alias rather than `NotSupportedException`.
+
+  Until a store adopts these, it compiles with `CS0108` hiding warnings and behaves as before, because its own members win. That includes masking: a store's own rules hide the base ones, so adopt this before building on the shared masking in any later lift.
+
+* **`IEventDatabase.WaitForNonStaleProjectionDataAsync` has a default implementation** ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
+
+  A store may delete its own and implement `RegisteredShardNames()`. A store that keeps its own is unaffected. A class that needs the method public should forward to `NonStaleProjectionWait.WaitAsync`, not to the interface, which would recurse. The default reads the ceiling once so sustained appends cannot keep it waiting, returns at once on an empty store, and always reports expiry as a `TimeoutException`.
+
+* **`ProjectionTeardownPlan.For(source)` lists everything a rebuild must clear** ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
+
+  Implement `IProjectionTableResolver` to resolve it to tables. The SQL, the transaction and the tenant scoping stay in the store. The plan is the union of what the three stores each covered, and it honors `TeardownDataOnRebuild` across every data category. On a composite, `false` also covers its members, which is new: a member can still opt out on its own. `DeletePublishedTypesOnTeardown = false` is honored too, where Polecat and Fisher truncated those tables anyway.
+
+* **`ProjectionBatchBase<TSession>`, `MessagePublishing`, and the shared `IMessageOutbox` and `IMessageBatch` are now in JasperFx.Events** ([#1045](https://github.com/JasperFx/jasperfx/issues/1045)).
+
+  The interfaces live in `JasperFx.Events.Documents`. Polecat's and Fisher's own `IMessageOutbox` and `IMessageBatch` derive from them for one release, so existing implementers such as Wolverine's keep compiling. Move to the shared interfaces before those are removed. Pass the real `ShardExecutionMode` to the base constructor, which has no default, and always await `beforeCommit` as the last step before commit, even for an empty batch.
+
+* **`EventDataMaskingBase<TSession>` and `StreamCompactingExecution<TSession>` are now in JasperFx.Events** ([#1048](https://github.com/JasperFx/jasperfx/issues/1048)).
+
+  Implement `TryMask` as a call on your own event graph, so that this and the `EventRegistry` masking lift can be adopted in either order. The `*IncludingArchived*` reads have to include archived events, and `SupportsMaskingArchivedEvents` on the compliance fixture turns on the facts for them. Masking commits nothing on failure, and compaction queues its work on your session and returns whether it did, so a store that commits inside compaction can do so on `true`.
+
+* **`Projections.StepThrough(toEvent, serializer)` replaces the stores' `RunProjectionAsync`, `RunProjectionByNameAsync` and `RunMultiStreamProjectionAsync` bodies** ([#1049](https://github.com/JasperFx/jasperfx/issues/1049)).
+
+  `ProjectionStateSerializer` requires both a serialize and a deserialize delegate. There is deliberately no copy delegate, because an identity function would compile and record live references. Enroll `ProjectionStepThroughCompliance` when you adopt it.
+
+* **Session hooks and enlistment** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)).
+
+  `IDocumentSessionOperations.AddSaveListener`, `IDocumentWriteOperations.AddTransactionParticipant` and `ProjectionGraph.Subscribe(IEventSubscription)` throw `NotSupportedException` until a store adopts them, so a hook a store does not run fails at registration rather than losing messages silently. Use one `DocumentSessionHooks` per session, count `HasPendingParticipants` as work, and throw from either registration on a session whose commit the store does not run. A shared participant belongs to one unit of work, unlike the stores' own, which last until dispose.
+
+  The hook order is fixed: before-save, participants, then the message hook immediately before commit. After-commit runs only after a successful commit, takes no cancellation token, and runs every hook before rethrowing a failure.
+
+* **`session.MetadataContext` exposes session metadata** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)), including `CurrentUserName`, which is the same state as `LastModifiedBy` on all three stores. It is an accessor rather than `IDocumentSessionOperations : IMetadataContext`, because inheriting makes `session.TenantId` ambiguous (`CS0229`) on every store-typed session.
+
+* **`IEventStore.IdentityTypeFor`** gives an aggregate's identity type, with strong types preserved ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)). `IdentityTypeForProjectedType` answers differently per store, so use the new member. `IEventStore.StreamIdentity` is answered for you from the registry, and `IEventStore.FindNaturalKeyDefinition` is new.
+
+* **`Insert<T>(T)`, `Update<T>(T)`, `StoreObjects` and `CheckExistsAsync<T>(object)` are on the shared write and read tiers** ([#1052](https://github.com/JasperFx/jasperfx/issues/1052)).
+
+* **`AggregateWriteCacheSession` and `AggregateWriteBaseline<T>` hold the aggregate write-back** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)).
+
+  `Flush` only after a commit you own, and call `Discard` otherwise, including on a failed save and on a transaction the caller owns. Register at the version the instance reflects, and use `Advance` only with the instance that actually holds the newer state. Call `TakeBaseline(..., 0)` for a missing stream, so a stale entry cannot outlive it.
+
+* **`IAggregateWriteCache.StoreIfNewer` refuses a write older than the existing entry** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)). It is a default member, so custom caches keep compiling and get the guard through `TryTake` and `Store`. A write-back therefore reads as a take to anything counting takes. Override it if your cache can compare and swap, or if your counters matter.
+
+* **`ScopedSubscriptionServiceWrapper<T, TOperations, TQuerySession, TSubscription>` is public** ([#1050](https://github.com/JasperFx/jasperfx/issues/1050)), so Marten and Fisher can drop their copies. Its scope now spans the store's whole run, including the commit, so a scoped service that flushes on dispose flushes after the commit.
+
+* **`EventOperationsBase` holds the shared write surface** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)): `StartStream`, `Append`, `AppendOptimistic`, `AppendExclusive`, `FetchForWriting`, `FetchForExclusiveWriting`, `WriteToAggregate` and `WriteExclusivelyToAggregate`.
+
+  Derive from it, or implement `IEventOperationsHost` if your class already has a base class, and implement the `*Core` seams. The base reads no tenant and assumes no append mode, so the tenant is stamped in your seams, on the instance the call was made on. Natural-key fetches stay per store.
+
+* **`OpenTelemetryOptions` owns one `ActivitySource`, named like its `Meter`, and both are shared by name for the process** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Answer `IEventStore.Meter` and `IEventStore.ActivitySource` from your options rather than creating your own. Derive from `OpenTelemetryOptions<TChangeSet>` for `ExportCounterOnChangeSets`, and call `RecordCommit` from your commit listener.
+
+* **`StoreActivator<TStore, TDatabase>` replaces a hand-written startup service** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Global locks stay inside Weasel's per-database apply: the activator takes none of its own. Under `ContinueOnFailures`, leave the Weasel database at `FailFast` and let the activator handle the failure, because a lost lock otherwise looks like a successful migration.
+
+* **`StrongTypedIdResolver` replaces local strong-typed id discovery** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). It keeps both stores' rules for class wrappers as named `StrongTypedIdStyle` values.
+
+* **`JasperFx.Pagination` holds `CursorCodec`, `IPagedList<T>` and `PagedList<T>`** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). The v1 cursor format is unchanged for clients, and the seek predicate stays per store.
+
+* **`ClientSideAppendPlanner` holds the append decisions for client-side stores** ([#1051](https://github.com/JasperFx/jasperfx/issues/1051)), in the new `JasperFx.Events.Appending` namespace. Supply a row per action, scoped to that action's tenant, and call `Plan` and then `Apply`. `Plan` changes nothing and does no I/O, so a refused batch leaves every action as it was. A stream you forget to read arrives as `NotRead` and is refused rather than restarting at version 1. Marten keeps its own append path.
+
+### Behavior changes
+
+* **`Append(stream, expectedVersion, ...)` means the version of the stream after the append, on every store** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)).
+
+  `Append(id, 2, e)` succeeds on a stream at version 1, as Marten and Polecat have always done. **This is a breaking change on Fisher and the in-memory store**, which read the argument as the version before the append, so the same portable call behaved differently per store:
+
+  | Call | Fisher before 2.0 | Now |
+  |---|---|---|
+  | `Append(id, 2, e)`, stream at version 2 | Succeeds | Fails with a concurrency exception. Pass `3` |
+  | `Append(id, 2, e)`, stream at version 1 | Fails | Succeeds |
+  | `Append(id, 0, e)`, stream missing | Creates the stream | Throws `ArgumentOutOfRangeException`. Pass `1` |
+
+  To migrate, add the number of events being appended to the version you were passing. `FetchForWriting` and `AppendOptimistic` are unaffected, because neither takes this argument. `FetchForWritingCompliance` pins the meaning, so a store on the old reading fails it.
+
+* **Client-side appends are decided the same way on Polecat and Fisher** ([#1051](https://github.com/JasperFx/jasperfx/issues/1051)), as each store adopts the planner:
+
+  * Polecat event timestamps come from the application's `TimeProvider` rather than SQL Server's clock, and a caller-set `IEvent.Timestamp` is kept. Inline projections and the stored row now agree.
+  * Polecat no longer stamps correlation, causation, user or headers on the envelope when that `Enable*` option is off.
+  * On Fisher, a session header no longer replaces an event's own header of the same name, and events raised by a projection are not checked against the slice's version.
+  * `StartStream` with a non-zero `ExpectedVersionOnServer` is refused, and under conjoined tenancy so is an event of another tenant.
+
+* **Two stores in one process with the same meter name share one `Meter`** ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). This applies as soon as you take JasperFx 3.0, with no store adoption, because `new OpenTelemetryOptions(name).Meter` is now shared by name. Don't dispose it.
+
+* **With `ContinueOnFailures`, `IInitialData` no longer runs after a failed migration**, and a host stopping during activation cancels rather than logging a failed migration ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). This takes effect as each store adopts `StoreActivator`.
+
+* **A malformed cursor is always refused with an `ArgumentException`**, and a key type the codec cannot carry now fails at `Encode` rather than on the next request ([#1054](https://github.com/JasperFx/jasperfx/issues/1054)). Polecat cursors over enum keys change bytes, and were undecodable before.
+
+* **Stream validation is uniform on every event operations overload** ([#1047](https://github.com/JasperFx/jasperfx/issues/1047)), before anything is read, as each store adopts the base. A stream identity that doesn't match the store's `StreamIdentity` throws `InvalidOperationException`, an empty Guid or key throws `ArgumentOutOfRangeException`, `StartStream` with no events throws `EmptyEventStreamException`, and null events throw `ArgumentNullException`. In particular, `FetchForWriting(Guid.Empty)` no longer starts a `Guid.Empty` stream on Polecat or Fisher, and `AppendOptimistic(Guid.Empty)` throws `ArgumentOutOfRangeException` rather than `NonExistentStreamException`.
+
+* **Pre-generated code fails at startup rather than at first use** ([#1041](https://github.com/JasperFx/jasperfx/issues/1041)). `DynamicCodeBuilder.LoadPrebuiltTypes()` now throws `ExpectedTypeMissingException` when the static type loader is in effect (`TypeLoadMode.Static`, or `Auto` on Native AOT) and an expected pre-built type is missing. Dynamic mode, `Auto` with runtime code generation, custom `ITypeLoader`s and the `codegen` commands are unaffected. The text of `ExpectedTypeMissingException` and `MissingTypeException` changed, so don't match on it.
+
+* **Stepping through a projection shows true history** ([#1049](https://github.com/JasperFx/jasperfx/issues/1049)). A delete shows as a null state, and a failed apply no longer leaks partial changes into later steps. The typed `RunProjectionAsync` throws `ProjectionStateRoundTripException` for a state the serializer cannot read back faithfully, such as a `{ get; private set; }` property, instead of reporting wrong values; use `RunProjectionByNameAsync` for those aggregates. `ISteppableAggregation.BuildTimelinesAsync` stamps version metadata, honors `Compacted<T>`, treats `HardDelete` as a delete and rethrows cancellation, and those four reach stores without any adoption.
+
+* **Masking and compaction fixes arrive as each store adopts the shared classes** ([#1048](https://github.com/JasperFx/jasperfx/issues/1048)):
+
+  * Masking reaches archived streams and events. Marten and Polecat skipped them silently, so re-run masking if you relied on it for archived data.
+  * An event selected twice in a pass is masked once, and a pass that fails commits nothing.
+  * `ForTenant` refuses a null or empty tenant, and `IncludeStream` refuses `Guid.Empty` and an empty key.
+  * Compaction leaves a stream that folds to nothing alone, where Marten and Polecat replaced it with an empty snapshot and deleted the events.
+  * An archiver the store cannot call fails the compaction rather than being skipped, and compaction refuses an empty stream identity.
+
+* **`StreamArchivingCompliance` holds every store to archived events being opt-in.** The suite used to let a store return archived events from `FetchStreamAsync`. It now asserts that `FetchStreamAsync`, `QueryRawEvents`, `QueryEventsAsync` and `QueryEventData<T>` leave them out, and that a predicate naming `IEvent.IsArchived` reads them, replacing the implicit filter rather than sitting beside it. A store whose `Where(x => x.IsArchived)` still carries its default `is_archived` term matches nothing and fails that fact.
+
+* **Projection batches built on `ProjectionBatchBase` publish nothing outside `ShardExecutionMode.Continuous`** ([#1045](https://github.com/JasperFx/jasperfx/issues/1045)). A rebuild or catch-up replays history, so a message from one is a second delivery of something already sent, and a re-raised event permanently grows the stream on every rebuild. Neither the message hooks nor raised events were gated consistently across the stores. This takes effect in each store once it adopts the base.
+
+* **`FetchProjectionLagAsync`:** a shard with only tenant-qualified progress rows, under a store-global high-water mark, now reports those tenants' cells rather than "no row" ([#1046](https://github.com/JasperFx/jasperfx/issues/1046)).
+
+* **Masking rules against a base type now work** ([#1043](https://github.com/JasperFx/jasperfx/issues/1043)). `AddMaskingRuleForProtectedInformation<T>(Func<T,T>)` applies to events assignable to `T`, as the `Action<T>` overload always has. A replacing rule against a base type or interface used to match nothing, which left protected data in place, so re-run masking if you relied on one. The rule must return something the event type can hold, or the masking pass fails. This takes effect in each store once it adopts the shared masking.
+
+* **Tag registration** ([#1043](https://github.com/JasperFx/jasperfx/issues/1043)): once Polecat and Fisher adopt it, an empty or whitespace table suffix is refused, and registering a tag type again with a different inner type throws.
+
+### Compliance suites
+
+* **`SingleTenantedEventSlicingCompliance` was removed** ([#1065](https://github.com/JasperFx/jasperfx/issues/1065)), along with `TallyIncremented` and `TenantSlicingTally`. It was marked obsolete in 2.x because it could only execute on Marten. Remove any enrollment from your store's compliance tests.
+
 ## Key Changes in 2.0.0
 
 JasperFx 2.0 is the foundation release of the [Critter Stack 2026](https://github.com/JasperFx/jasperfx/issues/217) wave. It ships in lockstep with Marten 9.0, Wolverine 6.0, Polecat 4.0, and Weasel 9.0. Most of the changes below are mechanical pin bumps + namespace adjustments; a few API shapes changed in ways that downstream code will notice.

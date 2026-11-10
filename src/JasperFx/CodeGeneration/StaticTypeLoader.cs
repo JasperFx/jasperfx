@@ -55,7 +55,7 @@ public sealed class StaticTypeLoader : ITypeLoader
 
         throw new ExpectedTypeMissingException(
             $"Could not load expected pre-built types for code file {file.FileName} ({file}) from assembly {rules.ApplicationAssembly.FullName}. " +
-            $"You may want to verify that this is the correct assembly for pre-generated types.");
+            rules.ApplicationAssembly.DescribeMissingPreGeneratedTypes(rules));
     }
 
     /// <summary>

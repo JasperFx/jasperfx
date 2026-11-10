@@ -36,6 +36,18 @@ public class ValueTypeInfoTests
         valueTypeInfo.UnWrapper<OrderId, string>()(OrderId.From(inner)).ShouldBe(inner);
     }
 
+    // GH-1054. The nullable sibling is declared first on purpose: ForType took the first public static
+    // method over the inner type, so the wrapper it built failed with "Expression of type
+    // 'Nullable<TaxCode>' cannot be used for return type 'TaxCode'".
+    [Fact]
+    public void prefers_the_static_builder_that_returns_the_wrapper()
+    {
+        var valueTypeInfo = ValueTypeInfo.ForType(typeof(TaxCode));
+
+        valueTypeInfo.Builder!.Name.ShouldBe(nameof(TaxCode.From));
+        valueTypeInfo.CreateWrapper<TaxCode, string>()("VAT").Value.ShouldBe("VAT");
+    }
+
     [Fact]
     public void create_for_fsharp_guid_discriminated_union()
     {
@@ -139,6 +151,17 @@ public class ValueTypeInfoTests
 public readonly record struct AlertId(Guid Value);
 
 public record InvoiceId(Guid Value);
+
+public readonly struct TaxCode
+{
+    private TaxCode(string value) => Value = value;
+
+    public string Value { get; }
+
+    public static TaxCode? FromNullable(string value) => string.IsNullOrEmpty(value) ? null : new TaxCode(value);
+
+    public static TaxCode From(string value) => new(value);
+}
 
 public class OrderId
 {

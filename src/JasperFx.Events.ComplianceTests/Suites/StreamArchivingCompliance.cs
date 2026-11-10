@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using JasperFx.Events.Documents;
 using JasperFx.Events.Projections;
 using Shouldly;
 using Xunit;
@@ -116,8 +117,8 @@ public partial class ComplianceLedgerDeletionRecorder: ComplianceEventProjection
 /// <para>
 /// Archiving is a good compliance candidate precisely because the call itself is trivial and the
 /// <em>consequences</em> are where two implementations drift: whether stream state still answers,
-/// whether the events remain readable, whether the archived flag is visible, and whether appending
-/// to an archived stream is allowed.
+/// whether the events stay out of the default reads, whether the archived flag is visible to a caller
+/// who opts in, and whether appending to an archived stream is allowed.
 /// </para>
 /// <para>
 /// Physical partition movement (Marten's archived event partition and Polecat's equivalent) is
@@ -215,13 +216,13 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
 
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
 
-    private async Task<Guid> aLedgerAsync()
+    private async Task<Guid> aLedgerAsync(string name = "Petty Cash")
     {
         var streamId = Guid.NewGuid();
 
         await using var session = OpenSession();
         EventsFor(session).StartStream(streamId,
-            new LedgerOpened("Petty Cash"),
+            new LedgerOpened(name),
             new LedgerEntryPosted(25),
             new LedgerEntryPosted(75));
         await SaveChangesAsync(session);
@@ -235,6 +236,8 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         EventsFor(session).ArchiveStream(streamId);
         await SaveChangesAsync(session);
     }
+
+    private IReadOnlyEventStore Reader => theFixture.EventStore.OpenReadOnlyEventStore();
 
     [Fact]
     public async Task archiving_marks_the_stream_archived_in_its_state()
@@ -298,21 +301,126 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         events.Count.ShouldBe(3);
     }
 
+    /// <summary>
+    /// Read through the opt-in, since the default reads leave these events out.
+    /// </summary>
     [Fact]
     public async Task events_of_an_archived_stream_report_themselves_as_archived()
     {
         var streamId = await aLedgerAsync();
         await archiveAsync(streamId);
 
-        await using var session = OpenSession();
-        var events = await EventsFor(session).FetchStreamAsync(streamId, token: Cancellation);
+        var events = await Reader.QueryRawEvents()
+            .Where(x => x.IsArchived && x.StreamId == streamId)
+            .ToListAsync(Cancellation);
 
-        // A store is free to exclude archived events from the default stream read or to return
-        // them flagged, but it must not return them silently claiming to be live.
-        if (events.Any())
-        {
-            events.ShouldAllBe(x => x.IsArchived);
-        }
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(x => x.IsArchived);
+    }
+
+    /// <summary>
+    /// Archived events are left out of an event read unless the caller opts in, on every store. This
+    /// and the facts after it are that rule, one read at a time.
+    /// </summary>
+    [Fact]
+    public async Task a_stream_read_leaves_out_the_events_of_an_archived_stream()
+    {
+        var archived = await aLedgerAsync();
+        var untouched = await aLedgerAsync();
+        await archiveAsync(archived);
+
+        await using var session = OpenSession();
+
+        (await EventsFor(session).FetchStreamAsync(archived, token: Cancellation)).ShouldBeEmpty();
+        (await EventsFor(session).FetchStreamAsync(untouched, token: Cancellation)).Count.ShouldBe(3);
+    }
+
+    /// <inheritdoc cref="a_stream_read_leaves_out_the_events_of_an_archived_stream" />
+    [Fact]
+    public async Task a_raw_event_query_leaves_out_the_events_of_an_archived_stream()
+    {
+        var archived = await aLedgerAsync();
+        var untouched = await aLedgerAsync();
+        await archiveAsync(archived);
+
+        var events = await Reader.QueryRawEvents()
+            .Where(x => x.StreamId == archived || x.StreamId == untouched)
+            .ToListAsync(Cancellation);
+
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(x => x.StreamId == untouched);
+    }
+
+    /// <inheritdoc cref="a_stream_read_leaves_out_the_events_of_an_archived_stream" />
+    [Fact]
+    public async Task an_event_query_leaves_the_events_of_an_archived_stream_out_of_the_page_and_the_count()
+    {
+        var archived = await aLedgerAsync();
+        await archiveAsync(archived);
+
+        var page = await Reader.QueryEventsAsync(new EventQuery { StreamId = archived.ToString() }, Cancellation);
+
+        page.Events.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(0);
+    }
+
+    /// <inheritdoc cref="a_stream_read_leaves_out_the_events_of_an_archived_stream" />
+    [Fact]
+    public async Task an_event_data_query_leaves_out_the_events_of_an_archived_stream()
+    {
+        var name = Guid.NewGuid().ToString();
+        await archiveAsync(await aLedgerAsync(name));
+
+        (await Reader.QueryEventData<LedgerOpened>().AnyAsync(x => x.Name == name, Cancellation)).ShouldBeFalse();
+    }
+
+    /// <inheritdoc cref="a_stream_read_leaves_out_the_events_of_an_archived_stream" />
+    [Fact]
+    public async Task live_aggregation_folds_an_archived_stream_to_nothing()
+    {
+        var archived = await aLedgerAsync();
+        await archiveAsync(archived);
+
+        await using var session = OpenSession();
+
+        (await EventsFor(session).AggregateStreamAsync<ComplianceLedger>(archived, token: Cancellation)).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// A predicate naming <see cref="IEvent.IsArchived"/> is the opt-in every store shares, and it has
+    /// to replace the implicit filter rather than sit beside it, or it asks for rows the filter has
+    /// already removed. Stores have their own spellings of "live and archived together", such as
+    /// Marten's <c>MaybeArchived()</c>, which this suite cannot name.
+    /// </summary>
+    [Fact]
+    public async Task a_predicate_naming_is_archived_reads_only_the_archived_events()
+    {
+        var archived = await aLedgerAsync();
+        var untouched = await aLedgerAsync();
+        await archiveAsync(archived);
+
+        var events = await Reader.QueryRawEvents()
+            .Where(x => x.IsArchived && (x.StreamId == archived || x.StreamId == untouched))
+            .ToListAsync(Cancellation);
+
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(x => x.StreamId == archived);
+    }
+
+    /// <inheritdoc cref="a_predicate_naming_is_archived_reads_only_the_archived_events" />
+    [Fact]
+    public async Task a_predicate_naming_not_archived_reads_only_the_live_events()
+    {
+        var archived = await aLedgerAsync();
+        var untouched = await aLedgerAsync();
+        await archiveAsync(archived);
+
+        var events = await Reader.QueryRawEvents()
+            .Where(x => !x.IsArchived && (x.StreamId == archived || x.StreamId == untouched))
+            .ToListAsync(Cancellation);
+
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(x => x.StreamId == untouched);
     }
 
     [Fact]
@@ -338,8 +446,8 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         await using var session = OpenSession();
         var state = await EventsFor(session).FetchStreamStateAsync(streamId, Cancellation);
 
-        // Whatever the read semantics for archived events, the recorded version survives archiving
-        // -- that is what makes archiving reversible bookkeeping rather than deletion.
+        // The events are out of the default reads, but the recorded version survives archiving --
+        // that is what makes archiving reversible bookkeeping rather than deletion.
         state.ShouldNotBeNull();
         state.Version.ShouldBe(3);
         state.IsArchived.ShouldBeTrue();

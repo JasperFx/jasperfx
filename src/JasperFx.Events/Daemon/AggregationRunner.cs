@@ -32,7 +32,11 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
     // stream spanning several pages is written exactly once per flush window instead of once per page. Guarded
     // by _bufferLock because slices within a range are applied on a parallel Block. Non-null only while a
     // deferred rebuild is active (RebuildFlushThreshold > 0, Rebuild mode, Individual batch).
-    private readonly Lock _bufferLock = new();
+    //
+    // Deliberately not System.Threading.Lock (jasperfx#1041). This is the one daemon lock that is really
+    // contended, by the block's ten workers, and Lock measured no better than Monitor there and up to 30%
+    // worse at eight threads. Its gain is on an uncontended acquire, which is 4ns against a slice's work.
+    private readonly object _bufferLock = new();
     private RebuildFlushWindow? _flush;
     private bool _deferWrites;
 

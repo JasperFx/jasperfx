@@ -111,6 +111,17 @@ public class GenerationRules
     /// </remarks>
     public bool ReuseCompiledAssemblies { get; set; }
 
+    /// <summary>
+    /// Compile the generated code with the C# compiler's runtime-async feature (<c>runtime-async=on</c>), so async methods
+    /// are emitted as runtime-async methods instead of compiler-built state machines (jasperfx#1040).
+    /// </summary>
+    /// <remarks>
+    /// Off by default. Only honored by the net11.0 build of JasperFx.RuntimeCompiler running on a .NET 11 runtime with
+    /// Roslyn 5.x; on net10.0 it is ignored, because the runtime refuses to load runtime-async code there unless the process
+    /// was started with DOTNET_RuntimeAsync=1. Part of the reuse key for <see cref="ReuseCompiledAssemblies"/>.
+    /// </remarks>
+    public bool UseRuntimeAsync { get; set; }
+
     public TypeLoadMode TypeLoadMode
     {
         get => _typeLoadMode;

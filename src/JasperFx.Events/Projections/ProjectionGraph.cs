@@ -15,7 +15,7 @@ namespace JasperFx.Events.Projections;
 
 [UnconditionalSuppressMessage("Trimming", "IL2072:DynamicallyAccessedMembers",
     Justification = "Class-level: reflects on registered projection Type values via TypeExtensions.Closes(...). The projection types are preserved at the registration boundary on the caller side.")]
-public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> : DaemonSettings
+public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> : DaemonSettings, IEventSubscriptionRegistrar
     where TOperations : TQuerySession, IStorageOperations
     where TProjection : IJasperFxProjection<TOperations>
 {
@@ -270,6 +270,19 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     /// Add a subscription to this event store
     /// </summary>
     /// <param name="subscription"></param>
+    /// <inheritdoc />
+    /// <remarks>
+    /// Virtual rather than implemented here, because running a subscription is the store's: the daemon
+    /// resolves an <see cref="ISubscriptionRunner{T}" /> from the store, and a store that had not written one
+    /// would only find out at daemon start. So the default refuses at registration, and a store overrides
+    /// this to wrap the subscription in its own <c>SubscriptionBase</c> using
+    /// <see cref="JasperFxSubscriptionBase{TOperations,TQuerySession,TSubscription}.ConfigureFrom" />.
+    /// </remarks>
+    /// <exception cref="NotSupportedException">From the default implementation.</exception>
+    public virtual void Subscribe(IEventSubscription subscription, Action<ISubscriptionOptions>? configure = null)
+        => throw new NotSupportedException(
+            $"{GetType().FullNameInCode()} does not implement {nameof(IEventSubscriptionRegistrar)}.{nameof(Subscribe)}, so subscription {subscription.SubscriptionName} was refused here rather than registered and never run.");
+
     protected void registerSubscription(ISubscriptionSource<TOperations, TQuerySession> subscription)
     {
         _subscriptions.Add(subscription);
@@ -362,6 +375,39 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     {
         source = _subscriptions.FirstOrDefault(x => x.Name.EqualsIgnoreCase(projectionName));
         return source != null;
+    }
+
+    /// <summary>
+    ///     The projection step-through for this store, which its <see cref="IEventStore.RunProjectionAsync{TState}" />,
+    ///     <see cref="IEventStore.RunProjectionByNameAsync" /> and
+    ///     <see cref="IEventStore.RunMultiStreamProjectionAsync" /> forward to (jasperfx#1049).
+    /// </summary>
+    /// <param name="toEvent">
+    ///     A wire record as an <see cref="IEvent" />, or null when this process cannot read it. This is
+    ///     where a store's upcasting and event type lookup belong;
+    ///     <see cref="EventExtensions.WithRecordMetadata" /> stamps the rest.
+    /// </param>
+    /// <param name="states">The store's own serializer.</param>
+    public ProjectionStepThrough<TQuerySession> StepThrough(Func<EventRecord, IEvent?> toEvent,
+        ProjectionStateSerializer states)
+    {
+        return new ProjectionStepThrough<TQuerySession>(findSteppableAggregation, toEvent, states);
+    }
+
+    private (ISteppableAggregation<TQuerySession> Aggregation, Type AggregateType) findSteppableAggregation(
+        string projectionName)
+    {
+        // A composite's own name steps nothing, but its members are aggregations with names of their own.
+        var source = All
+                         .Concat(All.OfType<CompositeProjection<TOperations, TQuerySession>>().SelectMany(x => x.AllChildren()))
+                         .FirstOrDefault(x => x.Name.EqualsIgnoreCase(projectionName))
+                     ?? throw new ArgumentOutOfRangeException(nameof(projectionName),
+                         $"Unknown projection '{projectionName}'. A step-through folds through the registered projection, so register it before replaying. Available projections: {AllProjectionNames().Join(", ")}");
+
+        return source is ISteppableAggregation<TQuerySession> aggregation and IAggregateProjection aggregate
+            ? (aggregation, aggregate.AggregateType)
+            : throw new NotSupportedException(
+                $"Projection '{projectionName}' is not an aggregation (single- or multi-stream) projection, so it has no aggregate state to step through.");
     }
 
     public void Describe(EventStoreUsage usage, IEventStore store)

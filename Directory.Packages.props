@@ -8,8 +8,6 @@
     evaluated once per inner (per-TFM) build, so $(TargetFramework) is available here and these
     conditions resolve the same way the per-csproj ItemGroups they replace did.
   -->
-
-
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
@@ -42,7 +40,7 @@
         they override to match the generator they exercise (4.8.0).
 
     The unconditional default exists so netstandard2.0 projects resolve at all; without it they hit
-    NU1010 (PackageReference with no matching PackageVersion), since neither TFM condition applies.
+    NU1010 (PackageReference with no matching PackageVersion), since no TFM condition applies.
   -->
   <ItemGroup>
     <PackageVersion Include="Microsoft.CodeAnalysis" Version="[4.14.0,6.0.0)" />
@@ -50,9 +48,9 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.Scripting" Version="[4.14.0,6.0.0)" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageVersion Update="Microsoft.CodeAnalysis" Version="5.0.0" />
-    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
-    <PackageVersion Update="Microsoft.CodeAnalysis.Scripting" Version="5.0.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis" Version="5.9.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
+    <PackageVersion Update="Microsoft.CodeAnalysis.Scripting" Version="5.9.0" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
     <PackageVersion Update="Microsoft.CodeAnalysis" Version="5.9.0" />
@@ -66,7 +64,7 @@
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.6" />
     <PackageVersion Include="DotNet.ReproducibleBuilds" Version="1.2.39" />
-    <PackageVersion Include="FastExpressionCompiler" Version="5.4.1" />
+    <PackageVersion Include="FastExpressionCompiler" Version="6.0.0" />
     <PackageVersion Include="FSharp.Core" Version="9.0.303" />
     <PackageVersion Include="ImTools" Version="4.0.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" />
@@ -92,30 +90,20 @@
          Same line Wolverine and CritterWatch pin. -->
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
     <!--
-      MTP's collector, replacing coverlet.collector, which is VSTest-only (#581). Note that no build
-      target asks for coverage today, so this is capability parity rather than something in use.
-
-      Pinned to 18.0.6, NOT the latest. xunit.v3 3.2.2 is built against Microsoft.Testing.Platform
-      1.x (its packages are literally named xunit.v3.core.mtp-v1). CodeCoverage 18.1.0 and later
-      moved to MTP 2.x; NuGet then unifies the platform assembly up to 2.x while
-      Microsoft.Testing.Platform.MSBuild 1.9.1 stays behind, and every test run dies at startup with
-
-        TypeLoadException: Could not load type
-        'Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer'
-        from assembly 'Microsoft.Testing.Platform, Version=2.3.0.0'
-
-      18.0.6 is the last release on MTP 1.x. Move this forward when xunit.v3 ships an mtp-v2 build.
+      Moves together with xunit.v3. xunit.v3 4.x runs on Microsoft.Testing.Platform 2.x and CodeCoverage
+      18.1.0 and later do too; a 3.x xunit.v3 beside them dies at startup with a TypeLoadException on
+      Microsoft.Testing.Platform.Extensions.TestHost.IDataConsumer.
     -->
-    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.0.6" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
-    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
     <!--
       The extensibility core only, for JasperFx.Events.ComplianceTests: a shared library must never
       reference xunit.v3 itself, which forces OutputType=Exe onto every consuming project.
     -->
-    <PackageVersion Include="xunit.v3.extensibility.core" Version="3.2.2" />
-    <PackageVersion Include="xunit.v3.assert" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.2" />
+    <PackageVersion Include="xunit.v3.assert" Version="4.0.2" />
   </ItemGroup>
 
 </Project>

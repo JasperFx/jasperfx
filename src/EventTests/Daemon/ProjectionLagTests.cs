@@ -165,6 +165,164 @@ public class ProjectionLagTests
     }
 
     [Fact]
+    public void tenant_qualified_rows_under_a_store_global_mark_are_not_a_shard_with_no_row()
+    {
+        // jasperfx#1046: tenants are normally discovered from the high-water rows, which left a
+        // per-tenant agent under a store-global mark reported as never having started
+        var lags = calculate([ShardName.Compose("Trips"), ShardName.Compose("Orders", version: 2)],
+            row(ShardState.HighWaterMark, 100),
+            row("Trips:All:zeta", 40),
+            row("Trips:All:acme", 100),
+            row("Orders:V2:All:acme", 100));
+
+        lags.Select(x => x.Shard.Identity).ShouldBe(["Trips:All:acme", "Trips:All:zeta", "Orders:V2:All:acme"]);
+        lags.ShouldAllBe(x => x.HasProgressionRow && x.HighWaterMark == 100);
+    }
+
+    [Fact]
+    public void a_shards_own_row_wins_over_tenant_qualified_rows_under_a_store_global_mark()
+    {
+        var lags = calculate([ShardName.Compose("Trips")],
+            row(ShardState.HighWaterMark, 100),
+            row("Trips:All", 100),
+            row("Trips:All:acme", 40));
+
+        lags.ShouldHaveSingleItem().Shard.TenantId.ShouldBeNull();
+    }
+
+    // jasperfx#1046: StaleCells is measured against the highest sequence, not the persisted mark
+
+    private static string[] staleCells(long ceiling, IEnumerable<ShardName> shards, params ShardState[] progress)
+        => ProjectionLagCalculator.StaleCells(calculate(shards, progress), ceiling)
+            .Select(x => x.Shard.Identity).ToArray();
+
+    [Fact]
+    public void a_shard_ahead_of_the_ceiling_is_not_stale()
+    {
+        // The head can sit below a shard: events get removed, and a read can race an append
+        staleCells(100, [ShardName.Compose("Trips")],
+                row(ShardState.HighWaterMark, 100),
+                row("Trips:All", 120))
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_shard_ahead_of_the_persisted_mark_is_current_when_it_has_reached_the_ceiling()
+    {
+        // The mark row trails the agent, so a shard reads past it routinely
+        staleCells(100, [ShardName.Compose("Trips")],
+                row(ShardState.HighWaterMark, 60),
+                row("Trips:All", 100))
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_shard_at_a_trailing_mark_is_stale_even_though_it_reports_caught_up()
+    {
+        // The caller's own events are at the ceiling, above a mark the agent has not published. Measuring
+        // against the mark answers "current" on exactly the question being asked.
+        var lags = calculate([ShardName.Compose("Trips")],
+            row(ShardState.HighWaterMark, 60),
+            row("Trips:All", 60));
+
+        lags.ShouldHaveSingleItem().IsCaughtUp.ShouldBeTrue();
+        ProjectionLagCalculator.StaleCells(lags, 100).ShouldHaveSingleItem().Shard.Identity.ShouldBe("Trips:All");
+    }
+
+    [Fact]
+    public void a_registered_shard_with_no_row_is_stale_beside_a_sibling_at_the_ceiling()
+    {
+        staleCells(100, [ShardName.Compose("Trips"), ShardName.Compose("Orders")],
+                row("Trips:All", 100))
+            .ShouldBe(["Orders:All"]);
+    }
+
+    [Fact]
+    public void rows_the_registry_does_not_know_never_make_anything_stale()
+    {
+        // marten#5161: Polecat compared every row present, so a retired projection or a bookkeeping row
+        // that nothing advances held the wait open until it timed out
+        staleCells(100, [ShardName.Compose("Trips")],
+                row("Trips:All", 100),
+                row("SomeRetiredProjection:All", 1),
+                row("HighWaterAllocationFence", 1))
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_prior_versions_row_does_not_make_the_current_version_current()
+    {
+        staleCells(100, [ShardName.Compose("Trips", version: 3)], row("Trips:V2:All", 100))
+            .ShouldBe(["Trips:V3:All"]);
+    }
+
+    [Fact]
+    public void a_composites_version_zero_shard_is_matched_to_its_unversioned_row()
+    {
+        // A composite carries Version 0 and persists Name:All, which parses back as version 1, so a
+        // field-by-field comparison would never match it
+        staleCells(100, [new ShardName("Composite", ShardName.All, 0)], row("Composite:All", 100))
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_tenant_with_fewer_events_than_the_ceiling_is_held_to_its_own_mark()
+    {
+        // marten#4761: held to the store-wide maximum, zeta could never finish
+        staleCells(100, [ShardName.Compose("Trips")],
+                row("HighWaterMark:acme", 100),
+                row("HighWaterMark:zeta", 20),
+                row("Trips:All:acme", 100),
+                row("Trips:All:zeta", 20))
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void a_tenant_behind_its_own_mark_is_stale()
+    {
+        staleCells(100, [ShardName.Compose("Trips")],
+                row("HighWaterMark:acme", 100),
+                row("HighWaterMark:zeta", 20),
+                row("Trips:All:acme", 100),
+                row("Trips:All:zeta", 5))
+            .ShouldBe(["Trips:All:zeta"]);
+    }
+
+    [Fact]
+    public void tenant_marks_that_have_not_reached_the_ceiling_are_not_yet_about_these_events()
+    {
+        staleCells(100, [ShardName.Compose("Trips")],
+                row("HighWaterMark:acme", 80),
+                row("Trips:All:acme", 80))
+            .ShouldBe(["Trips:All:acme"]);
+    }
+
+    [Fact]
+    public void a_store_global_agent_is_not_held_to_the_tenant_rows_it_does_not_own()
+    {
+        // The marten#4761 follow-up. A single :All agent spans every tenant, so its tenant cells have no row
+        // and never will
+        staleCells(100, [ShardName.Compose("Trips")],
+                row("HighWaterMark:acme", 100),
+                row("Trips:All", 100))
+            .ShouldBeEmpty();
+
+        staleCells(100, [ShardName.Compose("Trips")],
+                row("HighWaterMark:acme", 100),
+                row("Trips:All", 60))
+            .ShouldBe(["Trips:All"]);
+    }
+
+    [Fact]
+    public void a_tenant_qualified_row_under_a_store_global_mark_is_held_to_the_ceiling()
+    {
+        var shards = new[] { ShardName.Compose("Trips") };
+
+        staleCells(100, shards, row("Trips:All:acme", 100)).ShouldBeEmpty();
+        staleCells(100, shards, row("Trips:All:acme", 100), row("Trips:All:zeta", 60)).ShouldBe(["Trips:All:zeta"]);
+    }
+
+    [Fact]
     public void a_sliced_projection_reports_one_cell_per_slice()
     {
         // Flattening to (name, version, tenant) would collapse these into one indistinguishable row.

@@ -9,7 +9,7 @@ This guide walks through publishing a .NET application that uses JasperFx (and t
 JasperFx 2.0 is the first release where AOT publishing is a supported posture for apps that don't need runtime code generation. JasperFx and JasperFx.Events 2.0.0-alpha.12+ build with `IsAotCompatible=true` and 0 IL warnings; the rest of the Critter Stack family (Marten, Wolverine, Polecat) is on the same arc.
 
 ::: tip Prerequisites
-- .NET 9 or 10 SDK
+- .NET 10 SDK
 - An application using `TypeLoadMode.Static` (see [CLI: codegen Command](./cli.md))
 - All Critter Stack packages at the 2026-wave alphas or later (JasperFx 2.0, JasperFx.Events 2.0, Weasel 9.0, Marten 9.0, Wolverine 6.0, Polecat 4.0)
 :::
@@ -159,7 +159,7 @@ If publish fails with IL warnings-as-errors, the build output tells you exactly 
 
 ### Rooting pre-generated types
 
-There is a trap in the two-phase model above. Pre-generated types are only ever *reached* reflectively — the host scans the application assembly's exported types and calls `Activator.CreateInstance`. ILC sees no static reference to any of them, so it trims them, and `TypeLoadMode.Static` then degrades into a scan that finds nothing. The failure is quiet: the app boots, the scan comes up empty, and the behavior you pre-generated simply isn't there.
+There is a trap in the two-phase model above. Pre-generated types are only ever *reached* reflectively — the host scans the application assembly's exported types and calls `Activator.CreateInstance`. ILC sees no static reference to any of them, so it trims them, and `TypeLoadMode.Static` then degrades into a scan that finds nothing. When a code file expected a type, that is an `ExpectedTypeMissingException` whose message says whether nothing generated reached the binary at all or only that one type is missing, and what to do about each. An application with no generated code expects no types, so it never sees this. A framework that does its own scan and carries on without the result is still quiet, which is why rooting is worth getting right up front.
 
 The fix is to root the generated types from the generated code itself, which is the one place that knows every type involved. JasperFx emits that as an **AOT roots companion** — a generated class whose single `static void` method carries a `[ModuleInitializer]` plus one `[DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(...))]` per rooted type. A module initializer is an unconditional ILC root, so the whole graph is anchored with no application-side code:
 

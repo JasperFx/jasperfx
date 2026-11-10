@@ -29,6 +29,7 @@
         "Compile",
         "NugetPack",
         "NugetPush",
+        "Pack",
         "Restore",
         "SmokeTestAot",
         "SmokeTestAotCli",
@@ -134,7 +135,11 @@
         },
         "Feed": {
           "type": "string",
-          "description": "Folder to publish packed .nupkg files into as a local NuGet feed (NugetPack)"
+          "description": "Copy the packed packages into this folder, e.g. ~/code/local-nuget"
+        },
+        "Framework": {
+          "type": "string",
+          "description": "Run the test targets on one target framework, e.g. net10.0. Default: every framework the test project declares"
         },
         "NugetApiKey": {
           "type": "string",
@@ -151,7 +156,7 @@
         },
         "Version": {
           "type": "string",
-          "description": "Package version for NugetPack, overriding JasperFxVersion in Directory.Build.props (e.g. 3.0.0-local.1)"
+          "description": "Stamp this version on the packages, e.g. 3.0.0-local.1. Default: JasperFxVersion from Directory.Build.props"
         }
       }
     },

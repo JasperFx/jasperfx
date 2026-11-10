@@ -54,9 +54,9 @@ public interface IEventsArchiver<TOperations> : IEventsArchiver
 ///     <c>Polecat.Events.Protected</c> per the dedupe pillar
 ///     (<see href="https://github.com/JasperFx/jasperfx/issues/214"/>) so
 ///     Marten and Polecat can share the same contract. Each product retains
-///     its own <c>CompactStreamAsync</c> extension / instance method which
-///     drives the execution against its session/operations type — only the
-///     data shape is shared.
+///     its own <c>CompactStreamAsync</c> extension / instance method, and
+///     <see cref="StreamCompactingExecution{TSession}"/> carries out the
+///     compaction against the product's session.
 ///     </para>
 /// </summary>
 /// <typeparam name="T">

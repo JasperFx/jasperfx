@@ -18,15 +18,10 @@
     </PropertyGroup>
 
     <!--
-      Microsoft Testing Platform (#581). Both properties have to be repo-wide rather than per-test-
-      project: TestingPlatformDotnetTestSupport switches how `dotnet test` invokes a project, and a
-      solution where only some projects answered to MTP would leave `dotnet test` on the .slnx in a
-      mixed mode. They are inert in projects that don't reference xunit.v3.
-
-      UseMicrosoftTestingPlatformRunner makes xunit v3 build its MTP entry point instead of the
-      VSTest bridge; TestingPlatformDotnetTestSupport makes `dotnet test` run that executable
-      directly rather than going through testhost. Neither package
-      (Microsoft.NET.Test.Sdk, xunit.runner.visualstudio) is referenced anymore.
+      Microsoft Testing Platform (#581). UseMicrosoftTestingPlatformRunner makes xunit v3 build its MTP
+      entry point. It is repo-wide because global.json's test.runner puts `dotnet test` in MTP mode for
+      the whole repo, and it is inert in projects that don't reference xunit.v3. That mode takes a
+      project through the project option, and prints failing tests inline, so a CI log names what broke.
     -->
     <PropertyGroup>
         <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
@@ -41,6 +36,16 @@
           broke. The VSTest bridge printed failures inline, and this restores that.
         -->
         <TestingPlatformShowTestsFailure>true</TestingPlatformShowTestsFailure>
+    </PropertyGroup>
+
+    <!--
+      Runtime-async (jasperfx#1040, plan decision D4). Opt-in: build with -p:JasperFxRuntimeAsync=true to compile the net11.0
+      assemblies with the C# compiler's runtime-async feature. net11.0 only: on net10.0 the compiler refuses it (SYSLIB5007) and
+      the runtime will not load it. Needs Roslyn 5.x (the SDK's). Changing it does not trigger a recompile, so clean bin/ and obj/
+      between a build with it and a build without.
+    -->
+    <PropertyGroup Condition="'$(JasperFxRuntimeAsync)' == 'true' And '$(TargetFramework)' == 'net11.0'">
+        <Features>$(Features);runtime-async=on</Features>
     </PropertyGroup>
 
     <ItemGroup>

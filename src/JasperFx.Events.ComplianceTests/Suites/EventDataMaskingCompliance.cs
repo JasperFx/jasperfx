@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -134,6 +135,25 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
         config.AddEventType<SubjectClosed>();
 
         config.AddMaskingRule<IComplianceSubjectEvent>(x => x.Subject = Masked);
+    };
+
+    /// <summary>
+    /// What a rule was handed, for the archived facts: a plain stream read leaves archived events out, so it
+    /// cannot read the masked event back.
+    /// </summary>
+    private static readonly ConcurrentBag<string> _subjectsARuleReached = [];
+
+    private static readonly Action<ComplianceStoreConfig> _archivedConfiguration = config =>
+    {
+        config.SchemaName = "compliance_masking_archived";
+
+        config.AddEventType<SubjectContacted>();
+
+        config.AddMaskingRule<SubjectContacted>(x =>
+        {
+            _subjectsARuleReached.Add(x.Subject);
+            x.Subject = Masked;
+        });
     };
 
     protected override Action<ComplianceStoreConfig> Configuration => _configuration;
@@ -365,5 +385,56 @@ public abstract class EventDataMaskingCompliance<TFixture, TOperations, TQuerySe
 
         events.Select(x => x.Data).OfType<SubjectRegistered>().Single().Subject.ShouldBe(Masked);
         events.Select(x => x.Data).OfType<SubjectClosed>().Single().Reason.ShouldBe("resolved");
+    }
+
+    /// <summary>
+    /// Archiving a stream does not erase it, so an erasure has to reach it (#1048). Marten's and Polecat's
+    /// <c>FetchStreamAsync</c> leave archived events out, and through that read this selects nothing and
+    /// reports success with the protected information still in the row.
+    /// </summary>
+    [Fact]
+    public async Task an_included_stream_is_masked_after_it_is_archived()
+    {
+        var (streamId, subject) = await anArchivedSubjectAsync();
+
+        await theFixture.ApplyEventDataMaskingAsync(x => x.IncludeStream(streamId), Cancellation);
+
+        _subjectsARuleReached.ShouldContain(subject);
+    }
+
+    /// <inheritdoc cref="an_included_stream_is_masked_after_it_is_archived" />
+    [Fact]
+    public async Task an_event_filter_reaches_archived_events()
+    {
+        var (streamId, subject) = await anArchivedSubjectAsync();
+
+        await theFixture.ApplyEventDataMaskingAsync(x => x.IncludeEvents(e => e.StreamId == streamId), Cancellation);
+
+        _subjectsARuleReached.ShouldContain(subject);
+    }
+
+    private async Task<(Guid StreamId, string Subject)> anArchivedSubjectAsync()
+    {
+        Assert.SkipUnless(theFixture.SupportsMaskingArchivedEvents,
+            "This event store's masking does not read archived events yet");
+
+        await theFixture.ConfigureAsync(_archivedConfiguration);
+
+        var streamId = Guid.NewGuid();
+        var subject = $"subject-{streamId:N}";
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream(streamId, new SubjectContacted { Subject = subject, Channel = "email" });
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).ArchiveStream(streamId);
+            await SaveChangesAsync(session);
+        }
+
+        return (streamId, subject);
     }
 }
