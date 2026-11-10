@@ -10,7 +10,14 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
 
 ### Foundation
 
-* **.NET 9 support was dropped.** JasperFx 3.0 targets `net10.0`. `net11.0` joins it once the .NET 11 SDK is on the build machines. Stay on JasperFx 2.x if you still need .NET 9.
+* **.NET 9 support was dropped.** JasperFx 3.0 targets `net10.0;net11.0` ([#1039](https://github.com/JasperFx/jasperfx/issues/1039)). Stay on JasperFx 2.x if you still need .NET 9. The repository builds with C# 14 (`LangVersion` 14), and its workflows install the 11.0.x SDK beside 10.0.x. The source generator tests run on `net10.0`.
+
+* **Runtime-async is opt-in, in two places** ([#1040](https://github.com/JasperFx/jasperfx/issues/1040)). It only takes effect on `net11.0`, running on a .NET 11 runtime with Roslyn 5.x. On `net10.0` it is ignored.
+
+  * **Generated code:** set `GenerationRules.UseRuntimeAsync = true` (default `false`) to compile runtime-generated code with the C# compiler's `runtime-async=on` feature, so async methods are emitted as runtime-async methods rather than compiler-built state machines. It is part of the reuse key for `ReuseCompiledAssemblies`, so a runtime-async and a plain compilation of the same source never share an assembly. `AssemblyGenerator.UseRuntimeAsync` is the same switch when you drive the generator directly.
+  * **JasperFx's own assemblies:** build with `-p:JasperFxRuntimeAsync=true` to compile the `net11.0` assemblies with the feature. Changing the property does not trigger a recompile, so clean `bin/` and `obj/` between a build with it and a build without.
+
+  Nothing changes unless you opt in.
 
 * **`JasperFx.RuntimeCompiler` moves to 6.0.0**, because it follows the same target framework change and depends on JasperFx 3.
 
