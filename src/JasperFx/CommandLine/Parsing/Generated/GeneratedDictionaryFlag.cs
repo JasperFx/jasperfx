@@ -34,7 +34,9 @@ public sealed class GeneratedDictionaryFlag : ITokenHandler
         if (tokens.Count == 0)
             throw new InvalidUsageException($"No value specified for flag {flag}.");
 
-        var key = flag.Split(':').Last().Trim();
+        // Only the prefix is stripped so that a key with colons in it, like
+        // --config:Logging:LogLevel:Default, is kept whole
+        var key = flag.Substring(_prefix.Length).Trim();
         var rawValue = tokens.Dequeue();
 
         var dict = _getter(input);

@@ -107,44 +107,28 @@ public class NetCoreInput : IHostBuilderInput
         }
 
         // The --log-level flag value overrides your application's
-        // LogLevel
-        if (LogLevelFlag.HasValue)
-        {
-            AnsiConsole.MarkupLine($"[gray]Overwriting the minimum log level to {LogLevelFlag.Value}[/]");
-            try
-            {
-                if (HostBuilder is PreBuiltHostBuilder builder)
-                {
-                    var options = builder.Host.Services.GetService(typeof(LoggerFilterOptions)) as LoggerFilterOptions;
-                    options ??=
-                        (builder.Host.Services.GetService(typeof(IOptionsMonitor<LoggerFilterOptions>)) as
-                            IOptionsMonitor<LoggerFilterOptions>)
-                        ?.CurrentValue;
-
-                    if (options != null)
-                    {
-                        options.MinLevel = LogLevel.Error;
-                    }
-                }
-                else
-                {
-                    HostBuilder.ConfigureLogging(x => x.SetMinimumLevel(LogLevelFlag.Value));
-                }
-            }
-            catch (Exception)
-            {
-                AnsiConsole.Markup("[gray]Unable to override the logging level[/]");
-            }
-        }
+        // LogLevel, and --verbose implies --log-level Debug. An explicit
+        // --log-level wins when both are given
+        var overriddenLogLevel = LogLevelFlag ?? (VerboseFlag ? LogLevel.Debug : (LogLevel?)null);
 
         if (VerboseFlag)
         {
             Console.WriteLine("Verbose flag is on.");
+        }
 
-            // The --verbose flag adds console and
-            // debug logging, as well as setting
-            // the minimum logging level down to debug
-            HostBuilder.ConfigureLogging(x => { x.SetMinimumLevel(LogLevel.Debug); });
+        if (overriddenLogLevel.HasValue)
+        {
+            var level = overriddenLogLevel.Value;
+            AnsiConsole.MarkupLine($"[gray]Overwriting the minimum log level to {level}[/]");
+
+            // SetMinimumLevel() only sets LoggerFilterOptions.MinLevel, which the logging
+            // pipeline ignores whenever a configured rule applies -- and a Logging:LogLevel:Default
+            // in appsettings.json is exactly such a rule. PostConfigure runs after the
+            // configuration binding, so the flag's level really is the level for everything
+            HostBuilder.ConfigureServices(services =>
+            {
+                services.PostConfigure<LoggerFilterOptions>(options => OverrideLogLevel(options, level));
+            });
         }
 
         // The --environment flag is used to set the environment
@@ -161,6 +145,19 @@ public class NetCoreInput : IHostBuilderInput
         }
 
         #endregion
+    }
+
+    /// <summary>
+    ///     Forces every logger to the given level by replacing any configured
+    ///     LoggerFilterRule (Logging:LogLevel:* in appsettings.json, provider or
+    ///     category specific rules) with one catch-all rule at that level. Used by the
+    ///     --log-level and --verbose command line flags
+    /// </summary>
+    public static void OverrideLogLevel(LoggerFilterOptions options, LogLevel level)
+    {
+        options.MinLevel = level;
+        options.Rules.Clear();
+        options.Rules.Add(new LoggerFilterRule(providerName: null, categoryName: null, logLevel: level, filter: null));
     }
 
     public IHost BuildHost()
