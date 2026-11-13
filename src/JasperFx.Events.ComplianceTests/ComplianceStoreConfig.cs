@@ -134,6 +134,29 @@ public sealed class ComplianceStoreConfig
     public bool DisableDefaultTenantUsage { get; set; }
 
     /// <summary>
+    /// Turn off the store's own retry of failed writes, so a save that fails is reported as failed
+    /// rather than quietly run again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Needed by the concurrency facts of
+    /// <see cref="DcbAppendConditionCompliance{TFixture,TOperations,TQuerySession}" />, and the reason
+    /// is specific. A store retries a deadlock as a transient failure, and the retry usually commits,
+    /// so with retries on, two DCB saves that deadlocked look exactly like two that queued for a lock
+    /// and went one after the other. marten#5887 shipped that way: crossed boundaries deadlocked on
+    /// every race, the default write retry committed the victim about a second later, and every test
+    /// stayed green.
+    /// </para>
+    /// <para>
+    /// Every store has the switch, on its own options rather than on anything shared: Marten's
+    /// <c>ConfigureWritePolly(_ =&gt; { })</c>, Polecat's and Fisher's <c>ConfigurePolly(_ =&gt; { })</c>.
+    /// A fixture that ignores this property does not fail anything. It turns the deadlock facts into
+    /// facts that pass on a store that deadlocks, so it has to be honoured.
+    /// </para>
+    /// </remarks>
+    public bool DisableWriteRetries { get; set; }
+
+    /// <summary>
     /// Tenant id → logical database name, for the suites that need a store backed by more than one
     /// database (jasperfx#810). Empty leaves the store single-database, which is every other suite.
     /// </summary>

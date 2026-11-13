@@ -411,6 +411,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | Self-aggregating `EvolveAsync` conventions | `SelfAggregatingEvolveCompliance` |
 | Vector and hybrid search, and their filters | `DocumentSearchCompliance` |
 | DCB tag queries and consistency | `DcbTagQueryAndConsistencyCompliance` |
+| The DCB append condition: precise conflicts, event-type conditions, no deadlocks under racing saves | `DcbAppendConditionCompliance` |
 | `AssignTagWhere` | `AssignTagWhereCompliance` |
 | DCB `HasTag` predicates in event LINQ queries | `DcbHasTagLinqCompliance` |
 | Async daemon smoke + rebuild | `AsyncDaemonCompliance` |
@@ -580,6 +581,59 @@ SQL, is where the two paths are most likely to drift.
 reason rather than a shared-type one: `TombstoneStream` *is* on `IEventStoreOperations` (jasperfx#1014),
 but as a default member that throws, so a store that has not implemented the hard delete stays
 source-compatible and skips the suite until it has.
+
+### The DCB append condition, raced (marten#5887)
+
+`DcbAppendConditionCompliance` is a separate suite from `DcbTagQueryAndConsistencyCompliance` for
+the same reason `AlwaysEnforceConsistencyCompliance` is: the older suite proves a conflict is
+*detected*, and every fact in it is satisfied by a store that reports too many. This one proves the
+check is *precise*. A save fails if, and only if, an event its query matches was appended after the
+read. Matching means the tag value, plus the event type where the condition names types. Every other
+save commits.
+
+marten#5887 is why the suite exists. It found two bugs in one store, and the existing suite passed
+both. Marten's check bumped the version of every tag it read, so two boundaries reading one tag always
+conflicted, even when neither appended anything the other read. And the check's row locks and the
+producer bumps' row locks were taken in two separately sorted passes, so two decisions that each read
+the tag the other appended under deadlocked on every race. Most facts here are lifted from Marten's
+regression tests for that issue. The rest adapt published DCB implementations' suites: Happenstance,
+AxonFramework's `StorageEngineTestSuite`, wwwision/dcb-eventstore and the dcb.events examples. Each
+fact names its source.
+
+**The deadlock was invisible, and that is the trap to avoid in any racing fact.** The store's default
+write retry treated the deadlock as transient and committed the victim about a second later. Every
+test stayed green, and the only trace was 132 deadlocks in the Postgres log. So the suite sets
+`ComplianceStoreConfig.DisableWriteRetries`, and **a fixture must honour it**: Marten's
+`ConfigureWritePolly(_ => { })`, Polecat's and Fisher's `ConfigurePolly(_ => { })`. Ignoring it
+fails nothing. It makes the deadlock facts pass on a store that deadlocks. The racing facts also
+collect every racer's exception and accept nothing but a `DcbConcurrencyException`. A fact that only
+counted commits would read a deadlock victim as an ordinary loser.
+
+**Conditions that name event types are honoured, ungated.** The DCB specification defines the append
+condition by what the query matches, so `AndEventsOfType` narrows the conflict as well as the read.
+A store whose check looks only at tag values is conservative rather than unsafe. It never misses a
+conflict, it reports false ones. It still fails `an_event_of_a_type_the_condition_does_not_name_does_not_conflict`
+and its siblings, because those false conflicts are exactly what #5887's reporter hit in production:
+reminders on a loan failing every return decision. Marten 9.x checks tag values by default
+(`DcbConflictScope.TagValue`), but it consumes JasperFx 2.x and never sees this suite. From 10.0
+Marten's default is `TagValueAndEventType`.
+
+The in-flight fact (`an_event_in_flight_below_what_the_decision_read_still_conflicts`) reuses the
+`HoldAppendOpenAsync` seam from `AsyncDaemonCompliance`, handing it an `IEvent` that already carries
+its tags. It is gated on `SupportsHoldingAnAppendOpen`. A store that serializes its writers cannot
+have an append in flight, so for Fisher the skip is the true answer. The fact also has to allow for
+reads that take shared locks. Under SQL Server's default READ COMMITTED, Polecat's tag read *waits*
+for the held append to commit and then sees it, so the hazard never arises. The first draft asserted
+that the read saw only the committed event, and it hung the test against its own hold. The fact now
+runs the read concurrently, releases the hold, and asserts what every store owes: the decision never
+commits having missed the in-flight event. Either its read saw it, or its save fails.
+
+Left with the products, because they are storage rather than behaviour:
+
+* the version rows a check does or does not move;
+* alternative tag storage layouts, such as Marten's HStore mode;
+* any setting a store offers for rolling a cluster onto type-scoped checks, such as Marten's
+  `TagValueRecordingEventTypes` step and the conflict it misses when the step is skipped.
 
 ### Identity-less boundary aggregates (jasperfx#718)
 
