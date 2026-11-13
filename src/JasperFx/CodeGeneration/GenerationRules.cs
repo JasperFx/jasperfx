@@ -116,11 +116,23 @@ public class GenerationRules
     /// are emitted as runtime-async methods instead of compiler-built state machines (jasperfx#1040).
     /// </summary>
     /// <remarks>
-    /// Off by default. Only honored by the net11.0 build of JasperFx.RuntimeCompiler running on a .NET 11 runtime with
-    /// Roslyn 5.x; on net10.0 it is ignored, because the runtime refuses to load runtime-async code there unless the process
-    /// was started with DOTNET_RuntimeAsync=1. Part of the reuse key for <see cref="ReuseCompiledAssemblies"/>.
+    /// On by default in the net11.0 build and off in the net10.0 build (jasperfx#1180). Only honored by the net11.0 build of
+    /// JasperFx.RuntimeCompiler running on a .NET 11 runtime with Roslyn 5.x; on net10.0 it is ignored, because the runtime
+    /// refuses to load runtime-async code there unless the process was started with DOTNET_RuntimeAsync=1. Set it to false to
+    /// compile generated code with compiler-built state machines, for example if a profiler or APM agent that hooks async
+    /// state machines misbehaves. Part of the reuse key for <see cref="ReuseCompiledAssemblies"/>.
     /// </remarks>
-    public bool UseRuntimeAsync { get; set; }
+    public bool UseRuntimeAsync { get; set; } = RuntimeAsyncByDefault;
+
+    /// <summary>
+    /// The default for <see cref="UseRuntimeAsync"/>: true in the net11.0 build, false in the net10.0 build.
+    /// </summary>
+    internal const bool RuntimeAsyncByDefault =
+#if NET11_0_OR_GREATER
+        true;
+#else
+        false;
+#endif
 
     public TypeLoadMode TypeLoadMode
     {

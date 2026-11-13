@@ -1,11 +1,26 @@
 # Migration Guide
 
+## Key Changes in 3.1.0
+
+* **Runtime-async is on by default for `net11.0`** ([#1180](https://github.com/JasperFx/jasperfx/issues/1180)). Both switches described under [3.0.0](#foundation) flip:
+
+  * **Generated code:** `GenerationRules.UseRuntimeAsync` now defaults to `true` in the `net11.0` build (it stays `false` in the `net10.0` build, where the runtime cannot load runtime-async code). Runtime-compiled code then uses runtime-async methods instead of compiler-built state machines. Opt out with `GenerationRules.UseRuntimeAsync = false` (Wolverine exposes it as `opts.CodeGeneration.UseRuntimeAsync`).
+  * **JasperFx's own assemblies:** the `net11.0` packages are compiled with `runtime-async=on`. Build with `-p:JasperFxRuntimeAsync=false` to compile them without it.
+
+  Measured in Wolverine's in-process benchmark ([wolverine#5542](https://github.com/JasperFx/wolverine/issues/5542)), allocations fell by 38–84% and median latency by 5–34%, depending on how often a handler suspends. Plain `net11.0` without the feature changed nothing. **Watch for:** stack traces, debugger stepping, and APM agents or profilers that hook async state machines can behave differently with runtime-async methods. If one misbehaves, turn the generated-code switch off first.
+
+* **`StreamLockedException.StreamIds`** ([#1172](https://github.com/JasperFx/jasperfx/issues/1172)): a store whose lock covers several streams at once can report every stream that lost it. The single-stream constructor and `Id` are unchanged.
+
+* **`--log-level` and `--verbose` win over configured log levels** ([#1132](https://github.com/JasperFx/jasperfx/issues/1132)). Before, a `Logging:LogLevel` rule bound from configuration silently overrode the flag.
+
+* **Extensions that defer `AddJasperFx()` can hand over the registering assembly** ([#1179](https://github.com/JasperFx/jasperfx/issues/1179)). The new overload `AddJasperFx(services, configure, registeredFrom)` uses the assembly the entry point captured before it deferred (for example from an `IHostBuilder.ConfigureServices` callback that runs inside `Build()`), instead of walking the stack inside `Build()`. Without it, a host built by a helper in another assembly was attributed to that helper and `ApplicationAssemblyReuseWarning` fired on a healthy host. Nothing changes for callers of the existing overloads.
+
 ## Key Changes in 3.0.0
 
 JasperFx 3.0 is the foundation of the Critter Stack .NET 11 release train, alongside Weasel 10, Marten 10, Polecat 6, Fisher 2 and Wolverine 7.
 
 ::: warning In progress
-This section grows as the 3.0 work lands, so it describes the `3.0` branch rather than a released package.
+The rest of the .NET 11 release train is still landing, so this section keeps growing through the 3.x releases.
 :::
 
 ### Foundation
@@ -17,11 +32,13 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
   * **Generated code:** set `GenerationRules.UseRuntimeAsync = true` (default `false`) to compile runtime-generated code with the C# compiler's `runtime-async=on` feature, so async methods are emitted as runtime-async methods rather than compiler-built state machines. It is part of the reuse key for `ReuseCompiledAssemblies`, so a runtime-async and a plain compilation of the same source never share an assembly. `AssemblyGenerator.UseRuntimeAsync` is the same switch when you drive the generator directly.
   * **JasperFx's own assemblies:** build with `-p:JasperFxRuntimeAsync=true` to compile the `net11.0` assemblies with the feature. Changing the property does not trigger a recompile, so clean `bin/` and `obj/` between a build with it and a build without.
 
-  Nothing changes unless you opt in.
+  Nothing changes unless you opt in. **3.1.0 turns both on by default for `net11.0`**, see [Key Changes in 3.1.0](#key-changes-in-3-1-0).
 
 * **`JasperFx.RuntimeCompiler` moves to 6.0.0**, because it follows the same target framework change and depends on JasperFx 3.
 
 * **`Microsoft.Extensions.*` packages have a 10.0.0 floor.**
+
+* **JasperFx.Aspire targets `net10.0;net11.0` and Aspire 13.6** ([#1055](https://github.com/JasperFx/jasperfx/issues/1055)). The `Aspire.Hosting` packages move from 13.4.6 to 13.6.4, so an AppHost that references JasperFx.Aspire moves with them.
 
 * **`JasperFx.RuntimeCompiler` compiles with Roslyn 5.9**, and **`FastExpressionCompiler` moves to 6.0**, which itself drops `netstandard2.0` and `net9.0` and renames `ClosureInfo` to `CompilerContext`. Neither name appears in JasperFx's public API, but code of yours that uses FastExpressionCompiler directly will meet the rename.
 
@@ -54,6 +71,16 @@ This section grows as the 3.0 work lands, so it describes the `3.0` branch rathe
 ### Exceptions
 
 * **`StreamLockedException` derives from `ConcurrencyException`** ([#1169](https://github.com/JasperFx/jasperfx/issues/1169)). A stream lock timeout is the same user-facing failure as an optimistic concurrency conflict (a 409, retry), so it now shares the type. Code that does `catch (ConcurrencyException)` and retries also catches lock timeouts, which is usually what is wanted. Code that caught `ConcurrencyException` and treated it as a version mismatch only should catch `StreamLockedException` first. `ConcurrencyException.Id` carries the stream id, and `DocType` is null.
+
+### C# 15 unions as events (`net11.0`)
+
+* **A C# 15 union can be appended and applied as an event** ([#1053](https://github.com/JasperFx/jasperfx/issues/1053)). Everything union-specific is `net11.0` only; on `net10.0` no type is a union.
+
+  * **Append stores the active case.** Each case gets its own event type name and `IEvent<TCase>`, and the stored JSON is unchanged because System.Text.Json already writes the bare case. `AddEventType(union)` registers every case.
+  * **`Apply(TUnion)` is dispatched per case.** A handler that takes a union listens for the union's cases, and the source generator emits one arm per case that rebuilds the union. An explicit `Apply(TCase)` wins over `Apply(TUnion)`.
+  * **Refused shapes:** a union in `Create`, `ShouldDelete`, `Project`, a constructor, or `IEvent<TUnion>` fails validation, rather than listening for the cases and dispatching none of them.
+  * **`UnionTypes`** (`IsUnion`, `CaseTypes`, `ExpandToCaseTypes`, `UnionCasesFor`, `Unwrap`, `Wrap`) is public for stores and tools.
+  * **Store authors:** an `EventGraph.BuildEvent` override that does not end in `base.BuildEvent` has to call `UnionTypes.Unwrap` itself.
 
 ### For event store authors
 
