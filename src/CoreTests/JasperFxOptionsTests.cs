@@ -578,6 +578,87 @@ public class JasperFxOptionsTests
         }
     }
 
+    // jasperfx#1179: an entry point that defers AddJasperFx into Build() (IHostBuilder.UseWolverine()) leaves
+    // the stack walk to run inside Build(), where the frame on top belongs to whoever called Build(). In the
+    // common harness layout that is a shared helper in another assembly, here Widgets1.
+    [Fact]
+    public void a_deferred_registration_walks_to_the_assembly_that_called_build()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = GetType().Assembly;
+
+            var builder = Host.CreateDefaultBuilder().UseSomeCritterStackToolDeferred();
+            using var host = HostBuiltFromAnotherAssembly.Build(builder);
+
+            var options = host.Services.GetRequiredService<JasperFxOptions>();
+
+            // The defect the overload exists for: the walk can't see past Build()
+            options.RegistrationCallingAssembly.ShouldBe(typeof(HostBuiltFromAnotherAssembly).Assembly);
+            options.ApplicationAssemblyReuseWarning.ShouldNotBeNull();
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void a_deferred_registration_that_hands_over_its_caller_does_not_warn()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = GetType().Assembly;
+
+            var builder = Host.CreateDefaultBuilder().UseSomeCritterStackToolCapturingCaller();
+            using var host = HostBuiltFromAnotherAssembly.Build(builder);
+
+            var options = host.Services.GetRequiredService<JasperFxOptions>();
+
+            options.RegistrationCallingAssembly.ShouldBe(GetType().Assembly);
+            options.ApplicationAssemblyReuseWarning.ShouldBeNull();
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void a_handed_over_registration_assembly_seeds_the_process_wide_pin()
+    {
+        var original = JasperFxOptions.RememberedApplicationAssembly;
+        try
+        {
+            JasperFxOptions.RememberedApplicationAssembly = null;
+
+            var registeredFrom = typeof(HostBuiltFromAnotherAssembly).Assembly;
+            var services = new ServiceCollection();
+            services.AddJasperFx(null, registeredFrom);
+
+            JasperFxOptions.RememberedApplicationAssembly.ShouldBe(registeredFrom);
+
+            var options = services.BuildServiceProvider().GetRequiredService<JasperFxOptions>();
+            options.RegistrationCallingAssembly.ShouldBe(registeredFrom);
+        }
+        finally
+        {
+            JasperFxOptions.RememberedApplicationAssembly = original;
+        }
+    }
+
+    [Fact]
+    public void a_null_registration_assembly_falls_back_to_the_stack_walk()
+    {
+        var services = new ServiceCollection();
+        services.AddJasperFx(null, null);
+
+        var options = services.BuildServiceProvider().GetRequiredService<JasperFxOptions>();
+        options.RegistrationCallingAssembly.ShouldBe(GetType().Assembly);
+    }
+
     [Fact]
     public void an_extension_registration_does_not_pin_the_extension_as_the_application_assembly()
     {

@@ -100,6 +100,20 @@ JasperFxOptions.RememberedApplicationAssembly = typeof(MyApp).Assembly;
 
 This is useful when test runners or IDEs change the entry assembly.
 
+### Extensions that register JasperFx later
+
+`AddJasperFx()` attributes the registration to its caller by walking the stack, and compares that assembly against the application assembly it adopts (`ApplicationAssemblyReuseWarning`). An extension whose entry point defers the call, for example into an `IHostBuilder.ConfigureServices` callback that runs inside `Build()`, should capture its caller up front and pass it in, because by the time the callback runs the stack belongs to whoever called `Build()`:
+
+```csharp
+public static IHostBuilder UseMyTool(this IHostBuilder builder)
+{
+    var registeredFrom = Assembly.GetCallingAssembly();
+    return builder.ConfigureServices(services => services.AddJasperFx(configure: null, registeredFrom));
+}
+```
+
+A null `registeredFrom` falls back to the stack walk.
+
 ## Next Steps
 
 - [Critter Stack Defaults](/configuration/critter-stack-defaults) -- Opinionated setup
