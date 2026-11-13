@@ -59,6 +59,41 @@ public static class JasperFxServiceCollectionExtensions
         // EARLIER host in the same process (the classic multi-host test harness) warn instead of silently
         // scanning the wrong assembly. It's actually important to do this as close as possible to this call.
         var registrationAssembly = JasperFxOptions.DetermineCallingAssembly();
+        return addJasperFx(services, configure, registrationAssembly);
+    }
+
+    /// <summary>
+    /// Configure JasperFx for an entry point that captured the registering assembly itself and calls
+    /// AddJasperFx later, from a deferred callback. Wolverine's <c>IHostBuilder.UseWolverine()</c> is the
+    /// example: it registers JasperFx from a <c>ConfigureServices</c> callback that runs inside
+    /// <c>Build()</c>, by which point the stack belongs to whoever called <c>Build()</c>, often a shared
+    /// test-harness helper in another assembly. The stack walk would attribute the registration to that
+    /// helper, and <see cref="JasperFxOptions.ApplicationAssemblyReuseWarning"/> would fire on a healthy
+    /// host (jasperfx#1179).
+    /// </summary>
+    /// <param name="services"></param>
+    /// <param name="configure">Optional configuration of the JasperFxDefaults for resource management</param>
+    /// <param name="registeredFrom">
+    /// The assembly the entry point was called from, captured before it deferred. It seeds the
+    /// process-wide <see cref="JasperFxOptions.RememberedApplicationAssembly"/> for the first host and is the
+    /// registration assembly the reuse warning compares against. When null, JasperFx walks the stack as
+    /// <see cref="AddJasperFx(IServiceCollection, Action{JasperFxOptions}?)"/> does.
+    /// </param>
+    /// <returns></returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Two reachable RUC call sites are stack-walk fallbacks that only run on the runtime-codegen path: DetermineCallingAssembly (used to seed RememberedApplicationAssembly for the first host and, for GH-3521, to capture the registering assembly of every host) and ReadHostEnvironment's establishApplicationAssembly fallback, guarded by `ApplicationAssembly == null`. AOT consumers set the application assembly explicitly per the AOT publishing guide, which routes them through the `ApplicationAssembly != null` short-circuit; and under NativeAOT the frames carry no method metadata, so DetermineCallingAssembly falls back to Assembly.GetEntryAssembly() -- true only as of GH-742, which made HasReferenceToJasperFxTool fail closed instead of throwing PlatformNotSupportedException out of GetReferencedAssemblies() before the walk ever ran. See docs/codegen/aot.md.")]
+    public static IServiceCollection AddJasperFx(this IServiceCollection services, Action<JasperFxOptions>? configure,
+        Assembly? registeredFrom)
+    {
+        var registrationAssembly = registeredFrom ?? JasperFxOptions.DetermineCallingAssembly();
+        return addJasperFx(services, configure, registrationAssembly);
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "Two reachable RUC call sites are stack-walk fallbacks that only run on the runtime-codegen path: DetermineCallingAssembly (used to seed RememberedApplicationAssembly for the first host and, for GH-3521, to capture the registering assembly of every host) and ReadHostEnvironment's establishApplicationAssembly fallback, guarded by `ApplicationAssembly == null`. AOT consumers set the application assembly explicitly per the AOT publishing guide, which routes them through the `ApplicationAssembly != null` short-circuit; and under NativeAOT the frames carry no method metadata, so DetermineCallingAssembly falls back to Assembly.GetEntryAssembly() -- true only as of GH-742, which made HasReferenceToJasperFxTool fail closed instead of throwing PlatformNotSupportedException out of GetReferencedAssemblies() before the walk ever ran. See docs/codegen/aot.md.")]
+    private static IServiceCollection addJasperFx(IServiceCollection services, Action<JasperFxOptions>? configure,
+        Assembly? registrationAssembly)
+    {
         if (JasperFxOptions.RememberedApplicationAssembly == null)
         {
             JasperFxOptions.RememberedApplicationAssembly = registrationAssembly;
