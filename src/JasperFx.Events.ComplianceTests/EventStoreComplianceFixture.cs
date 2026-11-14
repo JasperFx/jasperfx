@@ -734,8 +734,13 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
 
     /// <summary>
     /// True in a store whose fixture implements <see cref="HoldAppendOpenAsync"/>. Gates the in-flight
-    /// append fact of <see cref="AsyncDaemonCompliance{TFixture,TOperations,TQuerySession}"/>.
+    /// append facts of <see cref="AsyncDaemonCompliance{TFixture,TOperations,TQuerySession}"/> and
+    /// <see cref="DcbAppendConditionCompliance{TFixture,TOperations,TQuerySession}"/>.
     /// </summary>
+    /// <remarks>
+    /// A store that serializes its writers, so that no append can be in flight while another commits,
+    /// leaves this false. Its skip is then the true answer, not a gap.
+    /// </remarks>
     public virtual bool SupportsHoldingAnAppendOpen => false;
 
     /// <summary>
@@ -748,6 +753,11 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// implementation opens its own connection, begins a transaction, inserts the row through the
     /// store's own append SQL, and commits in <c>DisposeAsync</c>. The returned task completes only
     /// once the row is written, so a caller may immediately commit later events behind it.
+    /// <para>
+    /// <paramref name="event"/> may be an <see cref="IEvent"/> built with <c>BuildEvent</c> and
+    /// carrying DCB tags, as the DCB in-flight fact passes. Append it the way a session appends any
+    /// event, so the tags are written and the DCB conflict machinery sees the append.
+    /// </para>
     /// </remarks>
     public virtual Task<IAsyncDisposable> HoldAppendOpenAsync(Guid streamId, object @event, CancellationToken token)
         => throw new NotSupportedException(
