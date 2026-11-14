@@ -3,7 +3,8 @@ namespace JasperFx.Events;
 /// <summary>
 ///     Thrown when an append is refused because the stream has been archived. Archiving is
 ///     reversible bookkeeping rather than deletion, so the refusal names the way back:
-///     <c>UnArchiveStream</c>, which every store implements.
+///     <see cref="IEventStoreOperations.UnArchiveStream(Guid)" />, on the shared operations contract
+///     (JasperFx/marten#5476).
 /// </summary>
 /// <remarks>
 ///     Lifted from the three unrelated per-store types that expressed this same refusal — Marten's

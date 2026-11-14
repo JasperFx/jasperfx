@@ -681,14 +681,17 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
             $"{GetType().FullName} does not implement FetchStreamByPlanAsync, so it cannot run the stream query plan compliance suite.");
 
     /// <summary>
-    /// True in a store that has implemented <c>UnArchiveStream</c> — reversing an archive so the
-    /// stream's events are readable and appendable again.
+    /// True in a store whose session implements <see cref="IEventStoreOperations.UnArchiveStream(Guid)"/>
+    /// and its string twin — reversing an archive so the stream's events are readable and appendable
+    /// again. Gates the unarchive facts of
+    /// <see cref="StreamArchivingCompliance{TFixture,TOperations,TQuerySession}"/>.
     /// </summary>
     /// <remarks>
-    /// Defaults to false because the operation is genuinely not universal: Polecat declares it on
-    /// its own <c>IEventOperations</c> and Marten has no equivalent today, so it is not on the shared
-    /// <see cref="IEventStoreOperations"/> and cannot be. The suite's unarchive facts skip rather
-    /// than fail on a store without it; the archiving facts around them do not.
+    /// Defaults to <strong>false</strong>, the same declare-then-implement ordering as
+    /// <see cref="SupportsTombstoneStream"/>: the members are on the shared contract with a throwing
+    /// default (JasperFx/marten#5476), so a store implements them, then flips this. The suite's
+    /// unarchive facts skip rather than fail on a store without it; the archiving facts around them do
+    /// not.
     /// </remarks>
     public virtual bool SupportsUnarchiveStream => false;
 
@@ -778,9 +781,28 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// a <see cref="Guid"/> or a <see cref="string"/>. Like <c>ArchiveStream</c>, this takes effect
     /// on SaveChanges rather than immediately.
     /// </summary>
+    /// <remarks>
+    /// The seam that existed while <c>UnArchiveStream</c> was declared per store. It is now
+    /// <see cref="IEventStoreOperations.UnArchiveStream(Guid)"/>, which the suite calls through
+    /// <see cref="EventsFor"/>, so nothing in the suite calls this any more and an override of it is
+    /// dead code. The default forwards to the shared member; it will be removed in the next major.
+    /// </remarks>
+    [Obsolete("The suite calls IEventStoreOperations.UnArchiveStream through EventsFor(session) now (JasperFx/marten#5476). Delete the override; SupportsUnarchiveStream is still the gate.")]
     public virtual void UnArchiveStream(TOperations session, object streamIdentity)
-        => throw new NotSupportedException(
-            $"{GetType().FullName} does not implement UnArchiveStream, so it cannot run the unarchive compliance facts.");
+    {
+        switch (streamIdentity)
+        {
+            case Guid streamId:
+                EventsFor(session).UnArchiveStream(streamId);
+                break;
+            case string streamKey:
+                EventsFor(session).UnArchiveStream(streamKey);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(streamIdentity),
+                    $"Streams are identified by Guid or string, not {streamIdentity.GetType().FullName}");
+        }
+    }
 
     /// <summary>
     /// True in a store that has a message outbox — an <c>Events.MessageOutbox</c> a bus integration

@@ -147,5 +147,34 @@ public class EventStoreOperationsDefaultsTests
         ex.InnerException.ShouldBeOfType<NotSupportedException>().Message.ShouldContain("TombstoneStream");
     }
 
+    [Theory]
+    [InlineData(typeof(Guid))]
+    [InlineData(typeof(string))]
+    public void unarchive_stream_is_refused_by_a_store_that_has_not_implemented_it(Type identityType)
+    {
+        // JasperFx/marten#5476: a default member rather than an abstract one, so a store compiled against
+        // an earlier JasperFx still loads (jasperfx#933) and refuses the call instead
+        var method = typeof(IEventStoreOperations).GetMethod(nameof(IEventStoreOperations.UnArchiveStream), [identityType])!;
+        method.IsAbstract.ShouldBeFalse();
+
+        var caller = new DynamicMethod("callDefault", typeof(void),
+            [typeof(IEventStoreOperations), identityType],
+            typeof(EventStoreOperationsDefaultsTests).Module, skipVisibility: true);
+        var il = caller.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, method);
+        il.Emit(OpCodes.Ret);
+
+        object identity = identityType == typeof(Guid) ? Guid.NewGuid() : "stream";
+
+        var ex = Should.Throw<TargetInvocationException>(() => caller.Invoke(null, [theOperations, identity]));
+        var refusal = ex.InnerException.ShouldBeOfType<NotSupportedException>();
+        refusal.Message.ShouldContain("UnArchiveStream");
+
+        // Names the implementing type, so the refusal says which store is missing the member
+        refusal.Message.ShouldContain(theOperations.GetType().FullName!);
+    }
+
     public class Account;
 }
