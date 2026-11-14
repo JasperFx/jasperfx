@@ -160,6 +160,36 @@ internal sealed class CandidateInfo
     public EvolveMethodInfo? EvolveMethod { get; set; }
     // Natural key discovery
     public bool HasNaturalKey { get; set; }
+
+    /// <summary>
+    /// Set on a self-aggregating <c>[BoundaryAggregate]</c> whose own identity (an <c>Id</c> member,
+    /// <c>[Identity]</c> or <c>[AggregateIdentity]</c>) is not <c>string</c>. The DCB surface always
+    /// builds <c>SingleStreamProjection&lt;T, string&gt;</c> for a boundary aggregate, whatever its Id
+    /// says, so the generator emits a second, <c>string</c>-keyed evolver beside the one keyed on the
+    /// declared identity. Without it, an aggregate first written for a single stream and then reused as
+    /// a boundary failed FetchForWritingByTags with "No source-generated dispatcher found". See
+    /// jasperfx#1184.
+    /// </summary>
+    public INamedTypeSymbol? BoundaryStringIdentity { get; set; }
+
+    /// <summary>
+    /// True on the <c>string</c>-keyed twin made by <see cref="CloneAsBoundaryStringTwin"/>. The twin
+    /// names its evolver with an identity tag so the two evolvers never share a name.
+    /// </summary>
+    public bool IsBoundaryStringTwin { get; set; }
+
+    public CandidateInfo CloneAsBoundaryStringTwin()
+    {
+        var clone = (CandidateInfo)MemberwiseClone();
+        clone.IdentityType = BoundaryStringIdentity;
+        clone.BoundaryStringIdentity = null;
+        clone.IsBoundaryStringTwin = true;
+
+        // The natural key registration is per aggregate type, not per evolver, and the primary
+        // evolver already carries it.
+        clone.HasNaturalKey = false;
+        return clone;
+    }
 }
 
 /// <summary>
@@ -311,6 +341,7 @@ internal static class AggregateAnalyzer
 
         return new CandidateInfo
         {
+            BoundaryStringIdentity = BoundaryStringIdentityFor(classSymbol, idType, semanticModel),
             Mode = CandidateMode.SelfAggregating,
             ClassSymbol = classSymbol,
             ClassSyntax = classDecl,
@@ -410,6 +441,7 @@ internal static class AggregateAnalyzer
 
         return new CandidateInfo
         {
+            BoundaryStringIdentity = BoundaryStringIdentityFor(classSymbol, idType, semanticModel),
             Mode = CandidateMode.SelfAggregatingEvolve,
             ClassSymbol = classSymbol,
             ClassSyntax = classDecl,
@@ -1490,6 +1522,22 @@ internal static class AggregateAnalyzer
     {
         return classSymbol.GetAttributes()
             .Any(a => a.AttributeClass?.Name is "BoundaryAggregateAttribute" or "BoundaryAggregate");
+    }
+
+    /// <summary>
+    /// The <c>string</c> identity a <c>[BoundaryAggregate]</c> needs a second evolver for, or null when
+    /// the type is not a boundary aggregate or its evolver is already keyed on <c>string</c>. Marten
+    /// fetches a boundary aggregate through <c>SingleStreamProjection&lt;T, string&gt;</c> regardless of
+    /// any Id member on the type, so an aggregate with, say, <c>Guid Id</c> needs both. See jasperfx#1184.
+    /// </summary>
+    private static INamedTypeSymbol? BoundaryStringIdentityFor(
+        INamedTypeSymbol classSymbol,
+        INamedTypeSymbol idType,
+        SemanticModel semanticModel)
+    {
+        if (idType.SpecialType == SpecialType.System_String) return null;
+        if (!HasBoundaryAggregateAttribute(classSymbol)) return null;
+        return semanticModel.Compilation.GetSpecialType(SpecialType.System_String);
     }
 
     public static INamedTypeSymbol? InferIdentityType(INamedTypeSymbol classSymbol)

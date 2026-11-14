@@ -23,6 +23,12 @@ namespace JasperFx.Events.Aggregation;
 /// matches the <c>SingleStreamProjection&lt;T, string&gt;</c> the DCB aggregator
 /// builds and is never used by boundary-aggregate dispatch).
 ///
+/// A boundary aggregate that also has its own identity — an <c>Id</c> member, typically left over
+/// from an aggregate first written for a single stream — keeps the evolver keyed on that identity
+/// for single-stream use, and gets the <c>string</c>-keyed evolver as well, because the DCB surface
+/// fetches it as <c>&lt;T, string&gt;</c> whatever its <c>Id</c> says. See
+/// <see href="https://github.com/JasperFx/jasperfx/issues/1184">#1184</see>.
+///
 /// The attribute must sit on the aggregate type in <b>its own defining assembly</b>:
 /// that is the compilation the generator emits the
 /// <see cref="GeneratedEvolverAttribute"/> into, and it is the assembly the runtime

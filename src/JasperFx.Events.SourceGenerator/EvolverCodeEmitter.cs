@@ -1371,7 +1371,9 @@ internal static class EvolverCodeEmitter
         // (and downstream consumers) reference the original
         // `{Name}Evolver` class name. See #297.
         var idTag = "";
-        if (info.IdentityType is { } id && !AggregateHasOwnIdentity(info))
+        // The string-keyed twin of a [BoundaryAggregate] that does have its own identity is tagged
+        // too, so it never shares a name with the evolver keyed on that identity (jasperfx#1184).
+        if (info.IdentityType is { } id && (info.IsBoundaryStringTwin || !AggregateHasOwnIdentity(info)))
         {
             var idName = id.Name;
             if (!string.IsNullOrEmpty(idName))
