@@ -429,6 +429,17 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             if (!directEmitted.Add(emitKey)) continue;
             MarkSeen(seen, info);
             Execute(spc, info);
+
+            // A [BoundaryAggregate] keyed on a non-string Id also gets the string-keyed evolver the
+            // DCB surface looks up (jasperfx#1184). Keyed into the same dedupe set, so partial
+            // declarations of one boundary aggregate still emit it exactly once.
+            if (info.BoundaryStringIdentity != null)
+            {
+                var twin = info.CloneAsBoundaryStringTwin();
+                var twinKey = SymbolKey(twin.ClassSymbol) + "::" +
+                              twin.IdentityType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                if (directEmitted.Add(twinKey)) Execute(spc, twin);
+            }
         }
 
         // Pipeline 2: only for types not already handled by pipeline 1

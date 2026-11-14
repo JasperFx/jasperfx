@@ -432,6 +432,164 @@ public class Subscribed { }
         generated.ShouldContain("snapshot.Apply(data)");
     }
 
+    // jasperfx#1184: a [BoundaryAggregate] with a stray Id member -- typically an aggregate first
+    // written for a single stream and then reused as a DCB boundary -- used to get only the evolver
+    // keyed on that Id's type. Marten fetches every boundary aggregate as
+    // SingleStreamProjection<T, string>, so FetchForWritingByTags<T> found no dispatcher. The generator
+    // now emits the string-keyed evolver as well, and keeps the Id-keyed one for single-stream use.
+    private const string BoundaryAggregateWithGuidId = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public class ClassState
+{
+    public Guid Id { get; set; }
+    public int Capacity { get; set; }
+    public int Booked { get; set; }
+
+    public void Apply(ClassScheduled e) => Capacity = e.Capacity;
+    public void Apply(SpotBooked e) => Booked++;
+}
+
+public class ClassScheduled { public int Capacity { get; set; } }
+public class SpotBooked { }
+";
+
+    [Fact]
+    public void boundary_aggregate_with_a_guid_id_gets_both_the_guid_and_the_string_evolver()
+    {
+        var (_, generatedSources) = RunGenerator(BoundaryAggregateWithGuidId);
+
+        generatedSources.Length.ShouldBe(2);
+
+        var guidEvolver = generatedSources.Where(x =>
+            x.Contains("IGeneratedSyncEvolver<global::Test.ClassState, global::System.Guid>")).ShouldHaveSingleItem();
+        guidEvolver.ShouldContain("file sealed class ClassStateEvolver ");
+
+        var stringEvolver = generatedSources.Where(x =>
+            x.Contains("IGeneratedSyncEvolver<global::Test.ClassState, string>")).ShouldHaveSingleItem();
+        stringEvolver.ShouldContain("file sealed class ClassState_StringEvolver ");
+        stringEvolver.ShouldContain("[assembly: global::JasperFx.Events.Aggregation.GeneratedEvolver(typeof(global::Test.ClassState)");
+        stringEvolver.ShouldContain("snapshot.Apply(data)");
+    }
+
+    [Fact]
+    public void boundary_aggregate_with_a_guid_id_compiles_with_both_evolvers()
+    {
+        CompileWithGenerator(BoundaryAggregateWithGuidId)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.GetMessage())
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void evolve_based_boundary_aggregate_with_a_guid_id_gets_both_evolvers()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public class EvolveClassState
+{
+    public Guid Id { get; set; }
+    public int Capacity { get; set; }
+
+    public void Evolve(IEvent e)
+    {
+        if (e.Data is ClassScheduled scheduled) Capacity = scheduled.Capacity;
+    }
+}
+
+public class ClassScheduled { public int Capacity { get; set; } }
+";
+        var (_, generatedSources) = RunGenerator(source);
+
+        generatedSources.Length.ShouldBe(2);
+        generatedSources.ShouldContain(x =>
+            x.Contains("IGeneratedSyncEvolver<global::Test.EvolveClassState, global::System.Guid>"));
+        generatedSources.Where(x =>
+                x.Contains("IGeneratedSyncEvolver<global::Test.EvolveClassState, string>")).ShouldHaveSingleItem()
+            .ShouldContain("EvolveClassState_StringEvolveEvolver");
+
+        CompileWithGenerator(source)
+            .Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Select(d => d.GetMessage())
+            .ShouldBeEmpty();
+    }
+
+    // A boundary aggregate whose Id is already a string needs nothing extra: the one evolver is the
+    // one the DCB surface looks up.
+    [Fact]
+    public void boundary_aggregate_with_a_string_id_gets_a_single_evolver()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public class StringClassState
+{
+    public string Id { get; set; } = """";
+    public int Booked { get; set; }
+    public void Apply(SpotBooked e) => Booked++;
+}
+
+public class SpotBooked { }
+";
+        var (_, generatedSources) = RunGenerator(source);
+
+        generatedSources.ShouldHaveSingleItem()
+            .ShouldContain("IGeneratedSyncEvolver<global::Test.StringClassState, string>");
+    }
+
+    // Partial declarations each surface a candidate (jasperfx#432); the string twin is deduped with
+    // the same key, so it is emitted exactly once rather than tripping CS8785.
+    [Fact]
+    public void partial_boundary_aggregate_with_a_guid_id_emits_the_string_evolver_once()
+    {
+        var source = @"
+using System;
+using JasperFx.Events;
+using JasperFx.Events.Aggregation;
+
+namespace Test;
+
+[BoundaryAggregate]
+public partial class SplitClassState
+{
+    public Guid Id { get; set; }
+    public int Capacity { get; set; }
+    public void Apply(ClassScheduled e) => Capacity = e.Capacity;
+}
+
+public partial class SplitClassState
+{
+    public int Booked { get; set; }
+    public void Apply(SpotBooked e) => Booked++;
+}
+
+public class ClassScheduled { public int Capacity { get; set; } }
+public class SpotBooked { }
+";
+        var (diagnostics, generatedSources) = RunGenerator(source);
+
+        diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ShouldBeEmpty();
+        generatedSources.Length.ShouldBe(2);
+        generatedSources.Count(x => x.Contains("IGeneratedSyncEvolver<global::Test.SplitClassState, string>"))
+            .ShouldBe(1);
+    }
+
     // #730: the Evolve path had no [BoundaryAggregate] fallback of its own, so an Evolve-only
     // boundary aggregate fell through BOTH paths -- the Evolve analyzer bailed at the identity
     // check, and the Apply/Create analyzer returned at its "no conventional methods" guard before

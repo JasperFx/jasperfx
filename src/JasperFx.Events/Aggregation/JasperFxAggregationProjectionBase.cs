@@ -486,6 +486,79 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                || typeof(IGeneratedAsyncEvolver<TDoc, TId>).IsAssignableFrom(evolverType);
     }
 
+    private static readonly Type[] _generatedEvolverContracts =
+    [
+        typeof(IGeneratedSyncEvolver<,>),
+        typeof(IGeneratedSyncDetermineAction<,>),
+        typeof(IGeneratedAsyncDetermineAction<,>),
+        typeof(IGeneratedAsyncEvolver<,>)
+    ];
+
+    /// <summary>
+    /// The "no source-generated dispatcher" message for this projection. When the generator DID emit
+    /// an evolver this projection could use, only keyed on a different identity type, the generic
+    /// "it saw the type and declined it" verdict sends the reader to the Apply methods, which are fine.
+    /// Name the identity types that were found instead. See jasperfx#1184.
+    /// </summary>
+    internal string MissingDispatcherMessage()
+    {
+        var foundIdentities = findGeneratedIdentityTypes();
+        if (foundIdentities.Count == 0) return _application.MissingDispatcherMessage();
+
+        var docType = typeof(TDoc);
+        var found = string.Join(", ", foundIdentities.Select(x => x.FullNameInCode()));
+
+        var message =
+            $"No source-generated dispatcher found for {GetType().FullNameInCode()}, which needs one for " +
+            $"<{docType.FullNameInCode()}, {typeof(TId).FullNameInCode()}>. The JasperFx.Events source " +
+            $"generator DID emit an evolver for {docType.FullNameInCode()}, but keyed on the identity type " +
+            $"{found}. The generator takes the identity type from the aggregate's own Id member (or its " +
+            "[Identity] / [AggregateIdentity] member), while this projection was registered with " +
+            $"{typeof(TId).FullNameInCode()}. Make the two agree: change the type of the aggregate's identity " +
+            "member, or register the projection with the identity type the aggregate declares.";
+
+        if (docType.HasAttribute<BoundaryAggregateAttribute>())
+        {
+            message +=
+                $" {docType.FullNameInCode()} is a [BoundaryAggregate], which is always fetched as <T, string> " +
+                "whatever its Id member says. JasperFx.Events.SourceGenerator 3.2.0 and later emit that " +
+                "string-keyed evolver beside the one keyed on the Id member, so rebuild the aggregate's " +
+                "assembly against a current generator, or remove the Id member if nothing else uses it " +
+                "(jasperfx#1184).";
+        }
+
+        return message;
+    }
+
+    /// <summary>
+    /// The identity types of generated evolvers for <typeparamref name="TDoc"/> that this projection
+    /// could otherwise have bound — aggregate-only registrations, and ones for this projection type or a
+    /// base of it — but that implement the generated contracts for a different <typeparamref name="TId"/>.
+    /// </summary>
+    private List<Type> findGeneratedIdentityTypes()
+    {
+        var docType = typeof(TDoc);
+        var identities = new List<Type>();
+
+        foreach (var attr in collectGeneratedEvolverAttributes(docType))
+        {
+            if (attr.AggregateType != docType) continue;
+            if (attr.ProjectionType != null && !attr.ProjectionType.IsAssignableFrom(GetType())) continue;
+
+            foreach (var @interface in attr.EvolverType.GetInterfaces())
+            {
+                if (!@interface.IsGenericType) continue;
+                if (!_generatedEvolverContracts.Contains(@interface.GetGenericTypeDefinition())) continue;
+
+                var arguments = @interface.GetGenericArguments();
+                if (arguments[0] != docType || arguments[1] == typeof(TId)) continue;
+                if (!identities.Contains(arguments[1])) identities.Add(arguments[1]);
+            }
+        }
+
+        return identities;
+    }
+
     /// <summary>
     /// Gathers <see cref="GeneratedEvolverAttribute"/> registrations from the aggregate's assembly and,
     /// when different, the concrete projection's own assembly. A partial projection whose aggregate is
@@ -560,7 +633,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                     // projection or its aggregate. Neither a user override nor a source-generated
                     // dispatcher is in place to consume them — fail fast at registration with a
                     // clear message rather than blowing up at first event dispatch.
-                    throw new InvalidProjectionException(_application.MissingDispatcherMessage());
+                    throw new InvalidProjectionException(MissingDispatcherMessage());
                 case 1:
                     if (_application.HasAnyMethods())
                     {

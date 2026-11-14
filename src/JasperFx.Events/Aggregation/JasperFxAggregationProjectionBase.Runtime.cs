@@ -149,7 +149,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         // the registration flow).
         // One message, composed in one place (jasperfx#887): this used to carry its own copy of the
         // paragraph, so the marker-aware half would have had to be written twice and drift once.
-        throw new InvalidOperationException(_application.MissingDispatcherMessage());
+        throw new InvalidOperationException(MissingDispatcherMessage());
     }
 
     /// <summary>
