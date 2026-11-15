@@ -141,6 +141,7 @@ internal static class EvolverCodeEmitter
 
         sb.AppendLine("}");
 
+        AppendAggregateActivator(sb, info.AggregateType);
         return sb.ToString();
     }
 
@@ -301,6 +302,7 @@ internal static class EvolverCodeEmitter
             sb.AppendLine("}");
         }
 
+        AppendAggregateActivator(sb, info.AggregateType);
         return sb.ToString();
     }
 
@@ -1094,6 +1096,7 @@ internal static class EvolverCodeEmitter
         }
 
         sb.AppendLine("}");
+        AppendAggregateActivator(sb, info.AggregateType);
         return sb.ToString();
     }
 
@@ -1157,6 +1160,7 @@ internal static class EvolverCodeEmitter
         }
 
         sb.AppendLine("}");
+        AppendAggregateActivator(sb, info.AggregateType);
         return sb.ToString();
     }
 
@@ -1268,7 +1272,7 @@ internal static class EvolverCodeEmitter
 
     /// <summary>
     /// Constructor expression for the aggregate when the SG needs to build a
-    /// fresh instance in the Apply-only / null-snapshot branch. Four cases:
+    /// fresh instance in the Apply-only / null-snapshot branch. Five cases:
     ///
     /// 1. Public parameterless ctor, no required members → `new T()`.
     /// 2. Public parameterless ctor marked <c>[SetsRequiredMembers]</c> → `new T()`.
@@ -1280,16 +1284,23 @@ internal static class EvolverCodeEmitter
     ///    emit `new T { Required = default!, ... }`, which overwrote initializers
     ///    like `public required List&lt;string&gt; Emails { get; set; } = [];` with
     ///    null (#1087). `typeof(T)` is a literal, so the call is trim and AOT safe.
-    /// 4. No public parameterless ctor (e.g. `private T()` signalling
-    ///    "construct me reflectively" or no parameterless ctor at all) →
-    ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates
-    ///    the instance without invoking any ctor or field initializers. Pre-#276
-    ///    Marten used `Activator.CreateInstance(nonPublic: true)` for this
-    ///    pattern; GetUninitializedObject is the AOT-clean equivalent.
-    ///    Caveat: field initializers don't run — aggregates that rely on
-    ///    them must move initialization into Apply / Create.
+    /// 4. A non-public (private, protected or internal) parameterless ctor →
+    ///    `__JasperFxAggregateActivator.Create()`, a file-scoped
+    ///    <c>[UnsafeAccessor(UnsafeAccessorKind.Constructor)]</c> appended to the
+    ///    generated file by <see cref="AppendAggregateActivator" />. The ctor body and
+    ///    every field / property initializer run, as they did through Marten 8's
+    ///    <c>Activator.CreateInstance(nonPublic: true)</c>, and the accessor is bound
+    ///    by the JIT / ILC rather than by reflection, so it stays trim and Native AOT
+    ///    safe (#1188). Not used for an abstract or generic aggregate, or one a
+    ///    file-scoped type cannot name (nested behind private / protected); those
+    ///    fall through to case 5.
+    /// 5. No parameterless ctor at all (e.g. a record with a primary ctor) →
+    ///    `(T)RuntimeHelpers.GetUninitializedObject(typeof(T))`. Allocates the
+    ///    instance without invoking any ctor or field initializers — there is no
+    ///    parameterless ctor to call. Aggregates that rely on initializers must move
+    ///    initialization into Apply / Create.
     ///
-    /// See #297 + Marten 9.0 migration guide.
+    /// See #297, #1188 + Marten 9.0 migration guide.
     /// </summary>
     private static string BuildAggregateConstructorExpression(INamedTypeSymbol type)
     {
@@ -1300,8 +1311,13 @@ internal static class EvolverCodeEmitter
 
         if (publicParameterless is null && type.TypeKind != TypeKind.Struct)
         {
-            // Reflective-instantiation fallback for `private T()` / no-parameterless-ctor
-            // aggregates. Field initializers won't run; document in the migration guide.
+            if (UsesConstructorAccessor(type))
+            {
+                return $"{AggregateActivatorClassName}.Create()";
+            }
+
+            // No parameterless ctor to call. Field initializers won't run; documented in the
+            // migration guide.
             return $"({fqn})global::System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof({fqn}))";
         }
 
@@ -1311,6 +1327,45 @@ internal static class EvolverCodeEmitter
         }
 
         return $"({fqn})global::System.Activator.CreateInstance(typeof({fqn}))!";
+    }
+
+    private const string AggregateActivatorClassName = "__JasperFxAggregateActivator";
+
+    /// <summary>
+    /// True when <see cref="BuildAggregateConstructorExpression" /> builds <paramref name="type" />
+    /// through its non-public parameterless constructor with an <c>[UnsafeAccessor]</c> (#1188).
+    /// </summary>
+    private static bool UsesConstructorAccessor(INamedTypeSymbol type)
+    {
+        if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic) return false;
+
+        var parameterless = type.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 0);
+        if (parameterless is null || parameterless.DeclaredAccessibility == Accessibility.Public) return false;
+
+        // The accessor lives in a file-scoped type at namespace level, which has to name the aggregate
+        // in its return type: a generic aggregate (or one nested in a generic type) and one nested
+        // behind private / protected cannot be named there, so they keep the uninitialized-object path.
+        return DescribeWhyNotNameableFromFileScope(type) is null;
+    }
+
+    /// <summary>
+    /// Appends the file-scoped <c>[UnsafeAccessor]</c> that case 4 of
+    /// <see cref="BuildAggregateConstructorExpression" /> calls, when the aggregate needs it. Every
+    /// emitter that can build the aggregate calls this last, at namespace level: each generated file
+    /// gets its own copy, so two generator instances (#462) or two projections over one aggregate never
+    /// collide.
+    /// </summary>
+    private static void AppendAggregateActivator(StringBuilder sb, INamedTypeSymbol? aggregateType)
+    {
+        if (aggregateType is null || !UsesConstructorAccessor(aggregateType)) return;
+
+        sb.AppendLine();
+        sb.AppendLine("// Calls the aggregate's non-public parameterless constructor, so its body and initializers run (#1188)");
+        sb.AppendLine($"file static class {AggregateActivatorClassName}");
+        sb.AppendLine("{");
+        sb.AppendLine("    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Constructor)]");
+        sb.AppendLine($"    internal static extern {Fqn(aggregateType)} Create();");
+        sb.AppendLine("}");
     }
 
     private static bool SetsRequiredMembers(IMethodSymbol constructor)
