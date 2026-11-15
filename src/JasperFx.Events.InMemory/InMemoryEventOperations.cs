@@ -147,6 +147,12 @@ public partial class InMemoryEventOperations : EventOperationsBase, IEventStoreO
     public void ArchiveStream(string streamKey) => throw InMemoryEventRegistry.NotSupported("Archiving a stream");
 
     /// <inheritdoc />
+    public void UnArchiveStream(Guid streamId) => throw InMemoryEventRegistry.NotSupported("Unarchiving a stream");
+
+    /// <inheritdoc />
+    public void UnArchiveStream(string streamKey) => throw InMemoryEventRegistry.NotSupported("Unarchiving a stream");
+
+    /// <inheritdoc />
     public void OverwriteEvent(IEvent e) => throw InMemoryEventRegistry.NotSupported("Overwriting an event");
 
     /// <inheritdoc />

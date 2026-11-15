@@ -567,11 +567,9 @@ nothing, and still needs to know its read was not stale. A behaviour whose whole
 happens when *nothing* happens needs its own suite, because the natural setup for every neighbouring
 fact destroys it.
 
-`StreamQueryPlanCompliance` and the unarchive facts on `StreamArchivingCompliance` are both opt-in
-through `Supports` flags defaulting false, for the ordinary reason: each store declares its own
-`IQueryPlan<T>` / `IBatchQueryPlan<T>` and its own `QueryByPlan` route (so the plan types cannot be
-shared, only the results), and `UnArchiveStream` is on Polecat's own `IEventOperations` with no
-Marten equivalent, so it is not on `IEventStoreOperations` and cannot be. Note the query plan suite's
+`StreamQueryPlanCompliance` is opt-in through `SupportsStreamQueryPlans`, defaulting false, for a
+shared-type reason: each store declares its own `IQueryPlan<T>` / `IBatchQueryPlan<T>` and its own
+`QueryByPlan` route, so the plan types cannot be shared, only the results. Note the query plan suite's
 `batched` axis: a plan implements two interfaces with two separate implementations — standalone it
 owns the whole command, batched it contributes a fragment to someone else's — so every fact runs
 twice, and the version cap, the one parameter that has to survive into the batched fragment's own
@@ -581,6 +579,25 @@ SQL, is where the two paths are most likely to drift.
 reason rather than a shared-type one: `TombstoneStream` *is* on `IEventStoreOperations` (jasperfx#1014),
 but as a default member that throws, so a store that has not implemented the hard delete stays
 source-compatible and skips the suite until it has.
+
+The unarchive facts on `StreamArchivingCompliance` are gated on `SupportsUnarchiveStream` for the same
+declare-then-implement reason. `UnArchiveStream(Guid)` / `UnArchiveStream(string)` used to be Polecat's
+and Fisher's own, so the suite reached them through a fixture hook,
+`EventStoreComplianceFixture.UnArchiveStream(session, streamIdentity)`. They are now on
+`IEventStoreOperations` (JasperFx/marten#5476) — the members `ArchivedStreamException`'s message tells a
+caller to use — as default members that throw `NotSupportedException`, because a new abstract member on
+a shipped interface fails to load in every store compiled against the previous JasperFx (jasperfx#933).
+The facts call them through `EventsFor(session)` like every other operation. The fixture hook is
+`[Obsolete]` and no longer called: a store deletes its override, implements the two members on its
+session's event operations, and flips `SupportsUnarchiveStream`. The facts pin that once the unarchive
+is saved the stream is appendable again — plainly, at an expected version, and through
+`FetchForWriting` — that its state, its events (stream read, raw event query) and its live aggregate
+all come back at the version it had, that unarchiving a stream that is not archived or does not exist is
+a no-op that creates nothing, that a re-opened stream can be archived again, and that only the stream
+named is re-opened: not its neighbours, not a string-keyed sibling, and under conjoined tenancy not the
+same id in another tenant. The suite has no append-mode axis, so a store with more than one append path
+covers the others in its own tests. Unarchive and append in the *same* save is deliberately not pinned:
+a store that checks for an archived stream before it writes the batch refuses that append.
 
 ### The DCB append condition, raced (marten#5887)
 

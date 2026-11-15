@@ -111,7 +111,8 @@ public partial class ComplianceLedgerDeletionRecorder: ComplianceEventProjection
 
 /// <summary>
 /// <c>ArchiveStream</c> and the consequences of archiving — what a store still reports about an
-/// archived stream, and what it stops reporting.
+/// archived stream, and what it stops reporting — and <c>UnArchiveStream</c>, which has to undo every
+/// one of those consequences.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -119,6 +120,11 @@ public partial class ComplianceLedgerDeletionRecorder: ComplianceEventProjection
 /// <em>consequences</em> are where two implementations drift: whether stream state still answers,
 /// whether the events stay out of the default reads, whether the archived flag is visible to a caller
 /// who opts in, and whether appending to an archived stream is allowed.
+/// </para>
+/// <para>
+/// The unarchive facts call <see cref="IEventStoreOperations.UnArchiveStream(Guid)"/> through the
+/// shared contract and are gated on <c>SupportsUnarchiveStream</c>, because the member carries a
+/// throwing default (JasperFx/marten#5476).
 /// </para>
 /// <para>
 /// Physical partition movement (Marten's archived event partition and Polecat's equivalent) is
@@ -211,6 +217,29 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         config.AddEventType<LedgerClosed>();
         config.Snapshot<ComplianceLedgerByKey>(SnapshotLifecycle.Inline);
     };
+
+    /// <summary>
+    /// String stream identity with no projection, for the unarchive facts — the archive and unarchive
+    /// calls each have a string overload of their own, which the Guid facts never reach.
+    /// </summary>
+    private static readonly Action<ComplianceStoreConfig> _stringConfiguration = config =>
+    {
+        config.SchemaName = "compliance_archiving_string";
+        config.StreamIdentity = StreamIdentity.AsString;
+        config.AddEventType<LedgerOpened>();
+        config.AddEventType<LedgerEntryPosted>();
+    };
+
+    private static readonly Action<ComplianceStoreConfig> _conjoinedConfiguration = config =>
+    {
+        config.SchemaName = "compliance_archiving_conjoined";
+        config.ConjoinedEventTenancy = true;
+        config.AddEventType<LedgerOpened>();
+        config.AddEventType<LedgerEntryPosted>();
+    };
+
+    private const string TenantA = "archiving_a";
+    private const string TenantB = "archiving_b";
 
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(60);
 
@@ -878,14 +907,25 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
 
     // ---------- Unarchiving ----------
 
+    // UnArchiveStream is on the shared IEventStoreOperations (JasperFx/marten#5476), so these facts call
+    // it through EventsFor(session) like every other operation. It carries a throwing default, so
+    // SupportsUnarchiveStream is still the gate: a store implements the member, then flips the flag.
+
     private void assertUnarchiveSupported() => Assert.SkipUnless(theFixture.SupportsUnarchiveStream,
-        "This event store does not implement UnArchiveStream");
+        "This event store does not implement IEventStoreOperations.UnArchiveStream");
 
     private async Task unarchiveAsync(Guid streamId)
     {
         await using var session = OpenSession();
-        theFixture.UnArchiveStream(session, streamId);
+        EventsFor(session).UnArchiveStream(streamId);
         await SaveChangesAsync(session);
+    }
+
+    private async Task<TOperations> openForTenantAsync(string tenantId)
+    {
+        var store = (IEventStore<TOperations, TQuerySession>)theFixture.EventStore;
+        var database = (await theFixture.EventStore.AllDatabases()).First();
+        return store.OpenSession(database, tenantId);
     }
 
     [Fact]
@@ -985,5 +1025,315 @@ public abstract class StreamArchivingCompliance<TFixture, TOperations, TQuerySes
         var archivedState = await EventsFor(session).FetchStreamStateAsync(stillArchived, Cancellation);
         archivedState.ShouldNotBeNull();
         archivedState.IsArchived.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The default reads other than <c>FetchStreamAsync</c> each carry their own archived filter, so each
+    /// has to see the events again: a raw event query reads them back un-archived, and a predicate
+    /// naming <see cref="IEvent.IsArchived"/> no longer finds them.
+    /// </summary>
+    [Fact]
+    public async Task unarchiving_restores_the_events_to_a_raw_event_query()
+    {
+        assertUnarchiveSupported();
+
+        var streamId = await aLedgerAsync();
+        await archiveAsync(streamId);
+        await unarchiveAsync(streamId);
+
+        var events = await Reader.QueryRawEvents()
+            .Where(x => x.StreamId == streamId)
+            .ToListAsync(Cancellation);
+
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(x => !x.IsArchived);
+
+        (await Reader.QueryRawEvents()
+            .Where(x => x.IsArchived && x.StreamId == streamId)
+            .ToListAsync(Cancellation)).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The inverse of <see cref="live_aggregation_folds_an_archived_stream_to_nothing"/>: the aggregate
+    /// comes back with every event folded in, not just the stream row.
+    /// </summary>
+    [Fact]
+    public async Task unarchiving_restores_live_aggregation()
+    {
+        assertUnarchiveSupported();
+
+        var streamId = await aLedgerAsync();
+        await archiveAsync(streamId);
+        await unarchiveAsync(streamId);
+
+        await using var session = OpenSession();
+        var ledger = await EventsFor(session).AggregateStreamAsync<ComplianceLedger>(streamId, token: Cancellation);
+
+        ledger.ShouldNotBeNull();
+        ledger.Name.ShouldBe("Petty Cash");
+        ledger.Balance.ShouldBe(100);
+    }
+
+    /// <summary>
+    /// An append at an expected version goes through the version check, which is a different path
+    /// from the plain append in <see cref="unarchiving_makes_the_stream_appendable_again"/> on more than
+    /// one store. The version the stream had when it was archived is still the one it builds on, so the
+    /// expected version — the version after the append — is that plus one.
+    /// </summary>
+    [Fact]
+    public async Task an_unarchived_stream_accepts_an_append_at_its_expected_version()
+    {
+        assertUnarchiveSupported();
+
+        var streamId = await aLedgerAsync();
+        await archiveAsync(streamId);
+        await unarchiveAsync(streamId);
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(streamId, 4L, new LedgerEntryPosted(10));
+            await SaveChangesAsync(session);
+        }
+
+        await using var reader = OpenSession();
+        var state = await EventsFor(reader).FetchStreamStateAsync(streamId, Cancellation);
+
+        state.ShouldNotBeNull();
+        state.Version.ShouldBe(4);
+        state.IsArchived.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The aggregate-handler workflow after an unarchive: <c>FetchForWriting</c> hands back the
+    /// snapshot at the version the stream had, the append through the handle lands, and the inline
+    /// snapshot moves on with it. This is the route a Wolverine handler takes to a re-opened stream.
+    /// </summary>
+    [Fact]
+    public async Task an_unarchived_stream_can_be_fetched_for_writing_and_appended_to()
+    {
+        assertUnarchiveSupported();
+
+        await theFixture.ConfigureAsync(_inlineSnapshotConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceLedger>(streamId,
+                new LedgerOpened("Petty Cash"), new LedgerEntryPosted(25), new LedgerEntryPosted(75));
+            await SaveChangesAsync(session);
+        }
+
+        await archiveAsync(streamId);
+        await unarchiveAsync(streamId);
+
+        await using (var session = OpenSession())
+        {
+            var stream = await EventsFor(session).FetchForWriting<ComplianceLedger>(streamId, Cancellation);
+
+            stream.CurrentVersion.ShouldBe(3);
+            stream.Aggregate.ShouldNotBeNull();
+            stream.Aggregate.Balance.ShouldBe(100);
+
+            stream.AppendOne(new LedgerEntryPosted(10));
+            await SaveChangesAsync(session);
+        }
+
+        await using var reader = OpenSession();
+
+        var state = await EventsFor(reader).FetchStreamStateAsync(streamId, Cancellation);
+        state.ShouldNotBeNull();
+        state.Version.ShouldBe(4);
+        state.IsArchived.ShouldBeFalse();
+
+        var ledger = await EventsFor(reader).FetchLatest<ComplianceLedger>(streamId, Cancellation);
+        ledger.ShouldNotBeNull();
+        ledger.Balance.ShouldBe(110);
+    }
+
+    /// <summary>
+    /// The unarchive twin of <see cref="archiving_a_stream_that_does_not_exist_is_not_an_error"/>.
+    /// </summary>
+    [Fact]
+    public async Task unarchiving_a_stream_that_does_not_exist_is_not_an_error()
+    {
+        assertUnarchiveSupported();
+
+        var unknown = Guid.NewGuid();
+
+        await unarchiveAsync(unknown);
+
+        await using var session = OpenSession();
+
+        // Nothing was created by unarchiving a phantom.
+        (await EventsFor(session).FetchStreamStateAsync(unknown, Cancellation)).ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Archiving is a state, not a one-way door: a re-opened stream can be archived again, and the
+    /// second archive refuses appends exactly as the first did. A store that moves rows on archive
+    /// (an archived partition) has to move them back <em>and</em> forward again.
+    /// </summary>
+    [Fact]
+    public async Task an_unarchived_stream_can_be_archived_again()
+    {
+        assertUnarchiveSupported();
+
+        var streamId = await aLedgerAsync();
+        await archiveAsync(streamId);
+        await unarchiveAsync(streamId);
+        await archiveAsync(streamId);
+
+        await ShouldFailWithAsync(ComplianceExceptionKind.ArchivedStream, async () =>
+        {
+            await using var session = OpenSession();
+            EventsFor(session).Append(streamId, new LedgerEntryPosted(10));
+            await SaveChangesAsync(session);
+        });
+
+        await using var reader = OpenSession();
+
+        var state = await EventsFor(reader).FetchStreamStateAsync(streamId, Cancellation);
+        state.ShouldNotBeNull();
+        state.IsArchived.ShouldBeTrue();
+        state.Version.ShouldBe(3);
+
+        (await EventsFor(reader).FetchStreamAsync(streamId, token: Cancellation)).ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The string overload, which none of the Guid facts reach.
+    /// </summary>
+    [Fact]
+    public async Task unarchiving_a_string_keyed_stream()
+    {
+        assertUnarchiveSupported();
+
+        await theFixture.ConfigureAsync(_stringConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var restored = $"ledger/{Guid.NewGuid():N}";
+        var stillArchived = $"ledger/{Guid.NewGuid():N}";
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream(restored, new LedgerOpened("Restored"), new LedgerEntryPosted(25));
+            EventsFor(session).StartStream(stillArchived, new LedgerOpened("Still archived"));
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).ArchiveStream(restored);
+            EventsFor(session).ArchiveStream(stillArchived);
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).UnArchiveStream(restored);
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(restored, new LedgerEntryPosted(10));
+            await SaveChangesAsync(session);
+        }
+
+        await using var reader = OpenSession();
+
+        var restoredState = await EventsFor(reader).FetchStreamStateAsync(restored, Cancellation);
+        restoredState.ShouldNotBeNull();
+        restoredState.IsArchived.ShouldBeFalse();
+        restoredState.Version.ShouldBe(3);
+
+        var events = await EventsFor(reader).FetchStreamAsync(restored, token: Cancellation);
+        events.Count.ShouldBe(3);
+        events.ShouldAllBe(x => !x.IsArchived);
+
+        var archivedState = await EventsFor(reader).FetchStreamStateAsync(stillArchived, Cancellation);
+        archivedState.ShouldNotBeNull();
+        archivedState.IsArchived.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Under conjoined tenancy the same stream id can exist once per tenant, and unarchiving is scoped to
+    /// the session's tenant: re-opening one tenant's stream must not re-open another's.
+    /// </summary>
+    /// <remarks>
+    /// The mirror of <c>ConjoinedEventTenancyCompliance</c>'s archiving fact, and the same bug class:
+    /// unarchiving is a bulk update over a stream's events plus a flag on the stream, the shape of
+    /// operation whose WHERE clause a store forgets to scope. The other tenant's copy is held to all three
+    /// consequences of archiving — its flag, its events out of the default read, and the append refused.
+    /// </remarks>
+    [Fact]
+    public async Task unarchiving_under_conjoined_tenancy_reopens_only_the_sessions_tenant()
+    {
+        assertUnarchiveSupported();
+        Assert.SkipUnless(theFixture.SupportsConjoinedEventTenancy,
+            "This store does not support conjoined event tenancy.");
+
+        await theFixture.ConfigureAsync(_conjoinedConfiguration);
+        await theFixture.CleanEventDataAsync();
+
+        var streamId = Guid.NewGuid();
+
+        foreach (var tenantId in new[] { TenantA, TenantB })
+        {
+            await using (var session = await openForTenantAsync(tenantId))
+            {
+                EventsFor(session).StartStream(streamId, new LedgerOpened(tenantId), new LedgerEntryPosted(25));
+                await SaveChangesAsync(session);
+            }
+
+            await using (var session = await openForTenantAsync(tenantId))
+            {
+                EventsFor(session).ArchiveStream(streamId);
+                await SaveChangesAsync(session);
+            }
+        }
+
+        await using (var session = await openForTenantAsync(TenantA))
+        {
+            EventsFor(session).UnArchiveStream(streamId);
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = await openForTenantAsync(TenantA))
+        {
+            EventsFor(session).Append(streamId, new LedgerEntryPosted(10));
+            await SaveChangesAsync(session);
+        }
+
+        await using (var tenantA = await openForTenantAsync(TenantA))
+        {
+            var state = await EventsFor(tenantA).FetchStreamStateAsync(streamId, Cancellation);
+            state.ShouldNotBeNull();
+            state.IsArchived.ShouldBeFalse();
+            state.Version.ShouldBe(3);
+
+            var events = await EventsFor(tenantA).FetchStreamAsync(streamId, token: Cancellation);
+            events.Count.ShouldBe(3);
+            events[0].Data.ShouldBeOfType<LedgerOpened>().Name.ShouldBe(TenantA);
+        }
+
+        await using (var tenantB = await openForTenantAsync(TenantB))
+        {
+            var state = await EventsFor(tenantB).FetchStreamStateAsync(streamId, Cancellation);
+            state.ShouldNotBeNull();
+            state.IsArchived.ShouldBeTrue();
+            state.Version.ShouldBe(2);
+
+            (await EventsFor(tenantB).FetchStreamAsync(streamId, token: Cancellation)).ShouldBeEmpty();
+        }
+
+        await ShouldFailWithAsync(ComplianceExceptionKind.ArchivedStream, async () =>
+        {
+            await using var session = await openForTenantAsync(TenantB);
+            EventsFor(session).Append(streamId, new LedgerEntryPosted(10));
+            await SaveChangesAsync(session);
+        });
     }
 }

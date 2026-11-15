@@ -86,14 +86,63 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     Task AppendExclusive(Guid streamId, params object[] events);
 
     /// <summary>
-    /// Mark a stream and all of its events as archived.
+    /// Mark a stream and all of its events as archived. Reversed by <see cref="UnArchiveStream(Guid)"/>.
     /// </summary>
     void ArchiveStream(Guid streamId);
 
     /// <summary>
-    /// Mark a stream and all of its events as archived.
+    /// Mark a stream and all of its events as archived. Reversed by <see cref="UnArchiveStream(string)"/>.
     /// </summary>
     void ArchiveStream(string streamKey);
+
+    /// <summary>
+    /// Reverse <see cref="ArchiveStream(Guid)"/>: clear the archived flag from a stream and all of its
+    /// events, so the stream can be appended to again and its events come back into the default reads.
+    /// Queued until <c>SaveChangesAsync</c>, like <see cref="ArchiveStream(Guid)"/>.
+    /// </summary>
+    /// <param name="streamId">Identity of the stream to re-open.</param>
+    /// <remarks>
+    /// <para>
+    /// This is the way back that <see cref="ArchivedStreamException"/> names. Archiving is reversible
+    /// bookkeeping rather than deletion: the stream keeps its version and its events, so once the
+    /// unarchive is saved the stream behaves as if it had never been archived.
+    /// </para>
+    /// <para>
+    /// The contract every implementation keeps, pinned by the <c>StreamArchivingCompliance</c> suite:
+    /// after the save, an append to the stream is accepted (including one at an expected version, and
+    /// one through <see cref="FetchForWriting{T}(Guid, CancellationToken)"/>); the stream state reports
+    /// <see cref="StreamState.IsArchived"/> as false at the version it had; and its events read back,
+    /// un-archived, from <c>FetchStreamAsync</c>, live aggregation and raw event queries. Unarchiving a
+    /// stream that is not archived is a no-op, and unarchiving a stream that does not exist is not an
+    /// error and creates nothing. Only the stream named is re-opened — its neighbours stay archived —
+    /// and under conjoined tenancy only the copy in the session's tenant.
+    /// </para>
+    /// <para>
+    /// The suite saves the unarchive in its own unit of work before appending. Whether an unarchive and
+    /// an append to the same stream can share one <c>SaveChangesAsync</c> is not part of the contract:
+    /// a store that checks for an archived stream before it writes the batch refuses that append.
+    /// </para>
+    /// <para>
+    /// A default-implemented member for the reason <see cref="TombstoneStream(Guid)"/> is one: an
+    /// abstract member added to this shipped interface would make every store compiled against an
+    /// earlier JasperFx fail to load (jasperfx#933). A store that has not implemented it refuses at
+    /// runtime with <see cref="NotSupportedException"/> (JasperFx/marten#5476).
+    /// </para>
+    /// </remarks>
+    void UnArchiveStream(Guid streamId)
+        => throw new NotSupportedException(
+            $"Unarchiving a stream is not implemented by {GetType().FullName}. Start a new stream instead, or use an event store that implements UnArchiveStream.");
+
+    /// <summary>
+    /// Reverse <see cref="ArchiveStream(string)"/>: clear the archived flag from a stream and all of its
+    /// events, so the stream can be appended to again and its events come back into the default reads.
+    /// Queued until <c>SaveChangesAsync</c>, like <see cref="ArchiveStream(string)"/>.
+    /// </summary>
+    /// <param name="streamKey">String identity of the stream to re-open.</param>
+    /// <inheritdoc cref="UnArchiveStream(Guid)" path="/remarks"/>
+    void UnArchiveStream(string streamKey)
+        => throw new NotSupportedException(
+            $"Unarchiving a stream is not implemented by {GetType().FullName}. Start a new stream instead, or use an event store that implements UnArchiveStream.");
 
     /// <summary>
     /// Permanently delete a stream and every event in it. Queued until <c>SaveChangesAsync</c>, like
