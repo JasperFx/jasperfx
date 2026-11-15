@@ -351,7 +351,8 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
             {
                 if (x.TryGetAttribute<FromKeyedServicesAttribute>(out var att))
                 {
-                    return typeof(IFinder<>).CloseAndBuildAs<IFinder>(x.ParameterType).Find(_provider, att.Key.ToString());
+                    // The key as declared, not its string: a service keyed by Kind.A is not keyed by "A" (#1189)
+                    return typeof(IFinder<>).CloseAndBuildAs<IFinder>(x.ParameterType).Find(_provider, att.Key);
                 }
 
                 return _provider.GetService(x.ParameterType);
@@ -363,12 +364,12 @@ public class ServiceContainer : IServiceProviderIsService, IServiceContainer
 
     private interface IFinder
     {
-        object Find(IServiceProvider provider, string key);
+        object? Find(IServiceProvider provider, object? key);
     }
 
     private class IFinder<T> : IFinder
     {
-        public object Find(IServiceProvider provider, string key)
+        public object? Find(IServiceProvider provider, object? key)
         {
             return provider.GetKeyedService<T>(key);
         }

@@ -76,10 +76,9 @@ internal class ConstructorPlan : ServicePlan
 
                 if (parameter.TryGetAttribute<FromKeyedServicesAttribute>(out var att))
                 {
-                    var descriptor = graph
-                        .RegistrationsFor(parameter.ParameterType)
-                        .Where(x => x.IsKeyedService)
-                        .FirstOrDefault(x => x.ServiceKey.ToString() == att.Key.ToString());
+                    var descriptor = att.Key == null
+                        ? null
+                        : ServiceKeys.FindKeyed(graph.RegistrationsFor(parameter.ParameterType), att.Key);
 
                     if (descriptor == null) return false;
 
@@ -107,10 +106,9 @@ internal class ConstructorPlan : ServicePlan
 
                     if (p.TryGetAttribute<FromKeyedServicesAttribute>(out var att))
                     {
-                        var keyedDescriptor = graph
-                            .RegistrationsFor(p.ParameterType)
-                            .Where(x => x.IsKeyedService)
-                            .FirstOrDefault(x => x.ServiceKey.ToString() == att.Key.ToString());
+                        var keyedDescriptor = att.Key == null
+                            ? null
+                            : ServiceKeys.FindKeyed(graph.RegistrationsFor(p.ParameterType), att.Key);
 
                         dependencies.Add(graph.PlanFor(keyedDescriptor, trail));
                         continue;

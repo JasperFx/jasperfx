@@ -69,10 +69,14 @@ because at least one dependency is directly using IServiceProvider or has an opa
 
     public bool TryFindKeyedService(Type type, string key, out Variable? variable)
     {
+        return TryFindKeyedService(type, (object)key, out variable);
+    }
+
+    public bool TryFindKeyedService(Type type, object key, out Variable? variable)
+    {
         variable = default;
-        
-        var descriptor = _services.RegistrationsFor(type).Where(x => x.IsKeyedService)
-            .FirstOrDefault(x => Equals(x.ServiceKey, key));
+
+        var descriptor = ServiceKeys.FindKeyed(_services.RegistrationsFor(type), key);
 
         if (descriptor == null)
         {

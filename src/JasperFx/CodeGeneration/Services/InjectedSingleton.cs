@@ -18,7 +18,8 @@ public class InjectedSingleton : InjectedField
     {
         if (Descriptor.IsKeyedService)
         {
-            return $"[{typeof(FromKeyedServicesAttribute).FullNameInCode().Replace("Attribute", "")}(\"{Descriptor.ServiceKey}\")] " +
+            // The registration's own key, with its own type: "A" does not resolve a service keyed by Kind.A (#1189)
+            return $"[{typeof(FromKeyedServicesAttribute).FullNameInCode().Replace("Attribute", "")}({ServiceKeys.WriteAttributeArgument(Descriptor.ServiceKey)})] " +
                    base.CtorArgDeclaration();
         }
         

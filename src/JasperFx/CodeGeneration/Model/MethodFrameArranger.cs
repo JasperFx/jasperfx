@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using JasperFx.CodeGeneration.Frames;
+using JasperFx.CodeGeneration.Services;
 using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,14 +29,24 @@ internal class MethodFrameArranger : IMethodVariables
 
     public Variable FindVariable(ParameterInfo parameter)
     {
-        if (_services != null && parameter.TryGetAttribute<FromKeyedServicesAttribute>(out var att))
+        // A null key ([FromKeyedServices] inheriting the key, or asking for the unkeyed service) is resolved
+        // like any other parameter
+        if (_services != null && parameter.TryGetAttribute<FromKeyedServicesAttribute>(out var att) && att.Key != null)
         {
-            if (_services.TryFindKeyedService(parameter.ParameterType, att.Key.ToString()!, out var serviceVariable))
+            if (_services.TryFindKeyedService(parameter.ParameterType, att.Key, out var serviceVariable))
             {
                 return serviceVariable!;
             }
+
+            // Falling through to the unkeyed registration of the same type would hand the method a
+            // different instance than the one it asked for, without a word (#1189)
+            throw new InvalidOperationException(
+                $"Parameter '{parameter.Name}' of {parameter.Member.DeclaringType?.FullNameInCode()}.{parameter.Member.Name} " +
+                $"asks for [FromKeyedServices({ServiceKeys.WriteAttributeArgument(att.Key)})] {parameter.ParameterType.FullNameInCode()}, " +
+                "but no service of that type is registered with that key.");
         }
-        
+
+
         if (TryFindVariableByName(parameter.ParameterType, parameter.Name!, out var variable))
         {
             return variable;
