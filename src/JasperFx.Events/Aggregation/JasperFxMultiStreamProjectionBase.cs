@@ -188,6 +188,7 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                 "There is already a custom event slicer registered for this projection");
         }
         
+        includeSlicedEventType(typeof(TEvent));
         _defaultSlicer.Identity(identityFunc);
     }
     
@@ -199,7 +200,26 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                 "There is already a custom event slicer registered for this projection");
         }
         
+        includeSlicedEventType(typeof(TEvent));
         _defaultSlicer.Identities(identitiesFunc);
+    }
+
+    /// <summary>
+    ///     A type sliced by Identity() or Identities() has to be on the event filter, or the daemon either
+    ///     fetches every event (empty filter) or never fetches this one (other types on the filter).
+    ///     Interfaces, abstract types and IEvent itself stay off: Marten drops the whole type filter when it
+    ///     meets one, which would widen an already filtered projection to every event.
+    /// </summary>
+    private void includeSlicedEventType(Type eventType)
+    {
+        if (eventType.IsGenericType && eventType.GetGenericTypeDefinition() == typeof(IEvent<>))
+        {
+            eventType = eventType.GetGenericArguments()[0];
+        }
+
+        if (eventType.IsInterface || eventType.IsAbstract || IncludedEventTypes.Contains(eventType)) return;
+
+        IncludeType(eventType);
     }
     
     /// <summary>
