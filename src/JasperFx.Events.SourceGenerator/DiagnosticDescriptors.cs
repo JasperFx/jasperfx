@@ -105,4 +105,24 @@ internal static class DiagnosticDescriptors
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A method on a projection or self-aggregating type has the name and parameter shape of a
+    /// conventional handler (Apply, Create, ShouldDelete, or Project / Create / Transform on an
+    /// EventProjection), or a constructor has the shape of an implicit Create, but it is not public.
+    /// Generated dispatch calls public members only, so the projection compiles, runs and never applies
+    /// that event. Before generated dispatch handlers were found by reflection, so this is exactly the
+    /// shape an upgrade leaves behind. See #1196.
+    /// </summary>
+    /// <remarks>
+    /// Warning rather than error, so a deliberately private helper that happens to be called Apply can
+    /// be suppressed, renamed, or marked [JasperFxIgnore].
+    /// </remarks>
+    public static readonly DiagnosticDescriptor NonPublicHandler = new(
+        id: "JFXEVT009",
+        title: "Conventional projection handler is not public",
+        messageFormat: "'{0}' looks like a projection handler but is not public, so it will not be called. {1}",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }
