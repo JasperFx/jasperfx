@@ -29,7 +29,15 @@ internal enum CandidateMode
     /// the pipeline solely so the generator can report JFXEVT007 — nothing is emitted for it.
     /// See https://github.com/JasperFx/jasperfx/issues/730
     /// </summary>
-    InvalidBoundaryAggregate
+    InvalidBoundaryAggregate,
+
+    /// <summary>
+    /// A projection, or an aggregate some call site or attribute in this compilation names, whose only
+    /// conventional handlers are non-public, so the generator has nothing to dispatch. Carried through
+    /// the pipeline solely so the generator can report JFXEVT009 on each of those handlers — nothing is
+    /// emitted for it. See https://github.com/JasperFx/jasperfx/issues/1196
+    /// </summary>
+    NonPublicHandlersOnly
 }
 
 internal sealed class ConventionalMethodInfo
@@ -156,6 +164,14 @@ internal sealed class CandidateInfo
     /// silently skipped, because nothing at the call site tells the user it was skipped.
     /// </summary>
     public List<UnresolvedDocumentOperation> UnresolvedDocumentOperations { get; set; } = new();
+    /// <summary>
+    /// Methods and constructors that have the name and parameter shape of a conventional handler but
+    /// are not public, so the generated dispatcher never calls them. Reported as JFXEVT009: before
+    /// generated dispatch they were found by reflection, so this is the shape an upgrade leaves behind,
+    /// and it compiles and runs without ever applying those events. See #1196.
+    /// </summary>
+    public List<ISymbol> NonPublicHandlers { get; set; } = new();
+
     // SelfAggregatingEvolve-specific
     public EvolveMethodInfo? EvolveMethod { get; set; }
     // Natural key discovery
@@ -265,10 +281,14 @@ internal static class AggregateAnalyzer
         if (HasExplicitOverride(classSymbol))
             return null;
 
-        var methods = DiscoverConventionalMethods(classSymbol, baseInfo.docType, classSymbol);
+        var nonPublic = new List<ISymbol>();
+        var methods = DiscoverConventionalMethods(classSymbol, baseInfo.docType, classSymbol, nonPublic);
         var ctorDeleteTypes = DiscoverConstructorDeleteEventTypes(classDecl, semanticModel, ct);
 
-        if (methods.Count == 0 && ctorDeleteTypes.Count == 0) return null;
+        if (methods.Count == 0 && ctorDeleteTypes.Count == 0)
+        {
+            return NonPublicHandlersOnly(classDecl, classSymbol, nonPublic);
+        }
 
         return new CandidateInfo
         {
@@ -289,6 +309,7 @@ internal static class AggregateAnalyzer
             IdentityType = baseInfo.idType,
             QuerySessionType = baseInfo.querySessionType,
             Methods = methods,
+            NonPublicHandlers = nonPublic,
             HasDefaultConstructor = HasParameterlessConstructor(baseInfo.docType),
             HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol),
             HasExistingPublishedTypesOverride = HasPublishedTypesOverride(classSymbol)
@@ -305,10 +326,16 @@ internal static class AggregateAnalyzer
         var evolveResult = AnalyzeSelfAggregatingEvolve(classDecl, classSymbol, semanticModel, ct);
         if (evolveResult != null) return evolveResult;
 
-        var methods = DiscoverConventionalMethods(classSymbol, classSymbol, null);
-        var eventCtors = DiscoverEventConstructors(classSymbol);
+        var nonPublic = new List<ISymbol>();
+        var methods = DiscoverConventionalMethods(classSymbol, classSymbol, null, nonPublic);
+        var eventCtors = DiscoverEventConstructors(classSymbol, nonPublic);
         if (methods.Count == 0 && eventCtors.Count == 0)
         {
+            // A type whose only Apply/Create methods are non-public is not reported from here: nothing
+            // on the declaration says it is an aggregate, and a private Apply is an ordinary name for a
+            // helper. JFXEVT009 reaches it when a projection, a Snapshot<T>-style call site or an
+            // IRefersToAggregate parameter in this compilation names it, or when it is a
+            // [BoundaryAggregate], which is an explicit opt-in.
             // Nothing to fold events with. Silent for an ordinary type, but [BoundaryAggregate] is an
             // explicit opt-in, so a type carrying it and generating nothing is unambiguously wrong and
             // the runtime failure lands far away (#730).
@@ -319,7 +346,8 @@ internal static class AggregateAnalyzer
                     ClassSymbol = classSymbol,
                     ClassSyntax = classDecl,
                     IsPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword),
-                    AggregateType = classSymbol
+                    AggregateType = classSymbol,
+                    NonPublicHandlers = nonPublic
                 }
                 : null;
         }
@@ -349,6 +377,7 @@ internal static class AggregateAnalyzer
             AggregateType = classSymbol,
             IdentityType = idType,
             Methods = methods,
+            NonPublicHandlers = nonPublic,
             EventConstructors = eventCtors,
             HasDefaultConstructor = HasParameterlessConstructor(classSymbol),
             HasNaturalKey = HasNaturalKeyProperty(classSymbol)
@@ -372,7 +401,8 @@ internal static class AggregateAnalyzer
     /// the ctor (no separate Apply for that event type), so we deliberately
     /// don't require a matching Apply.
     /// </summary>
-    private static List<EventConstructorInfo> DiscoverEventConstructors(INamedTypeSymbol type)
+    private static List<EventConstructorInfo> DiscoverEventConstructors(INamedTypeSymbol type,
+        List<ISymbol>? nonPublic = null)
     {
         var result = new List<EventConstructorInfo>();
         var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
@@ -380,9 +410,18 @@ internal static class AggregateAnalyzer
         foreach (var ctor in type.InstanceConstructors)
         {
             if (ctor.Parameters.Length != 1) continue;
-            if (ctor.DeclaredAccessibility != Accessibility.Public) continue;
 
             var paramType = ctor.Parameters[0].Type;
+
+            if (ctor.DeclaredAccessibility != Accessibility.Public)
+            {
+                if (nonPublic != null && IsNonPublicEventConstructor(ctor, type, paramType))
+                {
+                    nonPublic.Add(ctor);
+                }
+
+                continue;
+            }
 
             // An identity or value constructor - `public Widget(string id)`, `Widget(int n)`,
             // `Widget(Status s)` - is not a Create handler, and its parameter type must never reach
@@ -404,6 +443,47 @@ internal static class AggregateAnalyzer
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// A non-public single-argument constructor that would be called as an implicit Create handler if it
+    /// were public (#1196). Narrower than the public rule on purpose, because a private one-argument
+    /// constructor is often something else: one taking the aggregate itself is a copy constructor
+    /// (records declare one implicitly), and one taking the aggregate's identity type is how a
+    /// strong-typed id is set. The non-public parameterless constructor is not involved at all: the
+    /// generator reaches that through [UnsafeAccessor] (#1188).
+    /// </summary>
+    private static bool IsNonPublicEventConstructor(IMethodSymbol ctor, INamedTypeSymbol type, ITypeSymbol paramType)
+    {
+        if (ctor.IsImplicitlyDeclared || !IsInSource(ctor)) return false;
+        if (HasJasperFxIgnoreAttribute(ctor)) return false;
+        if (!IsRegistrableDocumentType(paramType)) return false;
+        if (IsIEventGenericWrapper(paramType, out _) || IsRawIEvent(paramType)) return false;
+        if (SymbolEqualityComparer.Default.Equals(paramType, type)) return false;
+
+        var identity = InferIdentityType(type);
+        return identity == null || !SymbolEqualityComparer.Default.Equals(UnwrapNullable(identity), paramType);
+    }
+
+    private static bool IsInSource(ISymbol symbol) => symbol.Locations.Any(l => l.IsInSource);
+
+    /// <summary>
+    /// The candidate for a type with nothing the generator can dispatch, or null when it has no
+    /// non-public handlers to report either.
+    /// </summary>
+    private static CandidateInfo? NonPublicHandlersOnly(
+        TypeDeclarationSyntax classDecl, INamedTypeSymbol classSymbol, List<ISymbol> nonPublic)
+    {
+        if (nonPublic.Count == 0) return null;
+
+        return new CandidateInfo
+        {
+            Mode = CandidateMode.NonPublicHandlersOnly,
+            ClassSymbol = classSymbol,
+            ClassSyntax = classDecl,
+            IsPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword),
+            NonPublicHandlers = nonPublic
+        };
     }
 
     private static CandidateInfo? AnalyzeSelfAggregatingEvolve(
@@ -678,17 +758,18 @@ internal static class AggregateAnalyzer
     private static List<ConventionalMethodInfo> DiscoverConventionalMethods(
         INamedTypeSymbol classSymbol,
         INamedTypeSymbol aggregateType,
-        INamedTypeSymbol? projectionType)
+        INamedTypeSymbol? projectionType,
+        List<ISymbol>? nonPublic = null)
     {
         var methods = new List<ConventionalMethodInfo>();
 
         // Search on the aggregate type itself
-        DiscoverMethodsOnType(aggregateType, aggregateType, true, methods);
+        DiscoverMethodsOnType(aggregateType, aggregateType, true, methods, nonPublic);
 
         // Search on the projection type if different
         if (projectionType != null && !SymbolEqualityComparer.Default.Equals(projectionType, aggregateType))
         {
-            DiscoverMethodsOnType(projectionType, aggregateType, false, methods);
+            DiscoverMethodsOnType(projectionType, aggregateType, false, methods, nonPublic);
         }
 
         return methods;
@@ -698,7 +779,8 @@ internal static class AggregateAnalyzer
         INamedTypeSymbol searchType,
         INamedTypeSymbol aggregateType,
         bool isOnAggregate,
-        List<ConventionalMethodInfo> results)
+        List<ConventionalMethodInfo> results,
+        List<ISymbol>? nonPublic = null)
     {
         // Walk the inheritance chain so aggregates / projections that inherit
         // Apply/Create/ShouldDelete from a user base class still get those
@@ -707,6 +789,7 @@ internal static class AggregateAnalyzer
         // JasperFxEventProjectionBase) so we don't slurp framework internals.
         // See https://github.com/JasperFx/jasperfx/issues/295.
         var seenSignatures = new HashSet<string>();
+        var skipped = new List<IMethodSymbol>();
         for (INamedTypeSymbol? current = searchType;
              current is not null
              && current.SpecialType != SpecialType.System_Object
@@ -719,8 +802,18 @@ internal static class AggregateAnalyzer
                 if (method.MethodKind != MethodKind.Ordinary) continue;
                 if (method.Name is not ("Apply" or "Create" or "ShouldDelete")) continue;
                 if (HasJasperFxIgnoreAttribute(method)) continue;
-                // Skip non-public methods - we can't call them from generated code
-                if (method.DeclaredAccessibility != Accessibility.Public) continue;
+                // Skip non-public methods - we can't call them from generated code. Kept for JFXEVT009
+                // when the shape is one the generator would otherwise dispatch (#1196).
+                if (method.DeclaredAccessibility != Accessibility.Public)
+                {
+                    if (nonPublic != null && IsInSource(method)
+                        && AnalyzeMethod(method, aggregateType, isOnAggregate) != null)
+                    {
+                        skipped.Add(method);
+                    }
+
+                    continue;
+                }
 
                 // Walking derived → base, the first sighting of a given signature wins.
                 // That gives a derived `override` or `new` declaration priority over
@@ -734,6 +827,13 @@ internal static class AggregateAnalyzer
                     results.AddRange(ExpandUnionCases(info));
                 }
             }
+        }
+
+        // A non-public method whose signature a public one also declares on this chain changes nothing:
+        // the public one is dispatched for that event.
+        foreach (var method in skipped)
+        {
+            if (!seenSignatures.Contains(SignatureKey(method))) nonPublic!.Add(method);
         }
     }
 
@@ -1114,9 +1214,10 @@ internal static class AggregateAnalyzer
             };
         }
 
-        var methods = DiscoverEventProjectionMethods(classSymbol, baseInfo.operationsType);
+        var nonPublic = new List<ISymbol>();
+        var methods = DiscoverEventProjectionMethods(classSymbol, baseInfo.operationsType, nonPublic);
 
-        if (methods.Count == 0) return null;
+        if (methods.Count == 0) return NonPublicHandlersOnly(classDecl, classSymbol, nonPublic);
 
         return new CandidateInfo
         {
@@ -1127,6 +1228,7 @@ internal static class AggregateAnalyzer
             OperationsType = baseInfo.operationsType,
             QuerySessionType = baseInfo.querySessionType,
             Methods = methods,
+            NonPublicHandlers = nonPublic,
             HasExistingParameterlessConstructor = HasExplicitParameterlessConstructor(classSymbol),
             HasExistingPublishedTypesOverride = HasPublishedTypesOverride(classSymbol)
         };
@@ -1316,7 +1418,8 @@ internal static class AggregateAnalyzer
 
     private static List<ConventionalMethodInfo> DiscoverEventProjectionMethods(
         INamedTypeSymbol classSymbol,
-        INamedTypeSymbol operationsType)
+        INamedTypeSymbol operationsType,
+        List<ISymbol>? nonPublic = null)
     {
         var methods = new List<ConventionalMethodInfo>();
         var members = classSymbol.GetMembers();
@@ -1327,7 +1430,17 @@ internal static class AggregateAnalyzer
             if (method.MethodKind != MethodKind.Ordinary) continue;
             if (method.Name is not ("Project" or "Create" or "Transform")) continue;
             if (HasJasperFxIgnoreAttribute(method)) continue;
-            if (method.DeclaredAccessibility != Accessibility.Public) continue;
+            if (method.DeclaredAccessibility != Accessibility.Public)
+            {
+                // Same silent skip as the aggregation path, so the same JFXEVT009 (#1196).
+                if (nonPublic != null && IsInSource(method)
+                    && AnalyzeEventProjectionMethod(method, operationsType) != null)
+                {
+                    nonPublic.Add(method);
+                }
+
+                continue;
+            }
 
             var info = AnalyzeEventProjectionMethod(method, operationsType);
             if (info != null)
@@ -1746,9 +1859,15 @@ internal static class AggregateAnalyzer
         }
 
         // Try conventional methods
-        var methods = DiscoverConventionalMethods(aggregateType, aggregateType, null);
-        var eventCtors = DiscoverEventConstructors(aggregateType);
-        if (methods.Count == 0 && eventCtors.Count == 0) return null;
+        var nonPublic = new List<ISymbol>();
+        var methods = DiscoverConventionalMethods(aggregateType, aggregateType, null, nonPublic);
+        var eventCtors = DiscoverEventConstructors(aggregateType, nonPublic);
+
+        // Unlike the declaration's own analysis, a type reached from here is named as an aggregate by a
+        // call site or an IRefersToAggregate parameter, so handlers that are all non-public are reported
+        // rather than passed over in silence (#1196).
+        if (methods.Count == 0 && eventCtors.Count == 0)
+            return NonPublicHandlersOnly(classDecl, aggregateType, nonPublic);
 
         var inferredId = InferIdentityType(aggregateType) ?? identityTypeHint;
         if (inferredId == null) return null;
@@ -1761,6 +1880,7 @@ internal static class AggregateAnalyzer
             AggregateType = aggregateType,
             IdentityType = inferredId,
             Methods = methods,
+            NonPublicHandlers = nonPublic,
             EventConstructors = eventCtors,
             HasDefaultConstructor = HasParameterlessConstructor(aggregateType)
         };

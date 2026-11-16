@@ -400,6 +400,8 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         ImmutableArray<CandidateInfo?> refs,
         ImmutableArray<CandidateInfo?> snapshots)
     {
+        ReportNonPublicHandlers(spc, direct, refs, snapshots);
+
         var seen = new HashSet<string>();
 
         // Pipeline 1 candidates have priority.
@@ -486,6 +488,45 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             if (pipeline3Pairs.Add(pairKey))
             {
                 Execute(spc, info);
+            }
+        }
+    }
+
+    /// <summary>
+    /// JFXEVT009 (#1196): one warning per non-public member that has the shape of a conventional
+    /// handler. Every pipeline can reach the same aggregate, and a type split across partial
+    /// declarations is analyzed once per declaration, so each member is reported once however many
+    /// candidates carry it.
+    /// </summary>
+    private static void ReportNonPublicHandlers(
+        SourceProductionContext spc,
+        ImmutableArray<CandidateInfo?> direct,
+        ImmutableArray<CandidateInfo?> refs,
+        ImmutableArray<CandidateInfo?> snapshots)
+    {
+        var reported = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+
+        foreach (var info in direct.Concat(refs).Concat(snapshots))
+        {
+            if (info == null) continue;
+
+            foreach (var member in info.NonPublicHandlers)
+            {
+                if (!reported.Add(member.OriginalDefinition)) continue;
+
+                var location = member.Locations.FirstOrDefault(l => l.IsInSource);
+                if (location == null) continue;
+
+                var isConstructor = member is IMethodSymbol { MethodKind: MethodKind.Constructor };
+                var remedy = isConstructor
+                    ? "Make it public if it should create the aggregate from that event."
+                    : "Make it public, or rename it if it is not a handler.";
+
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.NonPublicHandler,
+                    location,
+                    member.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat),
+                    remedy));
             }
         }
     }
@@ -624,6 +665,11 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                     DiagnosticDescriptors.BoundaryAggregateWithoutEvolver,
                     info.ClassSyntax.Identifier.GetLocation(),
                     info.ClassSymbol.Name));
+                break;
+
+            case CandidateMode.NonPublicHandlersOnly:
+                // Nothing to emit: the only thing to say about it is JFXEVT009, reported for every
+                // candidate up front in ReportNonPublicHandlers. See #1196.
                 break;
 
             case CandidateMode.None:

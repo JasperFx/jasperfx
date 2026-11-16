@@ -296,6 +296,8 @@ public Task ApplyAsync(TOperations operations,
 
 Conventional `Apply` / `Create` / `ShouldDelete` methods on a **projection subclass** — one that derives from `SingleStreamProjection<TDoc, TId>`, `MultiStreamProjection<TDoc, TId>`, or `EventProjection` — are now dispatched by the compile-time `JasperFx.Events.SourceGenerator`. Pre-2.0 they were dispatched by runtime reflection; **in 2.0 there is no runtime reflection fallback.** The convention methods must be `public` so the generated dispatcher can call them.
 
+A non-public method is not an error. Under reflection it was called, and now it is skipped, so the projection compiles and runs but never applies that event. The generator reports each one as warning `JFXEVT009` ([#1196](https://github.com/JasperFx/jasperfx/issues/1196)). The warning covers `Apply` / `Create` / `ShouldDelete` methods, `Project` / `Create` / `Transform` on an `EventProjection`, and single-argument event constructors on a self-aggregating type. It fires only when the member has a parameter shape the generator would dispatch if it were public. Make the member `public`. If it is a private helper that only happens to share the name, rename it or mark it `[JasperFxIgnore]`. On a type with no public handlers at all, the warning fires only when something in the same compilation names the type as an aggregate: a projection over it, a `Snapshot<T>`-style call, an `IRefersToAggregate` parameter, or `[BoundaryAggregate]`.
+
 ```csharp
 public class TripProjection : SingleStreamProjection<Trip, Guid>
 {
