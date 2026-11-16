@@ -203,6 +203,73 @@ internal static class EvolverCodeEmitter
     }
 
     /// <summary>
+    /// Why a self-aggregating evolver — a <c>file</c>-scoped type at namespace level, registered by an
+    /// assembly-level <c>[GeneratedEvolver(typeof(...))]</c> — cannot name <paramref name="aggregateType"/>,
+    /// or <c>null</c> when it can (#1194). Unlike a projection, the aggregate has no class of the
+    /// generator's own to inject a dispatcher into, so these shapes are skipped (JFXEVT008) instead.
+    ///
+    /// <para>Differs from <see cref="DescribeWhyNotNameableFromFileScope"/> in two ways, because an
+    /// aggregate symbol can be a constructed type from a call site such as <c>Snapshot&lt;Agg&lt;int&gt;&gt;()</c>:
+    /// a closed generic is nameable, so only a type argument that is still a type parameter blocks it;
+    /// and each type argument has to be nameable too.</para>
+    /// </summary>
+    public static string? DescribeWhyAggregateNotNameableFromFileScope(INamedTypeSymbol aggregateType)
+    {
+        for (INamedTypeSymbol? current = aggregateType; current != null; current = current.ContainingType)
+        {
+            var self = SymbolEqualityComparer.Default.Equals(current, aggregateType);
+
+            if (current.TypeArguments.Any(ContainsTypeParameter))
+            {
+                return self
+                    ? "it is an open generic type"
+                    : $"it is nested inside the open generic type '{current.Name}'";
+            }
+
+            switch (current.DeclaredAccessibility)
+            {
+                case Accessibility.Private:
+                case Accessibility.Protected:
+                case Accessibility.ProtectedAndInternal:
+                    var how = Describe(current.DeclaredAccessibility);
+                    return self
+                        ? $"it is declared {how}"
+                        : $"its containing type '{current.Name}' is declared {how}";
+            }
+
+            foreach (var argument in current.TypeArguments)
+            {
+                var named = ElementTypeOf(argument) as INamedTypeSymbol;
+                if (named == null) continue;
+
+                var why = DescribeWhyAggregateNotNameableFromFileScope(named);
+                if (why != null) return $"its type argument '{named.Name}' cannot be named ({why})";
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsTypeParameter(ITypeSymbol type)
+    {
+        return type switch
+        {
+            ITypeParameterSymbol => true,
+            IArrayTypeSymbol array => ContainsTypeParameter(array.ElementType),
+            IPointerTypeSymbol pointer => ContainsTypeParameter(pointer.PointedAtType),
+            INamedTypeSymbol named => named.TypeArguments.Any(ContainsTypeParameter)
+                                      || (named.ContainingType != null && ContainsTypeParameter(named.ContainingType)),
+            _ => false
+        };
+    }
+
+    private static ITypeSymbol ElementTypeOf(ITypeSymbol type)
+    {
+        while (type is IArrayTypeSymbol array) type = array.ElementType;
+        return type;
+    }
+
+    /// <summary>
     /// The declaration that blocks member injection, or <c>null</c> when every declaration that has to
     /// carry <c>partial</c> does. The generated override is written into the projection's own class, so
     /// the projection and — because the generated file has to re-open them — each of its containing

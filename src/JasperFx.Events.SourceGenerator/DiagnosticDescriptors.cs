@@ -83,4 +83,26 @@ internal static class DiagnosticDescriptors
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// A self-aggregating type has conventional methods, but its evolver would be a <c>file</c>-scoped
+    /// type at namespace level registered by an assembly-level <c>typeof(...)</c>, and neither can name an
+    /// open generic type (CS0246) or one behind <c>private</c> / <c>protected</c> (CS0122). Before #1194
+    /// the generator emitted that code anyway and broke the consumer's build inside a file they cannot
+    /// edit. Now nothing is emitted from the declaration and this explains what does reach it.
+    /// </summary>
+    /// <remarks>
+    /// Warning rather than error: the build is fine, and the type may never be fetched or projected on
+    /// its own. Not reported at all when the same compilation already generates a dispatcher that covers
+    /// the type — a closed form of a generic aggregate from a <c>Snapshot&lt;T&gt;</c>-style call site, or
+    /// a partial projection over it — because then nothing is missing.
+    /// </remarks>
+    public static readonly DiagnosticDescriptor UnnameableSelfAggregate = new(
+        id: "JFXEVT008",
+        title: "Aggregate type cannot be named by a generated evolver",
+        messageFormat:
+            "No evolver is generated from '{0}' because {1}, so a generated file cannot name it; {2}",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 }
