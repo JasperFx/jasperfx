@@ -421,6 +421,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         // self-aggregating SingleStreamProjection<T, TId>. Keyed by (type, identity) to match the
         // emitted hintName granularity so distinct identities each still emit.
         var directEmitted = new HashSet<string>();
+        var covered = CollectCoveredAggregates(direct, refs, snapshots);
         foreach (var info in direct)
         {
             if (info == null) continue;
@@ -428,6 +429,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                           (info.IdentityType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "");
             if (!directEmitted.Add(emitKey)) continue;
             MarkSeen(seen, info);
+            if (SkipUnnameableSelfAggregate(spc, info, covered)) continue;
             Execute(spc, info);
 
             // A [BoundaryAggregate] keyed on a non-string Id also gets the string-keyed evolver the
@@ -447,7 +449,7 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
         {
             if (info == null) continue;
             var key = SymbolKey(info.ClassSymbol);
-            if (seen.Add(key))
+            if (seen.Add(key) && !IsUnnameableSelfAggregate(info))
             {
                 Execute(spc, info);
             }
@@ -473,6 +475,12 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             // by Pipelines 1/2 — those don't depend on call-site TId hints.
             if (seen.Contains(classKey)) continue;
 
+            // A call site inside a generic method can close the aggregate over its own type parameter
+            // (`AggregateStreamAsync<Agg<T>>`), and one inside a type can name a private nested
+            // aggregate. Neither can be named from the generated file. Skipped silently: the
+            // declaration's own pipeline-1 analysis is where JFXEVT008 is reported. See #1194.
+            if (IsUnnameableSelfAggregate(info)) continue;
+
             var idKey = info.IdentityType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "";
             var pairKey = $"{classKey}::{idKey}";
             if (pipeline3Pairs.Add(pairKey))
@@ -480,6 +488,91 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
                 Execute(spc, info);
             }
         }
+    }
+
+    private static bool IsSelfAggregatingMode(CandidateInfo info)
+    {
+        return info.Mode is CandidateMode.SelfAggregating or CandidateMode.SelfAggregatingEvolve;
+    }
+
+    /// <summary>
+    /// A self-aggregating evolver is a <c>file</c>-scoped type at namespace level, registered by an
+    /// assembly-level <c>typeof(...)</c>. Neither can name an open generic aggregate nor one behind
+    /// private / protected, and emitting it anyway broke the consumer's build with CS0246 / CS0122
+    /// inside a generated file. See #1194.
+    /// </summary>
+    private static bool IsUnnameableSelfAggregate(CandidateInfo info)
+    {
+        return IsSelfAggregatingMode(info)
+               && EvolverCodeEmitter.DescribeWhyAggregateNotNameableFromFileScope(info.ClassSymbol) != null;
+    }
+
+    /// <summary>
+    /// Skips a self-aggregating declaration the generated file cannot name, reporting JFXEVT008 unless
+    /// another dispatcher in this compilation already covers it (see <see cref="CollectCoveredAggregates"/>).
+    /// </summary>
+    private static bool SkipUnnameableSelfAggregate(SourceProductionContext spc, CandidateInfo info,
+        HashSet<string> covered)
+    {
+        if (!IsSelfAggregatingMode(info)) return false;
+
+        var why = EvolverCodeEmitter.DescribeWhyAggregateNotNameableFromFileScope(info.ClassSymbol);
+        if (why == null) return false;
+
+        if (covered.Contains(SymbolKey(info.ClassSymbol))) return true;
+
+        var remedy = info.ClassSymbol.TypeArguments.Any(a => a is ITypeParameterSymbol)
+            ? "an evolver is generated instead for each closed form the generator sees, from a call such as "
+              + $"Snapshot<{info.ClassSymbol.Name}<...>>() or AggregateStreamAsync<{info.ClassSymbol.Name}<...>>(), "
+              + "or from a partial SingleStreamProjection over a closed form; fetching or projecting a form with "
+              + "neither fails at runtime with 'No source-generated dispatcher found'"
+            : "make it and its containing types internal or public, or dispatch it from a partial "
+              + "SingleStreamProjection declared beside it, with every containing type declared partial";
+
+        spc.ReportDiagnostic(Diagnostic.Create(
+            DiagnosticDescriptors.UnnameableSelfAggregate,
+            info.ClassSyntax.Identifier.GetLocation(),
+            info.ClassSymbol.Name,
+            why,
+            remedy));
+
+        return true;
+    }
+
+    /// <summary>
+    /// Keys of the aggregate declarations that some other generated dispatcher in this compilation
+    /// already reaches, so JFXEVT008 stays quiet for them: the aggregate of a partial projection (which
+    /// can be dispatched from inside the user's own partial class, where a private aggregate is in
+    /// scope), and the generic definition behind any closed form a call site or projection emits for.
+    /// </summary>
+    private static HashSet<string> CollectCoveredAggregates(
+        ImmutableArray<CandidateInfo?> direct,
+        ImmutableArray<CandidateInfo?> refs,
+        ImmutableArray<CandidateInfo?> snapshots)
+    {
+        var covered = new HashSet<string>();
+
+        void cover(INamedTypeSymbol type)
+        {
+            covered.Add(SymbolKey(type));
+            covered.Add(SymbolKey(type.OriginalDefinition));
+        }
+
+        foreach (var info in direct)
+        {
+            if (info is { Mode: CandidateMode.PartialProjection, AggregateType: not null } && info.Methods.Count > 0)
+            {
+                cover(info.AggregateType);
+            }
+        }
+
+        foreach (var info in refs.Concat(snapshots))
+        {
+            if (info == null || !IsSelfAggregatingMode(info) || IsUnnameableSelfAggregate(info)) continue;
+            cover(info.ClassSymbol);
+        }
+
+        return covered;
     }
 
     private static void MarkSeen(HashSet<string> seen, CandidateInfo info)
