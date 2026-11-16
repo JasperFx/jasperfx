@@ -213,6 +213,68 @@ public interface IEventStore
             : RegisteredShardNames();
 
     /// <summary>
+    ///     How far behind every registered projection/subscription cell is, on every database of this store:
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},CancellationToken)" /> run
+    ///     against each of <see cref="AllDatabases" /> with the registry of
+    ///     <see cref="RegisteredShardNames(bool)" />, concatenated in database order. Each cell carries its
+    ///     <see cref="ProjectionLag.DatabaseIdentifier" />, and under per-tenant event partitioning its tenant
+    ///     and that tenant's own high-water mark, so the answer stays attributable on a sharded store.
+    ///     <para>
+    ///     Databases are read one after the other, each through its own <c>AllProjectionProgress</c>.
+    ///     </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     The store reports no databases. An empty list would read as "nothing is behind".
+    /// </exception>
+    async Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(CancellationToken token = default)
+    {
+        var registered = RegisteredShardNames(includeCompositeMembers: true);
+        var databases = await AllDatabases().ConfigureAwait(false);
+        if (databases.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"{GetType().FullName} reports no databases, so the lag of its projections cannot be read.");
+        }
+
+        var lags = new List<ProjectionLag>();
+        foreach (var database in databases)
+        {
+            lags.AddRange(await database.FetchProjectionLagAsync(registered, token).ConfigureAwait(false));
+        }
+
+        return lags;
+    }
+
+    /// <summary>
+    ///     <see cref="FetchProjectionLagAsync(CancellationToken)" />, narrowed to the cells addressed by
+    ///     <paramref name="name" /> as
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},ShardName,CancellationToken)" />
+    ///     narrows them. A tenant-qualified name reads only that tenant's database when
+    ///     <see cref="FindDatabaseForTenantAsync" /> can say which one it is, and every database otherwise.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     The store reports no databases. An empty list would read as "nothing is behind".
+    /// </exception>
+    async Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(ShardName name, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (name.TenantId != null)
+        {
+            var database = await FindDatabaseForTenantAsync(name.TenantId, token).ConfigureAwait(false);
+            if (database != null)
+            {
+                return await database
+                    .FetchProjectionLagAsync(RegisteredShardNames(includeCompositeMembers: true), name, token)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        var all = await FetchProjectionLagAsync(token).ConfigureAwait(false);
+        return ProjectionLagCalculator.Filter(all, name);
+    }
+
+    /// <summary>
     ///     Build a standalone, display-only high-water monitor for a single database — just the high-water agent,
     ///     with no projection shards attached, so a monitoring tool can show a live event-store "ceiling" for a
     ///     store whose projections are all Inline/Live and therefore run no async daemon. This is the abstraction
