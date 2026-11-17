@@ -157,6 +157,8 @@ public class InMemoryDocumentComplianceFixture : DocumentStorageComplianceFixtur
 
     public override bool SupportsCrossTenantQueries => true;
 
+    public override bool SupportsTenantScopedWrites => true;
+
     public override bool SupportsDocumentDiagnosticAllTenants => true;
 
     public override bool SupportsDocumentDiagnosticCriteria => true;
@@ -232,10 +234,10 @@ public class in_memory_document_search_compliance
 /// shipping unexecuted to three stores.
 /// </summary>
 /// <remarks>
-/// Seven of its nine facts run. The optimistic-concurrency and numeric-revision facts skip, because
-/// this store implements neither mechanism and inventing one to exercise the tenant axis over would
-/// be asserting the fake — the same call <see cref="in_memory_document_search_compliance" /> makes
-/// about vector indexes. What the seven buy is the thing worth buying: the shared source is known to
+/// Twelve of its thirteen facts run. The numeric-revision fact skips, because this store does not
+/// implement numeric revisions and inventing them to exercise the tenant axis over would be asserting
+/// the fake — the same call <see cref="in_memory_document_search_compliance" /> makes about vector
+/// indexes. What the twelve buy is the thing worth buying: the shared source is known to
 /// compile and to be satisfiable before Marten, Polecat and Fisher are held to it.
 /// </remarks>
 public class in_memory_document_conjoined_tenancy_compliance

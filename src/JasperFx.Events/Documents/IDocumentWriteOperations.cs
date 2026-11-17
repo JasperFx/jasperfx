@@ -112,6 +112,40 @@ public interface IDocumentWriteOperations : IDocumentReadOperations
             $"{GetType().FullName} does not implement {nameof(IDocumentWriteOperations)}.{nameof(StoreObjects)}.");
 
     /// <summary>
+    /// The same unit of work, scoped to another tenant: documents enlisted through the returned operations
+    /// are written as <paramref name="tenantId" />'s and commit with this session (jasperfx#1202).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What lets a store-agnostic caller write to a tenant without casting to a store's session. Wolverine
+    /// needs it for the core storage operations behind <c>MartenOps</c>, <c>PolecatOps</c> and
+    /// <c>FisherOps</c>, whose <c>Insert</c>, <c>Update</c>, <c>Store</c> and <c>StoreObjects</c> each take a
+    /// tenant id today and reach it through <c>IDocumentSession.ForTenant()</c>.
+    /// </para>
+    /// <para>
+    /// All three stores already have a <c>ForTenant(string)</c>, returning their own <c>ITenantOperations</c>.
+    /// Interface implementation is not return-type covariant, so that member does not satisfy this one: a
+    /// store adopts it with a one-line explicit implementation forwarding to its own. The store's own
+    /// declaration hides this one for callers holding a store type, so <c>session.ForTenant(...)</c> in
+    /// application code keeps binding to the store's member.
+    /// </para>
+    /// <para>
+    /// The returned operations do not commit. Saving is the parent session's job, and what the scope
+    /// enlists rides the parent's next <see cref="IDocumentSessionOperations.SaveChangesAsync" />.
+    /// </para>
+    /// <para>
+    /// ⚠️ Throwing default: a fallback returning this session would write to the wrong tenant.
+    /// </para>
+    /// </remarks>
+    /// <param name="tenantId">The tenant to write as.</param>
+    /// <exception cref="NotSupportedException">
+    /// From the default implementation only, when the store has not implemented this member.
+    /// </exception>
+    IDocumentWriteOperations ForTenant(string tenantId)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IDocumentWriteOperations)}.{nameof(ForTenant)}. This member deliberately throws rather than falling back to this session, which would write to the wrong tenant. A session with its own ForTenant needs a one-line explicit implementation forwarding to it, because interface implementation is not return-type covariant.");
+
+    /// <summary>
     /// This session's tenant, and the causation, correlation and user metadata stamped onto what it writes.
     /// </summary>
     /// <remarks>
