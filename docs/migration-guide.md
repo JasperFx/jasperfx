@@ -10,6 +10,10 @@
 
 * **New ids do not sort like version 7 or COMB Guids.** They start with the .NET tick count, not unix milliseconds. In PostgreSQL and SQLite every new id sorts after every existing version 7 or COMB id, so an index keeps appending at its right edge and there is nothing to migrate. Code that read a timestamp back out of these ids (`Guid.Version == 7`, `CombGuidIdGeneration.GetTimestamp()`) has to stop doing that.
 
+* **`IStorageOperations.LastAppendedPosition` replaces `LastAppendedSequence`** ([#1218](https://github.com/JasperFx/jasperfx/issues/1218)). The 3.5.0 name holds a full `EventStorePosition` (database, tenant and sequence), not a sequence. `LastAppendedSequence` stays as an `[Obsolete]` forwarder to `LastAppendedPosition`. A store built against 3.5.0 that implements the old name keeps working for callers of the old name, but answers null under the new one until it moves over.
+
+* **A paused projection on another node shows as `Paused` to `WaitForProjectionsAsync()` only with extended progression on.** Without it the wait runs to its timeout and returns `TimedOut`, which never fails the write.
+
 ## Key Changes in 3.1.0
 
 * **Runtime-async is on by default for `net11.0`** ([#1180](https://github.com/JasperFx/jasperfx/issues/1180)). Both switches described under [3.0.0](#foundation) flip:

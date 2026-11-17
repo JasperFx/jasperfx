@@ -350,8 +350,60 @@ public class ProjectionPositionWaitTests
     [Fact]
     public void a_session_that_does_not_record_its_position_has_none()
     {
-        IStorageOperations operations = Substitute.For<IStorageOperations>();
+        IStorageOperations operations = new SessionWithoutPosition();
+        operations.LastAppendedPosition.ShouldBeNull();
+#pragma warning disable CS0618
         operations.LastAppendedSequence.ShouldBeNull();
+#pragma warning restore CS0618
+    }
+
+    [Fact]
+    public void the_obsolete_last_appended_sequence_forwards_to_last_appended_position()
+    {
+        // jasperfx#1218: callers still on the 3.5.0 name read the position a store records under the new one
+        var position = new EventStorePosition("main", "tenant1", 42);
+        IStorageOperations operations = new SessionWithPosition(position);
+
+        operations.LastAppendedPosition.ShouldBe(position);
+#pragma warning disable CS0618
+        operations.LastAppendedSequence.ShouldBe(position);
+#pragma warning restore CS0618
+    }
+
+    [Fact]
+    public void a_store_built_against_the_old_name_still_loads_and_has_no_position_under_the_new_one()
+    {
+        // A store compiled against JasperFx 3.5.0 implemented LastAppendedSequence. It keeps working for callers
+        // of the old name, and the new name answers null (no position to wait on) until the store moves to it.
+        var position = new EventStorePosition("main", null, 7);
+        IStorageOperations operations = new SessionOnTheOldName(position);
+
+#pragma warning disable CS0618
+        operations.LastAppendedSequence.ShouldBe(position);
+#pragma warning restore CS0618
+        operations.LastAppendedPosition.ShouldBeNull();
+    }
+
+    private class SessionWithoutPosition : IStorageOperations
+    {
+        public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public bool EnableSideEffectsOnInlineProjections => false;
+
+        public ValueTask<IMessageSink> GetOrStartMessageSink() => throw new NotSupportedException();
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class SessionWithPosition(EventStorePosition position) : SessionWithoutPosition, IStorageOperations
+    {
+        public EventStorePosition? LastAppendedPosition => position;
+    }
+
+    private sealed class SessionOnTheOldName(EventStorePosition position) : SessionWithoutPosition, IStorageOperations
+    {
+        public EventStorePosition? LastAppendedSequence => position;
     }
 
     private sealed record TripSummary;

@@ -19,7 +19,8 @@ public enum ProjectionWaitStatus
     TimedOut,
 
     /// <summary>
-    ///     A shard that had not reached the position is paused, so waiting longer would not help.
+    ///     A shard that had not reached the position is paused, so waiting longer would not help. Seen for a shard
+    ///     paused on another node only when extended progression is on; otherwise the wait times out instead.
     /// </summary>
     Paused,
 
@@ -120,6 +121,10 @@ public static class ProjectionPositionWait
     ///         <see cref="ProjectionWaitStatus.Rebuilding" /> when a shard that has not reached the position is in
     ///         that state, read from the progression row (when the store records it) or from this process's
     ///         daemon.</item>
+    ///         <item>A pause is only written to the progression row when extended progression is on
+    ///         (<see cref="IEventStoreInstrumentation.ExtendedProgressionEnabled" />). Without it, a shard paused on
+    ///         another node looks like one that is behind, and the wait runs to its timeout. That never fails the
+    ///         write; the result is <see cref="ProjectionWaitStatus.TimedOut" />.</item>
     ///         <item>A zero timeout reads once and answers.</item>
     ///         <item>Cancelling <paramref name="token" /> throws <see cref="OperationCanceledException" />, because
     ///         that is the caller giving up, not the projection being behind.</item>
@@ -129,7 +134,7 @@ public static class ProjectionPositionWait
     ///     </list>
     /// </remarks>
     /// <param name="database">The database the position belongs to.</param>
-    /// <param name="position">The position to wait for, normally the session's <c>LastAppendedSequence</c>.</param>
+    /// <param name="position">The position to wait for, normally the session's <see cref="IStorageOperations.LastAppendedPosition" />.</param>
     /// <param name="shards">The registered shards to wait on, at their current versions.</param>
     /// <param name="timeout">How long to wait.</param>
     /// <param name="token">The caller's cancellation.</param>

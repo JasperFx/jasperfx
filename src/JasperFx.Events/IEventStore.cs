@@ -324,11 +324,13 @@ public interface IEventStore
     ///     </para>
     ///     <para>
     ///         Never throws on timeout: the result is <see cref="ProjectionWaitStatus.TimedOut" /> with how far each
-    ///         shard got. A shard that is paused or being rebuilt returns at once with that status. See
-    ///         <see cref="ProjectionPositionWait" /> for the rules.
+    ///         shard got. A shard that is paused or being rebuilt returns at once with that status. A shard
+    ///         paused on another node only shows as paused when extended progression is on
+    ///         (<see cref="IEventStoreInstrumentation.ExtendedProgressionEnabled" />); without it the wait runs to
+    ///         its timeout. See <see cref="ProjectionPositionWait" /> for the rules.
     ///     </para>
     /// </remarks>
-    /// <param name="position">Where the caller's events are, normally the session's <c>LastAppendedSequence</c>.</param>
+    /// <param name="position">Where the caller's events are, normally the session's <see cref="IStorageOperations.LastAppendedPosition" />.</param>
     /// <param name="projections">The projection classes, or the documents they write.</param>
     /// <param name="timeout">How long to wait.</param>
     /// <param name="token">The caller's cancellation, which throws rather than returning a result.</param>
