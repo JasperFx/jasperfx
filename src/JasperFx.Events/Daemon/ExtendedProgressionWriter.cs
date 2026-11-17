@@ -68,7 +68,7 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
     private readonly IEventDatabase _database;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger _logger;
-    private readonly Block<ShardState[]> _block;
+    private readonly Block<WriteBatch> _block;
 
     // Only ever touched from the tracker's single publication consumer, so no synchronization needed
     private readonly Dictionary<string, ShardState> _pending = new();
@@ -86,12 +86,12 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         _timeProvider = timeProvider;
         _logger = logger;
 
-        _block = new Block<ShardState[]>(writeAsync);
+        _block = new Block<WriteBatch>(writeAsync);
 
         // Belt and braces: writeAsync already swallows its own failures, but a failure escaping the
         // block must still never take anything else down
-        _block.OnError = (states, ex) =>
-            _logger.LogDebug(ex, "Failed to persist extended progression for {Count} shard(s)", states.Length);
+        _block.OnError = (batch, ex) =>
+            _logger.LogDebug(ex, "Failed to persist extended progression for {Count} shard(s)", batch?.States.Length ?? 0);
     }
 
     /// <summary>
@@ -151,6 +151,12 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         {
             _unlanded.Add(value.ShardName);
         }
+        else if (isTransition)
+        {
+            // jasperfx#1225: this transition lands on the row itself, so there is nothing older left to replay.
+            // Leaving the shard marked let a later publication "replay" a Started over a Stopped written here.
+            _unlanded.Remove(value.ShardName);
+        }
 
         // A publication carrying a committed sequence proves the progression row is there now.
         var replaysUnlandedTransition = !isTransition && value.Sequence > 0 && _unlanded.Remove(value.ShardName);
@@ -194,23 +200,60 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         _pending.Clear();
         _lastFlush = now;
 
-        _block.Post(batch);
+        _block.Post(new WriteBatch(batch, null));
     }
 
-    private async Task writeAsync(ShardState[] states, CancellationToken token)
+    private async Task writeAsync(WriteBatch batch, CancellationToken token)
     {
         try
         {
-            await _database.WriteExtendedProgressionAsync(states, token).ConfigureAwait(false);
+            if (batch.States.Length > 0)
+            {
+                await _database.WriteExtendedProgressionAsync(batch.States, token).ConfigureAwait(false);
+            }
         }
         catch (Exception e)
         {
             // Best-effort telemetry: a failed extended-progression write must NEVER fail or
             // stall the shards
             _logger.LogDebug(e, "Failed to persist extended progression for {Count} shard(s) on database {Database}",
-                states.Length, _database.Identifier);
+                batch.States.Length, _database.Identifier);
+        }
+        finally
+        {
+            batch.Written?.TrySetResult();
         }
     }
+
+    /// <summary>
+    /// jasperfx#1225: complete once every write queued before this call has been attempted, without
+    /// completing the writer. A daemon stopping a single shard awaits this so the shard's Stopped status is
+    /// saved before the stop returns. Only covers what has already been flushed onto the write queue, which
+    /// a status transition always is; it deliberately does not touch the pending heartbeat batch, which only
+    /// the tracker's publication loop may.
+    /// </summary>
+    internal async Task WaitForQueuedWritesAsync(CancellationToken token)
+    {
+        var marker = new WriteBatch([], new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        try
+        {
+            await _block.PostAsync(marker).ConfigureAwait(false);
+            await marker.Written!.Task.WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Bounded by the caller
+        }
+        catch (Exception e)
+        {
+            // A completed or faulted block never runs the marker. Best effort, like every write here.
+            _logger.LogDebug(e, "Gave up waiting for queued extended progression writes on database {Database}",
+                _database.Identifier);
+        }
+    }
+
+    private sealed record WriteBatch(ShardState[] States, TaskCompletionSource? Written);
 
     public void OnCompleted()
     {

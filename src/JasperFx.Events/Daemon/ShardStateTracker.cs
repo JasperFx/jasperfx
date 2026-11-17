@@ -67,6 +67,7 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     void IDisposable.Dispose()
     {
+        _completed = true;
         _block.Complete();
     }
 
@@ -374,12 +375,64 @@ public class ShardStateTracker: IObservable<ShardState>, IObserver<ShardState>, 
 
     public Task Complete()
     {
+        _completed = true;
         _block.Complete();
         return _block.WaitForCompletionAsync();
     }
 
+    private volatile bool _completed;
+
+    /// <summary>
+    ///     jasperfx#1225: complete once every state published before this call has been handed to every
+    ///     listener. <see cref="PublishAsync" /> only queues a state, so a caller that publishes and then
+    ///     unsubscribes a listener (the daemon detaching its <see cref="ExtendedProgressionWriter" /> on a
+    ///     stop) can unsubscribe it before the state reaches it. Awaiting this between the two closes that gap.
+    /// </summary>
+    /// <remarks>
+    ///     Works by queueing a marker behind the published states on the same single-reader block, so it also
+    ///     waits for any slow listener ahead of them. Returns straight away once the tracker is completed, and
+    ///     gives up quietly when <paramref name="token" /> is cancelled.
+    /// </remarks>
+    internal async Task WaitForDeliveryAsync(CancellationToken token)
+    {
+        if (_completed) return;
+
+        var barrier = new DeliveryBarrier();
+
+        try
+        {
+            await _block.PostAsync(barrier).ConfigureAwait(false);
+            await barrier.Delivered.WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Bounded by the caller. Nothing to do but stop waiting.
+        }
+        catch (Exception e)
+        {
+            // A completed or faulted block never delivers the marker. Stopping must not fail over telemetry.
+            _logger.LogDebug(e, "Gave up waiting for the shard state tracker to deliver queued states");
+        }
+    }
+
+    private sealed class DeliveryBarrier() : ShardState("__jasperfx_delivery_barrier__", 0)
+    {
+        private readonly TaskCompletionSource _delivered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Delivered => _delivered.Task;
+
+        public void MarkDelivered() => _delivered.TrySetResult();
+    }
+
     private void publish(ShardState state)
     {
+        // jasperfx#1225: everything queued ahead of the marker has been handed to the listeners by now
+        if (state is DeliveryBarrier barrier)
+        {
+            barrier.MarkDelivered();
+            return;
+        }
+
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("Received {ShardState}", state);

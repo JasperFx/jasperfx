@@ -587,7 +587,11 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             Action = ShardAction.Updated,
             LastAdvanced = now,
             LastHeartbeat = now,
-            AgentStatus = "Running"
+
+            // jasperfx#1225: the agent's own status, not a hardcoded "Running". A commit that lands after the agent
+            // paused or stopped (ReportCriticalFailureAsync(ex, lastProcessed) publishes one right after Paused)
+            // must not tell the extended progression writer the shard is running again.
+            AgentStatus = Status.ToString()
         }));
     }
 

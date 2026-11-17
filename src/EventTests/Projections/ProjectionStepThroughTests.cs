@@ -292,7 +292,11 @@ public class ProjectionStepThroughTests
     [Fact]
     public async Task state_the_serializer_reads_back_differently_is_refused_rather_than_reported()
     {
-        var timeline = () => run<PrivatelySet>(stepThroughOf(new PrivatelySetProjection()), [record(new Deposited(7))]);
+        // A value no event sequence in this class can collide with: the message does carry "at event {sequence}",
+        // and _sequence is shared by every test here, so a small amount was found in the message whenever this
+        // test's event happened to be numbered the same.
+        const int amount = 7_654_321;
+        var timeline = () => run<PrivatelySet>(stepThroughOf(new PrivatelySetProjection()), [record(new Deposited(amount))]);
 
         var ex = await Should.ThrowAsync<ProjectionStateRoundTripException>(timeline);
 
@@ -302,7 +306,7 @@ public class ProjectionStepThroughTests
         ex.Message.ShouldContain("came back different");
 
         // Names the member, never its value: this message is on its way to a log.
-        ex.Message.ShouldNotContain("7 ");
+        ex.Message.ShouldNotContain(amount.ToString());
     }
 
     [Fact]
