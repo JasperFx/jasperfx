@@ -19,6 +19,13 @@ public class ProjectionController
 
     public async Task<bool> Execute(ProjectionInput input)
     {
+        if (input.Action == ProjectionAction.floor)
+        {
+            // ProjectionsCommand hands the floor action to ProjectionFloorController; it never runs a daemon
+            AnsiConsole.MarkupLine("[red]The floor action is run by ProjectionFloorController[/]");
+            return false;
+        }
+
         TimeSpan? shardTimeout = null;
         try
         {

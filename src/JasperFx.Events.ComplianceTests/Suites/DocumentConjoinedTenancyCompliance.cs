@@ -117,6 +117,14 @@ public abstract class DocumentConjoinedTenancyCompliance<TFixture> : DocumentSto
             "This store does not implement the AnyTenant / TenantIsOneOf escapes from tenant scoping.");
     }
 
+    private void SkipUnlessTenantScopedWritesAreSupported()
+    {
+        SkipUnlessConjoinedDocumentsAreSupported();
+
+        Assert.SkipUnless(theFixture.SupportsTenantScopedWrites,
+            "This store does not implement IDocumentWriteOperations.ForTenant (jasperfx#1202).");
+    }
+
     /// <summary>
     /// Store documents in one tenant's scope and commit them.
     /// </summary>
@@ -377,6 +385,99 @@ public abstract class DocumentConjoinedTenancyCompliance<TFixture> : DocumentSto
         theirs.Name.ShouldBe("Shared");
         theirs.Weight.ShouldBe(10);
         (await b.Query<ComplianceWidget>().CountAsync(Cancellation)).ShouldBe(1);
+    }
+
+    /// <summary>
+    /// Documents enlisted through <see cref="IDocumentWriteOperations.ForTenant" /> are written as that
+    /// tenant's, and commit with the session that opened the scope (jasperfx#1202).
+    /// </summary>
+    /// <remarks>
+    /// One id in both tenants again, so a scope that quietly wrote as the session's own tenant overwrites
+    /// the session's document and fails in the value, not only the count. And one save for both tenants,
+    /// because that is the promise: the scope is the same unit of work, not a second session.
+    /// </remarks>
+    [Fact]
+    public async Task writes_through_a_tenant_scope_land_in_that_tenant_and_commit_with_the_session()
+    {
+        SkipUnlessTenantScopedWritesAreSupported();
+
+        var shared = Guid.NewGuid();
+        var onlyB = Guid.NewGuid();
+
+        await using (var session = LightweightSession(TenantA))
+        {
+            session.Store(new ComplianceWidget { Id = shared, Name = "A", Color = TenantA, Weight = 1 });
+
+            var b = session.ForTenant(TenantB);
+            b.Store(new ComplianceWidget { Id = shared, Name = "B", Color = TenantB, Weight = 10 });
+            b.Insert(new ComplianceWidget { Id = onlyB, Name = "OnlyB", Color = TenantB, Weight = 11 });
+
+            await session.SaveChangesAsync(Cancellation);
+        }
+
+        await using (var a = QuerySession(TenantA))
+        {
+            (await a.LoadAsync<ComplianceWidget>(shared, Cancellation)).ShouldNotBeNull().Name.ShouldBe("A");
+            (await a.LoadAsync<ComplianceWidget>(onlyB, Cancellation)).ShouldBeNull();
+        }
+
+        await using var read = QuerySession(TenantB);
+
+        (await read.LoadAsync<ComplianceWidget>(shared, Cancellation)).ShouldNotBeNull().Name.ShouldBe("B");
+        (await read.LoadAsync<ComplianceWidget>(onlyB, Cancellation)).ShouldNotBeNull().Name.ShouldBe("OnlyB");
+    }
+
+    /// <summary>
+    /// <c>Update</c> and <c>StoreObjects</c> through a tenant scope work on that tenant's documents, the
+    /// two members Wolverine's tenant-scoped storage operations need besides <c>Insert</c> and
+    /// <c>Store</c> (jasperfx#1202).
+    /// </summary>
+    [Fact]
+    public async Task update_and_store_objects_through_a_tenant_scope_target_that_tenant()
+    {
+        SkipUnlessTenantScopedWritesAreSupported();
+
+        var shared = await ArrangeSharedWidgetAsync();
+        var gadget = Guid.NewGuid().ToString();
+
+        await using (var session = LightweightSession(TenantA))
+        {
+            var b = session.ForTenant(TenantB);
+            b.Update(new ComplianceWidget { Id = shared, Name = "Revised", Color = TenantB, Weight = 20 });
+            b.StoreObjects([new ComplianceGadget { Id = gadget, Kind = TenantB, Weight = 1 }]);
+
+            await session.SaveChangesAsync(Cancellation);
+        }
+
+        await using (var a = QuerySession(TenantA))
+        {
+            (await a.LoadAsync<ComplianceWidget>(shared, Cancellation)).ShouldNotBeNull().Name.ShouldBe("Shared");
+            (await a.LoadAsync<ComplianceGadget>(gadget, Cancellation)).ShouldBeNull();
+        }
+
+        await using var read = QuerySession(TenantB);
+
+        (await read.LoadAsync<ComplianceWidget>(shared, Cancellation)).ShouldNotBeNull().Name.ShouldBe("Revised");
+        (await read.LoadAsync<ComplianceGadget>(gadget, Cancellation)).ShouldNotBeNull();
+    }
+
+    /// <summary>
+    /// A tenant scope commits nothing on its own: abandon the session and the scope's writes go with it.
+    /// </summary>
+    [Fact]
+    public async Task a_tenant_scope_writes_nothing_unless_the_session_saves()
+    {
+        SkipUnlessTenantScopedWritesAreSupported();
+
+        var id = Guid.NewGuid();
+
+        await using (var session = LightweightSession(TenantA))
+        {
+            session.ForTenant(TenantB).Store(new ComplianceWidget { Id = id, Name = "Abandoned", Color = TenantB });
+        }
+
+        await using var read = QuerySession(TenantB);
+        (await read.LoadAsync<ComplianceWidget>(id, Cancellation)).ShouldBeNull();
     }
 
     /// <summary>

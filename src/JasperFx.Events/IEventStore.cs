@@ -275,6 +275,65 @@ public interface IEventStore
     }
 
     /// <summary>
+    ///     marten#6004: the registered asynchronous shards of every projection or subscription that is, or
+    ///     publishes, <paramref name="projectionOrPublishedType" />. Pass the projection class or the document
+    ///     it writes. Empty when nothing asynchronous matches.
+    /// </summary>
+    /// <remarks>
+    ///     The generic interface implements this from <c>AllShards()</c>. A composite projection matches when
+    ///     any of its members does, because the composite's progression row speaks for them.
+    /// </remarks>
+    IReadOnlyList<ShardName> AsyncShardNamesFor(Type projectionOrPublishedType)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(AsyncShardNamesFor)} (marten#6004).");
+
+    /// <summary>
+    ///     marten#6004: wait until the asynchronous projections in <paramref name="projections" /> have processed
+    ///     <paramref name="position" />, so the caller can read its own writes. Pass the projection classes or the
+    ///     documents they write.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         The wait polls the progression table of the position's database, so it works on any node. It waits
+    ///         only for the caller's position, never for other writers' events past it.
+    ///     </para>
+    ///     <para>
+    ///         Never throws on timeout: the result is <see cref="ProjectionWaitStatus.TimedOut" /> with how far each
+    ///         shard got. A shard that is paused or being rebuilt returns at once with that status. See
+    ///         <see cref="ProjectionPositionWait" /> for the rules.
+    ///     </para>
+    /// </remarks>
+    /// <param name="position">Where the caller's events are, normally the session's <c>LastAppendedSequence</c>.</param>
+    /// <param name="projections">The projection classes, or the documents they write.</param>
+    /// <param name="timeout">How long to wait.</param>
+    /// <param name="token">The caller's cancellation, which throws rather than returning a result.</param>
+    /// <exception cref="ArgumentException">A type matches no asynchronous projection or subscription.</exception>
+    async Task<ProjectionWaitResult> WaitForProjectionsAsync(EventStorePosition position,
+        IReadOnlyList<Type> projections, TimeSpan timeout, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+
+        var shards = ProjectionPositionWait.ShardsFor(this, projections);
+        var database = await ProjectionPositionWait.FindDatabaseAsync(this, position, token).ConfigureAwait(false);
+        return await ProjectionPositionWait.WaitAsync(database, position, shards, timeout, token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     marten#6004: <see cref="WaitForProjectionsAsync(EventStorePosition, IReadOnlyList{Type}, TimeSpan, CancellationToken)" />
+    ///     by projection or subscription name.
+    /// </summary>
+    /// <exception cref="ArgumentException">A name matches no registered asynchronous projection or subscription.</exception>
+    async Task<ProjectionWaitResult> WaitForProjectionsAsync(EventStorePosition position,
+        IReadOnlyList<string> projectionNames, TimeSpan timeout, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+
+        var shards = ProjectionPositionWait.ShardsNamed(RegisteredShardNames(), projectionNames);
+        var database = await ProjectionPositionWait.FindDatabaseAsync(this, position, token).ConfigureAwait(false);
+        return await ProjectionPositionWait.WaitAsync(database, position, shards, timeout, token).ConfigureAwait(false);
+    }
+
+    /// <summary>
     ///     Build a standalone, display-only high-water monitor for a single database — just the high-water agent,
     ///     with no projection shards attached, so a monitoring tool can show a live event-store "ceiling" for a
     ///     store whose projections are all Inline/Live and therefore run no async daemon. This is the abstraction
@@ -1059,6 +1118,21 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     /// </summary>
     IReadOnlyList<ShardName> IEventStore.RegisteredShardNames(bool includeCompositeMembers)
         => registeredShardNames(includeCompositeMembers);
+
+    /// <summary>
+    ///     marten#6004: satisfies the non-generic <see cref="IEventStore.AsyncShardNamesFor" /> from
+    ///     <see cref="AllShards" />, matching the source's implementation type or any type it publishes.
+    /// </summary>
+    IReadOnlyList<ShardName> IEventStore.AsyncShardNamesFor(Type projectionOrPublishedType)
+    {
+        ArgumentNullException.ThrowIfNull(projectionOrPublishedType);
+
+        return AllShards()
+            .Where(shard => shard.Factory is Subscriptions.ISubscriptionSource source && source.ImplementationType == projectionOrPublishedType
+                            || shard.Factory is IPublishesTypes publisher && publisher.PublishedTypes().Contains(projectionOrPublishedType))
+            .Select(x => x.Name)
+            .ToList();
+    }
 
     /// <remarks>
     ///     jasperfx#1080: a composite registers one shard under its own name, but each of its members writes

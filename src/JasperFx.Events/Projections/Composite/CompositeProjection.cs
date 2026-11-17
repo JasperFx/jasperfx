@@ -134,13 +134,16 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILoggerFactory loggerFactory,
         ShardName shardName)
     {
+        var logger = loggerFactory.CreateLogger(GetType());
+        reportIgnoredMemberSettings(logger);
         var executionStages = Stages.Select(x => x.BuildExecution(store, database, loggerFactory, shardName)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
-            loggerFactory.CreateLogger(GetType()), executionStages, IsEligibleForReplay());
+            logger, executionStages, IsEligibleForReplay());
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName shardName)
     {
+        reportIgnoredMemberSettings(logger);
         var executionStages = Stages.Select(x => x.BuildExecution(store, database, logger, shardName)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
             logger, executionStages, IsEligibleForReplay());
@@ -158,6 +161,36 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     Task IJasperFxProjection<TOperations>.ApplyAsync(TOperations operations, IReadOnlyList<IEvent> events, CancellationToken cancellation)
     {
         throw new NotSupportedException();
+    }
+
+    private int _ignoredMemberSettingsReported;
+
+    // Once per composite, not per shard: a composite runs one shard per tenant and database.
+    private void reportIgnoredMemberSettings(ILogger logger)
+    {
+        if (Interlocked.Exchange(ref _ignoredMemberSettingsReported, 1) == 1) return;
+
+        foreach (var (member, settings) in MembersWithIgnoredShardSettings())
+        {
+            logger.LogWarning(
+                "Projection '{Member}' is a member of composite projection '{Composite}', which runs it in the composite's shard, so {Settings} on the member's Options has no effect. Set it on the composite's Options instead",
+                member.Name, Name, string.Join(", ", settings));
+        }
+    }
+
+    /// <summary>
+    /// The members whose own options change a setting that only the shard reads. This composite's shard is
+    /// built from its own <see cref="ProjectionBase.Options" />, so those member settings are never used. A
+    /// nested composite reports its own members when it builds its execution.
+    /// </summary>
+    internal IEnumerable<(IProjectionSource<TOperations, TQuerySession> Member, IReadOnlyList<string> Settings)>
+        MembersWithIgnoredShardSettings()
+    {
+        foreach (var member in AllChildren())
+        {
+            var settings = member.Options.ChangedShardSettings();
+            if (settings.Count > 0) yield return (member, settings);
+        }
     }
 
     internal IEnumerable<IProjectionSource<TOperations, TQuerySession>> AllChildren()

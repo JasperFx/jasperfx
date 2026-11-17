@@ -1,4 +1,5 @@
 using JasperFx.CommandLine;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -25,6 +26,14 @@ public class ProjectionsCommand: JasperFxAsyncCommand<ProjectionInput>
         }
         
         using var host = input.BuildHost();
+
+        // jasperfx#1205: see and manage a projection's persisted start floor. No daemon involved.
+        if (input.Action == ProjectionAction.floor)
+        {
+            var stores = host.Services.GetServices<IEventStore>().ToArray();
+            return await new ProjectionFloorController(stores, new ProjectionFloorView()).ExecuteAsync(input)
+                .ConfigureAwait(false);
+        }
 
         var controller = new ProjectionController(new ProjectionHost(host), new ConsoleView());
 

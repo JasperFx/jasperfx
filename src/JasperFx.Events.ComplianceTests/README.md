@@ -971,6 +971,11 @@ store whose escape is really "drop the tenant filter" satisfies the `AnyTenant` 
 then hands `TenantIsOneOf` every tenant's rows as well, so the narrow case only has teeth measured
 against the wide one in the same arrangement.
 
+The three tenant-scope facts (jasperfx#1202) are gated on `SupportsTenantScopedWrites`. They write to a
+second tenant through `IDocumentWriteOperations.ForTenant` and commit with the session that opened the
+scope. All three stores have a `ForTenant` already; flip the flag once their sessions forward the
+contract member to it with an explicit implementation, because the return types differ.
+
 `GuidOptimisticConcurrencyCompliance` carries a **second route to the same guard**, added by
 polecat#720: a document whose version member is named by the store's own metadata mapping
 (`Schema.For<T>().Metadata(m => m.Version.MapTo(x => x.Etag))`) rather than by `IVersioned`. It is

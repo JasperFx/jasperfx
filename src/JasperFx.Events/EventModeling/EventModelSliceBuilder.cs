@@ -44,6 +44,8 @@ public class EventModelSliceBuilder
     private ViewProjection? _viewProjection;
     private readonly List<TypeDescriptor> _aggregateTypes = new();
     private readonly List<TypeDescriptor> _emittedEvents = new();
+    private readonly List<EmittedEventStream> _emittedEventStreams = new();
+    private TypeDescriptor? _lastEmitted;
     private readonly List<TypeDescriptor> _publishedMessages = new();
     private readonly List<TypeDescriptor> _consumedEvents = new();
     private readonly List<TypeDescriptor> _readsFrom = new();
@@ -252,10 +254,38 @@ public class EventModelSliceBuilder
     public EventModelSliceBuilder AsDcbModel() => ProjectedAs(ViewProjection.DcbModel);
 
     /// <summary>An event the slice emits. Call once per event.</summary>
-    public EventModelSliceBuilder Emits<T>() => add(_emittedEvents, TypeDescriptor.For(typeof(T)));
+    public EventModelSliceBuilder Emits<T>() => emit(TypeDescriptor.For(typeof(T)));
 
     /// <summary>An event the slice emits, by name, before its type exists.</summary>
-    public EventModelSliceBuilder Emits(string name) => add(_emittedEvents, Declared(name));
+    public EventModelSliceBuilder Emits(string name) => emit(Declared(name));
+
+    /// <summary>
+    /// The stream lane of the event declared by the <see cref="Emits{T}"/> just before this call: which
+    /// aggregate's stream it goes to (jasperfx#1203). Optional; without it tooling infers the stream from
+    /// the aggregates' <c>Apply</c> and <c>Create</c> methods.
+    /// </summary>
+    /// <remarks>
+    /// The aggregate must be one the slice decides against (<see cref="Against{T}"/>) or starts
+    /// (<see cref="StartsStream{T}"/>), declared anywhere on the slice. Not to be confused with
+    /// <see cref="On{T}"/>, which declares an event the slice reacts to.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// model.Command&lt;ConvertLeadToAccount&gt;()
+    ///     .Against&lt;Lead&gt;()
+    ///     .StartsStream&lt;Account&gt;()
+    ///     .Emits&lt;LeadConvertedToAccount&gt;().OnStream&lt;Lead&gt;()
+    ///     .Emits&lt;AccountCreated&gt;().OnStream&lt;Account&gt;();
+    /// </code>
+    /// </example>
+    /// <typeparam name="TAggregate">The aggregate whose stream the event goes to.</typeparam>
+    /// <exception cref="InvalidOperationException">
+    /// No event has been declared with <c>Emits</c> yet, or the event is already in a different stream lane.
+    /// </exception>
+    public EventModelSliceBuilder OnStream<TAggregate>() => onStream(TypeDescriptor.For(typeof(TAggregate)));
+
+    /// <summary>The stream lane of the last emitted event, by aggregate name, before its type exists.</summary>
+    public EventModelSliceBuilder OnStream(string aggregateName) => onStream(Declared(aggregateName));
 
     /// <summary>A non-event message the slice publishes. Call once per message.</summary>
     public EventModelSliceBuilder Publishes<T>() => add(_publishedMessages, TypeDescriptor.For(typeof(T)));
@@ -392,6 +422,46 @@ public class EventModelSliceBuilder
         return new TypeDescriptor(name, name, string.Empty);
     }
 
+    private EventModelSliceBuilder emit(TypeDescriptor type)
+    {
+        _lastEmitted = type;
+        return add(_emittedEvents, type);
+    }
+
+    private EventModelSliceBuilder onStream(TypeDescriptor aggregate)
+    {
+        if (_lastEmitted is null)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' declares the {aggregate.Name} stream lane before any emitted event. Call OnStream() right after the Emits() it applies to");
+        }
+
+        var existing = _emittedEventStreams.FirstOrDefault(x => EventModelSliceDescriptor.SameType(x.Event, _lastEmitted));
+        if (existing is not null)
+        {
+            if (EventModelSliceDescriptor.SameType(existing.Aggregate, aggregate)) return this;
+
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' already puts {_lastEmitted.Name} on the {existing.Aggregate.Name} stream, so it cannot also put it on the {aggregate.Name} stream");
+        }
+
+        _emittedEventStreams.Add(new EmittedEventStream(_lastEmitted, aggregate));
+        return this;
+    }
+
+    // jasperfx#1203: a stream lane has to name an aggregate the slice decides against or starts. Checked at
+    // build time because Against / StartsStream may come after the Emits in the chain.
+    private void assertStreamLanes(IReadOnlyList<TypeDescriptor> aggregates)
+    {
+        foreach (var lane in _emittedEventStreams)
+        {
+            if (aggregates.Any(x => EventModelSliceDescriptor.SameType(x, lane.Aggregate))) continue;
+
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' puts {lane.Event.Name} on the {lane.Aggregate.Name} stream, but the slice neither decides against nor starts {lane.Aggregate.Name}. Declare it with Against<{lane.Aggregate.Name}>() or StartsStream<{lane.Aggregate.Name}>()");
+        }
+    }
+
     private EventModelSliceBuilder setCommand(TypeDescriptor type)
     {
         _commandType = type;
@@ -468,6 +538,7 @@ public class EventModelSliceBuilder
     internal EventModelSliceDescriptor Build()
     {
         var (aggregates, aggregateDeclaration) = resolveAggregates();
+        assertStreamLanes(aggregates);
 
         var slice = EventModelSliceDescriptor.Named(_sliceName) with
         {
@@ -487,6 +558,7 @@ public class EventModelSliceBuilder
             DeciderModel = _deciderModel,
             ViewProjection = _viewProjection,
             EmittedEvents = _emittedEvents.ToList(),
+            EmittedEventStreams = _emittedEventStreams.ToList(),
             PublishedMessages = _publishedMessages.ToList(),
             ConsumedEvents = _consumedEvents.ToList(),
             ReadsFrom = _readsFrom.ToList(),

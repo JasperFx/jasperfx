@@ -9,7 +9,12 @@ public enum ProjectionAction
 {
     list,
     rebuild,
-    run
+    run,
+
+    /// <summary>
+    /// See, pin, set or clear a projection's persisted start floor (jasperfx#1205)
+    /// </summary>
+    floor
 }
 
 public class ProjectionInput: NetCoreInput
@@ -35,6 +40,29 @@ public class ProjectionInput: NetCoreInput
 
     [Description("If specified, advances the projection high water mark to the latest event sequence")]
     public bool AdvanceFlag { get; set; }
+
+    // jasperfx#1205: the floor action's modes. Long-only, because the parser derives one-letter aliases from
+    // the first letter with no collision check, and -s is already --store.
+
+    [Description("With the floor action: show the stored start floor. The default when no other floor option is given")]
+    [FlagAlias("show", longAliasOnly: true)]
+    public bool ShowFlag { get; set; }
+
+    [Description("With the floor action: set the projection's start floor to the current high water mark")]
+    [FlagAlias("pin-current", longAliasOnly: true)]
+    public bool PinCurrentFlag { get; set; }
+
+    [Description("With the floor action: set the projection's start floor to this sequence")]
+    [FlagAlias("set", longAliasOnly: true)]
+    public long? SetFlag { get; set; }
+
+    [Description("With the floor action: clear the projection's start floor. The next rebuild replays from 0, or from the floor configured in code")]
+    [FlagAlias("clear", longAliasOnly: true)]
+    public bool ClearFlag { get; set; }
+
+    [Description("With the floor action: don't ask for confirmation before changing a floor")]
+    [FlagAlias("yes", longAliasOnly: true)]
+    public bool YesFlag { get; set; }
 
     [Description("Maximum number of projections to rebuild concurrently within a single database. Caps the per-database rebuild fan-out for one-off operational rebuilds. Default is unbounded.")]
     [FlagAlias("max-concurrent", longAliasOnly: true)]

@@ -41,6 +41,8 @@ public class EventModelWireRoundTripTests
             AggregateTypes = new[] { T<Order>() },
             // jasperfx#957: the aggregate whose stream the slice starts
             StartsStream = T<Order>(),
+            // jasperfx#1203: the stream lane of an emitted event
+            EmittedEventStreams = new[] { new EmittedEventStream(T<OrderPlaced>(), T<Order>()) },
             // jasperfx#994: why the slice has its aggregate, and a DCB decider model
             AggregateDeclaration = AggregateDeclaration.Explicit,
             DeciderModel = T<OrderSummary>(),
@@ -187,6 +189,7 @@ public class EventModelWireRoundTripTests
             actual.Chapter.ShouldBe(expected.Chapter);
             actual.Origin.ShouldBe(expected.Origin);
             actual.StartsStream.ShouldBe(expected.StartsStream);
+            actual.EmittedEventStreams.ShouldBe(expected.EmittedEventStreams);
             actual.AggregateDeclaration.ShouldBe(expected.AggregateDeclaration);
             actual.DeciderModel.ShouldBe(expected.DeciderModel);
             actual.Provenance.ShouldBe(expected.Provenance);
