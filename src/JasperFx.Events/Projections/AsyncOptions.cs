@@ -23,7 +23,8 @@ public class AsyncOptions
     public IReadOnlyList<IProjectionCleanupActions> CleanUps => _cleanups;
 
     /// <summary>
-    ///     The maximum range of events fetched at one time
+    ///     The maximum range of events fetched at one time.
+    ///     On a member of a composite projection this has no effect: set it on the composite.
     /// </summary>
     public int BatchSize { get; set; } = 500;
 
@@ -33,6 +34,7 @@ public class AsyncOptions
     ///     set explicitly. A shard that is behind holds this many events while it waits for a write slot,
     ///     so memory follows behind shards x hopper depth, and a deeper hopper does not buy throughput
     ///     when the writes are what is slow (jasperfx#1076).
+    ///     On a member of a composite projection this has no effect: set it on the composite.
     /// </summary>
     public int MaximumHopperSize
     {
@@ -50,6 +52,7 @@ public class AsyncOptions
     /// <summary>
     /// Enable the identity map mechanics to reuse documents within the session by their identity
     /// if a projection needs to make subsequent changes to the same document at one time. Default is no tracking
+    /// On a member of a composite projection this has no effect: set it on the composite.
     /// </summary>
     public bool EnableDocumentTrackingByIdentity { get; set; }
 
@@ -69,6 +72,7 @@ public class AsyncOptions
     /// events / published messages) only fires for events the previous version never processed.
     /// Default is true as of JasperFx 3.0 (jasperfx#1075). Set it to false to have the new version emit
     /// side effects over the whole replay, as earlier releases did.
+    /// On a member of a composite projection this has no effect: set it on the composite.
     ///
     /// <para>
     /// jasperfx#598/#610: the suppressed catch-up runs on a normally started, normally assignable
@@ -90,6 +94,8 @@ public class AsyncOptions
     /// cache-friendly/rebuild-heavy workloads; with the cache on, entries are only populated
     /// after the owning batch commits, so a failed/retried batch cannot double-apply
     /// (see marten#4730).
+    /// Unlike the shard settings, this one is read from each member of a composite projection, not from
+    /// the composite.
     /// </summary>
     public int CacheLimitPerTenant { get; set; } = 0;
 
@@ -220,6 +226,26 @@ public class AsyncOptions
     }
 
     private readonly List<IPositionStrategy> _strategies = new();
+
+    /// <summary>
+    /// The settings that belong to the shard rather than to the projection, where they differ from the default.
+    /// A composite runs its members in its own shard, so on a member's options these are never read.
+    /// </summary>
+    internal IReadOnlyList<string> ChangedShardSettings()
+    {
+        var settings = new List<string>();
+        var defaults = new AsyncOptions();
+
+        if (BatchSize != defaults.BatchSize) settings.Add(nameof(BatchSize));
+        if (_maximumHopperSize.HasValue) settings.Add(nameof(MaximumHopperSize));
+        if (EnableDocumentTrackingByIdentity != defaults.EnableDocumentTrackingByIdentity)
+            settings.Add(nameof(EnableDocumentTrackingByIdentity));
+        if (GateSideEffectsBehindPriorVersion != defaults.GateSideEffectsBehindPriorVersion)
+            settings.Add(nameof(GateSideEffectsBehindPriorVersion));
+        if (_strategies.Count > 0) settings.Add("its starting position (SubscribeFrom*/SubscribeAsInlineToAsync)");
+
+        return settings;
+    }
 
     /// <summary>
     /// Direct that this subscription or projection should only start from events that are appended
