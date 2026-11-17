@@ -375,7 +375,7 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
 {
     private readonly InMemoryDocumentStore _store;
     private readonly string _tenantId;
-    private readonly List<Action<InMemoryChangeSet>> _pending = new();
+    private readonly List<Action<InMemoryChangeSet>> _pending;
 
     // No participants ever reach these: a store with no connection has nothing to hand one, so
     // AddTransactionParticipant stays on the contract's refusal rather than pretending.
@@ -385,12 +385,40 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
     {
         _store = store;
         _tenantId = tenantId;
+        _pending = new();
         Events = new InMemoryEventOperations(this);
 
         // Tracing context reaches the events this session appends, as on Marten, Polecat and Fisher. A
         // value the caller sets afterwards wins.
         CorrelationId = Activity.Current?.RootId;
         CausationId = Activity.Current?.ParentId;
+    }
+
+    // jasperfx#1202: a tenant scope over the parent's unit of work. It enlists into the parent's pending
+    // list, so the parent's SaveChangesAsync commits it, and stamps the parent's metadata as it stands now.
+    private InMemoryDocumentSession(InMemoryDocumentSession parent, string tenantId)
+    {
+        _store = parent._store;
+        _tenantId = tenantId;
+        _pending = parent._pending;
+        Events = new InMemoryEventOperations(this);
+
+        CorrelationId = parent.CorrelationId;
+        CausationId = parent.CausationId;
+        CurrentUserName = parent.CurrentUserName;
+    }
+
+    /// <summary>
+    /// Document writes in another tenant's scope, committed by this session (jasperfx#1202).
+    /// </summary>
+    /// <remarks>
+    /// Documents only. Events on the prototyping store are single-tenanted, so the scope's event operations
+    /// are not part of this session's commit.
+    /// </remarks>
+    public IDocumentWriteOperations ForTenant(string tenantId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tenantId);
+        return new InMemoryDocumentSession(this, tenantId);
     }
 
     internal InMemoryDocumentStore OwningStore => _store;

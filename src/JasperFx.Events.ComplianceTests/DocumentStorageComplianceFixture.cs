@@ -231,6 +231,17 @@ public abstract class DocumentStorageComplianceFixture : IAsyncLifetime
     public virtual bool SupportsCrossTenantQueries => false;
 
     /// <summary>
+    /// Does this store implement <see cref="IDocumentWriteOperations.ForTenant" />, writing to another
+    /// tenant inside the session's unit of work? Gates the tenant-scope facts of
+    /// <see cref="DocumentConjoinedTenancyCompliance{TFixture}" /> (jasperfx#1202).
+    /// </summary>
+    /// <remarks>
+    /// Default <b>false</b>, because the contract member is new and its default throws. Flip it after the
+    /// store's sessions forward the contract member to their own <c>ForTenant</c>.
+    /// </remarks>
+    public virtual bool SupportsTenantScopedWrites => false;
+
+    /// <summary>
     /// Every <typeparamref name="T" /> in the store, across every tenant — the store's own
     /// <c>AnyTenant</c> escape, executed and materialized.
     /// </summary>

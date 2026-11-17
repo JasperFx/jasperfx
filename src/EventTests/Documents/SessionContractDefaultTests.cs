@@ -134,6 +134,51 @@ public class SessionContractDefaultTests
     }
 
     [Fact]
+    public void for_tenant_refuses_rather_than_writing_as_this_session()
+    {
+        IDocumentWriteOperations operations = new BareSession();
+
+        shouldBeRefusedNaming<BareSession>(() => operations.ForTenant("tenant-b"));
+    }
+
+    // jasperfx#1202: the shape all three stores have, a session interface declaring its own ForTenant with
+    // its own return type. Application code holding the store's session keeps binding to the store's member,
+    // and the contract member is reached through an explicit forwarder.
+    private interface IStoreTenantOperations : IDocumentWriteOperations
+    {
+        string TenantId { get; }
+    }
+
+    private interface IStoreSession : IDocumentSessionOperations
+    {
+        new IStoreTenantOperations ForTenant(string tenantId);
+    }
+
+    private class StoreTenantOperations(string tenantId) : BareSession, IStoreTenantOperations
+    {
+        public string TenantId { get; } = tenantId;
+    }
+
+    private class StoreSession : BareSession, IStoreSession
+    {
+        public IStoreTenantOperations ForTenant(string tenantId) => new StoreTenantOperations(tenantId);
+
+        IDocumentWriteOperations IDocumentWriteOperations.ForTenant(string tenantId) => ForTenant(tenantId);
+    }
+
+    [Fact]
+    public void a_store_session_keeps_its_own_for_tenant_and_forwards_the_contract_member()
+    {
+        IStoreSession session = new StoreSession();
+
+        // Binds to the store's member, with the store's return type: no ambiguity with the contract's
+        session.ForTenant("tenant-b").TenantId.ShouldBe("tenant-b");
+
+        IDocumentWriteOperations shared = session;
+        shared.ForTenant("tenant-c").ShouldBeOfType<StoreTenantOperations>().TenantId.ShouldBe("tenant-c");
+    }
+
+    [Fact]
     public void metadata_context_needs_no_store_change_on_a_session_class_that_already_has_it()
     {
         // All three stores: their session classes are IMetadataContext through Weasel's IStorageSession,
