@@ -241,6 +241,12 @@ export interface ExternalSystemDescriptor {
   endpointUri?: string | null
 }
 
+/** The stream lane of one event a slice emits (jasperfx#1203). */
+export interface EmittedEventStream {
+  event: TypeDescriptor
+  aggregate: TypeDescriptor
+}
+
 /** Wire descriptor for a single slice of an Event Model. */
 export interface EventModelSliceDescriptor {
   name: string
@@ -259,6 +265,12 @@ export interface EventModelSliceDescriptor {
    * below the JasperFx.Events release that added it.
    */
   startsStream?: TypeDescriptor | null
+  /**
+   * Which aggregate's stream each emitted event goes to, for the events a declaration put in a stream
+   * lane (jasperfx#1203). Absent or empty on code-derived slices and from any producer below the
+   * JasperFx.Events release that added it.
+   */
+  emittedEventStreams?: EmittedEventStream[] | null
   /**
    * WHY the slice has the aggregate it has, when a declaration said (jasperfx#994): applied from the
    * definition's `ForAggregate` default, declared on the slice, deliberately none, or a DCB decider

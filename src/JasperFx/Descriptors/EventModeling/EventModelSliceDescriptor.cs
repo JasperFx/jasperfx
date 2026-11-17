@@ -271,6 +271,32 @@ public sealed record EventModelSliceDescriptor(
     public TypeDescriptor? StartsStream { get; init; }
 
     /// <summary>
+    /// Which aggregate's stream each emitted event goes to, for the events a declaration put in a stream
+    /// lane (jasperfx#1203). Empty when nothing said, which is every slice a code-derived source produces.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On an Event Modeling board an event sits in a stream lane, so the board knows which stream it
+    /// belongs to. A slice that decides against one aggregate and starts another can't say that with
+    /// <see cref="EmittedEvents"/> alone. Each entry names an event in <see cref="EmittedEvents"/> and an
+    /// aggregate in <see cref="AggregateTypes"/>.
+    /// </para>
+    /// <para>
+    /// Optional per event. An emitted event with no entry here behaves as it always did, and tooling
+    /// (Wolverine's scaffold) falls back to inferring the stream from the aggregates' <c>Apply</c> and
+    /// <c>Create</c> methods. Use <see cref="StreamFor"/> to read it.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<EmittedEventStream> EmittedEventStreams { get; init; } = Array.Empty<EmittedEventStream>();
+
+    /// <summary>
+    /// The aggregate whose stream <paramref name="emittedEvent"/> goes to, or null when no stream lane was
+    /// declared for it (jasperfx#1203).
+    /// </summary>
+    public TypeDescriptor? StreamFor(TypeDescriptor emittedEvent)
+        => EmittedEventStreams.FirstOrDefault(x => SameType(x.Event, emittedEvent))?.Aggregate;
+
+    /// <summary>
     /// <em>Why</em> the slice has the aggregate it has, when a declaration said (jasperfx#994): applied
     /// from the definition's <c>ForAggregate</c> default, declared on the slice, deliberately none, or a
     /// DCB decider model instead. Null when nobody said — the code-derived sources never do, since the
@@ -813,6 +839,45 @@ public sealed record EventModelSliceDescriptor(
         var deciderModel = mergeType(EventModelRole.DeciderModel, DeciderModel, other.DeciderModel);
         var viewProjection = mergeValue(EventModelRole.ViewProjection, ViewProjection, other.ViewProjection);
 
+        // jasperfx#1203. Only a declaration names a stream lane, so lanes union rather than compete: the
+        // code says which events are emitted and the declaration says where they go. When two sources put
+        // the same event in different lanes, the side that wins EmittedEvents keeps its lane and the other
+        // is recorded as a disagreement. A lane whose event is no longer emitted after the merge is dropped.
+        var emittedEventStreams = mergeEmittedEventStreams();
+
+        IReadOnlyList<EmittedEventStream> mergeEmittedEventStreams()
+        {
+            if (EmittedEventStreams.Count == 0 && other.EmittedEventStreams.Count == 0)
+            {
+                return Array.Empty<EmittedEventStream>();
+            }
+
+            var tookTheirs = theirsWins(EventModelRole.EmittedEvents);
+            var winning = tookTheirs ? other.EmittedEventStreams : EmittedEventStreams;
+            var losing = tookTheirs ? EmittedEventStreams : other.EmittedEventStreams;
+
+            var merged = winning.ToList();
+            foreach (var lane in losing)
+            {
+                var existing = merged.FirstOrDefault(x => SameType(x.Event, lane.Event));
+                if (existing is null)
+                {
+                    merged.Add(lane);
+                }
+                else if (!SameType(existing.Aggregate, lane.Aggregate)
+                         && Claims(EventModelRole.EmittedEvents) && other.Claims(EventModelRole.EmittedEvents))
+                {
+                    var mine = tookTheirs ? lane : existing;
+                    var theirs = tookTheirs ? existing : lane;
+                    disagree(EventModelRole.EmittedEvents, tookTheirs,
+                        $"{mine.Event.Name} on the {mine.Aggregate.Name} stream",
+                        $"{theirs.Event.Name} on the {theirs.Aggregate.Name} stream");
+                }
+            }
+
+            return merged.Where(x => emittedEvents.Any(e => SameType(e, x.Event))).ToList();
+        }
+
         // jasperfx#836. Origin merges as any other scalar does, which gives the store dimension the
         // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
         // now leave a SourceDisagreement naming both stores, instead of the survivor carrying nothing
@@ -880,6 +945,7 @@ public sealed record EventModelSliceDescriptor(
             ReadsFrom = readsFrom,
             Chapter = chapter,
             StartsStream = startsStream,
+            EmittedEventStreams = emittedEventStreams,
             AggregateDeclaration = aggregateDeclaration,
             DeciderModel = deciderModel,
             ViewProjection = viewProjection,

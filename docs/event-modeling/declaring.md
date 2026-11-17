@@ -104,6 +104,7 @@ Every role takes either a type or a name:
 | `NoAggregate()` | Deliberately no aggregate -- see [A default aggregate](#a-default-aggregate) |
 | `DeciderModel<T>()` | The DCB decider model the slice decides through, rather than single-stream aggregates |
 | `Emits<T>()` | An event the slice writes |
+| `OnStream<T>()` | The stream the event from the `Emits<T>()` just before goes to -- see [below](#which-stream-an-event-goes-to) |
 | `Publishes<T>()` | A non-event message the slice sends out |
 | `On<T>()` (or `From<T>()`) | An event the slice reacts to or folds |
 | `Reads<T>()` | A read model the slice reads before deciding, or what a `Query` slice reads |
@@ -184,6 +185,36 @@ A typo in a name is just a second, mysterious box on the diagram. A typo in a ty
 `StartsStream<T>()` says this slice *starts* a new stream for the aggregate rather than appending to an existing one. That's a different design decision than `Against<T>()`, and the code is different too: there's no existing stream to load, and you have to decide what the new stream's identity will be. Wolverine's scaffolding reads this role to write a `StartStream` instead of a write-model handler.
 
 The aggregate is also recorded as one of the slice's aggregates, so any viewer that doesn't know about this role still draws it.
+
+## Which Stream an Event Goes To
+
+On a board, every event sits in a stream lane. When a slice touches more than one aggregate, say which stream each event goes to with `OnStream<T>()` right after the `Emits<T>()`:
+
+<!-- snippet: sample_emitted_event_stream_lanes -->
+<a id='snippet-sample_emitted_event_stream_lanes'></a>
+```cs
+public class LeadConversion : EventModelDefinition
+{
+    public override void Configure(EventModelBuilder model)
+    {
+        // Decides against the Lead, starts the Account stream, and
+        // adds a Contact to an existing stream
+        model.Command<ConvertLeadToAccount>()
+            .Against<Lead>()
+            .StartsStream<Account>()
+            .Against<Contact>()
+            .Emits<LeadConvertedToAccount>().OnStream<Lead>()
+            .Emits<AccountCreated>().OnStream<Account>()
+            .Emits<ContactCreated>().OnStream<Contact>();
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/EventTests/EventModeling/EmittedEventStreamTests.cs#L17-L35' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_emitted_event_stream_lanes' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+The lane is optional for each event. Leave it off and tooling like Wolverine's scaffolding falls back to working out the stream from the aggregates' `Apply` and `Create` methods. The aggregate has to be one the slice decides against or starts, or building the model throws. Don't confuse `OnStream<T>()` with `On<T>()`, which is an event the slice *reacts* to.
+
+The lanes are on the slice descriptor as `EmittedEventStreams`, and `StreamFor(event)` reads one.
 
 ## A Default Aggregate
 
