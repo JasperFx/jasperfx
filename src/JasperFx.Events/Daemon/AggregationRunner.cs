@@ -358,7 +358,7 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
                 $"TenantId does not match from the slice '{slice.TenantId}' and storage '{storage.TenantId}'");
         }
 
-        slice.FastForwardForCompacting();
+        var compactedMarker = slice.FastForwardForCompacting();
 
         if (Projection.MatchesAnyDeleteType(slice.Events()))
         {
@@ -427,6 +427,11 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         }
 
         (var lastEvent, snapshot) = Projection.TryApplyMetadata(slice.Events(), snapshot, slice.Id, storage);
+
+        // jasperfx#1214: a slice that ends with its Compacted<T> marker (a stream compacted with nothing appended
+        // since) has no event left after the fast-forward. The marker is still the slice's last event, so a store
+        // takes the revision from it instead of getting a null last event.
+        lastEvent ??= compactedMarker;
 
         // Ownership: either there was a pre-loaded snapshot or the slice's events
         // materialized one. Siblings that did neither skip the archive.

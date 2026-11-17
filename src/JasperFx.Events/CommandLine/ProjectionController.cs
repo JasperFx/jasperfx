@@ -49,6 +49,11 @@ public class ProjectionController
 
         if (input.Action == ProjectionAction.list)
         {
+            if (input.AdvanceFlag)
+            {
+                AnsiConsole.MarkupLine("[yellow]--advance only applies to the run and rebuild actions. No high water mark was moved[/]");
+            }
+
             _view.ListShards(usages);
             return true;
         }
@@ -61,19 +66,49 @@ public class ProjectionController
             return true;
         }
 
+        // jasperfx#1210: advance every selected database's high water mark before anything runs, so a rebuild
+        // or a daemon held behind a gap that will never fill starts from the latest committed sequence
+        if (input.AdvanceFlag && !await advanceHighWaterMarks(selections).ConfigureAwait(false))
+        {
+            return false;
+        }
+
         if (input.Action == ProjectionAction.rebuild)
         {
             _host.ListenForUserTriggeredExit();
-        }
 
-        foreach (var selection in selections)
-        {
-            if (input.Action == ProjectionAction.rebuild)
+            // Every selection, not just the first: one per event store
+            var success = true;
+            foreach (var selection in selections)
             {
-                return await ExecuteRebuilds(input, selection, shardTimeout);
+                success &= await ExecuteRebuilds(input, selection, shardTimeout).ConfigureAwait(false);
             }
 
-            await RunContinuously(selections);
+            return success;
+        }
+
+        // RunContinuously starts every selection, then waits for the user to exit. Keep what --advance reported
+        // on screen rather than clearing it away.
+        await RunContinuously(selections, clearConsole: !input.AdvanceFlag).ConfigureAwait(false);
+
+        return true;
+    }
+
+    private async Task<bool> advanceHighWaterMarks(IReadOnlyList<ProjectionSelection> selections)
+    {
+        foreach (var selection in selections)
+        {
+            try
+            {
+                await _host.AdvanceHighWaterMarkToLatestAsync(selection, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red]Could not advance the high water mark for event store {selection.Storage.SubjectUri.ToString().EscapeMarkup()}, so nothing was run[/]");
+                AnsiConsole.WriteException(e);
+                return false;
+            }
         }
 
         return true;
@@ -131,9 +166,13 @@ public class ProjectionController
         return true;
     }
 
-    private async Task RunContinuously(IReadOnlyList<ProjectionSelection> selections)
+    private async Task RunContinuously(IReadOnlyList<ProjectionSelection> selections, bool clearConsole)
     {
-        AnsiConsole.Clear();
+        if (clearConsole)
+        {
+            AnsiConsole.Clear();
+        }
+
         selections = ProjectionSelection.FilterForAsyncOnly(selections);
         if (!selections.Any())
         {

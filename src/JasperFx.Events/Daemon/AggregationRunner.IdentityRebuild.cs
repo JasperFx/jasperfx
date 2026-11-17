@@ -345,12 +345,13 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
         await Projection.EnrichEventsAsync(group, operations, cancellation).ConfigureAwait(false);
 
-        slice.FastForwardForCompacting();
+        var compactedMarker = slice.FastForwardForCompacting();
         var starting = slice.Snapshot;
 
         if (Projection.MatchesAnyDeleteType(slice.Events()))
         {
-            return new RefoldResult(ActionType.Delete, default, slice.Events().LastOrDefault() ?? lastPrefolded,
+            return new RefoldResult(ActionType.Delete, default,
+                slice.Events().LastOrDefault() ?? compactedMarker ?? lastPrefolded,
                 wouldArchiveStream(slice, starting != null));
         }
 
@@ -383,7 +384,8 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
         var archive = wouldArchiveStream(slice, starting != null || result != null);
 
-        return new RefoldResult(action, result, lastEvent ?? lastPrefolded, archive);
+        // jasperfx#1214: the Compacted<T> marker is the last event of a slice that ends with it
+        return new RefoldResult(action, result, lastEvent ?? compactedMarker ?? lastPrefolded, archive);
     }
 
     // jasperfx#1201: above BatchSize events, fold up to the committed position M off the loop and keep only the

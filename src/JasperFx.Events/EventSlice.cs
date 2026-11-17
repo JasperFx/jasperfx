@@ -125,11 +125,26 @@ public class EventSlice<TDoc, TId>: IComparer<IEvent>, IEventSlice<TDoc>
     {
     }
 
-    internal void FastForwardForCompacting()
+    /// <summary>
+    ///     Start the slice from its last <see cref="Compacted{T}" /> marker, if it has one: the marker's snapshot
+    ///     becomes <see cref="Snapshot" /> and only the events after the marker are kept.
+    /// </summary>
+    /// <returns>
+    ///     The marker the slice was fast-forwarded to, or null when it has none. jasperfx#1214: a slice that ends
+    ///     with its marker has no event left after it, so the caller uses the marker as the last event it hands
+    ///     to <c>IProjectionStorage.StoreProjection</c>.
+    /// </returns>
+    internal IEvent? FastForwardForCompacting()
     {
-        var (snapshot, events) = Compacted<TDoc>.MaybeFastForward(Snapshot, _events);
-        Snapshot = snapshot;
-        _events = (List<IEvent>)events;
+        var index = _events.FindLastIndex(e => e.Data is Compacted<TDoc>);
+        if (index < 0) return null;
+
+        // The same fast-forward as Compacted<T>.MaybeFastForward, which the step-through path uses
+        var marker = _events[index];
+        Snapshot = ((Compacted<TDoc>)marker.Data).Snapshot;
+        _events = _events.GetRange(index + 1, _events.Count - index - 1);
+
+        return marker;
     }
 
     private readonly StreamActionType? _actionType;

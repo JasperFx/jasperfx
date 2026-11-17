@@ -102,8 +102,17 @@ public sealed record StreamQueryStreamReport(
     DateTimeOffset LastTimestamp,
     bool IsArchived)
 {
+    /// <summary>
+    /// The last version of the stream that lives in an application-owned cold store, or null when none does.
+    /// See <see cref="StreamState.ColdVersion"/> (jasperfx#1211).
+    /// </summary>
+    public long? ColdVersion { get; init; }
+
     public static StreamQueryStreamReport From(StreamState state)
         => new(state.Key ?? state.Id.ToString(), state.Version, state.CompactedVersion,
             state.Version - state.CompactedVersion, state.AggregateType?.FullName,
-            state.Created, state.LastTimestamp, state.IsArchived);
+            state.Created, state.LastTimestamp, state.IsArchived)
+        {
+            ColdVersion = state.ColdVersion
+        };
 }

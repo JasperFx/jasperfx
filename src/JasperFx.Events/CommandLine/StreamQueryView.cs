@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using JasperFx.Core;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 
 namespace JasperFx.Events.CommandLine;
 
@@ -69,21 +70,33 @@ internal static class StreamQueryView
         table.AddColumn("Version");
         table.AddColumn("Compacted");
         table.AddColumn("Growth");
+
+        // jasperfx#1211: only a store with a cold event store has cold streams, so the column only shows then
+        var showCold = report.Streams.Any(x => x.ColdVersion.HasValue);
+        if (showCold) table.AddColumn("Cold through");
+
         table.AddColumn("Created");
         table.AddColumn("Last append");
         table.AddColumn("Archived");
 
         foreach (var stream in report.Streams)
         {
-            table.AddRow(
+            var cells = new List<IRenderable>
+            {
                 new Text(stream.StreamId),
                 new Text(stream.AggregateType ?? "(none)"),
                 new Text(stream.Version.ToString()),
                 new Text(stream.CompactedVersion == 0 ? "never" : stream.CompactedVersion.ToString()),
-                new Text(stream.VersionsSinceCompaction.ToString()),
-                new Text(stream.Created.ToString("u")),
-                new Text(stream.LastTimestamp.ToString("u")),
-                new Text(stream.IsArchived ? "yes" : string.Empty));
+                new Text(stream.VersionsSinceCompaction.ToString())
+            };
+
+            if (showCold) cells.Add(new Text(stream.ColdVersion?.ToString() ?? string.Empty));
+
+            cells.Add(new Text(stream.Created.ToString("u")));
+            cells.Add(new Text(stream.LastTimestamp.ToString("u")));
+            cells.Add(new Text(stream.IsArchived ? "yes" : string.Empty));
+
+            table.AddRow(cells);
         }
 
         AnsiConsole.Write(table);

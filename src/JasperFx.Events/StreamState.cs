@@ -98,4 +98,16 @@ public class StreamState
     /// JasperFx leaves it null, and refuses a predicate on it by naming it.
     /// </remarks>
     public string? TenantId { get; set; }
+
+    /// <summary>
+    /// The last version of the stream that has been moved out of the event store into an application-owned cold
+    /// store, or null when no part of it has (jasperfx#1211). A stream with a <c>ColdVersion</c> of 40 and a
+    /// <see cref="Version"/> of 45 has events 1 through 40 in cold storage and 41 through 45 in the event store.
+    /// </summary>
+    /// <remarks>
+    /// Filled in by Marten's cold event store (marten#5710, experimental) from its streams table, both here and
+    /// on the results of <see cref="IReadOnlyEventStore.QueryStreamStates"/>. Null for every stream of a store
+    /// without a cold event store, which includes every Polecat and Fisher store.
+    /// </remarks>
+    public long? ColdVersion { get; set; }
 }

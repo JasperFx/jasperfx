@@ -212,7 +212,30 @@ internal class ProjectionHost: IProjectionHost
                 $"No IEventStore in this application has the subject '{selection.Storage.SubjectUri}'");
         }
 
-        await AdvanceHighWaterMarksAsync(store, selection, none).ConfigureAwait(false);
+        var results = await AdvanceHighWaterMarksAsync(store, selection, none).ConfigureAwait(false);
+        foreach (var result in results)
+        {
+            AnsiConsole.MarkupLine(DescribeAdvance(result).EscapeMarkup());
+        }
+    }
+
+    /// <summary>
+    ///     jasperfx#1210: what the <c>--advance</c> flag reports for one high water mark
+    /// </summary>
+    internal static string DescribeAdvance(HighWaterMarkAdvance advance)
+    {
+        var mark = advance.TenantId == null
+            ? $"High water mark of database '{advance.DatabaseIdentifier}'"
+            : $"High water mark of tenant '{advance.TenantId}' in database '{advance.DatabaseIdentifier}'";
+
+        return advance.Outcome switch
+        {
+            HighWaterAdvanceOutcome.Advanced =>
+                $"{mark} advanced from {advance.PreviousMark} to {advance.NewMark}, skipping {advance.SkippedSequenceCount} sequence number(s) with no committed event",
+            HighWaterAdvanceOutcome.AlreadyAtCeiling =>
+                $"{mark} is already at the latest committed sequence ({advance.PreviousMark})",
+            _ => $"{mark} was not advanced: it moved to {advance.PreviousMark} while being advanced"
+        };
     }
 
     /// <summary>
