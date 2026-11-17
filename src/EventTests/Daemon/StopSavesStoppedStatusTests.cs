@@ -27,6 +27,10 @@ namespace EventTests.Daemon;
 public class StopSavesStoppedStatusTests : IAsyncDisposable
 {
     private const string TheShard = "Trip:All";
+    private static readonly string[] AllShards = ["Trip:All", "Day:All", "Distance:All"];
+
+    // Every shard's row starts at 5 and the store's high water is at 20, so a started agent has work to process
+    private const long HighWater = 20;
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ShardStateTracker theTracker = new(new NulloLogger());
@@ -37,14 +41,18 @@ public class StopSavesStoppedStatusTests : IAsyncDisposable
     {
         theDatabase = new RecordingDatabase(theTracker);
 
-        var factory = Substitute.For<ISubscriptionFactory<FakeOperations, FakeSession>>();
-        factory.BuildExecution(Arg.Any<IEventStore<FakeOperations, FakeSession>>(), Arg.Any<IEventDatabase>(),
-            Arg.Any<ILogger>(), Arg.Any<ShardName>()).Returns(_ => new QuietExecution(new ShardName("Trip")));
-        factory.BuildExecution(Arg.Any<IEventStore<FakeOperations, FakeSession>>(), Arg.Any<IEventDatabase>(),
-            Arg.Any<ILoggerFactory>(), Arg.Any<ShardName>()).Returns(_ => new QuietExecution(new ShardName("Trip")));
+        var shards = AllShards.Select(identity =>
+        {
+            var name = new ShardName(identity.Split(':')[0]);
+            var factory = Substitute.For<ISubscriptionFactory<FakeOperations, FakeSession>>();
+            factory.BuildExecution(Arg.Any<IEventStore<FakeOperations, FakeSession>>(), Arg.Any<IEventDatabase>(),
+                Arg.Any<ILogger>(), Arg.Any<ShardName>()).Returns(_ => new QuietExecution(name));
+            factory.BuildExecution(Arg.Any<IEventStore<FakeOperations, FakeSession>>(), Arg.Any<IEventDatabase>(),
+                Arg.Any<ILoggerFactory>(), Arg.Any<ShardName>()).Returns(_ => new QuietExecution(name));
 
-        var shard = new AsyncShard<FakeOperations, FakeSession>(new AsyncOptions(), ShardRole.Projection,
-            new ShardName("Trip"), factory, new EventFilterable());
+            return new AsyncShard<FakeOperations, FakeSession>(new AsyncOptions(), ShardRole.Projection, name,
+                factory, new EventFilterable());
+        }).ToArray();
 
         var store = Substitute.For<IEventStore<FakeOperations, FakeSession>>();
         store.Meter.Returns(new Meter("tests"));
@@ -53,7 +61,7 @@ public class StopSavesStoppedStatusTests : IAsyncDisposable
         store.ContinuousErrors.Returns(new ErrorHandlingOptions());
         store.RebuildErrors.Returns(new ErrorHandlingOptions());
         store.ExtendedProgressionEnabled.Returns(true);
-        store.AllShards().Returns([shard]);
+        store.AllShards().Returns(shards);
 
         // An empty, caught-up page: the agent stays healthy with no storage behind it
         var loader = Substitute.For<IEventLoader>();
@@ -95,6 +103,35 @@ public class StopSavesStoppedStatusTests : IAsyncDisposable
 
         // Read straight away: the #557 promise is that the write has happened before StopAllAsync returns
         theDatabase.StatusOf(TheShard).ShouldBe("Stopped");
+    }
+
+    [Theory]
+    [InlineData(5L)] // a shard that has committed before
+    [InlineData(0L)] // a fresh shard, whose Started lands only once its first batch commits (jasperfx#631)
+    public async Task a_daemon_that_processed_work_on_several_shards_saves_stopped_for_every_shard(long floor)
+    {
+        theDatabase.Floor = floor;
+
+        await theDaemon.StartAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+        foreach (var shard in AllShards)
+        {
+            await theTracker.WaitForShardState(shard, HighWater, TestTimeout);
+        }
+
+        await theDaemon.StopAllAsync().WaitAsync(TestTimeout, TestContext.Current.CancellationToken);
+
+        // The daemon is NOT disposed: on 3.6.0 the Stopped write was lost, not late, so waiting did not help
+        foreach (var shard in AllShards)
+        {
+            theDatabase.StatusOf(shard).ShouldBe("Stopped", $"shard {shard}");
+        }
+
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+
+        foreach (var shard in AllShards)
+        {
+            theDatabase.StatusOf(shard).ShouldBe("Stopped", $"shard {shard}, a moment later");
+        }
     }
 
     [Fact]
@@ -277,14 +314,16 @@ public class StopSavesStoppedStatusTests : IAsyncDisposable
         public Task EnsureStorageExistsAsync(Type storageType, CancellationToken token) => Task.CompletedTask;
         public Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout) => Task.CompletedTask;
 
-        // A shard that has committed before, so its row exists and a status write has somewhere to land
+        // By default a shard that has committed before, so its row exists and a status write has somewhere to land
+        public long Floor { get; set; } = 5;
+
         public Task<long> ProjectionProgressFor(ShardName name, CancellationToken token = default)
-            => Task.FromResult(5L);
+            => Task.FromResult(Floor);
 
         public Task<long?> FindEventStoreFloorAtTimeAsync(DateTimeOffset timestamp, CancellationToken token)
             => Task.FromResult<long?>(null);
 
-        public Task<long> FetchHighestEventSequenceNumber(CancellationToken token) => Task.FromResult(5L);
+        public Task<long> FetchHighestEventSequenceNumber(CancellationToken token) => Task.FromResult(HighWater);
 
         public Task<IReadOnlyList<ShardState>> AllProjectionProgress(CancellationToken token = default)
             => Task.FromResult<IReadOnlyList<ShardState>>([]);
@@ -333,7 +372,7 @@ public class StopSavesStoppedStatusTests : IAsyncDisposable
         public Uri DatabaseUri { get; } = new("fake://db1");
 
         public Task<HighWaterStatistics> Detect(CancellationToken token)
-            => Task.FromResult(new HighWaterStatistics { CurrentMark = 5, HighestSequence = 5 });
+            => Task.FromResult(new HighWaterStatistics { CurrentMark = HighWater, HighestSequence = HighWater });
 
         public Task<HighWaterStatistics> DetectInSafeZone(CancellationToken token) => Detect(token);
     }

@@ -151,6 +151,12 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         {
             _unlanded.Add(value.ShardName);
         }
+        else if (isTransition)
+        {
+            // jasperfx#1225: this transition lands on the row itself, so there is nothing older left to replay.
+            // Leaving the shard marked let a later publication "replay" a Started over a Stopped written here.
+            _unlanded.Remove(value.ShardName);
+        }
 
         // A publication carrying a committed sequence proves the progression row is there now.
         var replaysUnlandedTransition = !isTransition && value.Sequence > 0 && _unlanded.Remove(value.ShardName);
