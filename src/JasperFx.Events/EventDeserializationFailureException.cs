@@ -1,3 +1,4 @@
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
@@ -83,9 +84,9 @@ public class EventDeserializationFailureException : Exception, IEventFailureCont
             // generation at write time, so the creating process knows the dead letter's id BEFORE the
             // (background, retried) write lands and can correlate it with the ShardFailure it reported.
             // Stores only generate an id when the value is empty, so pre-assigning changes nothing about
-            // how the row persists. Version 7 keeps ids time-ordered, matching what jasperfx's
-            // DeadLetterEvent constructor does on the ApplyEventException path.
-            Id = Guid.CreateVersion7(),
+            // how the row persists. Ordered the same way as jasperfx's DeadLetterEvent constructor on the
+            // ApplyEventException path.
+            Id = SequentialGuid.NextPostgresOrder(),
             EventSequence = Sequence,
             ExceptionMessage = Message,
             ExceptionType = GetType().FullNameInCode(),

@@ -1,5 +1,15 @@
 # Migration Guide
 
+## Key Changes in 3.6.0
+
+* **New time-ordered Guids, `SequentialGuid`.** `JasperFx.Core.SequentialGuid` makes Guids in MassTransit's NewId layout (a 100 ns timestamp, a random per-process worker id, the process id and a sequence) without a lock and without a random number per id. There are two sort orders, one per database: `SequentialGuid.NextPostgresOrder()` for PostgreSQL `uuid` (and SQLite, or anything that stores the id as text) and `SequentialGuid.NextSqlServerOrder()` for SQL Server `uniqueidentifier`. `SequentialGuid.PostgresOrder` and `SequentialGuid.SqlServerOrder` are the same thing as an `IGuidGenerator` to hand to something else.
+
+* **Appended event ids, new stream ids and dead letter ids now come from `SequentialGuid.NextPostgresOrder()`.** Event and stream ids were COMB Guids, and `DeadLetterEvent` ids were `Guid.CreateVersion7()`. Both of those are only ordered by millisecond and random within it, and both draw from the OS random number generator on every id.
+
+* **`CombGuidIdGeneration.NewGuid()` delegates to `SequentialGuid.NextPostgresOrder()`.** It keeps its signature and stays `[Obsolete]`, now pointing at `SequentialGuid`. `NewGuid(DateTimeOffset)`, `Create()` and `GetTimestamp()` still make and read COMB Guids, but `GetTimestamp()` cannot read an id from `NewGuid()` any more.
+
+* **New ids do not sort like version 7 or COMB Guids.** They start with the .NET tick count, not unix milliseconds. In PostgreSQL and SQLite every new id sorts after every existing version 7 or COMB id, so an index keeps appending at its right edge and there is nothing to migrate. Code that read a timestamp back out of these ids (`Guid.Version == 7`, `CombGuidIdGeneration.GetTimestamp()`) has to stop doing that.
+
 ## Key Changes in 3.1.0
 
 * **Runtime-async is on by default for `net11.0`** ([#1180](https://github.com/JasperFx/jasperfx/issues/1180)). Both switches described under [3.0.0](#foundation) flip:

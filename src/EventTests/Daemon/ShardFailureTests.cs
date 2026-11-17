@@ -320,9 +320,11 @@ public class ShardFailureTests
             new ApplyEventException(anEvent(), new Exception("boom")));
 
         deadLetter.Id.ShouldNotBe(Guid.Empty);
+
+        // Time-ordered (SequentialGuid's PostgreSQL order, which is also Guid.CompareTo's order)
         new DeadLetterEvent(anEvent(), new ShardName("Trip"),
                 new ApplyEventException(anEvent(), new Exception("boom"))).Id
-            .ShouldNotBe(deadLetter.Id);
+            .ShouldBeGreaterThan(deadLetter.Id);
     }
 
     [Fact]
