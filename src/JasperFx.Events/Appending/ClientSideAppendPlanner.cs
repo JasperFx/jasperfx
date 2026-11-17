@@ -427,7 +427,7 @@ public static class ClientSideAppendPlanner
         {
             @event.Version = ++version;
 
-            if (@event.Id == Guid.Empty) @event.Id = CombGuidIdGeneration.NewGuid();
+            if (@event.Id == Guid.Empty) @event.Id = SequentialGuid.NextPostgresOrder();
             if (@event.TenantId.IsEmpty()) @event.TenantId = stream.TenantId;
             if (@event.Timestamp == default) @event.Timestamp = context.Timestamp;
 

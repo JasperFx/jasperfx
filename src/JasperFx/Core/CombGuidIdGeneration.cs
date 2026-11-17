@@ -5,7 +5,7 @@ namespace JasperFx.Core;
 /// <summary>
 ///     Comb Guid Id Generation. More info https://web.archive.org/web/20250000000000*/http://www.informit.com/articles/article.aspx?p=25862
 /// </summary>
-[Obsolete("Replaced by the built-in `Guid.CreateVersion7()`. This type will be removed in a future release.")]
+[Obsolete("Use SequentialGuid.NextPostgresOrder() (or SequentialGuid.NextSqlServerOrder() for SQL Server), which NewGuid() now delegates to. This type will be removed in a future release.")]
 public class CombGuidIdGeneration
 {
     /*
@@ -31,9 +31,14 @@ public class CombGuidIdGeneration
         return Create(Guid.NewGuid(), timestamp);
     }
 
+    /// <summary>
+    ///     No longer a COMB: delegates to <see cref="SequentialGuid.NextPostgresOrder" />, which is ordered strictly
+    ///     rather than by millisecond and draws no random number per id. <see cref="GetTimestamp" /> does not read
+    ///     these ids.
+    /// </summary>
     public static Guid NewGuid()
     {
-        return Create(Guid.NewGuid(), DateTimeOffset.UtcNow);
+        return SequentialGuid.NextPostgresOrder();
     }
 
     private static void WriteDateTime(Span<byte> destination, DateTimeOffset timestamp)

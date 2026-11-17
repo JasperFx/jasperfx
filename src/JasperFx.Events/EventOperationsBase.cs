@@ -465,7 +465,7 @@ public abstract class EventOperationsBase : IEventOperations
     /// </remarks>
     private StreamAction startNewStream(Type? aggregateType, object[] events)
         => StreamIdentity == StreamIdentity.AsGuid
-            ? startStream(aggregateType, CombGuidIdGeneration.NewGuid(), events)
+            ? startStream(aggregateType, SequentialGuid.NextPostgresOrder(), events)
             : startStream(aggregateType, Guid.NewGuid().ToString(), events);
 
     private StreamAction expecting(StreamAction stream, long expectedVersion)

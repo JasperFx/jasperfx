@@ -213,7 +213,7 @@ public sealed class EventBoundary<T> : IEventBoundary<T> where T : class
         }
         else
         {
-            _operations.StartStream(CombGuidIdGeneration.NewGuid(), @event);
+            _operations.StartStream(SequentialGuid.NextPostgresOrder(), @event);
         }
     }
 

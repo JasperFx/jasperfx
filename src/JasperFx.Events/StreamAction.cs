@@ -142,7 +142,7 @@ public class StreamAction
     {
         if (@event.Id == Guid.Empty)
         {
-            @event.Id = CombGuidIdGeneration.NewGuid();
+            @event.Id = SequentialGuid.NextPostgresOrder();
         }
 
         @event.StreamId = Id;
@@ -347,7 +347,7 @@ public class StreamAction
         {
             if (@event.Id == default)
             {
-                @event.Id = CombGuidIdGeneration.NewGuid();
+                @event.Id = SequentialGuid.NextPostgresOrder();
             }
 
             @event.TenantId = session.TenantId;
@@ -371,7 +371,7 @@ public class StreamAction
             @event.Version = ++i;
             if (@event.Id == Guid.Empty)
             {
-                @event.Id = CombGuidIdGeneration.NewGuid();
+                @event.Id = SequentialGuid.NextPostgresOrder();
             }
 
             if (sequences.TryDequeue(out var sequence))
@@ -463,7 +463,7 @@ public class StreamAction
             TenantId = TenantId,
             StreamId = Tombstone.StreamId,
             StreamKey = Tombstone.StreamKey,
-            Id = CombGuidIdGeneration.NewGuid(),
+            Id = SequentialGuid.NextPostgresOrder(),
             EventTypeName = eventType.EventTypeName,
             DotNetTypeName = eventType.DotNetTypeName
         });

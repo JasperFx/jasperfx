@@ -1,3 +1,4 @@
+using JasperFx.Core;
 using JasperFx.Core.Reflection;
 using JasperFx.Events.Projections;
 
@@ -16,9 +17,9 @@ public class DeadLetterEvent
         // jasperfx#565: assign the identity here rather than leaving it to the store's document identity
         // generation, so the id of a dead letter is known to the process that created it BEFORE the
         // (background, retried) write lands. Stores only generate an id when the value is empty, so
-        // pre-assigning changes nothing about how the row is persisted. Version 7 keeps the ids
-        // time-ordered, which is what the store's index would have wanted anyway.
-        Id = Guid.CreateVersion7();
+        // pre-assigning changes nothing about how the row is persisted. The id is ordered for PostgreSQL
+        // (and SQLite), since nothing here knows which store writes it; dead letters are rare and small.
+        Id = SequentialGuid.NextPostgresOrder();
 
         ProjectionName = shardName.Name;
         ShardName = shardName.ShardKey;

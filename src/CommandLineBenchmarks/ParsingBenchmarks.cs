@@ -82,6 +82,15 @@ public class Program
 {
     public static void Main(string[] args)
     {
-        BenchmarkRunner.Run<ParsingBenchmarks>();
+        // No arguments runs the parsing benchmarks as before; `--filter *SequentialGuid*` (or any
+        // BenchmarkDotNet switch) picks from every benchmark in this assembly
+        if (args.Length == 0)
+        {
+            BenchmarkRunner.Run<ParsingBenchmarks>();
+        }
+        else
+        {
+            BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
+        }
     }
 }

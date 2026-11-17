@@ -55,7 +55,7 @@ public class TripStream
         return new TimeOnly(hour, 0, 0);
     }
 
-    public Guid StreamId = CombGuidIdGeneration.NewGuid();
+    public Guid StreamId = SequentialGuid.NextPostgresOrder();
 
     public readonly List<object> Events = new List<object>();
 

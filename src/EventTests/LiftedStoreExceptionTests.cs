@@ -82,7 +82,7 @@ public class LiftedStoreExceptionTests
     [Fact]
     public void event_deserialization_failure_builds_a_correlatable_dead_letter()
     {
-        // Lifted from Marten's internal ToDeadLetterEvent: the id is pre-assigned (version 7) so the
+        // Lifted from Marten's internal ToDeadLetterEvent: the id is pre-assigned (time-ordered) so the
         // creating process can correlate the ShardFailure it reports with the background, retried
         // dead letter write.
         var ex = new EventDeserializationFailureException(42, "trip_started", new Exception("boom"));
@@ -90,7 +90,7 @@ public class LiftedStoreExceptionTests
         var deadLetter = ex.ToDeadLetterEvent(new ShardName("Trip", "All", 2));
 
         deadLetter.Id.ShouldNotBe(Guid.Empty);
-        deadLetter.Id.Version.ShouldBe(7);
+        ex.ToDeadLetterEvent(new ShardName("Trip", "All", 2)).Id.ShouldBeGreaterThan(deadLetter.Id);
         deadLetter.EventSequence.ShouldBe(42);
         deadLetter.ExceptionMessage.ShouldBe(ex.Message);
         deadLetter.ExceptionType.ShouldBe("JasperFx.Events.EventDeserializationFailureException");
