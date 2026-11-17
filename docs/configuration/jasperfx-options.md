@@ -32,6 +32,7 @@ public static void ConfigureOptions(IServiceCollection services)
 | `ActiveProfile` | `string` | `"Development"` | The current application profile |
 | `RequiredFiles` | `string[]` | `[]` | Files that must exist at startup |
 | `RememberedApplicationAssembly` | `Assembly?` | `null` | Override the detected application assembly |
+| `RememberApplicationAssembly` | `bool` | `true` | Whether this host records and reuses `RememberedApplicationAssembly` |
 
 ## Profiles
 
@@ -99,6 +100,20 @@ JasperFxOptions.RememberedApplicationAssembly = typeof(MyApp).Assembly;
 ```
 
 This is useful when test runners or IDEs change the entry assembly.
+
+`RememberedApplicationAssembly` is a static, so it's shared by every host in the process. The first host to start
+without an explicit application assembly records its own there, and every later host that doesn't name one reuses
+it. In a test suite that starts several hosts, that makes type discovery depend on which test ran first. You have
+two ways out of that:
+
+```csharp
+// This host neither records nor reuses the remembered assembly. Without an explicit
+// ApplicationAssembly it uses the assembly it was registered from
+services.AddJasperFx(opts => opts.RememberApplicationAssembly = false);
+
+// Or clear the remembered assembly between hosts in a test fixture
+JasperFxOptions.ResetRememberedApplicationAssembly();
+```
 
 ### Extensions that register JasperFx later
 

@@ -65,6 +65,29 @@ public class JasperFxOptions : SystemPartBase
     /// </summary>
     public static Assembly? RememberedApplicationAssembly;
 
+    /// <summary>
+    ///     Clears <see cref="RememberedApplicationAssembly"/>, so the next host to start without an explicit
+    ///     application assembly resolves its own again. For test fixtures that start several hosts in one process.
+    /// </summary>
+    public static void ResetRememberedApplicationAssembly()
+    {
+        RememberedApplicationAssembly = null;
+    }
+
+    /// <summary>
+    ///     Whether this host takes part in the process-wide <see cref="RememberedApplicationAssembly"/>. The
+    ///     default is true: the first host to start records its application assembly, and every later host that
+    ///     doesn't name one reuses it. Set this to false and the host neither records nor reuses the remembered
+    ///     assembly; without an explicit <see cref="ApplicationAssembly"/> it uses the assembly it was registered
+    ///     from. Useful in a test suite where discovery would otherwise depend on which test ran first.
+    /// </summary>
+    public bool RememberApplicationAssembly { get; set; } = true;
+
+    // jasperfx#1204: true when this host's own AddJasperFx call is the one that recorded
+    // RememberedApplicationAssembly. AddJasperFx records eagerly, before this host's configuration has run, so
+    // a host that turns RememberApplicationAssembly off takes its recording back in ReadHostEnvironment.
+    internal Assembly? RecordedRememberedApplicationAssembly { get; set; }
+
     // GH-3521: the assembly this host's own AddJasperFx call resolved to, captured while the caller's frame
     // was still on the stack (see JasperFxServiceCollectionExtensions.AddJasperFx). Compared later against
     // the application assembly actually adopted for code generation and type discovery — which, for an
@@ -178,6 +201,12 @@ public class JasperFxOptions : SystemPartBase
         {
             ApplicationAssembly ??= Assembly.Load(assemblyName);
         }
+        else if (!RememberApplicationAssembly)
+        {
+            // jasperfx#1204: opted out of the process-wide pin, so use where this host was registered. A walk
+            // from here would resolve whoever is resolving the options, not the application.
+            ApplicationAssembly = RegistrationCallingAssembly ?? DetermineCallingAssembly();
+        }
         else if (RememberedApplicationAssembly != null)
         {
             ApplicationAssembly = RememberedApplicationAssembly;
@@ -195,6 +224,17 @@ public class JasperFxOptions : SystemPartBase
         {
             throw new InvalidOperationException("Unable to determine an application assembly");
         }
+    }
+
+    // jasperfx#1204: take back the RememberedApplicationAssembly this host's AddJasperFx recorded, unless
+    // another host has replaced it since.
+    private void forgetOwnRememberedApplicationAssembly()
+    {
+        var recorded = RecordedRememberedApplicationAssembly;
+        if (recorded == null) return;
+
+        Interlocked.CompareExchange(ref RememberedApplicationAssembly, null, recorded);
+        RecordedRememberedApplicationAssembly = null;
     }
 
     // GH-3521: record a warning (surfaced later by a consumer that has a logger at startup) when the
@@ -499,6 +539,11 @@ public class JasperFxOptions : SystemPartBase
     [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Calls establishApplicationAssembly when ApplicationAssembly is unset; the fallback walks the call stack to determine the calling assembly.")]
     internal void ReadHostEnvironment(IHostEnvironment environment)
     {
+        if (!RememberApplicationAssembly)
+        {
+            forgetOwnRememberedApplicationAssembly();
+        }
+
         if (GeneratedCodeOutputPath == null)
         {
             var basePath = environment.ContentRootPath;

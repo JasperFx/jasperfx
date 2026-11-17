@@ -94,10 +94,11 @@ public static class JasperFxServiceCollectionExtensions
     private static IServiceCollection addJasperFx(IServiceCollection services, Action<JasperFxOptions>? configure,
         Assembly? registrationAssembly)
     {
-        if (JasperFxOptions.RememberedApplicationAssembly == null)
-        {
-            JasperFxOptions.RememberedApplicationAssembly = registrationAssembly;
-        }
+        // jasperfx#1204: remember whether THIS registration recorded the process-wide assembly, so a host that
+        // sets RememberApplicationAssembly = false (which this call can't see yet) can take it back.
+        var recorded = registrationAssembly != null &&
+                       Interlocked.CompareExchange(ref JasperFxOptions.RememberedApplicationAssembly,
+                           registrationAssembly, null) == null;
 
         bool exists = services.Any(x => !x.IsKeyedService && x.ServiceType == typeof(JasperFxOptions));
         
@@ -113,6 +114,10 @@ public static class JasperFxServiceCollectionExtensions
         // more than once against the same container. Compared later in establishApplicationAssembly against
         // the assembly actually adopted for discovery.
         optionsBuilder.Configure(o => o.RegistrationCallingAssembly ??= registrationAssembly);
+        if (recorded)
+        {
+            optionsBuilder.Configure(o => o.RecordedRememberedApplicationAssembly ??= registrationAssembly);
+        }
 
         services.TryAddSingleton<IHostEnvironment, HostingEnvironment>();
         
