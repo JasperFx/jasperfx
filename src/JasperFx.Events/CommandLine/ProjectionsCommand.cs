@@ -2,6 +2,7 @@ using JasperFx.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace JasperFx.Events.CommandLine;
 
@@ -30,6 +31,11 @@ public class ProjectionsCommand: JasperFxAsyncCommand<ProjectionInput>
         // jasperfx#1205: see and manage a projection's persisted start floor. No daemon involved.
         if (input.Action == ProjectionAction.floor)
         {
+            if (input.AdvanceFlag)
+            {
+                AnsiConsole.MarkupLine("[yellow]--advance only applies to the run and rebuild actions. No high water mark was moved[/]");
+            }
+
             var stores = host.Services.GetServices<IEventStore>().ToArray();
             return await new ProjectionFloorController(stores, new ProjectionFloorView()).ExecuteAsync(input)
                 .ConfigureAwait(false);

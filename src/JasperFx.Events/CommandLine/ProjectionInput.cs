@@ -38,7 +38,7 @@ public class ProjectionInput: NetCoreInput
     [FlagAlias("shard-timeout", longAliasOnly: true)]
     public string? ShardTimeoutFlag { get; set; }
 
-    [Description("If specified, advances the projection high water mark to the latest event sequence")]
+    [Description("With the run or rebuild action: first advance the high water mark of every selected database to the latest committed event sequence. Any gap below it is skipped for good")]
     public bool AdvanceFlag { get; set; }
 
     // jasperfx#1205: the floor action's modes. Long-only, because the parser derives one-letter aliases from

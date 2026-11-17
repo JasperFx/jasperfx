@@ -1,5 +1,6 @@
 using JasperFx.Descriptors;
 using JasperFx.Events.CommandLine;
+using JasperFx.Events.Daemon.HighWater;
 using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using Shouldly;
@@ -34,10 +35,13 @@ public class ProjectionRebuildSelectionTests
     }
 
     private EventStoreUsage usageWith(params SubscriptionDescriptor[] subscriptions)
+        => usageWith(new Uri("marten://main"), subscriptions);
+
+    private EventStoreUsage usageWith(Uri subjectUri, params SubscriptionDescriptor[] subscriptions)
     {
         var usage = new EventStoreUsage
         {
-            SubjectUri = new Uri("marten://main"),
+            SubjectUri = subjectUri,
             Database = new DatabaseUsage
             {
                 Cardinality = DatabaseCardinality.Single,
@@ -84,6 +88,110 @@ public class ProjectionRebuildSelectionTests
 
         theHost.RebuiltNames.ShouldBeEmpty();
     }
+
+    // jasperfx#1210: --advance was parsed and then ignored
+
+    [Fact]
+    public async Task advance_moves_the_high_water_mark_before_a_rebuild()
+    {
+        theHost.Usages =
+        [
+            usageWith(descriptor("AsyncProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection))
+        ];
+
+        (await theController.Execute(new ProjectionInput { Action = ProjectionAction.rebuild, AdvanceFlag = true }))
+            .ShouldBeTrue();
+
+        theHost.Calls.ShouldBe(["advance main", "rebuild main"]);
+        theHost.AdvancedSelections.Single().DatabaseIdentifiers.ShouldBe(["*Default*"]);
+    }
+
+    [Fact]
+    public async Task advance_moves_the_high_water_mark_before_running_continuously()
+    {
+        theHost.Usages =
+        [
+            usageWith(descriptor("AsyncProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection))
+        ];
+
+        (await theController.Execute(new ProjectionInput { Action = ProjectionAction.run, AdvanceFlag = true }))
+            .ShouldBeTrue();
+
+        theHost.Calls.ShouldBe(["advance main", "start main"]);
+    }
+
+    [Fact]
+    public async Task without_advance_no_high_water_mark_moves()
+    {
+        theHost.Usages =
+        [
+            usageWith(descriptor("AsyncProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection))
+        ];
+
+        await theController.Execute(new ProjectionInput { Action = ProjectionAction.rebuild });
+
+        theHost.AdvancedSelections.ShouldBeEmpty();
+        theHost.Calls.ShouldBe(["rebuild main"]);
+    }
+
+    [Fact]
+    public async Task advance_is_not_applied_to_the_list_action()
+    {
+        theHost.Usages =
+        [
+            usageWith(descriptor("AsyncProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection))
+        ];
+
+        (await theController.Execute(new ProjectionInput { Action = ProjectionAction.list, AdvanceFlag = true }))
+            .ShouldBeTrue();
+
+        theHost.AdvancedSelections.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task a_failed_advance_stops_before_anything_is_rebuilt()
+    {
+        theHost.Usages =
+        [
+            usageWith(descriptor("AsyncProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection))
+        ];
+        theHost.AdvanceFailure = new NotSupportedException("this store cannot advance its high water mark");
+
+        (await theController.Execute(new ProjectionInput { Action = ProjectionAction.rebuild, AdvanceFlag = true }))
+            .ShouldBeFalse();
+
+        theHost.Calls.ShouldBe(["advance main"]);
+    }
+
+    [Fact]
+    public async Task advance_and_rebuild_cover_every_selected_event_store()
+    {
+        // The rebuild used to return after the first event store, so a second one was never rebuilt
+        theHost.Usages =
+        [
+            usageWith(new Uri("marten://main"),
+                descriptor("MainProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection)),
+            usageWith(new Uri("marten://other"),
+                descriptor("OtherProjection", ProjectionLifecycle.Async, SubscriptionType.SingleStreamProjection))
+        ];
+
+        (await theController.Execute(new ProjectionInput { Action = ProjectionAction.rebuild, AdvanceFlag = true }))
+            .ShouldBeTrue();
+
+        theHost.Calls.ShouldBe([
+            "advance main", "advance other", "rebuild main", "rebuild other"
+        ]);
+    }
+
+    [Fact]
+    public void the_advance_report_names_the_mark_and_what_was_skipped()
+    {
+        ProjectionHost.DescribeAdvance(new HighWaterMarkAdvance("main", null, HighWaterAdvanceOutcome.Advanced, 10, 15, 2))
+            .ShouldBe("High water mark of database 'main' advanced from 10 to 15, skipping 2 sequence number(s) with no committed event");
+
+        ProjectionHost.DescribeAdvance(new HighWaterMarkAdvance("main", "red", HighWaterAdvanceOutcome.AlreadyAtCeiling, 15, 15, 0))
+            .ShouldBe("High water mark of tenant 'red' in database 'main' is already at the latest committed sequence (15)");
+    }
 }
 
 // Was implemented by the test class itself. Interface members have to be public, so every one of
@@ -96,6 +204,13 @@ internal class RecordingProjectionHost : IProjectionHost
 
     public string[] RebuiltNames { get; private set; } = [];
 
+    // The order the controller called the host in, one entry per call: "advance", "rebuild" or "start" plus the store
+    public List<string> Calls { get; } = [];
+
+    public List<ProjectionSelection> AdvancedSelections { get; } = [];
+
+    public Exception? AdvanceFailure { get; set; }
+
     public Task<IReadOnlyList<EventStoreUsage>> AllStoresAsync() => Task.FromResult(Usages);
 
     public void ListenForUserTriggeredExit() { }
@@ -104,16 +219,25 @@ internal class RecordingProjectionHost : IProjectionHost
         ProjectionInput input, string[] names, TimeSpan? shardTimeout = null)
     {
         RebuiltNames = names;
+        Calls.Add($"rebuild {databaseIdentifier.SubjectUri.Host}");
         return Task.FromResult(RebuildStatus.Complete);
     }
 
     public Task StartShardsAsync(EventStoreDatabaseIdentifier databaseIdentifier, string[] projectionNames)
-        => Task.CompletedTask;
+    {
+        Calls.Add($"start {databaseIdentifier.SubjectUri.Host}");
+        return Task.CompletedTask;
+    }
 
     public Task WaitForExitAsync() => Task.CompletedTask;
 
     public Task AdvanceHighWaterMarkToLatestAsync(ProjectionSelection selection, CancellationToken none)
-        => Task.CompletedTask;
+    {
+        Calls.Add($"advance {selection.Storage.SubjectUri.Host}");
+        AdvancedSelections.Add(selection);
+
+        return AdvanceFailure == null ? Task.CompletedTask : Task.FromException(AdvanceFailure);
+    }
 }
 
 internal class NulloConsoleView : IConsoleView
