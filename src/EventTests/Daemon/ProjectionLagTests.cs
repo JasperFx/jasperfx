@@ -489,6 +489,27 @@ public class ProjectionLagTests
     }
 
     [Fact]
+    public async Task store_wide_tenant_read_on_a_database_per_tenant_store_matches_the_untenanted_cells()
+    {
+        // Database per tenant without per-tenant event partitioning: the cells carry no tenant
+        var dbA = new LagDatabase([row("HighWaterMark", 50), row("Trips:All", 50)], "db-a");
+        var dbB = new LagDatabase([row("HighWaterMark", 70), row("Trips:All", 30)], "db-b");
+        IEventStore store = new LagStore([ShardName.Compose("Trips"), ShardName.Compose("Orders")], dbA, dbB)
+        {
+            TenantDatabases = { ["alpha"] = dbA, ["beta"] = dbB }
+        };
+
+        var lags = await store.FetchProjectionLagAsync(ShardName.Compose("Trips", tenantId: "beta"),
+            TestContext.Current.CancellationToken);
+
+        dbA.Reads.ShouldBe(0);
+        var lag = lags.ShouldHaveSingleItem();
+        lag.DatabaseIdentifier.ShouldBe("db-b");
+        lag.Shard.Identity.ShouldBe("Trips:All");
+        lag.Lag.ShouldBe(40);
+    }
+
+    [Fact]
     public async Task store_wide_tenant_read_falls_back_to_every_database()
     {
         var dbA = new LagDatabase([row("HighWaterMark:acme", 50), row("Trips:All:acme", 20)], "db-a");
