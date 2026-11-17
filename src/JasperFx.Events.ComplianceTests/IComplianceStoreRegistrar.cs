@@ -87,6 +87,14 @@ public interface IComplianceStoreRegistrar
     void LiveAggregation<TDoc>() where TDoc : notnull;
 
     /// <summary>
+    /// Store <typeparamref name="TDoc" /> soft-deleted (jasperfx#1201). Marten:
+    /// <c>Schema.For&lt;TDoc&gt;().SoftDeleted()</c>.
+    /// </summary>
+    void SoftDeleted<TDoc>() where TDoc : notnull
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement SoftDeleted, so it cannot run the soft-deleted per-identity rebuild facts.");
+
+    /// <summary>
     /// Register a strong-typed identifier wrapper — a type with a single public gettable property
     /// and either a matching constructor or a static builder taking that property's type.
     /// </summary>

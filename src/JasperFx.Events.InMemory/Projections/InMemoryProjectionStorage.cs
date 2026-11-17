@@ -101,6 +101,13 @@ internal sealed class InMemoryProjectionStorage<TDoc, TId> : IProjectionStorage<
         _changes.RecordDeleted(typeof(TDoc), id);
     }
 
+    // jasperfx#1201: a per-identity rebuild clears the identity outright before it writes the re-fold
+    public void HardDeleteById(TId identity)
+    {
+        _store.HardRemove(typeof(TDoc), TenantId, identity!);
+        _changes.RecordDeleted(typeof(TDoc), identity);
+    }
+
     // Storing a row clears its soft-deleted mark, and UnDelete is always followed by a Store
     public void UnDelete(TDoc snapshot)
     {

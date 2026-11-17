@@ -2,6 +2,7 @@ using EventStoreTests.Documents.LiveAggregation;
 using JasperFx.Events;
 using JasperFx.Events.Documents;
 using JasperFx.Events.InMemory;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Shouldly;
@@ -198,11 +199,30 @@ public class InMemoryIEventStoreTests
     }
 
     [Fact]
-    public async Task the_daemon_is_refused_with_a_message_that_says_why()
+    public async Task a_daemon_runs_an_async_snapshot()
     {
-        IEventStore store = new InMemoryDocumentStore();
+        // jasperfx#1201: JasperFx's own daemon over the store's events, progression and documents
+        var store = new InMemoryDocumentStore();
+        store.Projections.Snapshot<Ticket>(SnapshotLifecycle.Async);
 
-        var ex = await Should.ThrowAsync<NotSupportedException>(async () => await store.BuildProjectionDaemonAsync());
-        ex.Message.ShouldContain("in-memory prototyping store");
+        var id = Guid.NewGuid();
+        await appendAsync(store, id, new TicketOpened("one"));
+
+        var daemon = await ((IEventStore)store).BuildProjectionDaemonAsync();
+        await daemon.StartAllAsync();
+        try
+        {
+            var database = (await ((IEventStore)store).AllDatabases())[0];
+            await database.WaitForNonStaleProjectionDataAsync(TimeSpan.FromSeconds(30));
+
+            await using var query = store.QuerySession();
+            (await query.LoadAsync<Ticket>(id, Token)).ShouldNotBeNull();
+
+            (await database.AllProjectionProgress(Token)).ShouldContain(x => x.ShardName.StartsWith("Ticket"));
+        }
+        finally
+        {
+            await daemon.StopAllAsync();
+        }
     }
 }

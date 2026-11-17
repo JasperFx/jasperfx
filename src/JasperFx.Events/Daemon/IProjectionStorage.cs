@@ -70,6 +70,15 @@ public interface IProjectionStorage<TDoc, TId> : IIdentitySetter<TDoc, TId>
     void StoreProjectionForRebuildFlush(TDoc aggregate, IEvent? lastEvent, AggregationScope scope,
         bool previouslyFlushed)
         => StoreProjection(aggregate, lastEvent, scope);
+
+    /// <summary>
+    /// jasperfx#1201: remove the document with this identity outright, soft-deleted or not, as part of the batch.
+    /// A per-identity rebuild clears the identity this way before it writes the re-fold, so a fold that ends in
+    /// nothing leaves no document and a soft-deleted row does not survive a fold that recreates it.
+    /// </summary>
+    void HardDeleteById(TId identity)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} cannot hard delete a projected document by its identity, which a per-identity rebuild needs (jasperfx#1201).");
 }
 
 public static class ProjectionStorageExtensions

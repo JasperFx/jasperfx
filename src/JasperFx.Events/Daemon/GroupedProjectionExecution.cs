@@ -78,6 +78,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         // flushed its final window (that's what let it complete), so this is a no-op there; a rebuild torn down
         // early discards its accumulator so nothing partial is written and replay stays clean.
         _runner.DiscardDeferredRebuildWrites();
+        abandonIdentityRebuilds();
 
         if (Disposables != null)
         {
@@ -115,6 +116,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         finally
         {
             await _cancellation.CancelAsync().ConfigureAwait(false);
+            abandonIdentityRebuilds();
         }
     }
 
@@ -125,6 +127,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
 
         // jasperfx#525: a hard stop mid-rebuild throws away the un-flushed accumulator (see DisposeAsync).
         _runner.DiscardDeferredRebuildWrites();
+        abandonIdentityRebuilds();
     }
 
     public async Task ProcessImmediatelyAsync(SubscriptionAgent subscriptionAgent, EventPage page,
@@ -153,6 +156,19 @@ public class GroupedProjectionExecution : ISubscriptionExecution
     }
 
     public Task CompactCachesAsync() => _runner.CompactCachesAsync();
+
+    // jasperfx#1201
+    bool ISubscriptionExecution.TryGetIdentityRebuilder([NotNullWhen(true)] out IIdentityRebuilder? rebuilder)
+    {
+        rebuilder = _runner as IIdentityRebuilder;
+        return rebuilder != null;
+    }
+
+    // jasperfx#1201: a request still waiting when the shard goes away can never be bound
+    private void abandonIdentityRebuilds()
+    {
+        (_runner as IIdentityRebuilder)?.AbandonAll();
+    }
 
     private async Task<EventRange> groupEventRangeAsync(EventRange range, CancellationToken _)
     {
@@ -306,6 +322,10 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             _logger.LogError(e,
                 "Error trying to build and apply changes to event subscription {Name} from {Floor} to {Ceiling}",
                 ShardName.Identity, range.SequenceFloor, range.SequenceCeiling);
+
+            // jasperfx#1201: a per-identity rebuild bound to a batch that failed did not happen
+            (_runner as IIdentityRebuilder)?.FaultBound(e);
+
             await range.Agent.ReportCriticalFailureAsync(e).ConfigureAwait(false);
         }
         finally

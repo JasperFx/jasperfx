@@ -129,6 +129,7 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
         _metadata.Clear();
         _streams.Clear();
         _events.Clear();
+        _progression.Clear();
     }
 
     // jasperfx#963. One commit at a time, so two sessions' units of work never interleave, and a
@@ -423,6 +424,30 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
 
     internal InMemoryDocumentStore OwningStore => _store;
 
+    // jasperfx#1201: set on the sessions an async projection batch opens. Their projection storage queues its
+    // writes here, from the daemon's concurrent slices, and the batch drains them into its commit.
+    internal bool QueuesProjectionWrites { get; init; }
+
+    private readonly object _projectionWriteLock = new();
+
+    internal void EnqueueProjectionWrite(Action<InMemoryChangeSet> write)
+    {
+        lock (_projectionWriteLock)
+        {
+            _pending.Add(write);
+        }
+    }
+
+    internal Action<InMemoryChangeSet>[] DrainProjectionWrites()
+    {
+        lock (_projectionWriteLock)
+        {
+            var writes = _pending.ToArray();
+            _pending.Clear();
+            return writes;
+        }
+    }
+
     /// <summary>The tenant this session reads and writes as.</summary>
     public string TenantId => _tenantId;
 
@@ -482,6 +507,13 @@ public class InMemoryDocumentSession : IInMemoryDocumentSession, IMetadataContex
     public Task<IProjectionStorage<TDoc, TId>> FetchProjectionStorageAsync<TDoc, TId>(string tenantId,
         CancellationToken cancellationToken)
     {
+        // jasperfx#1201: an async projection batch's session queues the writes for the batch's own commit
+        if (QueuesProjectionWrites)
+        {
+            return Task.FromResult<IProjectionStorage<TDoc, TId>>(
+                new Daemon.InMemoryQueuedProjectionStorage<TDoc, TId>(_store, this, tenantId));
+        }
+
         var changes = _committing ?? throw new InvalidOperationException(
             "Projection storage on the in-memory prototyping store is only available to inline projections, " +
             "while the session is committing.");
