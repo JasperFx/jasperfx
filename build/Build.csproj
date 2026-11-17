@@ -22,8 +22,13 @@
 
       Nothing is shipped from build/, so this has no consumer impact. Drop the pin once Nuke ships
       against a NuGet.Packaging that doesn't drag in a vulnerable version.
+
+      9.0.18 has since picked up four more high-severity advisories of its own (GHSA-846f-f764-76mx on
+      .Pkcs, GHSA-7hqp-7c5m-4vq6, GHSA-c399-9853-6jmj and GHSA-r955-8q5j-3h83 on .Xml), so both packages
+      are pinned to the patched 10.0.x line now. This project targets net10.0, so that is the matching line.
     -->
-    <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.18" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.15" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
 
     <!--
       Same story one level up: NuGet.Packaging 6.12.1 carries the low-severity GHSA-g4vj-cjjj-v7hg

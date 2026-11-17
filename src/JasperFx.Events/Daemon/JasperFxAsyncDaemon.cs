@@ -931,6 +931,23 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return cancellation;
     }
 
+    /// <summary>
+    /// jasperfx#1225: wait until the status transitions published so far, a stopped agent's Stopped above all,
+    /// have been handed to the extended progression writer and written. An agent publishes through
+    /// <see cref="ShardStateTracker.PublishAsync" />, which only queues the state, so a stop that returned
+    /// without this could be followed by a Dispose() that detached the writer before the state reached it.
+    /// Best effort and bounded by <see cref="DaemonSettings.StopAndDrainTimeout" />, like the drain itself.
+    /// </summary>
+    private async Task waitForStatusWritesAsync()
+    {
+        var writer = _extendedProgression;
+        if (writer == null || !_store.ExtendedProgressionEnabled) return;
+
+        using var bound = stopAndDrainCancellation();
+        await Tracker.WaitForDeliveryAsync(bound.Token).ConfigureAwait(false);
+        await writer.WaitForQueuedWritesAsync(bound.Token).ConfigureAwait(false);
+    }
+
     private async Task stopIfRunningAsync(string shardIdentity)
     {
         if (_agents.TryFind(shardIdentity, out var agent))
@@ -998,6 +1015,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                     _agents = _agents.Remove(shardName);
                     syncTenantPolling();
                     await disposeAgentAsync(agent).ConfigureAwait(false);
+
+                    // jasperfx#1225: the writer stays attached here, but a Dispose() right after this stop
+                    // would detach it with the Stopped state still queued on the tracker
+                    await waitForStatusWritesAsync().ConfigureAwait(false);
 
                     if (!_agents.Enumerate().Any() && _highWater.IsRunning)
                     {
@@ -1128,11 +1149,30 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             // heartbeat queued during shutdown is fully persisted before StopAllAsync returns. Left to the
             // sync Dispose() it would drain fire-and-forget in the background and could overtake a later
             // deliberate write to the same progression row.
+            //
+            // jasperfx#1225: the agents' Stopped states are only QUEUED on the tracker by now, so let the
+            // tracker hand them to the writer before unsubscribing it. Detaching first lost them outright,
+            // left the row at Running, and gave the drain nothing to write.
             try
             {
+                using var bound = stopAndDrainCancellation();
+                var waitForDelivery = _extendedProgression != null && _store.ExtendedProgressionEnabled;
+
+                if (waitForDelivery)
+                {
+                    await Tracker.WaitForDeliveryAsync(bound.Token).ConfigureAwait(false);
+                }
+
                 var writer = detachExtendedProgressionWriter();
                 if (writer != null)
                 {
+                    if (waitForDelivery)
+                    {
+                        // A publication walk that picked up the writer before it was unsubscribed can still be
+                        // inside its OnNext. Let it finish so the drain below is all that touches the writer.
+                        await Tracker.WaitForDeliveryAsync(bound.Token).ConfigureAwait(false);
+                    }
+
                     await writer.DisposeAsync().ConfigureAwait(false);
                 }
             }
