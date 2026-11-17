@@ -95,8 +95,9 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
         return Task.CompletedTask;
     }
 
-    // Inline projections are written in the commit, so nothing is ever stale
-    public override Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout) => Task.CompletedTask;
+    // Inline projections are written in the commit; async ones are waited for on the store's one database
+    public override async Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout)
+        => await (await Store.AllDatabases()).Single().WaitForNonStaleProjectionDataAsync(timeout);
 
     public override bool SupportsConjoinedEventTenancy => false;
 
@@ -112,14 +113,25 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
 
     public override bool SupportsFlatTableProjections => false;
 
+    // jasperfx#1201: the store runs JasperFx's daemon for async projections, and implements the re-fold seams
+    public override bool SupportsIdentityRebuild => true;
+
+    public override bool SupportsSoftDeletedProjectionDocuments => true;
+
     // jasperfx#985: the store is an IEventStore
     public override IEventStore EventStore => Store;
+
+    public override async Task<IProjectionDaemon> StartDaemonAsync()
+    {
+        var daemon = await Store.BuildProjectionDaemonAsync();
+        await daemon.StartAllAsync();
+        return daemon;
+    }
 
     // ---- out of scope for a prototyping store ----
 
     public override IComplianceBatch CreateBatch(IInMemoryQuerySession session) => throw notSupported("Batched queries");
 
-    public override Task<IProjectionDaemon> StartDaemonAsync() => throw notSupported("The async daemon");
 
     public override Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryTableAsync(string tableName,
         CancellationToken token)
@@ -164,5 +176,7 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
             => store.Projections.Add(projection, lifecycle);
 
         public void Subscribe(ComplianceSubscription subscription) => throw notSupported("Subscriptions");
+
+        public void SoftDeleted<TDoc>() where TDoc : notnull => store.SoftDeletedTypes.Add(typeof(TDoc));
     }
 }

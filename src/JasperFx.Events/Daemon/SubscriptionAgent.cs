@@ -731,6 +731,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
                 await _tracker.PublishAsync(stamp(new ShardState(Name, LastCommitted)));
 
+                // jasperfx#1201: a request that arrived after the last in-flight page had already read the pending
+                // set gets a batch of its own once nothing is in flight. One null check when none was ever made.
+                if (_identityRebuilder is { HasUnboundRequests: true })
+                {
+                    await carryIdentityRebuildsIfIdleAsync().ConfigureAwait(false);
+                }
+
                 if (LastCommitted == HighWaterMark && Mode == ShardExecutionMode.Rebuild)
                 {
                     // We're done, get out of here!
@@ -759,6 +766,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             case CommandType.WarmupSlotGranted:
                 // jasperfx#598/#610: the throttle handed this shard a warm-up slot. Nothing to reconcile —
                 // the standing was already published by the waiter; fall through and start loading.
+                break;
+
+            case CommandType.IdentityRebuild:
+                takeIdentityRebuild((IdentityRebuildTicket)command.Payload!);
+                break;
+
+            case CommandType.IdentityRebuildReady:
+                await carryIdentityRebuildsIfIdleAsync().ConfigureAwait(false);
                 break;
         }
 
@@ -1016,6 +1031,110 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         // A restarted agent starts over from what it last committed, so nothing it loaded before is still held
         releaseLoadBudget();
         _loadGovernor = _runtime.TenantLoadGovernorFor(Name);
+    }
+
+    // jasperfx#1201: set on the command loop the first time a per-identity rebuild is taken
+    private IIdentityRebuilder? _identityRebuilder;
+
+    /// <summary>
+    /// jasperfx#1201: rebuild one identity of this agent's single-stream projection, bound to the next batch the
+    /// shard builds. See <see cref="IProjectionDaemon.RebuildIdentityAsync(string, IdentityRebuildRequest, CancellationToken)" />.
+    /// </summary>
+    public async Task<IdentityRebuildResult> RebuildIdentityAsync(IdentityRebuildRequest request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var ticket = new IdentityRebuildTicket(Name.Name, request);
+
+        if (!_execution.TryGetIdentityRebuilder(out var rebuilder))
+        {
+            throw ticket.Refusal(IdentityRebuildRefusal.NotASingleStreamProjection);
+        }
+
+        if (rebuilder.CanRebuildIdentities is { } refusal)
+        {
+            throw ticket.Refusal(refusal);
+        }
+
+        // A shard that stops before its command loop takes the ticket would otherwise leave it waiting forever
+        await using var stopped = _cancellation.Token.Register(() =>
+        {
+            if (ticket.TryMarkAbandoned()) ticket.TryFault(ticket.Refusal(IdentityRebuildRefusal.ShardStopped));
+        });
+
+        if (_disposed || _cancellation.IsCancellationRequested)
+        {
+            if (ticket.TryMarkAbandoned()) throw ticket.Refusal(IdentityRebuildRefusal.ShardStopped);
+        }
+        else
+        {
+            try
+            {
+                await _commandBlock.PostAsync(Command.IdentityRebuild(ticket)).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is InvalidOperationException or ObjectDisposedException or OperationCanceledException)
+            {
+                if (ticket.TryMarkAbandoned()) throw ticket.Refusal(IdentityRebuildRefusal.ShardStopped);
+            }
+        }
+
+        return await ticket.Task.WaitAsync(token).ConfigureAwait(false);
+    }
+
+    // On the command loop
+    private void takeIdentityRebuild(IdentityRebuildTicket ticket)
+    {
+        if (!ticket.TryMarkSubmitted()) return;
+
+        IdentityRebuildRefusal? refusal = null;
+        if (Mode == ShardExecutionMode.Rebuild || _replaying)
+        {
+            refusal = IdentityRebuildRefusal.ShardIsRebuilding;
+        }
+        else if (Status != AgentStatus.Running)
+        {
+            refusal = IdentityRebuildRefusal.ShardStopped;
+        }
+        else if (LastCommitted <= 0)
+        {
+            refusal = IdentityRebuildRefusal.ShardHasNeverCommitted;
+        }
+        else if (!_execution.TryGetIdentityRebuilder(out var rebuilder))
+        {
+            refusal = IdentityRebuildRefusal.NotASingleStreamProjection;
+        }
+        else if (rebuilder.CanRebuildIdentities is { } why)
+        {
+            refusal = why;
+        }
+        else
+        {
+            _identityRebuilder = rebuilder;
+
+            // The committed position right now is where a long stream is pre-folded to, off this loop
+            rebuilder.Submit(ticket, LastCommitted,
+                async () => await _commandBlock.PostAsync(Command.IdentityRebuildReady()).ConfigureAwait(false));
+            return;
+        }
+
+        ticket.TryFault(ticket.Refusal(refusal.Value));
+    }
+
+    // On the command loop. A request is carried by the next batch the shard builds; when nothing is in flight there
+    // is no next batch, so enqueue an empty page (C, C] at the committed position to carry it. Its batch writes the
+    // re-fold and records progression C again, which moves nothing.
+    private async Task carryIdentityRebuildsIfIdleAsync()
+    {
+        if (_identityRebuilder is not { HasUnboundRequests: true }) return;
+        if (_replaying || Mode == ShardExecutionMode.Rebuild || Status != AgentStatus.Running) return;
+        if (LastEnqueued != LastCommitted || LastCommitted <= 0) return;
+
+        var page = new EventPage(LastCommitted);
+        page.CalculateCeiling(Math.Max(Options.BatchSize, 1), LastCommitted);
+        page.HighWaterMark = HighWaterMark;
+
+        await _execution.EnqueueAsync(page, this).ConfigureAwait(false);
     }
 
     private async Task<EventPage?> loadNextAsync()

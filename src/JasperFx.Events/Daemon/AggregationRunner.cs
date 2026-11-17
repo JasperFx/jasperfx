@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>
+public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGroupedProjectionRunner, IAggregateCaching<TId, TDoc>, IIdentityRebuilder
     where TOperations : TQuerySession, IStorageOperations where TId : notnull where TDoc : notnull
 {
     private readonly Lock _cacheLock = new();
@@ -155,6 +155,14 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
             }
         }
 
+        // jasperfx#1201: a per-identity rebuild waiting for a batch is bound to this one. Null, or zero work,
+        // whenever nothing has been requested, which is the whole of the idle cost on this path.
+        var identityRebuilds = _identityRebuilds;
+        if (identityRebuilds is { Work: > 0 })
+        {
+            await bindIdentityRebuildsAsync(identityRebuilds, range, batch, mode, cancellation).ConfigureAwait(false);
+        }
+
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>().ToArray();
         foreach (var group in groups)
         {
@@ -226,6 +234,10 @@ public class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IGrouped
                 update.Cache.Store(update.Id, update.Snapshot!);
             }
         }
+
+        // jasperfx#1201: the batch committed, so the per-identity rebuilds bound to it are done. After the cache
+        // took their re-folds, before the next batch is built.
+        completeBoundIdentityRebuilds();
 
         try
         {

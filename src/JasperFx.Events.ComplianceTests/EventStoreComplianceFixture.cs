@@ -898,6 +898,20 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsPendingEventAges => false;
 
     /// <summary>
+    /// True in a store that implements the per-identity rebuild seams (jasperfx#1201):
+    /// <c>IEventStore&lt;,&gt;.SupportsIdentityRebuild</c> and <c>LoadEventsForIdentityRebuildAsync</c>,
+    /// <c>IProjectionStorage&lt;,&gt;.HardDeleteById</c>, and a projection batch that records progression for an
+    /// empty range. Gates <see cref="IdentityRebuildCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    public virtual bool SupportsIdentityRebuild => false;
+
+    /// <summary>
+    /// True in a store whose registrar implements <see cref="IComplianceStoreRegistrar.SoftDeleted{TDoc}" />, so a
+    /// projected document type can be stored soft-deleted (jasperfx#1201).
+    /// </summary>
+    public virtual bool SupportsSoftDeletedProjectionDocuments => false;
+
+    /// <summary>
     /// True in a store that implements <see cref="IEventStoreOperations.ArchiveStream(System.Guid)" />, so a
     /// suite other than <see cref="StreamArchivingCompliance{TFixture,TOperations,TQuerySession}" /> can archive a
     /// stream to prove its own reads leave archived events out.

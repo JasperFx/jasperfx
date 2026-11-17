@@ -255,6 +255,22 @@ public sealed class ComplianceStoreConfig
         return this;
     }
 
+    /// <summary>
+    /// Document types the suite wants stored soft-deleted (jasperfx#1201).
+    /// </summary>
+    public List<Type> SoftDeletedDocuments { get; } = new();
+
+    /// <summary>
+    /// Store <typeparamref name="TDoc" /> soft-deleted, so a projection's delete marks the row deleted rather than
+    /// removing it. Gated by <c>SupportsSoftDeletedProjectionDocuments</c> on the fixture.
+    /// </summary>
+    public ComplianceStoreConfig SoftDeleted<TDoc>() where TDoc : notnull
+    {
+        SoftDeletedDocuments.Add(typeof(TDoc));
+        _registrations.Add(registrar => registrar.SoftDeleted<TDoc>());
+        return this;
+    }
+
     public ComplianceStoreConfig Snapshot<TDoc>(SnapshotLifecycle lifecycle) where TDoc : notnull
     {
         Snapshots.Add((typeof(TDoc), lifecycle));

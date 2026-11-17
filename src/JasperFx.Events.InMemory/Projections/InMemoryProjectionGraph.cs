@@ -14,10 +14,10 @@ public interface IInMemoryProjection : IJasperFxProjection<IInMemoryDocumentSess
 /// <c>FetchLatest</c>) folds with.
 /// </summary>
 /// <remarks>
-/// Live and Inline only: the async daemon is out of scope for a prototyping store, so an Async
-/// registration is refused with a <see cref="NotSupportedException"/>. Inline projections run inside the
-/// session's all-or-nothing commit, so a projection that throws rolls back the events and documents of
-/// the same unit of work.
+/// Inline projections run inside the session's all-or-nothing commit, so a projection that throws rolls back
+/// the events and documents of the same unit of work. Async projections run only while a daemon built with
+/// <see cref="InMemoryDocumentStore.BuildProjectionDaemonAsync(string?, Microsoft.Extensions.Logging.ILogger?)"/>
+/// is running; nothing starts one for you (jasperfx#1201).
 /// </remarks>
 public class InMemoryProjectionGraph
     : ProjectionGraph<IInMemoryProjection, IInMemoryDocumentSession, IInMemoryQuerySession>
@@ -46,13 +46,11 @@ public class InMemoryProjectionGraph
 
     /// <summary>
     /// Keep a self-aggregating document type up to date as a snapshot, folded from its stream's events.
-    /// Only <see cref="SnapshotLifecycle.Inline"/> is supported: the snapshot is written in the same
-    /// commit as the events.
+    /// An <see cref="SnapshotLifecycle.Inline"/> snapshot is written in the same commit as the events; an
+    /// <see cref="SnapshotLifecycle.Async"/> one by a daemon you start.
     /// </summary>
     public void Snapshot<T>(SnapshotLifecycle lifecycle) where T : notnull
     {
-        if (lifecycle != SnapshotLifecycle.Inline) throw asyncNotSupported(typeof(T).Name);
-
         if (typeof(T).CanBeCastTo<ProjectionBase>())
         {
             throw new InvalidOperationException(
@@ -65,7 +63,7 @@ public class InMemoryProjectionGraph
         var projection = InMemoryAggregateIdentity.CreateLiveProjection<T>(
             InMemoryAggregateIdentity.ResolveIdType(typeof(T), _events.StreamIdentity));
 
-        Add(projection, ProjectionLifecycle.Inline);
+        Add(projection, lifecycle == SnapshotLifecycle.Async ? ProjectionLifecycle.Async : ProjectionLifecycle.Inline);
     }
 
     /// <summary>
@@ -78,13 +76,10 @@ public class InMemoryProjectionGraph
     /// <summary>
     /// Register a projection class: a <see cref="SingleStreamProjection{TDoc,TId}"/>,
     /// <see cref="MultiStreamProjection{TDoc,TId}"/> or <see cref="EventProjection"/>, or an
-    /// <see cref="IInMemoryProjection"/>. Only <see cref="ProjectionLifecycle.Inline"/> and
-    /// <see cref="ProjectionLifecycle.Live"/> are supported.
+    /// <see cref="IInMemoryProjection"/>.
     /// </summary>
     public void Add(ProjectionBase projection, ProjectionLifecycle lifecycle)
     {
-        if (lifecycle == ProjectionLifecycle.Async) throw asyncNotSupported(projection.GetType().Name);
-
         projection.Lifecycle = lifecycle;
         projection.AssembleAndAssertValidity();
 
@@ -117,10 +112,6 @@ public class InMemoryProjectionGraph
         {
             if (_inline is not null && _frozenCount == All.Count) return _inline;
 
-            // The base class's own Add overloads cannot refuse an Async lifecycle, so it is checked here too
-            var async = All.FirstOrDefault(x => x.Lifecycle == ProjectionLifecycle.Async);
-            if (async is not null) throw asyncNotSupported(async.Name);
-
             AssertValidity(store);
 
             _inline = All.Where(x => x.Lifecycle == ProjectionLifecycle.Inline)
@@ -131,9 +122,4 @@ public class InMemoryProjectionGraph
             return _inline;
         }
     }
-
-    private static NotSupportedException asyncNotSupported(string name)
-        => new($"'{name}' cannot run asynchronously: the in-memory prototyping store (AddInMemoryStoreForPrototyping) " +
-               "has no async projection daemon, so only Inline and Live projections are supported. Switch to Marten, " +
-               "Polecat or Fisher when you need async projections.");
 }

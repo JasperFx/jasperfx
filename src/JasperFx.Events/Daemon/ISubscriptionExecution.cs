@@ -37,6 +37,16 @@ public interface ISubscriptionExecution: IAsyncDisposable
     /// downstream stages without dropping in-flight (uncommitted) entities.
     /// </summary>
     Task CompactCachesAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// jasperfx#1201: the per-identity rebuilder behind this execution. Only a single-stream aggregation's
+    /// execution has one.
+    /// </summary>
+    internal bool TryGetIdentityRebuilder([NotNullWhen(true)] out IIdentityRebuilder? rebuilder)
+    {
+        rebuilder = null;
+        return false;
+    }
 }
 
 /// <summary>

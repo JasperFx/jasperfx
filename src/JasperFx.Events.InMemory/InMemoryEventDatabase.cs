@@ -10,8 +10,8 @@ namespace JasperFx.Events.InMemory;
 /// and wait on its projections.
 /// </summary>
 /// <remarks>
-/// Projections run inline inside the commit, so there are no async shards to report progress for and the data
-/// is never stale.
+/// Inline projections run inside the commit. Async projections report their progression here when a daemon is
+/// running them (jasperfx#1201).
 /// </remarks>
 public sealed class InMemoryEventDatabase : IEventDatabase
 {
@@ -36,19 +36,42 @@ public sealed class InMemoryEventDatabase : IEventDatabase
     /// <inheritdoc />
     public ShardStateTracker Tracker { get; } = new(NullLogger.Instance) { DatabaseIdentifier = Name };
 
-    /// <summary>Inline projections are written in the commit, so there is nothing to wait for.</summary>
-    public Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout) => Task.CompletedTask;
+    /// <summary>
+    /// Wait for every async shard to reach the highest event sequence. Inline projections are written in the
+    /// commit, so with none registered there is nothing to wait for.
+    /// </summary>
+    public async Task WaitForNonStaleProjectionDataAsync(TimeSpan timeout)
+    {
+        var shards = _store.AllShards().Select(x => x.Name.Identity).ToArray();
+        if (shards.Length == 0) return;
+
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (true)
+        {
+            var highest = _store.HighestEventSequence();
+            if (shards.All(x => _store.ProgressionFor(x) >= highest)) return;
+
+            if (DateTimeOffset.UtcNow > deadline)
+            {
+                throw new TimeoutException(
+                    $"The async projections did not reach event sequence {highest} within {timeout}: " +
+                    string.Join(", ", shards.Select(x => $"{x} at {_store.ProgressionFor(x)}")));
+            }
+
+            await Task.Delay(25).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>There is no storage to create.</summary>
     public Task EnsureStorageExistsAsync(Type storageType, CancellationToken token) => Task.CompletedTask;
 
-    /// <summary>Zero for any name: there are no async shards on the prototyping store.</summary>
+    /// <inheritdoc />
     public Task<long> ProjectionProgressFor(ShardName name, CancellationToken token = default)
-        => Task.FromResult(0L);
+        => Task.FromResult(_store.ProgressionFor(name.Identity));
 
-    /// <summary>Empty: there are no async shards on the prototyping store.</summary>
+    /// <inheritdoc />
     public Task<IReadOnlyList<ShardState>> AllProjectionProgress(CancellationToken token = default)
-        => Task.FromResult<IReadOnlyList<ShardState>>([]);
+        => Task.FromResult(_store.AllProgression());
 
     /// <inheritdoc />
     public Task<long> FetchHighestEventSequenceNumber(CancellationToken token)
