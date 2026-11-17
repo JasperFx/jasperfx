@@ -28,6 +28,19 @@ public interface IEventRegistry
     /// </summary>
     StreamIdentity StreamIdentity { get; set; }
 
+    /// <summary>
+    ///     Makes the Guid stream ids JasperFx makes up itself: <c>StartStream</c> without an id, and the new
+    ///     stream an <see cref="Tags.EventBoundary{T}" /> starts for an event no tag routes. The default is
+    ///     <see cref="SequentialGuid.PostgresOrder" />. A store whose stream table is keyed by a SQL Server
+    ///     <c>uniqueidentifier</c> answers <see cref="SequentialGuid.SqlServerOrder" />, so new streams append at
+    ///     the right edge of that index.
+    /// </summary>
+    /// <remarks>
+    ///     A store built on <see cref="EventOperationsBase" /> overrides
+    ///     <see cref="EventOperationsBase.StreamIdGenerator" /> with the same answer.
+    /// </remarks>
+    IGuidGenerator StreamIdGenerator => SequentialGuid.PostgresOrder;
+
     Type AggregateTypeFor(string aggregateTypeName);
     string AggregateAliasFor(Type aggregateType);
 
@@ -81,6 +94,13 @@ public partial class EventRegistry : IEventRegistry
 
     [IgnoreDescription]
     public virtual TimeProvider TimeProvider { get; set; } = TimeProvider.System;
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     A store keyed by a SQL Server <c>uniqueidentifier</c> sets this to <see cref="SequentialGuid.SqlServerOrder" />.
+    /// </remarks>
+    [IgnoreDescription]
+    public virtual IGuidGenerator StreamIdGenerator { get; set; } = SequentialGuid.PostgresOrder;
 
     /// <summary>
     ///     Opt-in caching of aggregate snapshots between <c>FetchForWriting</c> calls. Disabled for

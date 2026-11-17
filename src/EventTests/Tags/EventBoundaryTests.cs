@@ -253,6 +253,20 @@ public class EventBoundaryTests
     }
 
     [Fact]
+    public void an_unrouted_event_gets_its_stream_id_from_the_registry_generator()
+    {
+        // Polecat answers SequentialGuid.SqlServerOrder here (jasperfx#1220)
+        theRegistry.StreamIdGenerator = new EventTests.Operations.CountingGuidGenerator();
+
+        var boundary = theBoundary();
+        boundary.AppendOne(Tagged(new VisitorId(Guid.NewGuid())));
+        boundary.AppendOne(Tagged(new VisitorId(Guid.NewGuid())));
+
+        theOperations.Streams.Select(x => x.Id)
+            .ShouldBe([EventTests.Operations.CountingGuidGenerator.IdFor(1), EventTests.Operations.CountingGuidGenerator.IdFor(2)]);
+    }
+
+    [Fact]
     public void under_string_identity_an_unrouted_event_starts_a_keyed_stream()
     {
         theRegistry.StreamIdentity = StreamIdentity.AsString;

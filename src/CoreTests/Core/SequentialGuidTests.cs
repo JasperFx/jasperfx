@@ -1,4 +1,5 @@
 using System.Data.SqlTypes;
+using System.Security.Cryptography;
 using JasperFx.Core;
 using Shouldly;
 
@@ -6,7 +7,7 @@ namespace CoreTests.Core;
 
 public class SequentialGuidTests
 {
-    private static readonly byte[] Worker = [1, 2, 3, 4];
+    private static readonly byte[] Worker = [1, 2, 3, 4, 5, 6];
 
     // PostgreSQL compares a uuid byte by byte in its RFC (big-endian) form
     private static int comparePostgres(Guid x, Guid y)
@@ -94,7 +95,7 @@ public class SequentialGuidTests
     public void the_tick_is_the_most_significant_part_in_both_orders()
     {
         var tick = DateTime.UtcNow.Ticks;
-        var generator = new SequentialGuidGenerator(Worker, 77, () => tick);
+        var generator = new SequentialGuidGenerator(Worker, () => tick);
 
         tickOf(generator.NextPostgresOrder()).ShouldBe(tick);
 
@@ -105,30 +106,40 @@ public class SequentialGuidTests
     }
 
     [Fact]
-    public void the_worker_and_process_id_are_in_the_id()
+    public void the_worker_id_is_in_the_id_in_both_orders()
     {
-        var generator = new SequentialGuidGenerator(Worker, 0x12345678, () => 1000);
+        var generator = new SequentialGuidGenerator(Worker, () => 1000);
 
-        var bytes = generator.NextPostgresOrder().ToByteArray(bigEndian: true);
-        bytes[8..12].ShouldBe(Worker);
-        bytes[12..14].ShouldBe(new byte[] { 0x56, 0x78 });
+        generator.NextPostgresOrder().ToByteArray(bigEndian: true)[8..14].ShouldBe(Worker);
+
+        // SQL Server compares bytes 6-7, then 4-5, then 0-3 after the tick
+        var bytes = generator.NextSqlServerOrder().ToByteArray();
+        new[] { bytes[6], bytes[7], bytes[4], bytes[5], bytes[0], bytes[1] }.ShouldBe(Worker);
     }
 
     [Fact]
-    public void the_shared_generator_carries_this_process_id()
+    public void the_shared_generator_uses_one_worker_id()
     {
-        var bytes = SequentialGuid.NextPostgresOrder().ToByteArray(bigEndian: true);
+        var one = SequentialGuid.NextPostgresOrder().ToByteArray(bigEndian: true);
+        var two = SequentialGuid.NextPostgresOrder().ToByteArray(bigEndian: true);
 
-        var processId = Environment.ProcessId;
-        bytes[12].ShouldBe((byte)(processId >> 8));
-        bytes[13].ShouldBe((byte)processId);
+        one[8..14].ShouldBe(two[8..14]);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(7)]
+    public void the_worker_id_has_to_be_six_bytes(int length)
+    {
+        Should.Throw<ArgumentOutOfRangeException>(() => new SequentialGuidGenerator(new byte[length], null));
     }
 
     [Fact]
     public void ids_within_one_tick_increase_past_255()
     {
         // The sequence has to be big-endian in both orders, or the 257th id of a tick sorts before the 256th
-        var generator = new SequentialGuidGenerator(Worker, 1, () => 5_000_000);
+        var generator = new SequentialGuidGenerator(Worker, () => 5_000_000);
 
         var postgres = Enumerable.Range(0, 1000).Select(_ => generator.NextPostgresOrder()).ToList();
         shouldIncreaseInPostgresOrder(postgres);
@@ -142,7 +153,7 @@ public class SequentialGuidTests
     public void a_full_sequence_rolls_over_into_the_next_tick()
     {
         const long tick = 5_000_000;
-        var generator = new SequentialGuidGenerator(Worker, 1, () => tick);
+        var generator = new SequentialGuidGenerator(Worker, () => tick);
 
         var ids = Enumerable.Range(0, SequentialGuidGenerator.MaxSequence + 1 + 100)
             .Select(_ => generator.NextPostgresOrder()).ToList();
@@ -161,7 +172,7 @@ public class SequentialGuidTests
     public void a_clock_that_goes_backwards_does_not_go_back_in_order()
     {
         var now = 10_000_000L;
-        var generator = new SequentialGuidGenerator(Worker, 1, () => now);
+        var generator = new SequentialGuidGenerator(Worker, () => now);
 
         var ids = new List<Guid>();
         var sqlServer = new List<Guid>();
@@ -186,7 +197,7 @@ public class SequentialGuidTests
     {
         const long start = 1_000_000;
         var now = start;
-        var generator = new SequentialGuidGenerator(Worker, 1, () => now);
+        var generator = new SequentialGuidGenerator(Worker, () => now);
 
         var postgres = new List<Guid>();
         var sqlServer = new List<Guid>();
@@ -230,7 +241,7 @@ public class SequentialGuidTests
         const long start = 1_000_000;
         const long last = start + SequentialGuidGenerator.MaxOffset;
         var now = start;
-        var generator = new SequentialGuidGenerator(Worker, 1, () => now);
+        var generator = new SequentialGuidGenerator(Worker, () => now);
         now = last;
 
         var ids = Enumerable.Range(0, SequentialGuidGenerator.MaxSequence + 1 + 10)
@@ -241,13 +252,23 @@ public class SequentialGuidTests
         tickOf(ids[^1]).ShouldBe(last + 1);
     }
 
-    [Fact]
-    public void processes_on_one_machine_with_the_same_worker_id_draw_different_ids()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void processes_whose_worker_ids_differ_in_any_one_byte_draw_different_ids(int index)
     {
-        // The NewId collision wolverine#5399 hit: same worker id, same moment, same sequence
+        // Every byte of the worker id keeps two processes apart, in both orders. Containers commonly
+        // all run as process 1, which is why the process id is no longer part of the id
         const long tick = 7_000_000;
-        var one = new SequentialGuidGenerator(Worker, 100, () => tick);
-        var two = new SequentialGuidGenerator(Worker, 101, () => tick);
+        var other = Worker.ToArray();
+        other[index]++;
+
+        var one = new SequentialGuidGenerator(Worker, () => tick);
+        var two = new SequentialGuidGenerator(other, () => tick);
 
         var ids = Enumerable.Range(0, 1000).SelectMany(_ => new[]
         {
@@ -258,28 +279,35 @@ public class SequentialGuidTests
     }
 
     [Fact]
-    public void processes_with_different_worker_ids_draw_different_ids()
+    public void many_processes_at_the_same_moment_draw_different_ids()
     {
-        // Containers commonly all run as process 1
+        // The NewId collision wolverine#5399 hit: many processes, same moment, same sequence. Each
+        // "process" draws its own random worker id, as the shared generator does once per process
         const long tick = 7_000_000;
-        var one = new SequentialGuidGenerator([1, 2, 3, 4], 1, () => tick);
-        var two = new SequentialGuidGenerator([1, 2, 3, 5], 1, () => tick);
+        var generators = Enumerable.Range(0, 200)
+            .Select(_ => new SequentialGuidGenerator(RandomNumberGenerator.GetBytes(6), () => tick))
+            .ToList();
 
-        var ids = Enumerable.Range(0, 1000).SelectMany(_ => new[]
+        var ids = new List<Guid>();
+        for (var i = 0; i < 500; i++)
         {
-            one.NextPostgresOrder(), two.NextPostgresOrder(), one.NextSqlServerOrder(), two.NextSqlServerOrder()
-        }).ToList();
+            foreach (var generator in generators)
+            {
+                ids.Add(generator.NextPostgresOrder());
+                ids.Add(generator.NextSqlServerOrder());
+            }
+        }
 
         ids.Distinct().Count().ShouldBe(ids.Count);
     }
 
     [Fact]
-    public void the_same_worker_and_process_at_the_same_moment_collide()
+    public void the_same_worker_at_the_same_moment_collides()
     {
-        // What keeps processes apart is the worker and process id, and nothing else
+        // What keeps processes apart is the worker id, and nothing else
         const long tick = 7_000_000;
-        var one = new SequentialGuidGenerator(Worker, 1, () => tick);
-        var two = new SequentialGuidGenerator(Worker, 1, () => tick);
+        var one = new SequentialGuidGenerator(Worker, () => tick);
+        var two = new SequentialGuidGenerator(Worker, () => tick);
 
         one.NextPostgresOrder().ShouldBe(two.NextPostgresOrder());
     }
@@ -290,7 +318,7 @@ public class SequentialGuidTests
         var one = new SequentialGuidGenerator().NextPostgresOrder().ToByteArray(bigEndian: true);
         var two = new SequentialGuidGenerator().NextPostgresOrder().ToByteArray(bigEndian: true);
 
-        // 1 in 2^32 to fail
-        Convert.ToHexString(one[8..12]).ShouldNotBe(Convert.ToHexString(two[8..12]));
+        // 1 in 2^48 to fail
+        Convert.ToHexString(one[8..14]).ShouldNotBe(Convert.ToHexString(two[8..14]));
     }
 }

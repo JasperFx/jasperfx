@@ -1,4 +1,6 @@
+using System.Data.SqlTypes;
 using System.Linq.Expressions;
+using JasperFx.Core;
 using JasperFx.Events;
 using JasperFx.Events.Protected;
 using JasperFx.Events.Tags;
@@ -252,6 +254,74 @@ public abstract class EventOperationsBaseContract
         store.StartStream(Started).Key.ShouldNotBeNullOrEmpty();
         store.StartStream<Quest>(Started).Key.ShouldNotBeNullOrEmpty();
         store.StartStream(typeof(Quest), OneEventLazily).Key.ShouldNotBeNullOrEmpty();
+    }
+
+    // ---- the generator behind an unnamed Guid stream (jasperfx#1220) ----
+
+    [Fact]
+    public void an_unnamed_stream_id_is_in_postgres_order_by_default()
+    {
+        var (store, _) = guidKeyed();
+
+        var ids = Enumerable.Range(0, 100).Select(_ => store.StartStream(Started).Id).ToList();
+
+        for (var i = 1; i < ids.Count; i++)
+        {
+            ids[i - 1].ToByteArray(bigEndian: true).AsSpan()
+                .SequenceCompareTo(ids[i].ToByteArray(bigEndian: true)).ShouldBeLessThan(0);
+        }
+    }
+
+    [Fact]
+    public void a_store_chooses_the_generator_for_an_unnamed_stream_id()
+    {
+        var (store, seams) = guidKeyed();
+        seams.StreamIds = new CountingGuidGenerator();
+
+        store.StartStream(Started).Id.ShouldBe(CountingGuidGenerator.IdFor(1));
+        store.StartStream<Quest>(Started).Id.ShouldBe(CountingGuidGenerator.IdFor(2));
+        store.StartStream(typeof(Quest), OneEventLazily).Id.ShouldBe(CountingGuidGenerator.IdFor(3));
+    }
+
+    [Fact]
+    public void a_sql_server_store_gets_unnamed_stream_ids_in_sql_server_order()
+    {
+        // What Polecat does, because pc_streams.id is a clustered uniqueidentifier key
+        var (store, seams) = guidKeyed();
+        seams.StreamIds = SequentialGuid.SqlServerOrder;
+
+        var ids = Enumerable.Range(0, 100).Select(_ => store.StartStream(Started).Id).ToList();
+
+        for (var i = 1; i < ids.Count; i++)
+        {
+            new SqlGuid(ids[i - 1]).CompareTo(new SqlGuid(ids[i])).ShouldBeLessThan(0);
+        }
+    }
+
+    [Fact]
+    public void a_named_stream_never_asks_the_generator()
+    {
+        var (store, seams) = guidKeyed();
+        var generator = new CountingGuidGenerator();
+        seams.StreamIds = generator;
+
+        var id = Guid.NewGuid();
+        store.StartStream(id, Started).Id.ShouldBe(id);
+        store.StartStream<Quest>(id, Joined).Id.ShouldBe(id);
+
+        generator.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void a_string_keyed_store_never_asks_the_generator()
+    {
+        var (store, seams) = stringKeyed();
+        var generator = new CountingGuidGenerator();
+        seams.StreamIds = generator;
+
+        store.StartStream(Started).Key.ShouldNotBeNullOrEmpty();
+
+        generator.Count.ShouldBe(0);
     }
 
     // ---- UseMandatoryStreamTypeDeclaration ----
@@ -652,6 +722,18 @@ public class hosting_the_operations_base : EventOperationsBaseContract
 
 public class StreamTypeRequired : Exception;
 
+/// <summary>
+///     Hands out 1, 2, 3 ... as Guids, so a test can tell exactly which ids came from it
+/// </summary>
+public class CountingGuidGenerator : IGuidGenerator
+{
+    public int Count { get; private set; }
+
+    public static Guid IdFor(int count) => new(count, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    public Guid NewGuid() => IdFor(++Count);
+}
+
 public class PassThroughRegistry : EventRegistry
 {
     public override IEvent BuildEvent(object eventData) => eventData as IEvent ?? base.BuildEvent(eventData);
@@ -677,6 +759,13 @@ public class RecordingOperations(StreamIdentity identity, string tenantId, List<
     public object? LastFetched { get; private set; }
 
     public IReadOnlyList<StreamAction> Streams => UnitOfWork;
+
+    /// <summary>
+    ///     What a store answers for <see cref="EventOperationsBase.StreamIdGenerator" />, or null for the default
+    /// </summary>
+    public IGuidGenerator? StreamIds { get; set; }
+
+    protected override IGuidGenerator StreamIdGenerator => StreamIds ?? base.StreamIdGenerator;
 
     public virtual RecordingOperations ForTenant(string scope) => new(identity, scope, UnitOfWork);
 
