@@ -16,16 +16,16 @@ public interface IGuidGenerator
 /// </summary>
 /// <remarks>
 ///     <para>
-///         The layout is MassTransit's NewId: a 100 ns timestamp, a worker id, the process id and a 16-bit sequence.
+///         The layout is MassTransit's NewId: a 100 ns timestamp, a 6-byte worker id and a 16-bit sequence.
 ///         Within one process every id sorts after the one before it, so inserts append at the right edge of the
 ///         index instead of splitting pages in the middle of it. <c>Guid.CreateVersion7()</c> and COMB Guids are
 ///         only ordered by millisecond and random within it, which leaves a busy PostgreSQL primary key a third
 ///         bigger, and neither is ordered at all for SQL Server.
 ///     </para>
 ///     <para>
-///         The worker id is drawn at random once per process (never the machine's MAC address), and the process id
-///         is mixed in so two processes on one machine never draw the same ids. An id does show its creation time,
-///         to 100 ns.
+///         The worker id is 6 random bytes drawn once per process (never the machine's MAC address or the process
+///         id, which is often 1 for every process in a container), so two processes only draw the same ids if they
+///         draw the same 48 random bits. An id does show its creation time, to 100 ns.
 ///     </para>
 ///     <para>
 ///         The two orders come from the same generator, so ids of either order are unique against each other.
@@ -77,8 +77,8 @@ public static class SequentialGuid
 ///     than anything the counter handed out.
 /// </summary>
 /// <remarks>
-///     The 16 bytes, most significant first: the tick (8 bytes, big-endian), the worker id (4 bytes), the low 16 bits
-///     of the process id and the sequence (2 bytes each, big-endian). <see cref="NextPostgresOrder" /> lays them out
+///     The 16 bytes, most significant first: the tick (8 bytes, big-endian), the worker id (6 bytes) and the sequence
+///     (2 bytes, big-endian). <see cref="NextPostgresOrder" /> lays them out
 ///     in that order; <see cref="NextSqlServerOrder" /> puts them where SQL Server compares them, which is byte
 ///     positions 10-15, 8-9, 6-7, 4-5 and then 0-3 of <see cref="Guid.ToByteArray()" />.
 /// </remarks>
@@ -95,8 +95,10 @@ internal sealed class SequentialGuidGenerator
     private readonly Func<long>? _clock;
     private readonly long _baseTick;
 
-    // The worker id and the process id, in the order they are compared
-    private readonly byte _w0, _w1, _w2, _w3, _p0, _p1;
+    internal const int WorkerIdLength = 6;
+
+    // The worker id, in the order it is compared
+    private readonly byte _w0, _w1, _w2, _w3, _w4, _w5;
 
     // (tick - _baseTick) << 16 | sequence, one below the first id
     private long _state = -1;
@@ -105,18 +107,17 @@ internal sealed class SequentialGuidGenerator
     private long _overflowTick = long.MinValue;
     private int _overflowSequence;
 
-    public SequentialGuidGenerator() : this(randomWorkerId(), System.Environment.ProcessId, null)
+    public SequentialGuidGenerator() : this(randomWorkerId(), null)
     {
     }
 
-    /// <param name="workerId">At least 4 bytes; the first 4 are used</param>
-    /// <param name="processId">Its low 16 bits are used</param>
+    /// <param name="workerId">Exactly 6 bytes</param>
     /// <param name="clock">The current time in ticks, <see cref="DateTime.UtcNow" /> when null</param>
-    internal SequentialGuidGenerator(ReadOnlySpan<byte> workerId, int processId, Func<long>? clock)
+    internal SequentialGuidGenerator(ReadOnlySpan<byte> workerId, Func<long>? clock)
     {
-        if (workerId.Length < 4)
+        if (workerId.Length != WorkerIdLength)
         {
-            throw new ArgumentOutOfRangeException(nameof(workerId), "The worker id needs at least 4 bytes");
+            throw new ArgumentOutOfRangeException(nameof(workerId), $"The worker id has to be {WorkerIdLength} bytes");
         }
 
         _clock = clock;
@@ -126,11 +127,11 @@ internal sealed class SequentialGuidGenerator
         _w1 = workerId[1];
         _w2 = workerId[2];
         _w3 = workerId[3];
-        _p0 = (byte)(processId >> 8);
-        _p1 = (byte)processId;
+        _w4 = workerId[4];
+        _w5 = workerId[5];
     }
 
-    private static byte[] randomWorkerId() => RandomNumberGenerator.GetBytes(4);
+    private static byte[] randomWorkerId() => RandomNumberGenerator.GetBytes(WorkerIdLength);
 
     private long now() => _clock?.Invoke() ?? DateTime.UtcNow.Ticks;
 
@@ -200,7 +201,7 @@ internal sealed class SequentialGuidGenerator
             (int)(tick >> 32),
             (short)(tick >> 16),
             (short)tick,
-            _w0, _w1, _w2, _w3, _p0, _p1,
+            _w0, _w1, _w2, _w3, _w4, _w5,
             (byte)(sequence >> 8), (byte)sequence);
     }
 
@@ -210,7 +211,7 @@ internal sealed class SequentialGuidGenerator
 
         // Guid(int a, short b, short c, ...) writes a, b and c little-endian into bytes 0-3, 4-5 and 6-7
         return new Guid(
-            _p0 | (_p1 << 8) | ((sequence >> 8) << 16) | ((sequence & 0xFF) << 24),
+            _w4 | (_w5 << 8) | ((sequence >> 8) << 16) | ((sequence & 0xFF) << 24),
             (short)(_w2 | (_w3 << 8)),
             (short)(_w0 | (_w1 << 8)),
             (byte)(tick >> 8), (byte)tick,

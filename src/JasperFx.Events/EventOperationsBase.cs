@@ -53,6 +53,14 @@ public abstract class EventOperationsBase : IEventOperations
     protected abstract StreamIdentity StreamIdentity { get; }
 
     /// <summary>
+    ///     Makes the id of a Guid stream started without one. The default is
+    ///     <see cref="SequentialGuid.PostgresOrder" />. A store overrides it with its
+    ///     <see cref="IEventRegistry.StreamIdGenerator" />, which a SQL Server store answers with
+    ///     <see cref="SequentialGuid.SqlServerOrder" />.
+    /// </summary>
+    protected virtual IGuidGenerator StreamIdGenerator => SequentialGuid.PostgresOrder;
+
+    /// <summary>
     ///     Register a new stream in the unit of work and hand back its action, with
     ///     <see cref="StreamAction.TenantId" /> stamped from this instance.
     /// </summary>
@@ -465,7 +473,7 @@ public abstract class EventOperationsBase : IEventOperations
     /// </remarks>
     private StreamAction startNewStream(Type? aggregateType, object[] events)
         => StreamIdentity == StreamIdentity.AsGuid
-            ? startStream(aggregateType, SequentialGuid.NextPostgresOrder(), events)
+            ? startStream(aggregateType, StreamIdGenerator.NewGuid(), events)
             : startStream(aggregateType, Guid.NewGuid().ToString(), events);
 
     private StreamAction expecting(StreamAction stream, long expectedVersion)
