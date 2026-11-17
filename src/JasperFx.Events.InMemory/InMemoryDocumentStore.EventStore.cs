@@ -6,6 +6,7 @@ using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using JasperFx.OpenTelemetry;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.Events.InMemory;
 
@@ -17,8 +18,9 @@ namespace JasperFx.Events.InMemory;
 /// <remarks>
 /// <para>
 /// One database, opened as a session on this store; the read-only tier is a session's <c>Events</c>, as on
-/// Marten and Polecat. Projections run inline inside the commit, so there are no async shards, nothing is
-/// ever stale, and the daemon-facing members refuse with a <see cref="NotSupportedException"/>.
+/// Marten and Polecat. Inline projections run inside the commit. Async projections run on JasperFx's own daemon
+/// when you build and start one with <see cref="BuildProjectionDaemonAsync(string?, ILogger?)"/>; nothing starts
+/// it for you (jasperfx#1201).
 /// </para>
 /// </remarks>
 public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSession, IInMemoryQuerySession>
@@ -47,11 +49,12 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     /// <inheritdoc />
     public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(string? tenantIdOrDatabaseIdentifier = null,
         ILogger? logger = null)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+        => ValueTask.FromResult<IProjectionDaemon>(
+            new Daemon.InMemoryProjectionDaemon(this, Database, logger ?? NullLogger.Instance));
 
     /// <inheritdoc />
     public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(DatabaseId id)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+        => BuildProjectionDaemonAsync();
 
     /// <inheritdoc />
     public Meter Meter => _openTelemetry.Meter;
@@ -133,8 +136,13 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     public ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode)
         => mode == ShardExecutionMode.Rebuild ? RebuildErrors : ContinuousErrors;
 
-    /// <summary>None: every projection on the prototyping store is inline.</summary>
-    public IReadOnlyList<AsyncShard<IInMemoryDocumentSession, IInMemoryQuerySession>> AllShards() => [];
+    /// <inheritdoc />
+    public IReadOnlyList<AsyncShard<IInMemoryDocumentSession, IInMemoryQuerySession>> AllShards()
+    {
+        // Freezes and validates the registrations, which the first commit would otherwise be the one to do
+        Projections.InlineProjections(this);
+        return Projections.AllShards();
+    }
 
     /// <inheritdoc />
     public TimeProvider TimeProvider => TimeProvider.System;
@@ -152,33 +160,47 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     /// <inheritdoc />
     public Task RewindSubscriptionProgressAsync(IEventDatabase database, string subscriptionName,
         CancellationToken token, long? sequenceFloor)
-        => throw InMemoryEventRegistry.NotSupported("Subscriptions");
+        => sequenceFloor is null or 0
+            ? DeleteProjectionProgressAsync(database, subscriptionName, token)
+            : SetProgressionAsync(subscriptionName, sequenceFloor.Value, token);
 
     /// <inheritdoc />
     public Task RewindAgentProgressAsync(IEventDatabase database, string shardName, CancellationToken token,
         long sequenceFloor)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+        => SetProgressionAsync(shardName, sequenceFloor, token);
 
     /// <inheritdoc />
     public Task TeardownExistingProjectionStateAsync(IEventDatabase database, string subscriptionName,
         CancellationToken token)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+        => TeardownProjectionAsync(subscriptionName, token);
 
     /// <inheritdoc />
     public Task DeleteProjectionProgressAsync(IEventDatabase database, string subscriptionName,
         CancellationToken token)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+        => DeleteProgressionAsync(subscriptionName, token);
 
     /// <inheritdoc />
-    public ValueTask<IProjectionBatch<IInMemoryDocumentSession, IInMemoryQuerySession>> StartProjectionBatchAsync(
+    public async ValueTask<IProjectionBatch<IInMemoryDocumentSession, IInMemoryQuerySession>> StartProjectionBatchAsync(
         EventRange range, IEventDatabase database, ShardExecutionMode mode, AsyncOptions projectionOptions,
         CancellationToken token)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+    {
+        var batch = new Daemon.InMemoryProjectionBatch(this, mode);
+        await batch.RecordProgress(range).ConfigureAwait(false);
+        return batch;
+    }
 
     /// <inheritdoc />
     public IEventLoader BuildEventLoader(IEventDatabase database, ILogger loggerFactory, EventFilterable filtering,
         AsyncOptions shardOptions)
-        => throw InMemoryEventRegistry.NotSupported("The async daemon");
+        => new Daemon.InMemoryEventLoader(this, filtering);
+
+    /// <summary>jasperfx#1201: the store implements the per-identity rebuild seams.</summary>
+    public bool SupportsIdentityRebuild => true;
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<IEvent>> LoadEventsForIdentityRebuildAsync(IEventDatabase database,
+        IdentityRebuildEventRequest request, CancellationToken token)
+        => Task.FromResult(EventsForIdentityRebuild(request));
 
     // ---- the reads behind the read-only tier ----
 

@@ -1297,6 +1297,41 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         return AgentStatus.Stopped;
     }
 
+    /// <inheritdoc />
+    public Task<IdentityRebuildResult> RebuildIdentityAsync(string projectionName, string? tenantId, object identity,
+        CancellationToken token)
+        => RebuildIdentityAsync(projectionName,
+            new IdentityRebuildRequest(tenantId ?? StorageConstants.DefaultTenantId, identity), token);
+
+    /// <inheritdoc />
+    public Task<IdentityRebuildResult> RebuildIdentityAsync(string projectionName, IdentityRebuildRequest request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(projectionName);
+        ArgumentNullException.ThrowIfNull(request);
+
+        // A shard for every tenant, or one for this tenant under per-tenant partitioning
+        var agents = _agents.Enumerate()
+            .Select(x => x.Value)
+            .OfType<SubscriptionAgent>()
+            .Where(x => x.Name.Name == projectionName
+                        && (x.Name.TenantId == null || x.Name.TenantId == request.TenantId))
+            .ToArray();
+
+        var agent = agents.FirstOrDefault(x => x.Status == AgentStatus.Running);
+        if (agent != null) return agent.RebuildIdentityAsync(request, token);
+
+        var shard = ShardName.Compose(projectionName, tenantId: request.TenantId);
+        var reason = IsRebuilding(shard)
+            ? IdentityRebuildRefusal.ShardIsRebuilding
+            : agents.Length > 0
+                ? IdentityRebuildRefusal.ShardStopped
+                : IdentityRebuildRefusal.ShardNotRunningHere;
+
+        return Task.FromException<IdentityRebuildResult>(
+            new IdentityRebuildRefusedException(projectionName, request.Identity, reason));
+    }
+
     public IReadOnlyList<ISubscriptionAgent> CurrentAgents()
     {
         return _agents.Enumerate().Select(x => x.Value).ToList();

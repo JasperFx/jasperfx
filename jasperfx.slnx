@@ -32,6 +32,7 @@
   </Folder>
   <Folder Name="/TestHarnesses/">
     <Project Path="src/CommandLineBenchmarks/CommandLineBenchmarks.csproj" />
+    <Project Path="src/EventBenchmarks/EventBenchmarks.csproj" />
     <Project Path="src/CommandLineRunner/CommandLineRunner.csproj" />
     <Project Path="src/DescriptionWriter/DescriptionWriter.csproj" />
     <Project Path="src/GeneratorTarget/GeneratorTarget.csproj" />

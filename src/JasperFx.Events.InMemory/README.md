@@ -83,7 +83,10 @@ What to know before you lean on it:
 - **Commits are all-or-nothing.** If any part of a unit of work fails -- a refused optimistic
   concurrency check, say -- nothing from that unit lands.
 - **Nothing is persisted.** Restart the process and the data is gone.
-- **Out of scope:** the async projection daemon (so Async projections are refused), archiving and compacting streams, rewriting events, and
-  tag (DCB) queries. Those throw a `NotSupportedException` that says so.
+- **Async projections only run while you run a daemon.** Nothing starts one for you. Build it with
+  `store.BuildProjectionDaemonAsync()` and call `StartAllAsync()` on it. It's there so the daemon-side compliance
+  suites have a reference store, and it doesn't publish messages from projections.
+- **Out of scope:** archiving and compacting streams, rewriting events, and tag (DCB) queries. Those throw a
+  `NotSupportedException` that says so.
 - **Queries are LINQ-to-objects** over snapshots of the stored documents. There's no query
   translation and no search.

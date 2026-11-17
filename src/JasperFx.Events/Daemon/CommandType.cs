@@ -23,5 +23,9 @@ internal enum CommandType
 
     // Posted once the store's tenant load budget has reserved this agent's next page. Like the warm-up slot, the
     // wait happens off the command loop, so the grant arrives as a command and the loop resumes loading from there.
-    LoadGranted
+    LoadGranted,
+
+    // jasperfx#1201: a per-identity rebuild was requested, and one has been prepared and waits for a batch
+    IdentityRebuild,
+    IdentityRebuildReady
 }

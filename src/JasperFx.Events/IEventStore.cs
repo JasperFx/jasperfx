@@ -1247,4 +1247,22 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     TOperations OpenSession(IEventDatabase database);
     TOperations OpenSession(IEventDatabase database, string tenantId);
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
+
+    /// <summary>
+    /// jasperfx#1201: can this store re-fold one identity of a single-stream projection inside the daemon
+    /// (<see cref="IProjectionDaemon.RebuildIdentityAsync(string, string?, object, CancellationToken)" />)? A store
+    /// that answers true implements <see cref="LoadEventsForIdentityRebuildAsync" />, its projection storage
+    /// implements <see cref="IProjectionStorage{TDoc,TId}.HardDeleteById" />, and its projection batch records
+    /// progression for an empty range <c>(C, C]</c>, which is how an idle shard carries a rebuild.
+    /// </summary>
+    bool SupportsIdentityRebuild => false;
+
+    /// <summary>
+    /// jasperfx#1201: one stream's events for a per-identity re-fold, in sequence order, read with the same rules
+    /// the store's daemon event loader applies to the projection. See <see cref="IdentityRebuildEventRequest" />.
+    /// </summary>
+    Task<IReadOnlyList<IEvent>> LoadEventsForIdentityRebuildAsync(IEventDatabase database,
+        IdentityRebuildEventRequest request, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not load events for a per-identity projection rebuild (jasperfx#1201).");
 }

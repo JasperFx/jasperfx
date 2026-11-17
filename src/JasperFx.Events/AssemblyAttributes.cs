@@ -3,5 +3,6 @@ using JasperFx;
 using JasperFx.CommandLine;
 
 [assembly: InternalsVisibleTo("EventTests")]
+[assembly: InternalsVisibleTo("InMemoryEventStoreTests")]
 [assembly: JasperFxAssembly]
 

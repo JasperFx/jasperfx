@@ -9,6 +9,9 @@ public class Command
 
     internal CommandType Type;
 
+    // jasperfx#1201: the IdentityRebuildTicket an IdentityRebuild command carries
+    internal object? Payload;
+
     internal static Command Completed(long ceiling)
     {
         return new Command { LastCommitted = ceiling, Type = CommandType.RangeCompleted };
@@ -46,6 +49,16 @@ public class Command
     internal static Command LoadGranted()
     {
         return new Command { Type = CommandType.LoadGranted };
+    }
+
+    internal static Command IdentityRebuild(IdentityRebuildTicket ticket)
+    {
+        return new Command { Type = CommandType.IdentityRebuild, Payload = ticket };
+    }
+
+    internal static Command IdentityRebuildReady()
+    {
+        return new Command { Type = CommandType.IdentityRebuildReady };
     }
 
     public static Command Started(long highWater, long lastCommitted)

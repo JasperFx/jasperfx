@@ -135,23 +135,16 @@ namespace EventStoreTests.Documents
         }
 
         [Fact]
-        public void an_async_lifecycle_is_refused()
+        public async Task an_async_lifecycle_is_left_to_a_daemon()
         {
+            // jasperfx#1201: accepted, and not written by the commit
             var store = new InMemoryDocumentStore();
+            store.Projections.Snapshot<Ticket>(SnapshotLifecycle.Async);
 
-            Should.Throw<NotSupportedException>(() => store.Projections.Snapshot<Ticket>(SnapshotLifecycle.Async));
-            Should.Throw<NotSupportedException>(() =>
-                store.Projections.Add(new TicketLogProjection(), ProjectionLifecycle.Async));
-        }
+            var id = await openTicket(store);
 
-        [Fact]
-        public async Task an_async_lifecycle_registered_through_the_base_graph_is_refused_at_the_first_commit()
-        {
-            var store = new InMemoryDocumentStore();
-            store.Projections.Add(new TicketLogProjection() as IProjectionSource<IInMemoryDocumentSession, IInMemoryQuerySession>,
-                ProjectionLifecycle.Async);
-
-            await Should.ThrowAsync<NotSupportedException>(() => openTicket(store));
+            await using var query = store.QuerySession();
+            (await query.LoadAsync<Ticket>(id, Token)).ShouldBeNull();
         }
 
         [Fact]

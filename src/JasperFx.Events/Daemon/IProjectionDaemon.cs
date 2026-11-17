@@ -291,6 +291,34 @@ public interface IProjectionDaemon: IDisposable
     bool IsRebuilding(ShardName shardName) => false;
 
     /// <summary>
+    /// jasperfx#1201: rebuild one identity of a single-stream projection inside the shard that runs it on this
+    /// daemon, without stopping the shard. The rebuild is bound to the next batch the shard builds, which re-folds
+    /// the identity from nothing over its stream up to the batch's ceiling, through the projection's own write path
+    /// and with side effects suppressed, and commits it with the shard's progression. The task completes when that
+    /// batch commits.
+    /// </summary>
+    /// <param name="projectionName">The projection's name</param>
+    /// <param name="tenantId">The tenant the identity belongs to, or null for the default tenant</param>
+    /// <param name="identity">The projected document's identity</param>
+    /// <param name="token"></param>
+    /// <exception cref="IdentityRebuildRefusedException">
+    /// The projection is not a single-stream aggregation, its shard is not running here, is rebuilding, or has
+    /// never committed, or the store does not support it.
+    /// </exception>
+    Task<IdentityRebuildResult> RebuildIdentityAsync(string projectionName, string? tenantId, object identity,
+        CancellationToken token)
+        => RebuildIdentityAsync(projectionName,
+            new IdentityRebuildRequest(tenantId ?? StorageConstants.DefaultTenantId, identity), token);
+
+    /// <summary>
+    /// jasperfx#1201: <see cref="RebuildIdentityAsync(string, string?, object, CancellationToken)" />, with a
+    /// callback that writes in the same batch and one that runs after it commits.
+    /// </summary>
+    Task<IdentityRebuildResult> RebuildIdentityAsync(string projectionName, IdentityRebuildRequest request,
+        CancellationToken token)
+        => throw new NotSupportedException($"{GetType().FullName} does not support per-identity projection rebuilds.");
+
+    /// <summary>
     /// List of agents that are currently running or paused
     /// </summary>
     /// <returns></returns>
