@@ -213,6 +213,93 @@ public interface IEventStore
             : RegisteredShardNames();
 
     /// <summary>
+    ///     How far behind every registered projection/subscription cell is, on every database of this store:
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},CancellationToken)" /> run
+    ///     against each of <see cref="AllDatabases" /> with the registry of
+    ///     <see cref="RegisteredShardNames(bool)" />, concatenated in database order. Each cell carries its
+    ///     <see cref="ProjectionLag.DatabaseIdentifier" />, and under per-tenant event partitioning its tenant
+    ///     and that tenant's own high-water mark, so the answer stays attributable on a sharded store.
+    ///     <para>
+    ///     Databases are read one after the other, one <c>AllProjectionProgress</c> round trip per database, so
+    ///     a store with 512 databases makes 512 round trips. One unreachable database fails the whole call. For
+    ///     parallel reads or a partial answer, loop over <see cref="AllDatabases" /> and call
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},CancellationToken)" />
+    ///     yourself.
+    ///     </para>
+    ///     <para>
+    ///     Marten's, Polecat's and Fisher's document stores do not derive from <see cref="IEventStore" />, so
+    ///     reach this through <see cref="IEventStore" /> from the container or a cast:
+    ///     <c>var lags = await ((IEventStore)store).FetchProjectionLagAsync(token);</c>
+    ///     </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     The store reports no databases. An empty list would read as "nothing is behind". A dynamic
+    ///     database-per-tenant store with no tenants added yet reports none too, so this throws on a brand-new
+    ///     environment.
+    /// </exception>
+    async Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(CancellationToken token = default)
+    {
+        var registered = RegisteredShardNames(includeCompositeMembers: true);
+        var databases = await AllDatabases().ConfigureAwait(false);
+        if (databases.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"{GetType().FullName} reports no databases, so the lag of its projections cannot be read.");
+        }
+
+        var lags = new List<ProjectionLag>();
+        foreach (var database in databases)
+        {
+            lags.AddRange(await database.FetchProjectionLagAsync(registered, token).ConfigureAwait(false));
+        }
+
+        return lags;
+    }
+
+    /// <summary>
+    ///     <see cref="FetchProjectionLagAsync(CancellationToken)" />, narrowed to the cells addressed by
+    ///     <paramref name="name" /> as
+    ///     <see cref="IEventDatabase.FetchProjectionLagAsync(IReadOnlyList{ShardName},ShardName,CancellationToken)" />
+    ///     narrows them. A tenant-qualified name reads only that tenant's database when
+    ///     <see cref="FindDatabaseForTenantAsync" /> can say which one it is, and every database otherwise.
+    ///     <para>
+    ///     When the tenant's database keeps the projection's cells without a tenant (database per tenant
+    ///     without per-tenant event partitioning), those untenanted cells are the tenant's answer. The reads
+    ///     are sequential and fail the same way as <see cref="FetchProjectionLagAsync(CancellationToken)" />.
+    ///     </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    ///     The store reports no databases, including a dynamic database-per-tenant store with no tenants added
+    ///     yet. An empty list would read as "nothing is behind".
+    /// </exception>
+    async Task<IReadOnlyList<ProjectionLag>> FetchProjectionLagAsync(ShardName name, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (name.TenantId != null)
+        {
+            var database = await FindDatabaseForTenantAsync(name.TenantId, token).ConfigureAwait(false);
+            if (database != null)
+            {
+                var lags = await database
+                    .FetchProjectionLagAsync(RegisteredShardNames(includeCompositeMembers: true), token)
+                    .ConfigureAwait(false);
+
+                // Database per tenant without per-tenant event partitioning: the tenant's database holds the
+                // projection's cells untenanted, so a tenant filter would drop every one of them
+                var untenanted = ShardName.Compose(name.Name, name.ShardKey, tenantId: null);
+                var projectionCells = ProjectionLagCalculator.Filter(lags, untenanted);
+                return projectionCells.Any(x => x.Shard.TenantId != null)
+                    ? ProjectionLagCalculator.Filter(projectionCells, name)
+                    : projectionCells;
+            }
+        }
+
+        var all = await FetchProjectionLagAsync(token).ConfigureAwait(false);
+        return ProjectionLagCalculator.Filter(all, name);
+    }
+
+    /// <summary>
     ///     marten#6004: the registered asynchronous shards of every projection or subscription that is, or
     ///     publishes, <paramref name="projectionOrPublishedType" />. Pass the projection class or the document
     ///     it writes. Empty when nothing asynchronous matches.

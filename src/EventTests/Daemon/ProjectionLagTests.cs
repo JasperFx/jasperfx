@@ -1,11 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using JasperFx;
+using JasperFx.Descriptors;
 using JasperFx.Events;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 
 namespace EventTests.Daemon;
@@ -430,13 +436,147 @@ public class ProjectionLagTests
         lags.ShouldHaveSingleItem().Lag.ShouldBe(90);
     }
 
+    [Fact]
+    public async Task store_wide_read_spans_every_database_at_the_current_version()
+    {
+        // Two shard databases of a store with per-tenant event partitioning. On db-b, tenant beta still
+        // has the previous version's row at its mark: the current version has not started there.
+        var dbA = new LagDatabase([
+            row("HighWaterMark:acme", 50),
+            row("Trips:V2:All:acme", 50)
+        ], "db-a");
+        var dbB = new LagDatabase([
+            row("HighWaterMark:beta", 70),
+            row("Trips:All:beta", 70)
+        ], "db-b");
+        IEventStore store = new LagStore([ShardName.Compose("Trips", version: 2)], dbA, dbB);
+
+        var lags = await store.FetchProjectionLagAsync(TestContext.Current.CancellationToken);
+
+        lags.Select(x => (x.DatabaseIdentifier, x.Shard.Identity, x.HasProgressionRow, x.Lag)).ShouldBe([
+            ("db-a", "Trips:V2:All:acme", true, 0L),
+            ("db-b", "Trips:V2:All:beta", false, 70L)
+        ]);
+    }
+
+    [Fact]
+    public async Task store_wide_read_refuses_a_store_without_databases()
+    {
+        // An empty answer would read as "nothing is behind"
+        IEventStore store = new LagStore([ShardName.Compose("Trips")]);
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            store.FetchProjectionLagAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task store_wide_tenant_read_only_reads_the_tenants_database_when_the_store_knows_it()
+    {
+        var dbA = new LagDatabase([row("HighWaterMark:acme", 50), row("Trips:All:acme", 20)], "db-a");
+        var dbB = new LagDatabase([row("HighWaterMark:beta", 70), row("Trips:All:beta", 30)], "db-b");
+        IEventStore store = new LagStore([ShardName.Compose("Trips")], dbA, dbB)
+        {
+            TenantDatabases = { ["beta"] = dbB }
+        };
+
+        var lags = await store.FetchProjectionLagAsync(ShardName.Compose("Trips", tenantId: "beta"),
+            TestContext.Current.CancellationToken);
+
+        dbA.Reads.ShouldBe(0);
+        var lag = lags.ShouldHaveSingleItem();
+        lag.DatabaseIdentifier.ShouldBe("db-b");
+        lag.Lag.ShouldBe(40);
+    }
+
+    [Fact]
+    public async Task store_wide_tenant_read_on_a_database_per_tenant_store_matches_the_untenanted_cells()
+    {
+        // Database per tenant without per-tenant event partitioning: the cells carry no tenant
+        var dbA = new LagDatabase([row("HighWaterMark", 50), row("Trips:All", 50)], "db-a");
+        var dbB = new LagDatabase([row("HighWaterMark", 70), row("Trips:All", 30)], "db-b");
+        IEventStore store = new LagStore([ShardName.Compose("Trips"), ShardName.Compose("Orders")], dbA, dbB)
+        {
+            TenantDatabases = { ["alpha"] = dbA, ["beta"] = dbB }
+        };
+
+        var lags = await store.FetchProjectionLagAsync(ShardName.Compose("Trips", tenantId: "beta"),
+            TestContext.Current.CancellationToken);
+
+        dbA.Reads.ShouldBe(0);
+        var lag = lags.ShouldHaveSingleItem();
+        lag.DatabaseIdentifier.ShouldBe("db-b");
+        lag.Shard.Identity.ShouldBe("Trips:All");
+        lag.Lag.ShouldBe(40);
+    }
+
+    [Fact]
+    public async Task store_wide_tenant_read_falls_back_to_every_database()
+    {
+        var dbA = new LagDatabase([row("HighWaterMark:acme", 50), row("Trips:All:acme", 20)], "db-a");
+        var dbB = new LagDatabase([row("HighWaterMark:beta", 70), row("Trips:All:beta", 30)], "db-b");
+        IEventStore store = new LagStore([ShardName.Compose("Trips"), ShardName.Compose("Orders")], dbA, dbB);
+
+        var lags = await store.FetchProjectionLagAsync(ShardName.Compose("Trips", tenantId: "beta"),
+            TestContext.Current.CancellationToken);
+
+        dbA.Reads.ShouldBe(1);
+        var lag = lags.ShouldHaveSingleItem();
+        lag.Shard.Identity.ShouldBe("Trips:All:beta");
+        lag.DatabaseIdentifier.ShouldBe("db-b");
+    }
+
+    // A non-generic store that supplies only its registry, its databases and its tenant lookup, so the
+    // store-wide reads are the default interface implementations
+    private sealed class LagStore(IReadOnlyList<ShardName> registered, params IEventDatabase[] databases)
+        : IEventStore
+    {
+        public Dictionary<string, IEventDatabase> TenantDatabases { get; } = new();
+
+        public IReadOnlyList<ShardName> RegisteredShardNames(bool includeCompositeMembers) => registered;
+
+        public ValueTask<IReadOnlyList<IEventDatabase>> AllDatabases()
+            => ValueTask.FromResult<IReadOnlyList<IEventDatabase>>(databases);
+
+        public ValueTask<IEventDatabase?> FindDatabaseForTenantAsync(string tenantId, CancellationToken token = default)
+            => ValueTask.FromResult(TenantDatabases.GetValueOrDefault(tenantId));
+
+        public DatabaseCardinality DatabaseCardinality => DatabaseCardinality.DynamicMultiple;
+
+        public Task<EventStoreUsage?> TryCreateUsage(CancellationToken token) => throw new NotImplementedException();
+        public Uri Subject => throw new NotImplementedException();
+
+        public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(
+            string? tenantIdOrDatabaseIdentifier = null, ILogger? logger = null)
+            => throw new NotImplementedException();
+
+        public ValueTask<IProjectionDaemon> BuildProjectionDaemonAsync(DatabaseId id)
+            => throw new NotImplementedException();
+
+        public Meter Meter => throw new NotImplementedException();
+        public ActivitySource ActivitySource => throw new NotImplementedException();
+        public string MetricsPrefix => throw new NotImplementedException();
+        public bool HasMultipleTenants => throw new NotImplementedException();
+        public EventStoreIdentity Identity => throw new NotImplementedException();
+        public IReadOnlyEventStore OpenReadOnlyEventStore() => throw new NotImplementedException();
+
+        public Task CompactStreamAsync(Guid streamId, CancellationToken token = default)
+            => throw new NotImplementedException();
+
+        public Task CompactStreamAsync(string streamKey, CancellationToken token = default)
+            => throw new NotImplementedException();
+    }
+
     // A bare IEventDatabase that overrides nothing but the progression read, so the calls above
     // exercise the default interface implementations added for jasperfx#619
     private sealed class LagDatabase : IEventDatabase
     {
         private readonly IReadOnlyList<ShardState> _progress;
 
-        public LagDatabase(IReadOnlyList<ShardState> progress) => _progress = progress;
+        public LagDatabase(IReadOnlyList<ShardState> progress, string identifier = "lag-db")
+        {
+            _progress = progress;
+            Identifier = identifier;
+        }
 
         public int Reads { get; private set; }
 
@@ -446,7 +586,7 @@ public class ProjectionLagTests
             return Task.FromResult(_progress);
         }
 
-        public string Identifier => "lag-db";
+        public string Identifier { get; }
         public Uri DatabaseUri => throw new NotImplementedException();
         public ShardStateTracker Tracker => throw new NotImplementedException();
         public string StorageIdentifier => throw new NotImplementedException();
