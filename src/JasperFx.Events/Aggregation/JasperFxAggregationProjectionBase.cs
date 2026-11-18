@@ -37,6 +37,12 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     
     private readonly AggregateVersioning<TDoc, TQuerySession> _versioning;
     private Type[]? _generatedEvolverEventTypes;
+
+    // True when the bound generated evolver is the one for a self-aggregating type that declares its own
+    // Evolve / EvolveAsync. Its EventTypes is then the whole story for the aggregate: the Evolve body's
+    // event types plus those of the conventional methods it inherits from a base class (#1241), or empty
+    // for a catch-all Evolve, which takes every event.
+    private bool _generatedEvolverIsSelfAggregatingEvolve;
     private bool _usesConventionalApplication = true;
 
     protected JasperFxAggregationProjectionBase(AggregationScope scope)
@@ -279,6 +285,9 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
         var selected = exactMatch ?? baseMatch ?? aggregateOnly;
 
+        _generatedEvolverIsSelfAggregatingEvolve =
+            selected is { ProjectionType: null } && declaresOwnEvolveMethod(docType);
+
         if (selected != null)
         {
             var evolverType = selected.EvolverType;
@@ -438,6 +447,18 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Mirrors the generator's choice of dispatcher: a self-aggregating type that declares a public
+    /// <c>Evolve</c> / <c>EvolveAsync</c> of its own gets an Evolve dispatcher rather than a conventional one.
+    /// </summary>
+    private static bool declaresOwnEvolveMethod(Type docType)
+    {
+        return docType
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Any(m => (m.Name is nameof(Evolve) or nameof(EvolveAsync))
+                      && !m.HasAttribute<JasperFxIgnoreAttribute>());
     }
 
     /// <summary>
@@ -767,7 +788,16 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
     protected virtual Type[] determineEventTypes()
     {
-        var types = _application.AllEventTypes()
+        // For a self-aggregating Evolve the generated evolver's EventTypes already carries every aggregate
+        // event type it dispatches, inherited conventional methods included. The reflected conventional
+        // methods are not a second opinion there: they include methods the type declares itself, which its
+        // Evolve owns, and for a catch-all Evolve (empty EventTypes, meaning "every event") they would
+        // quietly narrow the filter to exactly the inherited types. See #1241.
+        var aggregateEventTypes = _generatedEvolverEventTypes != null && _generatedEvolverIsSelfAggregatingEvolve
+            ? Enumerable.Empty<Type>()
+            : _application.AllEventTypes();
+
+        var types = aggregateEventTypes
             .Concat(DeleteEvents).Concat(TransformedEvents).Concat(IncludedEventTypes);
 
         if (_generatedEvolverEventTypes != null)
