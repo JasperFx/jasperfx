@@ -88,6 +88,13 @@ public class GeneratedType : IVariableSource, IGeneratedType
 
     public string TypeName { get; }
 
+    /// <summary>
+    ///     jasperfx#1228: a type that only means something in C#, such as the AOT roots companion. F# output
+    ///     leaves it out, because <see cref="GeneratedAssembly.GenerateFSharpCode" /> can be asked to render an
+    ///     assembly that was assembled for C#.
+    /// </summary>
+    internal bool IsCSharpOnly { get; set; }
+
     public GenerationRules Rules { get; }
 
     public IList<Setter> Setters { get; } = new List<Setter>();

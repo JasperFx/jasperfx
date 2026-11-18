@@ -55,7 +55,9 @@ public static class AotRootsCompanionExtensions
     ///     <c>ModuleInitializerAttribute</c> — an F# module's <c>do</c> bindings initialize lazily
     ///     and are not an ILC root — so emitting one under
     ///     <c>codegen write --language fsharp</c> would be a silent no-op that reads as working
-    ///     rooting. This method returns <c>null</c> instead.
+    ///     rooting. This method returns <c>null</c> instead, and
+    ///     <see cref="GeneratedAssembly.GenerateFSharpCode" /> leaves out a companion added while the assembly
+    ///     targeted C#.
     /// </remarks>
     public static GeneratedType? AddAotRoots(this GeneratedAssembly assembly, string typeName,
         IEnumerable<AttributeArg> rootedTypes)
@@ -86,6 +88,10 @@ public static class AotRootsCompanionExtensions
         }
 
         var companion = assembly.AddType(typeName);
+
+        // jasperfx#1228: an assembly assembled for C# can still be rendered as F#, and a companion there would
+        // be the same silent no-op the TargetLanguage check above avoids, with roots F# cannot even compile
+        companion.IsCSharpOnly = true;
         companion.CommentType(
             "Native AOT rooting companion (jasperfx#743). Generated code is only ever reached reflectively, so without these roots ILC trims it and TypeLoadMode.Static finds nothing.");
 
