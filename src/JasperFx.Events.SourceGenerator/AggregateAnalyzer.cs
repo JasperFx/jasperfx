@@ -528,10 +528,30 @@ internal static class AggregateAnalyzer
             IsPartial = classDecl.Modifiers.Any(SyntaxKind.PartialKeyword),
             AggregateType = classSymbol,
             IdentityType = idType,
+            Methods = DiscoverInheritedConventionalMethods(classSymbol),
             HasDefaultConstructor = HasParameterlessConstructor(classSymbol),
             EvolveMethod = evolveMethod,
             HasNaturalKey = HasNaturalKeyProperty(classSymbol)
         };
+    }
+
+    /// <summary>
+    /// The public conventional Apply / Create / ShouldDelete methods a self-aggregating type with its own
+    /// Evolve / EvolveAsync inherits from its base classes. The type's own Evolve still owns everything the
+    /// type declares, but a base class that applies some events conventionally (Wolverine's event-sourced
+    /// saga base class applies its compensation and completion events this way) must not lose them just
+    /// because the subclass is written with Evolve. Same base-class walk as the conventional path (#295),
+    /// starting one level up. See #1241.
+    /// </summary>
+    private static List<ConventionalMethodInfo> DiscoverInheritedConventionalMethods(INamedTypeSymbol classSymbol)
+    {
+        var methods = new List<ConventionalMethodInfo>();
+        if (classSymbol.BaseType is { } baseType)
+        {
+            DiscoverMethodsOnType(baseType, classSymbol, true, methods);
+        }
+
+        return methods;
     }
 
     private static EvolveMethodInfo? FindEvolveMethod(INamedTypeSymbol classSymbol)
@@ -1853,6 +1873,7 @@ internal static class AggregateAnalyzer
                 ClassSyntax = classDecl,
                 AggregateType = aggregateType,
                 IdentityType = idType,
+                Methods = DiscoverInheritedConventionalMethods(aggregateType),
                 HasDefaultConstructor = HasParameterlessConstructor(aggregateType),
                 EvolveMethod = evolveMethod
             };

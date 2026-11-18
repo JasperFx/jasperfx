@@ -1197,6 +1197,15 @@ internal static class EvolverCodeEmitter
             sb.AppendLine();
         }
 
+        if (info.Methods.Count > 0)
+        {
+            // Conventional methods inherited from a base class (#1241). A type with none keeps the plain
+            // delegate below, so its generated code does not change.
+            EmitEvolveWithInheritedConventionalMethods(sb, info, evolverName, aggregateFullName, idFullName);
+            AppendAggregateActivator(sb, info.AggregateType);
+            return sb.ToString();
+        }
+
         var isAsync = evolve.IsAsync || evolve.HasSession;
         string interfaceName;
 
@@ -1229,6 +1238,288 @@ internal static class EvolverCodeEmitter
         sb.AppendLine("}");
         AppendAggregateActivator(sb, info.AggregateType);
         return sb.ToString();
+    }
+
+    // --- Self-aggregating Evolve plus conventional methods inherited from a base class (#1241) ---
+
+    /// <summary>
+    /// The evolver for a self-aggregating type that declares its own Evolve / EvolveAsync AND inherits
+    /// public conventional Apply / Create / ShouldDelete methods from a base class. Routing, per event:
+    /// <list type="bullet">
+    /// <item>an event type an inherited method handles goes to that method (ShouldDelete first, then
+    /// Create on a null snapshot or Apply, exactly as the conventional dispatcher does);</item>
+    /// <item>after that, the type's own Evolve runs too when its body names the event type, a base type of
+    /// it or an interface it implements, or names no event type at all (a catch-all Evolve already took
+    /// every event, so it keeps doing so);</item>
+    /// <item>every other event goes to Evolve alone.</item>
+    /// </list>
+    /// The contract follows what the runtime binds: a ShouldDelete anywhere makes it a DetermineAction
+    /// contract (JasperFxAggregationProjectionBase only binds those once it sees a ShouldDelete method), and
+    /// an async Evolve or an async / session-taking inherited method makes it async.
+    /// </summary>
+    private static void EmitEvolveWithInheritedConventionalMethods(StringBuilder sb, CandidateInfo info,
+        string evolverName, string docType, string idType)
+    {
+        var evolve = info.EvolveMethod!;
+        var isAsync = evolve.IsAsync || evolve.HasSession || info.HasAnyAsync;
+        var hasShouldDelete = info.Methods.Any(m => m.MethodName == "ShouldDelete");
+
+        var contract = (hasShouldDelete, isAsync) switch
+        {
+            (false, false) => "IGeneratedSyncEvolver",
+            (false, true) => "IGeneratedAsyncEvolver",
+            (true, false) => "IGeneratedSyncDetermineAction",
+            (true, true) => "IGeneratedAsyncDetermineAction"
+        };
+
+        sb.AppendLine($"file sealed class {evolverName} : global::JasperFx.Events.Aggregation.{contract}<{docType}, {idType}>");
+        sb.AppendLine("{");
+        EmitEvolveWithInheritedEventTypesProperty(sb, info);
+        sb.AppendLine();
+
+        // An async dispatcher whose every handler turns out to be synchronous (a session-taking sync
+        // Apply, say) has nothing to await, which is fine and not worth a warning in generated code.
+        if (isAsync) sb.AppendLine("#pragma warning disable CS1998");
+
+        if (hasShouldDelete)
+        {
+            EmitDetermineActionOverPerEventEvolve(sb, docType, idType, isAsync);
+            sb.AppendLine();
+
+            sb.AppendLine(isAsync
+                ? $"    private static async global::System.Threading.Tasks.ValueTask<{docType}?> evolveOneAsync({docType}? snapshot, global::JasperFx.Events.IEvent e, object session, global::System.Threading.CancellationToken cancellation)"
+                : $"    private static {docType}? evolveOne({docType}? snapshot, global::JasperFx.Events.IEvent e)");
+        }
+        else
+        {
+            sb.AppendLine(isAsync
+                ? $"    public async global::System.Threading.Tasks.ValueTask<{docType}?> EvolveAsync({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e, object session, global::System.Threading.CancellationToken cancellation)"
+                : $"    public {docType}? Evolve({docType}? snapshot, {idType} id, global::JasperFx.Events.IEvent e)");
+        }
+
+        sb.AppendLine("    {");
+        EmitEvolveWithInheritedBody(sb, info, isAsync);
+        sb.AppendLine("    }");
+
+        if (isAsync) sb.AppendLine("#pragma warning restore CS1998");
+        sb.AppendLine("}");
+    }
+
+    /// <summary>
+    /// The Evolve body names the event types it filters on; the inherited methods add theirs. A body that
+    /// names none takes every event, and an empty array is how it says so: adding the inherited types
+    /// there would narrow a catch-all to exactly those.
+    /// </summary>
+    private static void EmitEvolveWithInheritedEventTypesProperty(StringBuilder sb, CandidateInfo info)
+    {
+        var evolve = info.EvolveMethod!;
+        if (evolve.ExtractedEventTypes.Count == 0)
+        {
+            sb.AppendLine("    public global::System.Type[] EventTypes => [];");
+            return;
+        }
+
+        var types = evolve.ExtractedEventTypes
+            .Concat(info.Methods.Select(m => m.EventType))
+            .Select(t => Fqn(t))
+            .Distinct()
+            .ToList();
+
+        sb.Append("    public global::System.Type[] EventTypes => [");
+        sb.Append(string.Join(", ", types.Select(t => $"typeof({t})")));
+        sb.AppendLine("];");
+    }
+
+    private static void EmitDetermineActionOverPerEventEvolve(StringBuilder sb, string docType, string idType,
+        bool isAsync)
+    {
+        var actionType = "global::JasperFx.Events.Daemon.ActionType";
+        var events = "global::System.Collections.Generic.IReadOnlyList<global::JasperFx.Events.IEvent> events";
+
+        sb.AppendLine(isAsync
+            ? $"    public async global::System.Threading.Tasks.ValueTask<({docType}?, {actionType})> DetermineActionAsync({docType}? snapshot, {idType} id, {events}, object session, global::System.Threading.CancellationToken cancellation)"
+            : $"    public ({docType}?, {actionType}) DetermineAction({docType}? snapshot, {idType} id, {events})");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var exists = snapshot != null;");
+        sb.AppendLine("        foreach (var e in events)");
+        sb.AppendLine("        {");
+        // Per-event wrap, as every other generated DetermineAction does (#305).
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine(isAsync
+            ? "                snapshot = await evolveOneAsync(snapshot, e, session, cancellation);"
+            : "                snapshot = evolveOne(snapshot, e);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::JasperFx.Events.Daemon.ApplyEventException)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw;");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (global::System.Exception __ex)");
+        sb.AppendLine("                when (!global::JasperFx.Events.Projections.ProjectionExceptions.IsExceptionTransient(__ex))");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new global::JasperFx.Events.Daemon.ApplyEventException(e, __ex);");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        if (snapshot == null)");
+        sb.AppendLine($"            return exists ? (null, {actionType}.Delete) : (null, {actionType}.Nothing);");
+        sb.AppendLine($"        return (snapshot, {actionType}.Store);");
+        sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// One event: the inherited conventional arms, then the type's own Evolve for everything else. The
+    /// in-scope names are <c>snapshot</c>, <c>e</c> and, when async, <c>session</c> and <c>cancellation</c>.
+    /// </summary>
+    private static void EmitEvolveWithInheritedBody(StringBuilder sb, CandidateInfo info, bool isAsync)
+    {
+        var evolve = info.EvolveMethod!;
+        var ctorExpression = BuildAggregateConstructorExpression(info.AggregateType!);
+
+        if (isAsync)
+        {
+            var sessionParamType = info.Methods
+                .Where(m => m.HasSession)
+                .Select(m => m.Symbol.Parameters.FirstOrDefault(p => IsQuerySession(p.Type))?.Type)
+                .FirstOrDefault(t => t != null);
+            if (sessionParamType != null)
+            {
+                sb.AppendLine($"        var typedSession = ({Fqn(sessionParamType)})session;");
+            }
+        }
+
+        var shouldDeletes = info.Methods.Where(m => m.MethodName == "ShouldDelete").ToList();
+        var creates = info.Methods.Where(m => m.MethodName == "Create").ToList();
+        // An explicit Apply(Case) beats an Apply(union) covering the same case (jasperfx#1053).
+        var applies = info.Methods.Where(m => m.MethodName == "Apply").OrderBy(m => m.UnionWrappers != null).ToList();
+
+        // More-derived types first so `case IBase data:` never shadows `case Concrete data:` (CS8120).
+        var eventTypes = info.Methods
+            .Select(m => m.EventType)
+            .Distinct<ITypeSymbol>(SymbolEqualityComparer.Default)
+            .OrderByDescending(t => GetTypeDepth(t!))
+            .ToList();
+
+        sb.AppendLine("        switch (e.Data)");
+        sb.AppendLine("        {");
+
+        foreach (var eventType in eventTypes)
+        {
+            var shouldDelete = shouldDeletes.FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.EventType, eventType));
+            var create = creates.FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.EventType, eventType));
+            var apply = applies.FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.EventType, eventType));
+
+            sb.AppendLine($"            case {Fqn(eventType!)} data:");
+
+            if (shouldDelete != null)
+            {
+                sb.Append("                if (snapshot != null && ");
+                if (isAsync)
+                {
+                    var receiver = shouldDelete.IsStatic ? Fqn(shouldDelete.Symbol.ContainingType) : "snapshot";
+                    var awaitPrefix = shouldDelete.IsAsync ? "await " : "";
+                    sb.Append($"{awaitPrefix}{receiver}.{shouldDelete.MethodName}({BuildSelfAggregatingArgsAsync(shouldDelete, "data")})");
+                }
+                else
+                {
+                    EmitSelfAggregatingShouldDeleteCall(sb, shouldDelete, "data");
+                }
+
+                sb.AppendLine(") return null;");
+            }
+
+            if (create != null)
+            {
+                sb.AppendLine("                if (snapshot == null)");
+                sb.Append("                    snapshot = ");
+                if (isAsync) EmitSelfAggregatingCreateCallAsync(sb, create, "data");
+                else EmitSelfAggregatingCreateCall(sb, create, "data");
+                sb.AppendLine(";");
+
+                if (apply != null)
+                {
+                    sb.AppendLine("                else");
+                    sb.Append("                    ");
+                    if (isAsync) EmitSelfAggregatingApplyCallAsync(sb, apply, "data");
+                    else EmitSelfAggregatingApplyCall(sb, apply, "data");
+                }
+            }
+            else if (apply != null)
+            {
+                sb.AppendLine($"                snapshot ??= {ctorExpression};");
+                sb.Append("                ");
+                if (isAsync) EmitSelfAggregatingApplyCallAsync(sb, apply, "data");
+                else EmitSelfAggregatingApplyCall(sb, apply, "data");
+            }
+
+            if (EvolveAlsoTakes(evolve, eventType!))
+            {
+                EmitUserEvolveCall(sb, evolve, ctorExpression, isAsync, "                ", asReturn: false);
+            }
+
+            sb.AppendLine("                return snapshot;");
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        EmitUserEvolveCall(sb, evolve, ctorExpression, isAsync, "        ", asReturn: true);
+    }
+
+    /// <summary>
+    /// Whether the type's own Evolve also receives an event type an inherited method handles: when its body
+    /// names that type, a base type of it or an interface it implements, or names no type at all.
+    /// </summary>
+    private static bool EvolveAlsoTakes(EvolveMethodInfo evolve, ITypeSymbol eventType)
+    {
+        if (evolve.ExtractedEventTypes.Count == 0) return true;
+
+        foreach (var named in evolve.ExtractedEventTypes)
+        {
+            if (SymbolEqualityComparer.Default.Equals(named, eventType)) return true;
+
+            for (var current = eventType.BaseType; current != null; current = current.BaseType)
+            {
+                if (SymbolEqualityComparer.Default.Equals(named, current)) return true;
+            }
+
+            if (eventType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(named, i))) return true;
+        }
+
+        return false;
+    }
+
+    private static void EmitUserEvolveCall(StringBuilder sb, EvolveMethodInfo evolve, string ctorExpression,
+        bool isAsync, string indent, bool asReturn)
+    {
+        var args = new List<string> { evolve.TakesIEvent ? "e" : "e.Data" };
+        if (evolve.HasSession)
+        {
+            var sessionParam = evolve.Symbol.Parameters.FirstOrDefault(p => IsQuerySession(p.Type));
+            args.Add(sessionParam != null ? $"({Fqn(sessionParam.Type)})session" : "session");
+        }
+
+        if (evolve.HasCancellationToken)
+        {
+            args.Add(isAsync ? "cancellation" : "default");
+        }
+
+        var call = $"{evolve.Symbol.Name}({string.Join(", ", args)})";
+        var awaitPrefix = evolve.IsAsync ? "await " : "";
+
+        if (evolve.IsMutable)
+        {
+            sb.AppendLine($"{indent}snapshot ??= {ctorExpression};");
+            sb.AppendLine($"{indent}{awaitPrefix}snapshot.{call};");
+            if (asReturn) sb.AppendLine($"{indent}return snapshot;");
+        }
+        else if (asReturn)
+        {
+            sb.AppendLine($"{indent}return {awaitPrefix}(snapshot ?? {ctorExpression}).{call};");
+        }
+        else
+        {
+            sb.AppendLine($"{indent}snapshot = {awaitPrefix}(snapshot ?? {ctorExpression}).{call};");
+        }
     }
 
     private static void EmitEvolveEventTypesProperty(StringBuilder sb, EvolveMethodInfo evolve)
