@@ -258,6 +258,13 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
             await _cancellation.CancelAsync().ConfigureAwait(false);
 
+            // jasperfx#1231: wait for the command the loop is in the middle of before draining the execution. That is
+            // usually a page load, which the cancellation above ends, and a load that comes back after a stop drops
+            // its page (loadNextAsync). Draining first let a page that was loading land in an execution block that
+            // was already complete: "The channel has been closed", reported as this shard's failure, which failed a
+            // CatchUpAsync that had stopped the agent itself.
+            await waitForCommandLoopAsync(token).ConfigureAwait(false);
+
             await _execution.StopAndDrainAsync(token).ConfigureAwait(false);
         }
         catch (TaskCanceledException)
@@ -295,6 +302,20 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 AgentStatus = "Stopped",
                 LastHeartbeat = _timeProvider.GetUtcNow()
             }));
+        }
+    }
+
+    // Bounded by the same token as the drain that follows it. If the command outlives the token, the drain below is
+    // cut short the same way, and the late load still drops its page because the agent is already cancelled.
+    private async Task waitForCommandLoopAsync(CancellationToken token)
+    {
+        try
+        {
+            await _commandBlock.WaitForCompletionAsync().WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Out of time for this stop; carry on to the execution, which completes its block either way
         }
     }
 
@@ -1160,6 +1181,14 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         {
             var page = await _loader.LoadAsync(request, _cancellation.Token).ConfigureAwait(false);
 
+            // jasperfx#1231: this agent was stopped while the page loaded, and the stop has completed (or is about to
+            // complete) the execution. Whoever runs the shard next resumes from committed progression, so the page
+            // is dropped here rather than posted into a closed block.
+            if (_cancellation.IsCancellationRequested)
+            {
+                return null;
+            }
+
             // Passing this along helps the individual executions "know" when to switch from
             // continuous mode to "catch up" and vice versa
             page.HighWaterMark = HighWaterMark;
@@ -1174,6 +1203,15 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
 
             await _execution.EnqueueAsync(page, this);
             return page;
+        }
+        catch (Exception e) when (_cancellation.IsCancellationRequested)
+        {
+            // jasperfx#1231: a load or a post that fails once this agent was told to stop is the stop's doing, not
+            // a failure of the shard. Reporting it paused an agent that had just been stopped, and put the
+            // exception on the tracker for whoever was listening, such as CatchUpAsync.
+            _logger.LogDebug(e, "Discarding a page load for {Name} that ended after the agent was stopped",
+                ProjectionShardIdentity);
+            return null;
         }
         catch (Exception e)
         {
