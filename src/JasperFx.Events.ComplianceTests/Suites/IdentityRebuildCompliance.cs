@@ -204,17 +204,21 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
     }
 
     // jasperfx#1227: a soft-deleted document loads as null on most stores, and comes back flagged deleted on a store
-    // whose load by id does not apply the soft-delete filter (Marten)
-    private async Task shouldBeSoftDeletedAsync(Guid id)
+    // whose load by id does not apply the soft-delete filter (Marten).
+    //
+    // jasperfx#1232: null passes on either kind of store. A stream created and closed in one batch never writes a
+    // row at all (deleting a document that never existed is ActionType.Nothing), so there is nothing to find
+    // flagged deleted. Only a document that did load has to report itself deleted.
+    private async Task shouldNotBeLiveAsync(Guid id)
     {
         var document = await loadAsync(id);
+        if (document == null) return;
+
         if (theFixture.LoadExcludesSoftDeletedDocuments)
         {
             document.ShouldBeNull();
-            return;
         }
 
-        document.ShouldNotBeNull();
         await using var session = OpenSession();
         (await theFixture.IsSoftDeletedAsync<ComplianceWatchtower>(session, id, Cancellation)).ShouldBeTrue();
     }
@@ -607,7 +611,7 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
         // Projected up to the soft delete
         var id = await aCounterAsync(new CounterTicked(), new CounterTicked(), new CounterClosed());
         await aCaughtUpDaemonAsync();
-        await shouldBeSoftDeletedAsync(id);
+        await shouldNotBeLiveAsync(id);
 
         // A tick the shard never sees means the stream now folds to a live document that storage has deleted
         await StopDaemonAsync();
@@ -637,7 +641,7 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
 
         // Through the projection's own delete, not a hard delete
         (await rebuildAsync(daemon, id)).Action.ShouldBe(ActionType.Delete);
-        await shouldBeSoftDeletedAsync(id);
+        await shouldNotBeLiveAsync(id);
     }
 
     [Fact]
