@@ -2130,16 +2130,20 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
         }
     }
 
+    // jasperfx#1233: both of these read the running agents AFTER taking _semaphore. A start that had already passed
+    // its IsRebuilding check holds _semaphore until it registers its agent, so a snapshot taken before the wait
+    // missed that agent: it survived the rebuild, and committed a page after the teardown. Under the lock the
+    // snapshot sees every start that got past the check, and every later start sees the rebuild claim and refuses.
     private async Task stopRunningAgentsForTenant(string subscriptionName, string tenantId)
     {
-        var running = CurrentAgents()
-            .Where(x => x.Name.Name == subscriptionName && x.Name.TenantId == tenantId)
-            .ToArray();
-
         await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
 
         try
         {
+            var running = CurrentAgents()
+                .Where(x => x.Name.Name == subscriptionName && x.Name.TenantId == tenantId)
+                .ToArray();
+
             foreach (var agent in running)
             {
                 await agent.HardStopAsync().ConfigureAwait(false);
@@ -2153,12 +2157,12 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
     private async Task stopRunningAgents(string subscriptionName)
     {
-        var running = CurrentAgents().Where(x => x.Name.Name == subscriptionName).ToArray();
-
         await _semaphore.WaitAsync(_cancellation.Token).ConfigureAwait(false);
 
         try
         {
+            var running = CurrentAgents().Where(x => x.Name.Name == subscriptionName).ToArray();
+
             foreach (var agent in running)
             {
                 await agent.HardStopAsync().ConfigureAwait(false);

@@ -332,6 +332,9 @@ public class Block<T> : BlockBase<T>
             // swallowed error callback (jasperfx#506)
             assertNotFaulted();
 
+            // jasperfx#1231: Complete() landed after the _latched check above. Same as posting after Complete()
+            if (completedWhileWriting(e)) return;
+
             try
             {
                 _onError(item, e);
@@ -355,16 +358,26 @@ public class Block<T> : BlockBase<T>
         {
             await _channel.Writer.WriteAsync(item, _cancellation.Token);
         }
-        catch
+        catch (Exception e)
         {
             // A failed write (closed/faulted channel, shutdown cancellation) never enqueued the item,
             // so it must not be counted — a leaked increment permanently inflates Count, which
             // consumers read as "work still pending" (e.g. a back-pressured listener deciding whether
             // it may resume). The sync Post() has always decremented on failure; this is its async twin.
             Interlocked.Decrement(ref _count);
+
+            // jasperfx#1231: Complete() landed after the _latched check above, while this write was in flight or
+            // waiting for room. A post after Complete() is dropped quietly, so a post that only lost the race to it
+            // is too. It used to throw "The channel has been closed" at a producer that was shutting down anyway.
+            if (completedWhileWriting(e)) return;
+
             throw;
         }
     }
+
+    // Completed by Complete(), not faulted: a fault completes the channel too, but sets _failure first
+    private bool completedWhileWriting(Exception e)
+        => e is ChannelClosedException && Volatile.Read(ref _latched) && Volatile.Read(ref _failure) == null;
 
     /// <summary>
     /// The number of items posted to this block whose processing has not yet finished — both the ones

@@ -954,7 +954,8 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
 
     /// <summary>
     /// Whether the store's own soft-delete metadata marks the document with this id deleted. Only called when
-    /// <see cref="LoadExcludesSoftDeletedDocuments" /> is false (jasperfx#1227).
+    /// <see cref="LoadExcludesSoftDeletedDocuments" /> is false (jasperfx#1227), and only for a document the load
+    /// returned: a document that loads as null already counts as not live (jasperfx#1232).
     /// </summary>
     public virtual Task<bool> IsSoftDeletedAsync<T>(TQuerySession session, object id, CancellationToken token)
         where T : class
