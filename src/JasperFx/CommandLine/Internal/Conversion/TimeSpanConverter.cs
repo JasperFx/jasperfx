@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace JasperFx.CommandLine.Internal.Conversion;
@@ -24,7 +25,7 @@ $                   # match the entire string";
         }
 
 
-        var number = double.Parse(match.Groups["quantity"].Value);
+        var number = double.Parse(match.Groups["quantity"].Value, CultureInfo.InvariantCulture);
         var units = match.Groups["units"].Value.ToLower();
         switch (units)
         {
