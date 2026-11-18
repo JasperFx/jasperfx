@@ -93,7 +93,7 @@ $                   # match the entire string";
             var match = TimespanRegex().Match(timeString);
             if (!match.Success)
             {
-                return TimeSpan.Parse(timeString);
+                return TimeSpan.Parse(timeString, CultureInfo.InvariantCulture);
             }
 
 
@@ -126,16 +126,16 @@ $                   # match the entire string";
 
             if (timeString.Length == 4 && !timeString.Contains(':'))
             {
-                int hours = int.Parse(timeSpan.Slice(0, 2));
-                int minutes = int.Parse(timeSpan.Slice(2, 2));
+                int hours = int.Parse(timeSpan.Slice(0, 2), NumberStyles.Integer, CultureInfo.InvariantCulture);
+                int minutes = int.Parse(timeSpan.Slice(2, 2), NumberStyles.Integer, CultureInfo.InvariantCulture);
 
                 return new TimeSpan(hours, minutes, 0);
             }
 
             if (timeString.Length == 5 && timeString.Contains(':'))
             {
-                int hours = int.Parse(timeSpan.Slice(0, 2));
-                int minutes = int.Parse(timeSpan.Slice(3));
+                int hours = int.Parse(timeSpan.Slice(0, 2), NumberStyles.Integer, CultureInfo.InvariantCulture);
+                int minutes = int.Parse(timeSpan.Slice(3), NumberStyles.Integer, CultureInfo.InvariantCulture);
 
                 return new TimeSpan(hours, minutes, 0);
             }

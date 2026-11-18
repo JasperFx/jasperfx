@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using JasperFx.CommandLine.Internal.Conversion;
 using JasperFx.CommandLine.Parsing;
@@ -39,7 +40,7 @@ public class Argument : TokenHandlerBase
         {
             if (_memberType!.IsNumeric())
             {
-                if (!decimal.TryParse(tokens.Peek(), out _))
+                if (!decimal.TryParse(tokens.Peek(), NumberStyles.Number, CultureInfo.InvariantCulture, out _))
                 {
                     return false;
                 }

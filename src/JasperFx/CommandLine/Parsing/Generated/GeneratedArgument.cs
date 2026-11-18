@@ -1,3 +1,4 @@
+using System.Globalization;
 using JasperFx.Core;
 
 namespace JasperFx.CommandLine.Parsing.Generated;
@@ -34,7 +35,7 @@ public sealed class GeneratedArgument<T> : Argument
         {
             if (_isNumeric)
             {
-                if (!decimal.TryParse(tokens.Peek(), out _))
+                if (!decimal.TryParse(tokens.Peek(), NumberStyles.Number, CultureInfo.InvariantCulture, out _))
                     return false;
             }
             else

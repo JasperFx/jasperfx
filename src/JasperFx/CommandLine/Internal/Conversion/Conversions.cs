@@ -1,3 +1,4 @@
+using System.Globalization;
 using JasperFx.Core;
 
 namespace JasperFx.CommandLine.Internal.Conversion;
@@ -15,18 +16,21 @@ public class Conversions
                 type => { return providers().Select(x => x.ConverterFor(type)).FirstOrDefault(x => x != null); });
 
         RegisterConversion(bool.Parse);
-        RegisterConversion(byte.Parse);
-        RegisterConversion(sbyte.Parse);
         RegisterConversion(char.Parse);
-        RegisterConversion(decimal.Parse);
-        RegisterConversion(double.Parse);
-        RegisterConversion(float.Parse);
-        RegisterConversion(short.Parse);
-        RegisterConversion(int.Parse);
-        RegisterConversion(long.Parse);
-        RegisterConversion(ushort.Parse);
-        RegisterConversion(uint.Parse);
-        RegisterConversion(ulong.Parse);
+
+        // Numbers on the command line are read the same way on every machine, so "1.5" is
+        // one and a half whatever the current culture's decimal separator is
+        RegisterConversion(x => byte.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => sbyte.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => decimal.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => double.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => float.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => short.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => int.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => long.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => ushort.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => uint.Parse(x, CultureInfo.InvariantCulture));
+        RegisterConversion(x => ulong.Parse(x, CultureInfo.InvariantCulture));
         RegisterConversion(DateTimeConverter.GetDateTime);
         RegisterConversion(Guid.Parse);
 

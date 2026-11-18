@@ -1,4 +1,6 @@
-﻿namespace JasperFx.CommandLine.Parsing;
+﻿using System.Globalization;
+
+namespace JasperFx.CommandLine.Parsing;
 
 public class ArgPreprocessor
 {
@@ -31,7 +33,7 @@ public class ArgPreprocessor
     private static bool isMultiArg(string arg)
     {
         // Getting around GH-24
-        if (decimal.TryParse(arg, out var number))
+        if (decimal.TryParse(arg, NumberStyles.Number, CultureInfo.InvariantCulture, out _))
         {
             return false;
         }

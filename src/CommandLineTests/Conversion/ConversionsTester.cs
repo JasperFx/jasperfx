@@ -1,4 +1,5 @@
-﻿using JasperFx.CommandLine.Internal.Conversion;
+﻿using System.Globalization;
+using JasperFx.CommandLine.Internal.Conversion;
 using Shouldly;
 
 namespace CommandLineTests.Conversion
@@ -17,7 +18,7 @@ namespace CommandLineTests.Conversion
 
         private void assertRoundTrip<T>(T value)
         {
-            var s = value.ToString();
+            var s = Convert.ToString(value, CultureInfo.InvariantCulture);
             conversions.Convert(typeof (T), s)
                 .ShouldBe(value);
         }
