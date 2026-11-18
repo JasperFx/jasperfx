@@ -21,7 +21,7 @@ $                   # match the entire string";
         var match = TimespanRegex().Match(timeString.Trim());
         if (!match.Success)
         {
-            return TimeSpan.Parse(timeString);
+            return TimeSpan.Parse(timeString, CultureInfo.InvariantCulture);
         }
 
 
@@ -52,8 +52,8 @@ $                   # match the entire string";
 
         if (timeString.Length == 4 && !timeString.Contains(":"))
         {
-            var hours = int.Parse(timeString.Substring(0, 2));
-            var minutes = int.Parse(timeString.Substring(2, 2));
+            var hours = int.Parse(timeString.Substring(0, 2), CultureInfo.InvariantCulture);
+            var minutes = int.Parse(timeString.Substring(2, 2), CultureInfo.InvariantCulture);
 
             return new TimeSpan(hours, minutes, 0);
         }
@@ -61,8 +61,8 @@ $                   # match the entire string";
         if (timeString.Length == 5 && timeString.Contains(":"))
         {
             var parts = timeString.Split(':');
-            var hours = int.Parse(parts.ElementAt(0));
-            var minutes = int.Parse(parts.ElementAt(1));
+            var hours = int.Parse(parts.ElementAt(0), CultureInfo.InvariantCulture);
+            var minutes = int.Parse(parts.ElementAt(1), CultureInfo.InvariantCulture);
 
             return new TimeSpan(hours, minutes, 0);
         }

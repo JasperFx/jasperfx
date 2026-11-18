@@ -21,7 +21,7 @@ public class DateTimeConverter
         if (trimmedString.Contains(TODAY))
         {
             var dayString = trimmedString.Substring(5, trimmedString.Length - 5);
-            var days = int.Parse(dayString);
+            var days = int.Parse(dayString, CultureInfo.InvariantCulture);
 
             return DateTime.Today.AddDays(days);
         }
@@ -74,6 +74,6 @@ public class DateTimeConverter
     private static int minutesFrom24HourTime(string time)
     {
         var parts = time.Split(':');
-        return 60 * int.Parse(parts[0]) + int.Parse(parts[1]);
+        return 60 * int.Parse(parts[0], CultureInfo.InvariantCulture) + int.Parse(parts[1], CultureInfo.InvariantCulture);
     }
 }
