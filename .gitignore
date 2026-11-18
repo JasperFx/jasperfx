@@ -411,3 +411,6 @@ docs/.vitepress/dist
 
 # @jasperfx/event-model-vue — the built library is a publish artifact, never committed
 src/event-model-vue/dist/
+
+# Nuke's scratch folder: SmokeTestBuildTargets and the build scripts write throwaway files here
+.nuke/temp/
