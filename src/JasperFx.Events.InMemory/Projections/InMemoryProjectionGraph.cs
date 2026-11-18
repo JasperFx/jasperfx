@@ -80,6 +80,14 @@ public class InMemoryProjectionGraph
     /// </summary>
     public void Add(ProjectionBase projection, ProjectionLifecycle lifecycle)
     {
+        // jasperfx#1222: a backfill only runs as a Wolverine job
+        if (projection is IInMemoryBackfillSource { Backfills.Count: > 0 } && !_events.HasJobHost)
+        {
+            throw new InvalidOperationException(
+                $"Projection {projection.Name} declares a backfill, which runs as a Wolverine long-running job, and " +
+                "no job host manages this store. Integrate the store with Wolverine, or remove the Backfill(...) declaration.");
+        }
+
         projection.Lifecycle = lifecycle;
         projection.AssembleAndAssertValidity();
 

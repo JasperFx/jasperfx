@@ -1090,6 +1090,62 @@ public interface IEventStore
         CancellationToken ct)
         => throw new NotImplementedException(
             "RunMultiStreamProjectionAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for projection step-through.");
+
+    /// <summary>
+    /// jasperfx#1215: can this store rewrite stored events through <see cref="RewriteStoredEventsAsync" />? A store
+    /// that answers true also implements the event-range marks on its <see cref="IEventDatabase" />.
+    /// </summary>
+    bool SupportsEventRewrites => false;
+
+    /// <summary>
+    /// jasperfx#1215: rewrite the stored events <see cref="EventRewriteRun.Definition" /> selects in one database, for
+    /// each tenant from its cursor up to and including its ceiling, one page at a time. A Wolverine job calls this.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The store refuses the whole request up front when the definition names a transform that is not registered
+    /// (<see cref="EventRegistry.FindRewriteTransforms" />). It writes each page and that page's cursor under
+    /// <see cref="EventRewriteRun.CursorKey" /> in one transaction, calls <see cref="EventRewriteRun.OnPage" />
+    /// after the commit, and never reads past a tenant's <see cref="EventRangeCursor.StopAfter" />. On a tenant's
+    /// last page it stores the ceiling as the cursor.
+    /// </para>
+    /// <para>
+    /// Cancelling stops after the page in flight. Building a new run from the marks resumes after the stored cursor.
+    /// </para>
+    /// </remarks>
+    /// <returns>The totals of each tenant for this call, in the order of <see cref="EventRewriteRun.Cursors" />.</returns>
+    Task<IReadOnlyList<EventRewriteProgress>> RewriteStoredEventsAsync(EventRewriteRun run, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not rewrite stored events (jasperfx#1215).");
+
+    /// <summary>
+    /// jasperfx#1222: can this store run a projection backfill through <see cref="RunBackfillAsync" />? A store that
+    /// answers true also implements the event-range marks on its <see cref="IEventDatabase" />, which
+    /// <see cref="AsyncOptions.SubscribeFromPriorVersionMark" /> needs too.
+    /// </summary>
+    bool SupportsBackfills => false;
+
+    /// <summary>
+    /// jasperfx#1222: run the backfill <see cref="BackfillRun.BackfillName" /> declared on the projection
+    /// <see cref="BackfillRun.ProjectionName" /> in one database, for each tenant from its cursor up to and including
+    /// its ceiling, one page at a time. A Wolverine job calls this.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Reads only the backfill's own event types and the projection's delete events, not through the daemon's
+    /// subscription pipeline and not as a replay. Applies each event to the document that exists and is not deleted,
+    /// and writes the page's cursor under <see cref="BackfillRun.CursorKey" /> in the same transaction. Calls
+    /// <see cref="BackfillRun.OnPage" /> after the commit, never reads past a tenant's
+    /// <see cref="EventRangeCursor.StopAfter" />, and stores the ceiling as the cursor on a tenant's last page.
+    /// </para>
+    /// <para>
+    /// Cancelling stops after the page in flight. Building a new run from the marks resumes after the stored cursor.
+    /// </para>
+    /// </remarks>
+    /// <returns>The totals of each tenant for this call, in the order of <see cref="BackfillRun.Cursors" />.</returns>
+    Task<IReadOnlyList<BackfillProgress>> RunBackfillAsync(BackfillRun run, CancellationToken token)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not run projection backfills (jasperfx#1222).");
 }
 
 public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOperations : TQuerySession, IStorageOperations

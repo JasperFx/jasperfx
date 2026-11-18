@@ -56,6 +56,32 @@ public class AotRootsCompanionTests
     }
 
     [Fact]
+    public void fsharp_output_of_an_assembly_assembled_for_csharp_leaves_the_companion_out()
+    {
+        // jasperfx#1228: the companion is added while the assembly targets C#, then the assembly is
+        // rendered as F#. F# would ignore [ModuleInitializer], and a sibling root written by its full
+        // name does not compile inside the namespace that declares it (FS0039).
+        var assembly = new GeneratedAssembly(new GenerationRules("Internal.Generated.Handlers"));
+        assembly.AddType("GeneratedRegistry", typeof(object)).AddVoidMethod("Go")
+            .Frames.Add(new CommentFrame("nothing"));
+
+        assembly.AddAotRoots("AotRoots", new[] { "Internal.Generated.Handlers.GeneratedRegistry" })
+            .ShouldNotBeNull();
+
+        var fsharp = assembly.GenerateFSharpCode();
+
+        fsharp.ShouldContain("type GeneratedRegistry");
+        fsharp.ShouldNotContain("AotRoots");
+        fsharp.ShouldNotContain("ModuleInitializer");
+        fsharp.ShouldNotContain("DynamicDependency");
+
+        // The C# output still carries it
+        var csharp = assembly.GenerateCode();
+        csharp.ShouldContain("public sealed class AotRoots");
+        csharp.ShouldContain("typeof(global::Internal.Generated.Handlers.GeneratedRegistry)");
+    }
+
+    [Fact]
     public void nothing_is_emitted_for_an_empty_root_list()
     {
         var assembly = GeneratedAssembly.Empty();

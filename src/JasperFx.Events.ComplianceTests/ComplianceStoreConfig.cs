@@ -157,6 +157,16 @@ public sealed class ComplianceStoreConfig
     public bool DisableWriteRetries { get; set; }
 
     /// <summary>
+    /// Build the store as Wolverine would, with <see cref="EventRegistry.HasJobHost" /> set on its event registry
+    /// (jasperfx#1222). A store refuses a projection that declares a backfill without it.
+    /// </summary>
+    /// <remarks>
+    /// A plain property for the same reason as <see cref="StreamIdentity" />: the flag is shared, the options object
+    /// it hangs off is the product's own event graph. A fixture that ignores it fails the backfill suite at startup.
+    /// </remarks>
+    public bool HasJobHost { get; set; }
+
+    /// <summary>
     /// Tenant id → logical database name, for the suites that need a store backed by more than one
     /// database (jasperfx#810). Empty leaves the store single-database, which is every other suite.
     /// </summary>
@@ -453,6 +463,17 @@ public sealed class ComplianceStoreConfig
     {
         Projections.Add((projection, lifecycle));
         _registrations.Add(registrar => registrar.AddProjection(projection, lifecycle));
+        return this;
+    }
+
+    /// <summary>
+    /// Register a named rewrite transform (jasperfx#1215), through <see cref="EventRegistry.AddRewriteTransform{T}" />
+    /// on the store's own event registry.
+    /// </summary>
+    public ComplianceStoreConfig AddRewriteTransform<TEvent>(string name, Func<TEvent, TEvent> transform)
+        where TEvent : class
+    {
+        _registrations.Add(registrar => registrar.AddRewriteTransform(name, transform));
         return this;
     }
 

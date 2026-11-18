@@ -46,6 +46,9 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
             store.Events.CausationIdEnabled = true;
         }
 
+        // jasperfx#1222: a backfill declaration is refused unless a job host manages the store
+        store.Events.HasJobHost = config.HasJobHost;
+
         store.Events.UserNameEnabled = config.EnableUserNameTracking;
         store.Events.HeadersEnabled = config.EnableHeaders;
 
@@ -106,6 +109,13 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
     public override bool SupportsProjectionFloors => true;
 
     public override bool SupportsPendingEventAges => true;
+
+    // jasperfx#1215 / #1222: the reference implementation of the marks, the rewrite and the backfill
+    public override bool SupportsEventRangeMarks => true;
+
+    public override bool SupportsEventRewrites => true;
+
+    public override bool SupportsBackfills => true;
 
     public override bool SupportsStreamArchiving => false;
 
@@ -176,6 +186,9 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
             => store.Projections.Add(projection, lifecycle);
 
         public void Subscribe(ComplianceSubscription subscription) => throw notSupported("Subscriptions");
+
+        public void AddRewriteTransform<TEvent>(string name, Func<TEvent, TEvent> transform) where TEvent : class
+            => store.Events.AddRewriteTransform(name, transform);
 
         public void SoftDeleted<TDoc>() where TDoc : notnull => store.SoftDeletedTypes.Add(typeof(TDoc));
     }

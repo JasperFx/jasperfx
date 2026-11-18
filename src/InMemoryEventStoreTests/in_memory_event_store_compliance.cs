@@ -74,3 +74,13 @@ public class event_data_query_compliance
 // store in this repository
 public class identity_rebuild_compliance
     : IdentityRebuildCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+// jasperfx#1215 / #1222: the reference store for the event-range marks, the stored-event rewrite and the backfill
+public class event_range_mark_compliance
+    : EventRangeMarkCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+public class event_rewrite_compliance
+    : EventRewriteCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+public class backfill_compliance
+    : BackfillCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;

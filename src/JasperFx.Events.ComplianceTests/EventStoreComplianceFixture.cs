@@ -898,6 +898,35 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsPendingEventAges => false;
 
     /// <summary>
+    /// True in a store whose <see cref="IEventDatabase" /> implements the event-range marks —
+    /// <see cref="IEventDatabase.FetchEventRangeMarkAsync" />, <see cref="IEventDatabase.TrySetEventRangeMarkAsync" />
+    /// and <see cref="IEventDatabase.SetEventRangeMarkAsync" /> (jasperfx#1215 / #1222). Gates
+    /// <see cref="EventRangeMarkCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>: the seam ships with throwing defaults. Implement the three members over
+    /// storage that survives rebuild teardown, like the projection floors, then flip this.
+    /// </remarks>
+    public virtual bool SupportsEventRangeMarks => false;
+
+    /// <summary>
+    /// True in a store that implements <see cref="IEventStore.RewriteStoredEventsAsync" /> and answers true for
+    /// <see cref="IEventStore.SupportsEventRewrites" /> (jasperfx#1215), and whose registrar implements
+    /// <see cref="IComplianceStoreRegistrar.AddRewriteTransform{TEvent}" />. Gates
+    /// <see cref="EventRewriteCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    public virtual bool SupportsEventRewrites => false;
+
+    /// <summary>
+    /// True in a store that implements <see cref="IEventStore.RunBackfillAsync" />, answers true for
+    /// <see cref="IEventStore.SupportsBackfills" /> and honours <see cref="ComplianceStoreConfig.HasJobHost" />
+    /// (jasperfx#1222), and whose compliance assembly implements the partial method
+    /// <c>ComplianceBackfillProjection.declareBackfill()</c> with its own <c>Backfill(...)</c> syntax. Gates
+    /// <see cref="BackfillCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    public virtual bool SupportsBackfills => false;
+
+    /// <summary>
     /// True in a store that implements the per-identity rebuild seams (jasperfx#1201):
     /// <c>IEventStore&lt;,&gt;.SupportsIdentityRebuild</c> and <c>LoadEventsForIdentityRebuildAsync</c>,
     /// <c>IProjectionStorage&lt;,&gt;.HardDeleteById</c>, and a projection batch that records progression for an
@@ -910,6 +939,27 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// projected document type can be stored soft-deleted (jasperfx#1201).
     /// </summary>
     public virtual bool SupportsSoftDeletedProjectionDocuments => false;
+
+    /// <summary>
+    /// Does <see cref="LoadDocumentAsync{T}" /> answer null for a soft-deleted document, as a query does? Default
+    /// <b>true</b>. The event store twin of <see cref="DocumentStorageComplianceFixture.LoadExcludesSoftDeletedDocuments" />
+    /// (jasperfx#1227).
+    /// </summary>
+    /// <remarks>
+    /// Marten's load by id returns a soft-deleted row. A store like that answers false here and implements
+    /// <see cref="IsSoftDeletedAsync{T}" />, so a suite asserts the document came back flagged deleted instead of
+    /// asserting null.
+    /// </remarks>
+    public virtual bool LoadExcludesSoftDeletedDocuments => true;
+
+    /// <summary>
+    /// Whether the store's own soft-delete metadata marks the document with this id deleted. Only called when
+    /// <see cref="LoadExcludesSoftDeletedDocuments" /> is false (jasperfx#1227).
+    /// </summary>
+    public virtual Task<bool> IsSoftDeletedAsync<T>(TQuerySession session, object id, CancellationToken token)
+        where T : class
+        => throw new NotSupportedException(
+            $"{GetType().FullName} answers false for LoadExcludesSoftDeletedDocuments, so it has to implement IsSoftDeletedAsync.");
 
     /// <summary>
     /// True in a store that implements <see cref="IEventStoreOperations.ArchiveStream(System.Guid)" />, so a

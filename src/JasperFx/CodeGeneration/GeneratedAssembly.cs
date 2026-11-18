@@ -189,7 +189,7 @@ public class GeneratedAssembly
     /// </summary>
     public string GenerateFSharpCode(IServiceVariableSource? services = null)
     {
-        foreach (var generatedType in GeneratedTypes)
+        foreach (var generatedType in fsharpTypes())
         {
             services?.StartNewType();
             generatedType.ArrangeFrames(services);
@@ -209,7 +209,7 @@ public class GeneratedAssembly
 
         writer.BlankLine();
 
-        foreach (var @class in GeneratedTypes)
+        foreach (var @class in fsharpTypes())
         {
             @class.WriteFSharp(writer);
             writer.BlankLine();
@@ -230,7 +230,7 @@ public class GeneratedAssembly
     {
         var namespaces = new List<string>(AllReferencedNamespaces());
 
-        foreach (var type in GeneratedTypes)
+        foreach (var type in fsharpTypes())
         {
             if (type.BaseType != null)
             {
@@ -254,6 +254,10 @@ public class GeneratedAssembly
 
         return namespaces.Where(x => x.IsNotEmpty()).Distinct().ToList()!;
     }
+
+    // jasperfx#1228: the types F# output renders. A C#-only type, such as an AOT roots companion added while the
+    // assembly targeted C#, is left out: F# ignores [ModuleInitializer] and cannot compile its sibling roots.
+    private IEnumerable<GeneratedType> fsharpTypes() => GeneratedTypes.Where(x => !x.IsCSharpOnly);
 
     private static IEnumerable<string> namespacesWithin(Type type)
     {

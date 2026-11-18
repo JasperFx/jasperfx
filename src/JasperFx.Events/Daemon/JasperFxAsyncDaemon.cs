@@ -683,37 +683,10 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
     }
 
     // jasperfx#480: the one genuinely new read — resolve the HIGHEST prior version's persisted
-    // progression mark for the same (projection, shard key, tenant). The version is baked into the
-    // progression-row identity (Trips:V2:All vs Trips:V3:All are distinct rows), so the prior mark
-    // survives the version bump and parses back out of AllProjectionProgress here.
+    // progression mark for the same (projection, shard key, tenant). Shared with the backfill ceiling
+    // (jasperfx#1222), which splits history at the same mark.
     private async Task<long> resolvePriorVersionProgressAsync(ShardName name, CancellationToken token)
-    {
-        var progress = await Database.AllProjectionProgress(token).ConfigureAwait(false);
-
-        long mark = 0;
-        uint priorVersion = 0;
-        foreach (var state in progress)
-        {
-            if (!ShardName.TryParse(state.ShardName, out var parsed) || parsed == null)
-            {
-                continue;
-            }
-
-            if (parsed.Version >= name.Version || parsed.Version < priorVersion)
-            {
-                continue;
-            }
-
-            if (!parsed.Name.EqualsIgnoreCase(name.Name)) continue;
-            if (!parsed.ShardKey.EqualsIgnoreCase(name.ShardKey)) continue;
-            if (!string.Equals(parsed.TenantId, name.TenantId)) continue;
-
-            priorVersion = parsed.Version;
-            mark = state.Sequence;
-        }
-
-        return mark;
-    }
+        => await EventRangeMarks.FindPriorVersionProgressAsync(Database, name, token).ConfigureAwait(false) ?? 0;
 
 
     public Task StartAgentAsync(string shardName, CancellationToken token)

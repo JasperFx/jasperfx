@@ -166,6 +166,12 @@ public class AsyncOptions
         // jasperfx#809: a stored floor wins over whatever the code configured for this database
         if (await storedFloorAsync(strategy, name, database, token).ConfigureAwait(false) is { } floor)
         {
+            // jasperfx#1222: a floor below the backfill's mark would replay events the backfill also covers
+            if (strategy is FromPriorVersionMark priorVersionMark && mode == ShardExecutionMode.Continuous)
+            {
+                floor = Math.Max(floor, await priorVersionMark.CaptureAsync(name, database, token).ConfigureAwait(false));
+            }
+
             return await FromSequence.StartAtAsync(floor, name, database, token).ConfigureAwait(false);
         }
 
@@ -320,6 +326,36 @@ public class AsyncOptions
     }
 
     /// <summary>
+    /// jasperfx#1222: start this version of the projection where its prior version left off, at the mark stored
+    /// for the backfill named <paramref name="backfillName" />. The backfill job stops at the same stored mark, so
+    /// the live version and the backfill split history at exactly one sequence: the backfill covers every event up
+    /// to and including the mark, and the live version every event after it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The mark is captured once per database and tenant by
+    /// <see cref="EventRangeMarks.CaptureBackfillCeilingAsync" /> and stored as an event-range mark under
+    /// <see cref="EventRangeMarks.BackfillKey" />: the highest prior version's persisted progression, or this
+    /// version's own progression when no prior version has one. Whichever of the live start and the backfill job
+    /// gets there first stores it. Every later start begins at <c>max(progress, mark)</c>.
+    /// </para>
+    /// <para>
+    /// A rebuild still replays from 0 (or a stored or configured floor). Requires a store that implements the
+    /// event-range marks on <see cref="IEventDatabase" />; on one that does not, the shard fails to start with a
+    /// <see cref="NotSupportedException" /> rather than replaying history the backfill also covers.
+    /// </para>
+    /// </remarks>
+    /// <param name="backfillName">The name of the backfill declared on this projection.</param>
+    /// <param name="databaseIdentifier">Optionally applies this rule to *only* the named database in the case of
+    /// using a multi-tenancy per multiple databases strategy</param>
+    public AsyncOptions SubscribeFromPriorVersionMark(string backfillName, string? databaseIdentifier = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(backfillName);
+        _strategies.Add(new FromPriorVersionMark(databaseIdentifier, backfillName));
+        return this;
+    }
+
+    /// <summary>
     /// Use this option to prevent having to rebuild a projection when you are
     /// simply changing the projection lifecycle from "Inline" to "Async" but are
     /// making no other changes that would force a rebuild
@@ -426,6 +462,29 @@ internal class FromFirstRun(string? databaseName): IPositionStrategy
         var position = await FromSequence.StartAtAsync(floor, name, database, token).ConfigureAwait(false);
         return position with { PinnedFloor = floor };
     }
+}
+
+/// <summary>
+/// jasperfx#1222: <see cref="AsyncOptions.SubscribeFromPriorVersionMark" />. Starts at the backfill's stored ceiling,
+/// capturing it first when neither the backfill job nor an earlier start has.
+/// </summary>
+internal class FromPriorVersionMark(string? databaseName, string backfillName): IPositionStrategy
+{
+    public string? DatabaseIdentifier { get; } = databaseName;
+    public string BackfillName { get; } = backfillName;
+
+    public async Task<Position> DetermineStartingPositionAsync(long highWaterMark, ShardName name,
+        ShardExecutionMode mode, IEventDatabase database, CancellationToken token)
+    {
+        // A rebuild replays the whole history, which the projection's own Apply now covers
+        if (mode == ShardExecutionMode.Rebuild) return new Position(0, true);
+
+        var mark = await CaptureAsync(name, database, token).ConfigureAwait(false);
+        return await FromSequence.StartAtAsync(mark, name, database, token).ConfigureAwait(false);
+    }
+
+    internal Task<long> CaptureAsync(ShardName name, IEventDatabase database, CancellationToken token)
+        => EventRangeMarks.CaptureBackfillCeilingAsync(database, name, BackfillName, token);
 }
 
 internal class FromTime(string? databaseName, DateTimeOffset time): IPositionStrategy

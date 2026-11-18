@@ -324,6 +324,49 @@ public interface IEventDatabase
             $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(SetProjectionFloorAsync)} (jasperfx#809), so it cannot persist a projection start floor.");
 
     /// <summary>
+    ///     jasperfx#1215 / #1222: the event-range mark stored under <paramref name="key" /> for
+    ///     <paramref name="tenantId" /> (null for store-global), or null when none is stored. A stored-event rewrite
+    ///     and a projection backfill keep their ceiling and their cursor here; see <see cref="EventRangeMarks" /> for
+    ///     the keys.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     Stored like the projection floors (<see cref="FetchProjectionFloorAsync" />): a small table of its own,
+    ///     keyed by the string key and the tenant, that <b>survives rebuild teardown</b> and any cleaning of
+    ///     projection progress. A store writes a cursor mark in the same transaction as the page it covers.
+    /// </para>
+    /// <para>
+    ///     The default implementation throws <see cref="NotSupportedException" />, so a store that predates the
+    ///     seam refuses a rewrite, a backfill and <see cref="AsyncOptions.SubscribeFromPriorVersionMark" />.
+    /// </para>
+    /// </remarks>
+    Task<long?> FetchEventRangeMarkAsync(string key, string? tenantId, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(FetchEventRangeMarkAsync)} (jasperfx#1222), so it cannot store event-range marks.");
+
+    /// <summary>
+    ///     jasperfx#1215 / #1222: store <paramref name="mark" /> under <paramref name="key" /> <b>only if none is
+    ///     stored yet</b>, and return the mark that is stored afterwards, which is the winner of any race. A ceiling
+    ///     is captured this way, so every node and job that asks uses the one stored value.
+    /// </summary>
+    /// <remarks>See <see cref="FetchEventRangeMarkAsync" /> for the key and the storage rule.</remarks>
+    Task<long> TrySetEventRangeMarkAsync(string key, string? tenantId, long mark, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(TrySetEventRangeMarkAsync)} (jasperfx#1222), so it cannot store event-range marks.");
+
+    /// <summary>
+    ///     jasperfx#1215 / #1222: set the mark under <paramref name="key" /> unconditionally, or clear it with a null
+    ///     <paramref name="mark" />. This is how an operator rewinds a cursor or lets a new run capture a new ceiling.
+    /// </summary>
+    /// <remarks>
+    ///     Neither setting nor clearing runs anything by itself. See <see cref="FetchEventRangeMarkAsync" /> for the
+    ///     key and the storage rule.
+    /// </remarks>
+    Task SetEventRangeMarkAsync(string key, string? tenantId, long? mark, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(SetEventRangeMarkAsync)} (jasperfx#1222), so it cannot store event-range marks.");
+
+    /// <summary>
     ///     Persist the extended progression telemetry for a single projection/subscription shard —
     ///     heartbeat, agent status, pause reason, running node — onto the store's progression row for
     ///     <see cref="ShardState.ShardName" /> (the raw shard identity). This is the write half of the
