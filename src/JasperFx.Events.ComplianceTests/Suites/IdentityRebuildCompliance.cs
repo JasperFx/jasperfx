@@ -140,6 +140,10 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
     private static readonly Action<ComplianceStoreConfig> _conjoinedConfiguration = config =>
     {
         configureCore(config, null);
+
+        // jasperfx#1227: a schema of its own, like every other suite's conjoined configuration, so this fact never
+        // migrates the single-tenancy event store the other facts built
+        config.SchemaName = "compliance_identity_rebuild_conjoined";
         config.ConjoinedEventTenancy = true;
     };
 
@@ -197,6 +201,34 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
     {
         await using var session = OpenSession();
         return await LoadDocumentAsync<ComplianceWatchtower>(session, id);
+    }
+
+    // jasperfx#1227: a soft-deleted document loads as null on most stores, and comes back flagged deleted on a store
+    // whose load by id does not apply the soft-delete filter (Marten)
+    private async Task shouldBeSoftDeletedAsync(Guid id)
+    {
+        var document = await loadAsync(id);
+        if (theFixture.LoadExcludesSoftDeletedDocuments)
+        {
+            document.ShouldBeNull();
+            return;
+        }
+
+        document.ShouldNotBeNull();
+        await using var session = OpenSession();
+        (await theFixture.IsSoftDeletedAsync<ComplianceWatchtower>(session, id, Cancellation)).ShouldBeTrue();
+    }
+
+    private async Task<ComplianceWatchtower> shouldBeLiveAsync(Guid id)
+    {
+        var document = (await loadAsync(id)).ShouldNotBeNull();
+        if (!theFixture.LoadExcludesSoftDeletedDocuments)
+        {
+            await using var session = OpenSession();
+            (await theFixture.IsSoftDeletedAsync<ComplianceWatchtower>(session, id, Cancellation)).ShouldBeFalse();
+        }
+
+        return document;
     }
 
     private async Task<IReadOnlyList<IEvent>> streamAsync(Guid id)
@@ -575,7 +607,7 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
         // Projected up to the soft delete
         var id = await aCounterAsync(new CounterTicked(), new CounterTicked(), new CounterClosed());
         await aCaughtUpDaemonAsync();
-        (await loadAsync(id)).ShouldBeNull();
+        await shouldBeSoftDeletedAsync(id);
 
         // A tick the shard never sees means the stream now folds to a live document that storage has deleted
         await StopDaemonAsync();
@@ -586,8 +618,7 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
         // The shard must have committed once since the restart for its position to be known
         (await rebuildAsync(daemon, id)).Action.ShouldBe(ActionType.Store);
 
-        var document = await loadAsync(id);
-        document.ShouldNotBeNull();
+        var document = await shouldBeLiveAsync(id);
         document.Ticks.ShouldBe(1);
     }
 
@@ -606,7 +637,7 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
 
         // Through the projection's own delete, not a hard delete
         (await rebuildAsync(daemon, id)).Action.ShouldBe(ActionType.Delete);
-        (await loadAsync(id)).ShouldBeNull();
+        await shouldBeSoftDeletedAsync(id);
     }
 
     [Fact]

@@ -119,6 +119,14 @@ public partial class EventRegistry : IEventRegistry
     public virtual Upcasting.UpcastingRegistry Upcasters { get; } = new();
 
     /// <summary>
+    ///     jasperfx#1222: whether a host that runs long-running jobs, Wolverine, is managing this store. Wolverine's
+    ///     integrations set it. A store refuses a projection <c>Backfill(...)</c> declaration at startup when it is
+    ///     false, because a backfill only runs as a Wolverine job.
+    /// </summary>
+    [IgnoreDescription]
+    public bool HasJobHost { get; set; }
+
+    /// <summary>
     ///     Keep recently fetched snapshots of <typeparamref name="T" /> in a node-local cache so that
     ///     a subsequent <c>FetchForWriting</c> can skip loading the stored snapshot and read only the
     ///     events after it. Effectively an identity map for aggregates with a lifetime longer than a

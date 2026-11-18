@@ -116,6 +116,40 @@ public sealed class InMemoryEventDatabase : IEventDatabase
         return Task.CompletedTask;
     }
 
+    // jasperfx#1215 / #1222: event-range marks, keyed by a string and the tenant. Like the floors, they outlive Clear()
+    // and rebuild teardown.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Key, string Tenant), long> _marks = new();
+
+    private static (string, string) markKey(string key, string? tenantId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        return (key, tenantId ?? "");
+    }
+
+    /// <inheritdoc />
+    public Task<long?> FetchEventRangeMarkAsync(string key, string? tenantId, CancellationToken token = default)
+        => Task.FromResult<long?>(_marks.TryGetValue(markKey(key, tenantId), out var mark) ? mark : null);
+
+    /// <inheritdoc />
+    public Task<long> TrySetEventRangeMarkAsync(string key, string? tenantId, long mark,
+        CancellationToken token = default)
+        => Task.FromResult(_marks.GetOrAdd(markKey(key, tenantId), mark));
+
+    /// <inheritdoc />
+    public Task SetEventRangeMarkAsync(string key, string? tenantId, long? mark, CancellationToken token = default)
+    {
+        if (mark is { } value)
+        {
+            _marks[markKey(key, tenantId)] = value;
+        }
+        else
+        {
+            _marks.TryRemove(markKey(key, tenantId), out _);
+        }
+
+        return Task.CompletedTask;
+    }
+
     /// <inheritdoc />
     public Task StoreDeadLetterEventAsync(object storage, DeadLetterEvent deadLetterEvent, CancellationToken token)
         => throw InMemoryEventRegistry.NotSupported("Dead letter events");

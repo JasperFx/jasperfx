@@ -236,5 +236,14 @@ public interface IComplianceStoreRegistrar
     /// type is the one spelling that works on both. Implementations should pin the subscription
     /// name to <see cref="ComplianceSubscription.SubscriptionName"/>.
     /// </remarks>
+    /// <summary>
+    /// Register a named rewrite transform (jasperfx#1215): forward to
+    /// <see cref="EventRegistry.AddRewriteTransform{T}" /> on the store's event registry. Only
+    /// <see cref="EventRewriteCompliance{TFixture,TOperations,TQuerySession}" /> calls it.
+    /// </summary>
+    void AddRewriteTransform<TEvent>(string name, Func<TEvent, TEvent> transform) where TEvent : class
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement AddRewriteTransform, so it cannot run the stored-event rewrite compliance suite.");
+
     void Subscribe(ComplianceSubscription subscription);
 }

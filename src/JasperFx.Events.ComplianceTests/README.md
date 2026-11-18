@@ -146,6 +146,25 @@ public partial class RecordingMessageBatch : IMessageBatch     // your product's
 }
 ```
 
+`BackfillCompliance` (jasperfx#1222) adds one partial method. Each store declares a projection
+backfill with its own syntax, so a store with backfills implements `declareBackfill()` on the shared
+`ComplianceBackfillProjection`, adding each `BackfillLineAdded.Amount` to
+`ComplianceWatchtower.LineTotal`. The in-memory store's version:
+
+```csharp
+namespace JasperFx.Events.ComplianceTests;
+
+public partial class ComplianceBackfillProjection
+{
+    partial void declareBackfill()
+        => Backfill(BackfillName).On<BackfillLineAdded>((doc, e) => doc.LineTotal += e.Amount);
+}
+```
+
+That store's fixture also sets `EventRegistry.HasJobHost` from `ComplianceStoreConfig.HasJobHost`,
+and its registrar forwards `AddRewriteTransform` to the store's `EventRegistry` for
+`EventRewriteCompliance` (jasperfx#1215).
+
 Then enroll each suite with an empty subclass:
 
 ```csharp
