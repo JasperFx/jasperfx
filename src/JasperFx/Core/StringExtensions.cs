@@ -579,7 +579,7 @@ public static partial class StringExtensions
     /// <returns></returns>
     public static string ToTableAlias(this string name)
     {
-        return name.SplitPascalCase().ToLower().Replace(" ", "_");
+        return name.SplitPascalCase().ToLowerInvariant().Replace(" ", "_");
     }
     
     public static string PascalToKebabCase(this string value)
