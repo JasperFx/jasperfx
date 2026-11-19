@@ -14,9 +14,9 @@ public class FlagAliases
             return token == ShortForm;
         }
 
-        var lowerToken = token.ToLower();
+        var lowerToken = token.ToLowerInvariant();
 
-        return lowerToken == LongForm.ToLower();
+        return lowerToken == LongForm.ToLowerInvariant();
     }
 
     public override string ToString()
