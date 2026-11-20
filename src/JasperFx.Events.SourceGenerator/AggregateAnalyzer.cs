@@ -638,9 +638,16 @@ internal static class AggregateAnalyzer
         {
             switch (node)
             {
-                // case SomeType varName: or case SomeType:
+                // case SomeType varName:, case SomeType when ...:, case A or B:
                 case CasePatternSwitchLabelSyntax casePattern:
                     CollectTypesFromPattern(casePattern.Pattern, typeNames);
+                    break;
+
+                // case SomeType: -- a bare type pattern parses as a constant case label, and only the
+                // binder decides it is a type. A name that is really a constant resolves to no type below.
+                // See #1243.
+                case CaseSwitchLabelSyntax caseLabel:
+                    CollectTypeFromExpression(caseLabel.Value, typeNames);
                     break;
 
                 // C# 8+ switch expression arms: SomeType x =>
@@ -694,10 +701,42 @@ internal static class AggregateAnalyzer
                 if (typeName != null) typeNames.Add(typeName);
                 break;
             }
-            case ConstantPatternSyntax:
-                // Skip constant patterns
+            // SomeType => ... in a switch expression arm, or one side of an or / and pattern. Like the bare
+            // case label, the parser can't tell a type from a constant here. See #1243.
+            case ConstantPatternSyntax constant:
+                CollectTypeFromExpression(constant.Expression, typeNames);
                 break;
+            case TypePatternSyntax typePattern:
+            {
+                var typeName = ExtractTypeNameFromTypeSyntax(typePattern.Type);
+                if (typeName != null) typeNames.Add(typeName);
+                break;
+            }
+            // A or B, A and { ... }
+            case BinaryPatternSyntax binary:
+                CollectTypesFromPattern(binary.Left, typeNames);
+                CollectTypesFromPattern(binary.Right, typeNames);
+                break;
+            case ParenthesizedPatternSyntax parenthesized:
+                CollectTypesFromPattern(parenthesized.Pattern, typeNames);
+                break;
+            // `not SomeType` names a type the body does NOT handle, so it is skipped
         }
+    }
+
+    private static void CollectTypeFromExpression(ExpressionSyntax expression, HashSet<string> typeNames)
+    {
+        if (expression is ParenthesizedExpressionSyntax parenthesized)
+        {
+            CollectTypeFromExpression(parenthesized.Expression, typeNames);
+            return;
+        }
+
+        // Literals and other expressions are constants; only a name can be a type
+        if (expression is not TypeSyntax typeSyntax) return;
+
+        var typeName = ExtractTypeNameFromTypeSyntax(typeSyntax);
+        if (typeName != null) typeNames.Add(typeName);
     }
 
     private static string? ExtractTypeNameFromTypeSyntax(TypeSyntax typeSyntax)
