@@ -136,6 +136,13 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     public ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode)
         => mode == ShardExecutionMode.Rebuild ? RebuildErrors : ContinuousErrors;
 
+    /// <summary>
+    /// jasperfx#1256: the pipeline the async daemon builds each projection batch through, so a batch whose build fails
+    /// transiently is built again. Nothing on this store fails transiently by itself, so the default is
+    /// <see cref="Polly.ResiliencePipeline.Empty" />; set it to see how the daemon behaves with a real store's pipeline.
+    /// </summary>
+    public Polly.ResiliencePipeline ResiliencePipeline { get; set; } = Polly.ResiliencePipeline.Empty;
+
     /// <inheritdoc />
     public IReadOnlyList<AsyncShard<IInMemoryDocumentSession, IInMemoryQuerySession>> AllShards()
     {

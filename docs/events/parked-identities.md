@@ -122,6 +122,15 @@ A composite projection does not park in this version. A parked upstream document
 - An exception from side effects (`RaiseSideEffects`) or enrichment falls back to the configured behavior.
 - Inline projections never park: the error goes back to `SaveChanges` as before.
 - A full rebuild never parks. It runs under the rebuild error options, and its teardown clears the projection's parked rows, because a rebuild re-folds every identity anyway.
+- A transient failure never parks either. See the next section.
+
+## Transient failures
+
+A connection pool timeout, a deadlock or a dropped connection isn't the event's fault, so it doesn't park, pause or skip anything at first. The daemon builds the whole batch again through the event store's `ResiliencePipeline`, the same Polly pipeline the store uses elsewhere, for as long as that pipeline retries. That's true under `Park`, `Pause` and `Skip`, for one failing identity or several at once, and for a failure outside your projection code, like loading the stored documents.
+
+When the pipeline gives up, the shard pauses, and its `ShardFailure.IsTransient` is true, so Wolverine or CritterWatch can restart it later. With no pipeline (`ResiliencePipeline.Empty`, the default on `IEventStore`), that pause comes on the first failure.
+
+What counts as transient is what `ProjectionExceptions.IsExceptionTransient` says, minus systemic database failures. A member of a composite projection isn't built again on its own, because it writes into its parent's batch.
 
 ## Guard rails
 
@@ -222,3 +231,5 @@ A store that parks multi-stream identities implements, beyond what single-stream
 - For the slice index: `IProjectionBatch.AppendSliceIndex` in the batch's transaction, `IEventDatabase.PruneSliceIndexAsync`, the event-range marks (the index's start is the mark under `SliceIndexMarks.KeyFor(...)`), and deleting the index's rows with the projection's rebuild teardown, a rewind (rows above the new floor), a tenant's removal and a retired version's eject. One index per projection name and version, keyed by (tenant, identity, sequence).
 
 The `MultiStreamParkedIdentityCompliance` suite checks all of it. The in-memory store in `JasperFx.Events.InMemory` is the reference implementation.
+
+To have transient batch failures retried, return your store's Polly pipeline from `IEventStore<TOperations, TQuerySession>.ResiliencePipeline`. The daemon only hands it failures it already judged transient, and an `AggregateException` from several identities failing at once is handed over as its first inner exception, so a `ShouldHandle` written against your driver's exceptions works as it is.

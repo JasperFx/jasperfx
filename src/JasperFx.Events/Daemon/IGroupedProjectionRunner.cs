@@ -1,5 +1,6 @@
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
+using Polly;
 
 namespace JasperFx.Events.Daemon;
 
@@ -20,6 +21,12 @@ public interface IGroupedProjectionRunner : IAsyncDisposable
     IEventSlicer Slicer { get; }
 
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
+
+    /// <summary>
+    /// jasperfx#1256: the pipeline a batch build that fails transiently is built again through, normally the store's
+    /// <see cref="IEventStore{TOperations,TQuerySession}.ResiliencePipeline" />. The default never retries.
+    /// </summary>
+    ResiliencePipeline ResiliencePipeline => ResiliencePipeline.Empty;
 
     /// <summary>
     /// Apply CacheLimitPerTenant to any in-memory aggregate caches owned by this runner.

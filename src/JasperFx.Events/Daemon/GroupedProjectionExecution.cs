@@ -263,7 +263,7 @@ public class GroupedProjectionExecution : ISubscriptionExecution
             // CANNOT dispose the batch with using declaration here in the case of Composite batches
             batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
-                : await buildBatchAsync(range, _cancellation.Token).ConfigureAwait(false);
+                : await buildBatchResilientlyAsync(range, _cancellation.Token).ConfigureAwait(false);
 
             // Has to be the result of configuring apply event skipping *and*
             // hitting an error in skipping. Just get out of here. The Projection/Subscription
@@ -425,11 +425,15 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         {
             try
             {
-                batch = await buildBatchAsync(range, cancellationToken).ConfigureAwait(false);
+                batch = await buildBatchResilientlyAsync(range, cancellationToken).ConfigureAwait(false);
             }
             // jasperfx#1029: a systemic database failure is not any one event's fault, so it pauses the shard
-            // rather than being dead-lettered -- otherwise every following event would be skipped the same way
-            catch (AggregateException a) when (!a.InnerExceptions.Any(ProjectionExceptions.IsSystemicDatabaseFailure))
+            // rather than being dead-lettered -- otherwise every following event would be skipped the same way.
+            // jasperfx#1256: and only a failure that has an event to skip goes round again. Without one, nothing
+            // changes from one build to the next, so this went round for good on a transient failure; the store's
+            // resilience pipeline has already built it again as often as it is going to.
+            catch (AggregateException a) when (!a.InnerExceptions.Any(ProjectionExceptions.IsSystemicDatabaseFailure) &&
+                                               a.InnerExceptions.Any(x => x is ApplyEventException))
             {
                 var applyErrors = a.InnerExceptions.OfType<ApplyEventException>().ToArray();
                 foreach (var error in applyErrors)
@@ -449,6 +453,23 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         }
 
         return batch!;
+    }
+
+    // jasperfx#1256: a build that fails transiently is built again for as long as the store's pipeline retries
+    private Task<IProjectionBatch> buildBatchResilientlyAsync(EventRange range, CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        return ResilientBatchBuild.BuildAsync(_runner.ResiliencePipeline, range, async token =>
+        {
+            // A failed build leaves its state on the page's slices: the aggregate it folded, the events and messages
+            // its side effects raised. Building again starts from fresh slices, the way skipping an event does.
+            if (attempts++ > 0 && _runner.SliceBehavior == SliceBehavior.Preprocess)
+            {
+                await range.SliceAsync(_runner.Slicer).ConfigureAwait(false);
+            }
+
+            return await buildBatchAsync(range, token).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     private async Task<IProjectionBatch> buildBatchAsync(EventRange range, CancellationToken cancellationToken)

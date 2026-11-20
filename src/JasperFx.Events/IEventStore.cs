@@ -8,6 +8,7 @@ using JasperFx.Events.Descriptors;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Projections.Composite;
 using Microsoft.Extensions.Logging;
+using Polly;
 
 namespace JasperFx.Events;
 
@@ -1324,6 +1325,34 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     TOperations OpenSession(IEventDatabase database);
     TOperations OpenSession(IEventDatabase database, string tenantId);
     ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode);
+
+    /// <summary>
+    /// jasperfx#1256: the store's Polly pipeline, which the async daemon builds each projection batch through. When
+    /// building a batch fails transiently -- a connection pool timeout, a deadlock, a dropped connection, in one slice,
+    /// in several, or outside the slices while starting the batch, loading snapshots or enriching events -- the daemon
+    /// builds it again for as long as this pipeline retries, under every <see cref="Daemon.ErrorHandlingOptions.ApplyErrors" />
+    /// policy. When the pipeline gives up, the shard pauses with <see cref="Daemon.ShardFailure.IsTransient" /> true, so a
+    /// supervisor can restart it later.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The daemon only hands the pipeline a failure that <see cref="ProjectionExceptions.IsExceptionTransient" /> calls
+    /// transient and that is not a <see cref="ProjectionExceptions.IsSystemicDatabaseFailure">systemic database failure</see>.
+    /// Anything else goes straight to the error policy (park, pause or skip). The pipeline's own <c>ShouldHandle</c>
+    /// still decides whether a failure it is handed is retried. Several slices failing at once are handed over as the
+    /// first slice's exception, so a predicate keyed on the driver's exception type sees the driver's exception rather
+    /// than an <see cref="AggregateException" />.
+    /// </para>
+    /// <para>
+    /// Only a standalone batch is built again. A member of a composite projection writes into its parent's batch, which
+    /// a second build of the member would write into twice.
+    /// </para>
+    /// <para>
+    /// The default is <see cref="ResiliencePipeline.Empty" />, which never retries: a transient failure pauses the shard
+    /// at once, as it did before.
+    /// </para>
+    /// </remarks>
+    ResiliencePipeline ResiliencePipeline => ResiliencePipeline.Empty;
 
     /// <summary>
     /// jasperfx#1201: can this store re-fold one identity of a single-stream projection inside the daemon
