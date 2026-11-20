@@ -1,5 +1,13 @@
 # Migration Guide
 
+## Key Changes in 3.10.0
+
+* **Parking a failing projection identity** ([marten#6003](https://github.com/JasperFx/marten/issues/6003), [#1251](https://github.com/JasperFx/jasperfx/pull/1251), [#1252](https://github.com/JasperFx/jasperfx/pull/1252)). An async projection can now set aside the one identity whose events fail to apply, keep running for every other identity, and replay or discard the parked one later. Nothing parks unless a store or your configuration asks for it, so JasperFx's own default does not change. See [Parking a Failing Identity](/events/parked-identities).
+
+* **Rebuilding one identity of a multi-stream projection.** `RebuildIdentityAsync` now works for a multi-stream projection that groups by stream (`IdentityFromStream<TEvent>()`), by tag (`IdentityFromTag<TTag>()`) or through the new slice index (`UseSliceIndex()`). One whose grouping cannot find a single identity's events is now refused with `IdentityRebuildRefusal.IdentityNotFindable` instead of `NotASingleStreamProjection`; `RebuildIdentityByScanAsync` rebuilds those by reading the event store.
+
+* **New store members for event store authors.** `SupportsIdentityEventSource`, `LoadEventsForIdentityAsync`, `IProjectionBatch.AppendSliceIndex` and `IEventDatabase.PruneSliceIndexAsync`, plus the parked identity members from #1251. All have defaults, so a store built against 3.9.0 still compiles and simply does not park.
+
 ## Key Changes in 3.9.0
 
 * **Culture-independent names** ([#1246](https://github.com/JasperFx/jasperfx/pull/1246), [#1248](https://github.com/JasperFx/jasperfx/issues/1248)). `EqualsIgnoreCase`, `StartsWithIgnoreCase` and `EndsWithIgnoreCase` now compare with `StringComparison.OrdinalIgnoreCase` instead of the current culture, and `ToTableAlias` lowers with the invariant culture. On most machines nothing changes. On a machine whose culture is Turkish or Azerbaijani, an uppercase `I` used to become a dotless `ı`. Event type names, tag table suffixes and duplicated-field column names created there with an `I` in the type or member name will now be spelled differently. If you ran on such a machine, map the old names with an event type alias before upgrading.
