@@ -1,3 +1,4 @@
+using JasperFx.Core.Reflection;
 using JasperFx.Events.Projections;
 
 namespace JasperFx.Events.Grouping;
@@ -100,6 +101,12 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     private readonly List<IFanOutRule> _beforeGroupingFanoutRules = new();
     private readonly List<Action<IReadOnlyList<IEvent>, IEventGrouping<TId>>> _groupers = new();
     private readonly List<IJasperFxAggregateGrouper<TId, TQuerySession>> _lookupGroupers = new();
+    private readonly IdentityRuleLog _rules = new();
+
+    /// <summary>
+    /// marten#6003: how a projection using this slicer finds one identity's events, judged from its grouping rules.
+    /// </summary>
+    public IdentityAccess IdentityAccess => _rules.Classify();
 
     public async ValueTask SliceAsync(TQuerySession session, IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping)
     {
@@ -139,12 +146,40 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     public EventSlicer<TDoc, TId, TQuerySession> Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         _groupers.Add((events, grouping) => grouping.AddEvents(identityFunc, events));
+        _rules.Delegate($"Identity<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
         return this;
     }
 
     public EventSlicer<TDoc, TId, TQuerySession> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         _groupers.Add((events, grouping) => grouping.AddEvents(identitiesFunc, events));
+        _rules.Delegate($"Identities<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
+        return this;
+    }
+
+    /// <summary>
+    /// marten#6003: group each <typeparamref name="TEvent" /> by the stream it was appended to: the identity is the
+    /// event's stream id or key (wrapped when the identity is a strong-typed identifier). Unlike an
+    /// <c>Identity&lt;TEvent&gt;(e =&gt; ...)</c> delegate, the daemon can find one identity's events again from this
+    /// rule alone, which is what lets an identity be parked, replayed and rebuilt on its own.
+    /// </summary>
+    public EventSlicer<TDoc, TId, TQuerySession> IdentityFromStream<TEvent>() where TEvent : notnull
+    {
+        _groupers.Add(IdentityRules.FromStream<TEvent, TId>());
+        _rules.Stream(typeof(TEvent));
+        return this;
+    }
+
+    /// <summary>
+    /// marten#6003: group every event that carries a stored DCB tag of type <typeparamref name="TTag" /> by that tag's
+    /// value: the identity is the tag, or the simple value it wraps. An event tagged with several values goes to each.
+    /// The daemon can find one identity's events again through the tag, which is what lets an identity be parked,
+    /// replayed and rebuilt on its own. Declared, never inferred from a <c>TagWith</c> rule.
+    /// </summary>
+    public EventSlicer<TDoc, TId, TQuerySession> IdentityFromTag<TTag>() where TTag : notnull
+    {
+        _groupers.Add(IdentityRules.FromTag<TTag, TId>());
+        _rules.Tag(typeof(TTag));
         return this;
     }
 
@@ -155,6 +190,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(IJasperFxAggregateGrouper<TId, TQuerySession> grouper)
     {
         _lookupGroupers.Add(grouper);
+        _rules.Delegate($"Custom grouping ({grouper.GetType().ShortNameInCode()})");
 
         return this;
     }
@@ -166,6 +202,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         _lookupGroupers.Add(new LambdaAggregateGrouper<TId, TQuerySession>(func));
+        _rules.Delegate("Custom grouping");
 
         return this;
     }

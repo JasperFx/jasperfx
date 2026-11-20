@@ -1316,6 +1316,16 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
     bool SupportsIdentityRebuild => false;
 
     /// <summary>
+    /// marten#6003: can this store park a failing identity of an async projection? A store that answers true
+    /// implements <see cref="IProjectionBatch.ParkIdentity" /> and <see cref="IProjectionBatch.UnparkIdentity" /> on
+    /// its projection batch, and the parked-identity reads on <see cref="IEventDatabase" />
+    /// (<see cref="IEventDatabase.LoadParkedIdentitiesAsync" /> and its siblings), and
+    /// <see cref="SupportsIdentityRebuild" />, because replaying a parked identity is a per-identity rebuild. A store
+    /// that answers false treats <see cref="ProjectionErrorAction.Park" /> as <see cref="ProjectionErrorAction.Pause" />.
+    /// </summary>
+    bool SupportsParkedIdentities => false;
+
+    /// <summary>
     /// jasperfx#1201: one stream's events for a per-identity re-fold, in sequence order, read with the same rules
     /// the store's daemon event loader applies to the projection. See <see cref="IdentityRebuildEventRequest" />.
     /// </summary>

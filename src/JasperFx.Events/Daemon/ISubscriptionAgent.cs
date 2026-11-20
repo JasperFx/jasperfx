@@ -95,4 +95,11 @@ public interface ISubscriptionAgent : ISubscriptionController
     /// </para>
     /// </summary>
     bool SideEffectsSuppressed => false;
+
+    /// <summary>
+    /// marten#6003: how many identities this agent's shard holds parked. Zero for an agent that doesn't park. A
+    /// health check reports a shard with parked identities as degraded. A wrapper around a live inner agent should
+    /// delegate this the same way it delegates <see cref="Status"/>.
+    /// </summary>
+    int ParkedCount => 0;
 }

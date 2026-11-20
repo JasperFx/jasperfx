@@ -29,6 +29,21 @@ public interface IProjectionBatch : IAsyncDisposable
     /// </summary>
     /// <param name="range"></param>
     ValueTask RecordProgress(EventRange range);
+
+    /// <summary>
+    /// marten#6003: write (insert or replace) the <see cref="ParkedIdentity" /> row for an identity that failed in
+    /// this batch, so it commits with the batch's progression or not at all. Only called for a store that answers
+    /// <see cref="IEventStore{TOperations,TQuerySession}.SupportsParkedIdentities" /> with true.
+    /// </summary>
+    void ParkIdentity(ParkedIdentity parked)
+        => throw new NotSupportedException($"{GetType().FullName} does not park projection identities (marten#6003).");
+
+    /// <summary>
+    /// marten#6003: delete the <see cref="ParkedIdentity" /> row with this key in this batch, so the unpark commits
+    /// with the re-folded document and the batch's progression. Deleting a row that isn't there is not an error.
+    /// </summary>
+    void UnparkIdentity(ParkedIdentityKey key)
+        => throw new NotSupportedException($"{GetType().FullName} does not park projection identities (marten#6003).");
 }
 
 public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch where TOperations : TQuerySession, IStorageOperations

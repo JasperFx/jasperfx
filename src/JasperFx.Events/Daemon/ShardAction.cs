@@ -40,5 +40,17 @@ public enum ShardAction
     /// faulted or went stale (stopped completing cycles within the configured staleness threshold). The
     /// restart never advances the mark — it only re-establishes the loop.
     /// </summary>
-    Restarted
+    Restarted,
+
+    /// <summary>
+    /// marten#6003: the shard parked one or more failing identities. <see cref="ShardState.ParkedCount" /> carries
+    /// how many it holds now.
+    /// </summary>
+    Parked,
+
+    /// <summary>
+    /// marten#6003: the shard unparked one or more identities after a successful replay, discard or per-identity
+    /// rebuild. <see cref="ShardState.ParkedCount" /> carries how many it still holds.
+    /// </summary>
+    Unparked
 }

@@ -47,5 +47,14 @@ public enum ShardFailureCategory
     /// Anything else: a database outage, a timeout, a bug in the daemon itself. No single event can
     /// be blamed, so <see cref="ShardFailure.Event"/> is null.
     /// </summary>
-    Other
+    Other,
+
+    /// <summary>
+    /// marten#6003: the shard paused instead of parking a failing identity, either because it already holds
+    /// <see cref="ErrorHandlingOptions.MaxParkedIdentitiesPerShard" /> parked identities, or because one batch would
+    /// have parked so many of its identities at once (<see cref="ErrorHandlingOptions.ParkedTripMinimum" />) that the
+    /// failure is the projection's rather than the data's. Replay or discard parked identities, raise the cap, or fix
+    /// the projection, then restart the shard. See <see cref="ParkedLimitReachedException" />.
+    /// </summary>
+    ParkedLimitReached
 }

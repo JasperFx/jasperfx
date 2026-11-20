@@ -29,9 +29,17 @@ namespace JasperFx.Events.Aggregation;
 public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOperations, TQuerySession>
     : ProjectionBase, IAggregateProjection, IAggregationSteps<TDoc, TQuerySession>,
         IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>,
-        IAggregationProjection<TDoc, TId, TOperations, TQuerySession>
+        IAggregationProjection<TDoc, TId, TOperations, TQuerySession>, IHasIdentityAccess
     where TOperations : TQuerySession, IStorageOperations where TDoc : notnull where TId : notnull
 {
+    /// <summary>
+    /// marten#6003: how the daemon finds one identity's events for this projection, which decides whether a failing
+    /// identity can be parked and replayed on its own. A single-stream projection always can.
+    /// </summary>
+    public virtual IdentityAccess IdentityAccess => Scope == AggregationScope.SingleStream
+        ? IdentityAccess.SingleStream
+        : IdentityAccess.ScanOnly("A multi-stream projection that does not declare its grouping rules.");
+
     private readonly Lazy<Type[]> _allEventTypes;
     private readonly AggregateApplication<TDoc, TQuerySession> _application;
     

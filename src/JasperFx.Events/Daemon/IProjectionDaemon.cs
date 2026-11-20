@@ -319,6 +319,52 @@ public interface IProjectionDaemon: IDisposable
         => throw new NotSupportedException($"{GetType().FullName} does not support per-identity projection rebuilds.");
 
     /// <summary>
+    /// marten#6003: the identities of a projection that are parked in this daemon's database, oldest first, with the
+    /// error that parked each one.
+    /// </summary>
+    /// <param name="projectionName">The projection's name</param>
+    /// <param name="tenantId">One tenant's parked identities, or null for every tenant's</param>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<ParkedIdentity>> FetchParkedIdentitiesAsync(string projectionName, string? tenantId,
+        CancellationToken token)
+        => throw new NotSupportedException($"{GetType().FullName} does not park projection identities.");
+
+    /// <summary>
+    /// marten#6003: replay one parked identity in the shard that runs it on this daemon: re-fold it from nothing up
+    /// to the next batch's ceiling, fire the side effects of its events above the point where it parked, and unpark
+    /// it, all in that batch. If the re-fold fails again, the identity stays parked and the result says
+    /// <see cref="ParkedReplayOutcome.FailedAgain" />. From another process, use
+    /// <see cref="IEventDatabase.RequestParkedActionAsync" /> instead, which the node that runs the shard picks up.
+    /// </summary>
+    /// <exception cref="IdentityRebuildRefusedException">The shard is not running on this daemon.</exception>
+    Task<ParkedReplayResult> ReplayParkedIdentityAsync(string projectionName, string? tenantId, object identity,
+        CancellationToken token)
+        => throw new NotSupportedException($"{GetType().FullName} does not park projection identities.");
+
+    /// <summary>
+    /// marten#6003: replay every parked identity of a projection that this daemon runs, or the oldest few, at most
+    /// <see cref="ErrorHandlingOptions.ParkedReplayBatchSize" /> of them to a batch.
+    /// </summary>
+    Task<IReadOnlyList<ParkedReplayResult>> ReplayParkedIdentitiesAsync(string projectionName, string? tenantId,
+        ParkedSelection selection, CancellationToken token)
+        => throw new NotSupportedException($"{GetType().FullName} does not park projection identities.");
+
+    /// <summary>
+    /// marten#6003: discard one parked identity: re-fold it, dropping and dead-lettering each event that still fails,
+    /// and unpark it. Nothing is lost beyond what a skip would have lost.
+    /// </summary>
+    /// <exception cref="IdentityRebuildRefusedException">The shard is not running on this daemon.</exception>
+    Task<ParkedReplayResult> DiscardParkedIdentityAsync(string projectionName, string? tenantId, object identity,
+        CancellationToken token)
+        => throw new NotSupportedException($"{GetType().FullName} does not park projection identities.");
+
+    /// <summary>
+    /// marten#6003: is this identity parked in a shard this daemon runs? False when the shard isn't running here.
+    /// Late-event recovery uses it to leave a parked identity to its replay.
+    /// </summary>
+    bool IsIdentityParked(string projectionName, string? tenantId, object identity) => false;
+
+    /// <summary>
     /// List of agents that are currently running or paused
     /// </summary>
     /// <returns></returns>

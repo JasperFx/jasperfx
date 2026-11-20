@@ -180,6 +180,70 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
         TenancyGrouping = TenancyGrouping.RollUpByTenant;
     }
     
+    /// <summary>
+    /// marten#6003: how the daemon finds one identity's events for this projection, judged from its grouping rules.
+    /// Only <see cref="IdentityFromStream{TEvent}" /> and <see cref="IdentityFromTag{TTag}" /> are exact; a plain
+    /// <c>Identity</c>/<c>Identities</c> delegate, custom grouping, a custom slicer or rolling up by tenant make it
+    /// <see cref="IdentityAccessClass.ScanOnly" />.
+    /// </summary>
+    public override IdentityAccess IdentityAccess
+    {
+        get
+        {
+            if (TenancyGrouping == TenancyGrouping.RollUpByTenant)
+            {
+                return IdentityAccess.ScanOnly(
+                    "RollUpByTenant() makes the tenant the identity, and a tenant's events can only be found by scanning them.");
+            }
+
+            if (_customSlicer != null)
+            {
+                return IdentityAccess.ScanOnly(
+                    $"The custom slicer {_customSlicer.GetType().FullNameInCode()} can't be inverted to find one identity's events.");
+            }
+
+            return _defaultSlicer.IdentityAccess;
+        }
+    }
+
+    /// <summary>
+    /// marten#6003: group each <typeparamref name="TEvent" /> by the stream it was appended to: the identity is the
+    /// event's stream id or key, wrapped when the projection's identity is a strong-typed identifier. Unlike
+    /// <c>Identity&lt;TEvent&gt;(e =&gt; e.StreamId)</c>, the daemon can find one identity's events again from this
+    /// rule alone, so the projection's <see cref="IdentityAccess" /> is exact.
+    /// </summary>
+    public void IdentityFromStream<TEvent>() where TEvent : notnull
+    {
+        if (_customSlicer != null)
+        {
+            throw new InvalidOperationException(
+                "There is already a custom event slicer registered for this projection");
+        }
+
+        _defaultSlicer.IdentityFromStream<TEvent>();
+    }
+
+    /// <summary>
+    /// marten#6003: group every event that carries a stored DCB tag of type <typeparamref name="TTag" /> by the tag's
+    /// value: the identity is the tag itself, or the simple value it wraps. An event tagged with several values of the
+    /// type goes to each of them. The daemon can find one identity's events again through the tag, so the projection's
+    /// <see cref="IdentityAccess" /> is exact. Declared, never inferred: a plain <c>Identity</c> delegate that happens to
+    /// pick the same value as a <c>TagWith</c> rule is still a delegate.
+    /// </summary>
+    public void IdentityFromTag<TTag>() where TTag : notnull
+    {
+        if (_customSlicer != null)
+        {
+            throw new InvalidOperationException(
+                "There is already a custom event slicer registered for this projection");
+        }
+
+        _defaultSlicer.IdentityFromTag<TTag>();
+
+        // The daemon's loader only reads the events' tags for a projection that slices by them
+        IncludeEventTags = true;
+    }
+
     public void Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         if (_customSlicer != null)

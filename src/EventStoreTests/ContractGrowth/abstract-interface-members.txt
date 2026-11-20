@@ -665,6 +665,7 @@ JasperFx.Events.Projections.IEventFilterable :: Void FilterIncomingEventsOnStrea
 JasperFx.Events.Projections.IEventFilterable :: Void IncludeType(System.Type)
 JasperFx.Events.Projections.IEventFilterable :: Void IncludeType[T]()
 JasperFx.Events.Projections.IEventFilterable :: Void set_IncludeArchivedEvents(Boolean)
+JasperFx.Events.Projections.IHasIdentityAccess :: JasperFx.Events.Projections.IdentityAccess get_IdentityAccess()
 JasperFx.Events.Projections.IInlineProjection`1 :: System.Threading.Tasks.Task ApplyAsync(TOperations, System.Collections.Generic.IEnumerable`1[JasperFx.Events.StreamAction], System.Threading.CancellationToken)
 JasperFx.Events.Projections.IJasperFxProjection`1 :: System.Threading.Tasks.Task ApplyAsync(TOperations, System.Collections.Generic.IReadOnlyList`1[JasperFx.Events.IEvent], System.Threading.CancellationToken)
 JasperFx.Events.Projections.IMetadataApplication :: System.Object ApplyMetadata(System.Object, JasperFx.Events.IEvent)

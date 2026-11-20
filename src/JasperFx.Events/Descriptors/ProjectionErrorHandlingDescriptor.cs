@@ -46,4 +46,40 @@ public class ProjectionErrorHandlingDescriptor
     /// Mirror of <see cref="JasperFx.Events.Daemon.ErrorHandlingOptions.SkipSerializationErrors"/>.
     /// </summary>
     public bool SkipSerializationErrors { get; set; }
+
+    /// <summary>
+    /// marten#6003: what the daemon does when projection code fails on an event: <c>Pause</c>, <c>Skip</c> or
+    /// <c>Park</c>. Mirror of <see cref="JasperFx.Events.Daemon.ErrorHandlingOptions.ApplyErrors"/>. Null from a
+    /// store that predates it, which only reports <see cref="SkipApplyErrors"/>.
+    /// </summary>
+    public string? ApplyErrors { get; set; }
+
+    /// <summary>
+    /// marten#6003: what the daemon does when the store can't deserialize an event. Mirror of
+    /// <see cref="JasperFx.Events.Daemon.ErrorHandlingOptions.SerializationErrors"/>.
+    /// </summary>
+    public string? SerializationErrors { get; set; }
+
+    /// <summary>
+    /// marten#6003: the most identities one shard may hold parked before it pauses. Mirror of
+    /// <see cref="JasperFx.Events.Daemon.ErrorHandlingOptions.MaxParkedIdentitiesPerShard"/>.
+    /// </summary>
+    public int? MaxParkedIdentitiesPerShard { get; set; }
+
+    /// <summary>
+    /// marten#6003: build the descriptor from a store's options.
+    /// </summary>
+    public static ProjectionErrorHandlingDescriptor For(JasperFx.Events.Daemon.ErrorHandlingOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return new ProjectionErrorHandlingDescriptor
+        {
+            SkipApplyErrors = options.SkipApplyErrors,
+            SkipUnknownEvents = options.SkipUnknownEvents,
+            SkipSerializationErrors = options.SkipSerializationErrors,
+            ApplyErrors = options.ApplyErrors.ToString(),
+            SerializationErrors = options.SerializationErrors.ToString(),
+            MaxParkedIdentitiesPerShard = options.MaxParkedIdentitiesPerShard
+        };
+    }
 }

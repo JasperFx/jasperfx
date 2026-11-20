@@ -63,13 +63,31 @@ public class EventDeserializationFailureException : Exception, IEventFailureCont
 
     public ShardFailureCategory Category => ShardFailureCategory.EventSerialization;
 
-    // Everything below is raised while reading an events-table row, BEFORE there is an IEvent to
-    // inspect, so nothing but the sequence and the stored type alias is knowable here.
-    // IEventFailureContext makes every one of these nullable for exactly this case.
+    /// <summary>
+    ///     marten#6003: the stream id of the row that could not be read, for a Guid-identified stream. A store reads
+    ///     it from the row before it resolves the body, so the daemon can park the stream of a single-stream
+    ///     projection. Null when the store didn't supply it.
+    /// </summary>
+    public Guid? StreamId { get; init; }
+
+    /// <summary>
+    ///     marten#6003: the stream key of the row that could not be read, for a string-identified stream. Null when
+    ///     the store didn't supply it.
+    /// </summary>
+    public string? StreamKey { get; init; }
+
+    /// <summary>
+    ///     marten#6003: the tenant of the row that could not be read. Null when the store didn't supply it.
+    /// </summary>
+    public string? TenantId { get; init; }
+
+    // Raised while reading an events-table row, BEFORE there is an IEvent to inspect. A store that reads the
+    // stream and tenant columns first supplies them through the init properties above (marten#6003); the rest
+    // stays unknown. IEventFailureContext makes every one of these nullable for exactly this case.
     Guid? IEventFailureContext.EventId => null;
-    Guid? IEventFailureContext.StreamId => null;
-    string? IEventFailureContext.StreamKey => null;
-    string? IEventFailureContext.TenantId => null;
+    Guid? IEventFailureContext.StreamId => StreamId == Guid.Empty ? null : StreamId;
+    string? IEventFailureContext.StreamKey => string.IsNullOrEmpty(StreamKey) ? null : StreamKey;
+    string? IEventFailureContext.TenantId => TenantId;
     long? IEventFailureContext.Version => null;
 
     /// <summary>

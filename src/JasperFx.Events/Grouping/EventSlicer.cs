@@ -1,3 +1,6 @@
+using JasperFx.Core.Reflection;
+using JasperFx.Events.Projections;
+
 namespace JasperFx.Events.Grouping;
 
 public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
@@ -5,6 +8,12 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
     private readonly List<Action<SliceGroup<TDoc, TId>, IReadOnlyList<IEvent>>> _configurations = new();
     private readonly List<IFanOutRule> _afterGroupingFanoutRules = new();
     private readonly List<IFanOutRule> _beforeGroupingFanoutRules = new();
+    private readonly IdentityRuleLog _rules = new();
+
+    /// <summary>
+    /// marten#6003: how a projection using this slicer finds one identity's events, judged from its grouping rules.
+    /// </summary>
+    public IdentityAccess IdentityAccess => _rules.Classify();
 
     public ValueTask SliceAsync(IReadOnlyList<IEvent> events, SliceGroup<TDoc, TId> grouping)
     {
@@ -35,6 +44,7 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
     public EventSlicer<TDoc, TId> Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         _configurations.Add((group, events) => group.AddEvents(identityFunc, events));
+        _rules.Delegate($"Identity<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
 
         return this;
     }
@@ -42,6 +52,33 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
     public EventSlicer<TDoc, TId> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         _configurations.Add((group, events) => group.AddEvents(identitiesFunc, events));
+        _rules.Delegate($"Identities<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
+
+        return this;
+    }
+
+    /// <summary>
+    /// marten#6003: group each <typeparamref name="TEvent" /> by the stream it was appended to. See
+    /// <see cref="EventSlicer{TDoc,TId,TQuerySession}.IdentityFromStream{TEvent}" />.
+    /// </summary>
+    public EventSlicer<TDoc, TId> IdentityFromStream<TEvent>() where TEvent : notnull
+    {
+        var rule = IdentityRules.FromStream<TEvent, TId>();
+        _configurations.Add((group, events) => rule(events, group));
+        _rules.Stream(typeof(TEvent));
+
+        return this;
+    }
+
+    /// <summary>
+    /// marten#6003: group every event carrying a stored DCB tag of type <typeparamref name="TTag" /> by that tag's
+    /// value. See <see cref="EventSlicer{TDoc,TId,TQuerySession}.IdentityFromTag{TTag}" />.
+    /// </summary>
+    public EventSlicer<TDoc, TId> IdentityFromTag<TTag>() where TTag : notnull
+    {
+        var rule = IdentityRules.FromTag<TTag, TId>();
+        _configurations.Add((group, events) => rule(events, group));
+        _rules.Tag(typeof(TTag));
 
         return this;
     }

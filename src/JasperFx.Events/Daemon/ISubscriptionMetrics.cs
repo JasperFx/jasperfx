@@ -12,4 +12,24 @@ public interface ISubscriptionMetrics
     void UpdateProcessed(long count);
     Activity? TrackGrouping(EventRange page);
     void IncrementSkips();
+
+    /// <summary>marten#6003: the shard parked <paramref name="count" /> identities.</summary>
+    void IncrementParked(int count)
+    {
+    }
+
+    /// <summary>marten#6003: the shard unparked an identity. <paramref name="outcome" /> says how.</summary>
+    void IncrementUnparked(string outcome)
+    {
+    }
+
+    /// <summary>marten#6003: the shard held back <paramref name="count" /> events of parked identities.</summary>
+    void IncrementHeldEvents(int count)
+    {
+    }
+
+    /// <summary>marten#6003: how many identities the shard holds parked now.</summary>
+    void UpdateParkedCount(int count)
+    {
+    }
 }

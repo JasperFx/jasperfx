@@ -48,7 +48,35 @@ public class SubscriptionDescriptor : OptionsDescription
         }
 
         ReadRegistrationFrom(subject, store);
+
+        // marten#6003: whether a failing identity of this projection can be parked, and why or why not
+        var access = subject is IHasIdentityAccess identified
+            ? identified.IdentityAccess
+            : JasperFx.Events.Projections.IdentityAccess.NotSupported(subject.Type == SubscriptionType.Subscription
+                ? "A subscription has no identities to park."
+                : "Only an aggregation projection has identities to park.");
+
+        IdentityAccess = access.Class;
+        IdentityAccessReason = access.Reason;
+        CanPark = access.CanPark;
     }
+
+    /// <summary>
+    /// marten#6003: how the daemon finds one identity's events for this projection. See
+    /// <see cref="JasperFx.Events.Projections.IdentityAccessClass" />.
+    /// </summary>
+    public IdentityAccessClass? IdentityAccess { get; set; }
+
+    /// <summary>
+    /// marten#6003: why the projection has its <see cref="IdentityAccess" />, and what to change when it can't park.
+    /// </summary>
+    public string? IdentityAccessReason { get; set; }
+
+    /// <summary>
+    /// marten#6003: does the daemon park a failing identity of this projection when the error action is park? When
+    /// false, a failure falls back to pausing the shard.
+    /// </summary>
+    public bool CanPark { get; set; }
 
     /// <summary>
     /// Take everything that depends on how a projection was registered from <paramref name="subject" />:
