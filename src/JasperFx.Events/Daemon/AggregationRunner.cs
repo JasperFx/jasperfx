@@ -74,6 +74,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         // that threw, or a skip-and-rebuild attempt) before accumulating this build's mutations.
         _pendingCacheUpdates = new();
 
+        // marten#6003: the same for parks and unparks, and the parked set's one load per shard start
+        await prepareParkingAsync(range, mode, cancellation).ConfigureAwait(false);
+
         // Composite member batches must populate the cache during build so a downstream stage can
         // read an upstream stage's in-flight aggregate (marten#4329). Standalone (Individual)
         // batches defer cache population until the batch commits.
@@ -163,7 +166,12 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             await bindIdentityRebuildsAsync(identityRebuilds, range, batch, mode, cancellation).ConfigureAwait(false);
         }
 
+        // marten#6003: after the binding, so a replay that failed leaves its identity's page to be held again. Turns
+        // unreadable events into parks, and drops every slice of a parked identity.
+        applyParkedFilter(range);
+
         var groups = range.Groups.OfType<SliceGroup<TDoc, TId>>().ToArray();
+        var identitiesInBatch = _parkingThisBuild ? groups.Sum(x => x.Slices.Count) + _pendingParks.Count : 0;
         foreach (var group in groups)
         {
             await processBatchAsync(cancellation, batch, group, builder, applyInlineAsync);
@@ -187,6 +195,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         {
             throw new AggregateException(exceptions);
         }
+
+        // marten#6003: the parked rows ride this batch, so they commit with its progression or not at all
+        writePendingParks(range, batch, identitiesInBatch);
 
         // #4730: for standalone (Individual) batches, both cache population and compaction are
         // deferred to ApplyPendingCacheUpdates, which the execution calls only after the batch
@@ -234,6 +245,10 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
                 update.Cache.Store(update.Id, update.Snapshot!);
             }
         }
+
+        // marten#6003: the parks and unparks this batch wrote are now real. Before the rebuilds bound to it complete,
+        // so a caller awaiting a replay sees the identity unparked.
+        promoteParkingChanges();
 
         // jasperfx#1201: the batch committed, so the per-identity rebuilds bound to it are done. After the cache
         // took their re-folds, before the next batch is built.
@@ -408,8 +423,28 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             return;
         }
 
-        var (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage,
-            slice.Events(), cancellation);
+        TDoc? snapshot;
+        ActionType action;
+        if (_parkingThisBuild)
+        {
+            try
+            {
+                (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id,
+                    storage, slice.Events(), cancellation);
+            }
+            // marten#6003: park the identity instead of failing the batch. A systemic database failure is nobody's
+            // slice, so it still fails the batch and pauses the shard (jasperfx#1029).
+            catch (ApplyEventException e) when (!ProjectionExceptions.IsSystemicDatabaseFailure(e))
+            {
+                parkFailedSlice(slice, cache, e);
+                return;
+            }
+        }
+        else
+        {
+            (snapshot, action) = await Projection.DetermineActionAsync(operations, slice.Snapshot, slice.Id, storage,
+                slice.Events(), cancellation);
+        }
 
         slice.RecordAction(action);
 
@@ -880,7 +915,12 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         EventSlice<TDoc, TId> slice)
     {
         await Projection.RaiseSideEffects(operations, slice.Id, slice);
+        await writeSideEffectsAsync(batch, slice).ConfigureAwait(false);
+    }
 
+    // The events and messages a slice's side effects raised, into the batch
+    private async Task writeSideEffectsAsync(IProjectionBatch batch, EventSlice<TDoc, TId> slice)
+    {
         if (slice.RaisedEvents != null)
         {
             slice.BuildOperations(_store.Registry, batch, Projection.Scope);

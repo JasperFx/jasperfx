@@ -41,6 +41,14 @@ public class ProjectionsCommand: JasperFxAsyncCommand<ProjectionInput>
                 .ConfigureAwait(false);
         }
 
+        // marten#6003: list parked identities, or write durable replay/discard requests. No daemon involved.
+        if (input.Action == ProjectionAction.parked)
+        {
+            var stores = host.Services.GetServices<IEventStore>().ToArray();
+            return await new ParkedIdentityController(stores, new ParkedIdentityView()).ExecuteAsync(input)
+                .ConfigureAwait(false);
+        }
+
         var controller = new ProjectionController(new ProjectionHost(host), new ConsoleView());
 
         return await controller.Execute(input).ConfigureAwait(false);

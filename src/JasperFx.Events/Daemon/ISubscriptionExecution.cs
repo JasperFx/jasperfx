@@ -47,6 +47,15 @@ public interface ISubscriptionExecution: IAsyncDisposable
         rebuilder = null;
         return false;
     }
+
+    /// <summary>
+    /// marten#6003: the parked identities behind this execution. Only an aggregation's execution has them.
+    /// </summary>
+    internal bool TryGetParkingHost([NotNullWhen(true)] out IParkedIdentityHost? host)
+    {
+        host = null;
+        return false;
+    }
 }
 
 /// <summary>

@@ -1345,6 +1345,108 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
             new IdentityRebuildRefusedException(projectionName, request.Identity, reason));
     }
 
+    // ---- marten#6003: parked identities ----
+
+    private SubscriptionAgent[] agentsFor(string projectionName, string? tenantId)
+        => _agents.Enumerate()
+            .Select(x => x.Value)
+            .OfType<SubscriptionAgent>()
+            .Where(x => x.Name.Name == projectionName
+                        && (tenantId == null || x.Name.TenantId == null || x.Name.TenantId == tenantId))
+            .ToArray();
+
+    private SubscriptionAgent runningAgentFor(string projectionName, string tenantId, object identity)
+    {
+        var agents = agentsFor(projectionName, tenantId);
+        var agent = agents.FirstOrDefault(x => x.Status == AgentStatus.Running);
+        if (agent != null) return agent;
+
+        var shard = ShardName.Compose(projectionName, tenantId: tenantId);
+        var reason = IsRebuilding(shard)
+            ? IdentityRebuildRefusal.ShardIsRebuilding
+            : agents.Length > 0
+                ? IdentityRebuildRefusal.ShardStopped
+                : IdentityRebuildRefusal.ShardNotRunningHere;
+
+        throw new IdentityRebuildRefusedException(projectionName, identity, reason);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ParkedIdentity>> FetchParkedIdentitiesAsync(string projectionName, string? tenantId,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(projectionName);
+        return Database.FetchParkedIdentitiesAsync(new ParkedIdentityQuery
+        {
+            ProjectionName = projectionName,
+            TenantId = tenantId,
+            Limit = int.MaxValue
+        }, token);
+    }
+
+    /// <inheritdoc />
+    public Task<ParkedReplayResult> ReplayParkedIdentityAsync(string projectionName, string? tenantId,
+        object identity, CancellationToken token)
+        => replayParkedAsync(projectionName, tenantId, identity, ParkedAction.Replay, token);
+
+    /// <inheritdoc />
+    public Task<ParkedReplayResult> DiscardParkedIdentityAsync(string projectionName, string? tenantId,
+        object identity, CancellationToken token)
+        => replayParkedAsync(projectionName, tenantId, identity, ParkedAction.Discard, token);
+
+    private Task<ParkedReplayResult> replayParkedAsync(string projectionName, string? tenantId, object identity,
+        ParkedAction action, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(projectionName);
+        ArgumentNullException.ThrowIfNull(identity);
+
+        var tenant = tenantId ?? StorageConstants.DefaultTenantId;
+        try
+        {
+            return runningAgentFor(projectionName, tenant, identity).ReplayParkedAsync(tenant, identity, action, token);
+        }
+        catch (Exception e)
+        {
+            return Task.FromException<ParkedReplayResult>(e);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ParkedReplayResult>> ReplayParkedIdentitiesAsync(string projectionName,
+        string? tenantId, ParkedSelection selection, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(projectionName);
+        ArgumentNullException.ThrowIfNull(selection);
+
+        var batchSize = Math.Max(_store.ErrorHandlingOptions(ShardExecutionMode.Continuous).ParkedReplayBatchSize, 1);
+        var results = new List<ParkedReplayResult>();
+
+        foreach (var agent in agentsFor(projectionName, tenantId).Where(x => x.Status == AgentStatus.Running))
+        {
+            var parked = agent.ParkedIdentities()
+                .Where(x => tenantId == null || x.TenantId == tenantId)
+                .ToList();
+
+            if (selection.Oldest is { } oldest) parked = parked.Take(oldest).ToList();
+
+            // At most one replay batch's worth bound to any one batch of the shard
+            foreach (var chunk in parked.Chunk(batchSize))
+            {
+                results.AddRange(await Task.WhenAll(chunk.Select(x =>
+                    agent.ReplayParkedAsync(x.TenantId, x.Identity, ParkedAction.Replay, token))).ConfigureAwait(false));
+            }
+        }
+
+        return results;
+    }
+
+    /// <inheritdoc />
+    public bool IsIdentityParked(string projectionName, string? tenantId, object identity)
+    {
+        var tenant = tenantId ?? StorageConstants.DefaultTenantId;
+        return agentsFor(projectionName, tenant).Any(x => x.IsParked(tenant, identity));
+    }
+
     public IReadOnlyList<ISubscriptionAgent> CurrentAgents()
     {
         return _agents.Enumerate().Select(x => x.Value).ToList();
