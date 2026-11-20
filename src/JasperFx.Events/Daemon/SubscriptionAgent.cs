@@ -419,6 +419,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             state.SideEffectGateMark = mark;
         }
 
+        // marten#6003: null for a shard that doesn't park, so a consumer can tell it from one with nothing parked
+        if (_execution.TryGetParkingHost(out var parking) && parking.ParkedCount is { } parked)
+        {
+            state.ParkedCount = parked;
+        }
+
         return state;
     }
 
@@ -938,6 +944,10 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             {
                 _logger.LogDebug(e, "Error publishing heartbeat for {Name}", ProjectionShardIdentity);
             }
+
+            // marten#6003: durable replay and discard requests, from any process, are run by the node that runs
+            // the shard. Only looked for while the shard holds something parked.
+            pollParkedRequests();
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
@@ -1058,6 +1068,135 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _loadGovernor = _runtime.TenantLoadGovernorFor(Name);
     }
 
+    // ---- marten#6003: parked identities ----
+
+    /// <inheritdoc />
+    public int ParkedCount =>
+        _execution.TryGetParkingHost(out var host) && host.ParkedCount is { } count ? count : 0;
+
+    private int _pollingParked;
+
+    // Called by the runner after a batch that parked or unparked something committed
+    internal void ParkedSetChanged(ShardAction action)
+    {
+        try
+        {
+            var state = stamp(new ShardState(Name, LastCommitted)
+            {
+                Action = action,
+                AgentStatus = Status.ToString(),
+                LastHeartbeat = _timeProvider.GetUtcNow()
+            });
+
+            _ = _tracker.PublishAsync(state);
+        }
+        catch (Exception e)
+        {
+            _logger.LogDebug(e, "Error publishing the parked identities of {Name}", ProjectionShardIdentity);
+        }
+    }
+
+    private void pollParkedRequests()
+    {
+        if (_disposed || _cancellation.IsCancellationRequested) return;
+        if (Status != AgentStatus.Running || Mode != ShardExecutionMode.Continuous) return;
+        if (!_execution.TryGetParkingHost(out var host) || host.ParkedCount is not > 0) return;
+
+        // One poll at a time, and it holds until every request it submitted has finished, so a request still in
+        // flight is never submitted twice
+        if (Interlocked.CompareExchange(ref _pollingParked, 1, 0) != 0) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await runRequestedParkedActionsAsync(host).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogDebug(e, "Error running the requested parked-identity actions of {Name}",
+                    ProjectionShardIdentity);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _pollingParked, 0);
+            }
+        });
+    }
+
+    /// <summary>
+    /// marten#6003: run the durable replay and discard requests for this shard's parked identities now, rather than
+    /// on the next heartbeat. Returns what each one did.
+    /// </summary>
+    internal async Task<IReadOnlyList<ParkedReplayResult>> RunRequestedParkedActionsAsync()
+    {
+        if (!_execution.TryGetParkingHost(out var host)) return [];
+        return await runRequestedParkedActionsAsync(host).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<ParkedReplayResult>> runRequestedParkedActionsAsync(IParkedIdentityHost host)
+    {
+        var requested = await host.LoadRequestedActionsAsync(_cancellation.Token).ConfigureAwait(false);
+        if (requested.Count == 0) return [];
+
+        _logger.LogInformation("Shard {Name} runs {Count} requested parked-identity actions", ProjectionShardIdentity,
+            requested.Count);
+
+        return await Task.WhenAll(requested.Select(row =>
+                ReplayParkedAsync(row.TenantId, row.Identity, row.RequestedAction ?? ParkedAction.Replay,
+                    _cancellation.Token)))
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// marten#6003: is this identity parked on this shard?
+    /// </summary>
+    internal bool IsParked(string tenantId, object identity)
+        => _execution.TryGetParkingHost(out var host) && host.TryFindParked(tenantId, identity, out _);
+
+    /// <summary>
+    /// marten#6003: every identity this shard holds parked, oldest first.
+    /// </summary>
+    internal IReadOnlyList<ParkedIdentity> ParkedIdentities()
+        => _execution.TryGetParkingHost(out var host) ? host.ParkedSnapshot() : [];
+
+    /// <summary>
+    /// marten#6003: replay or discard one parked identity, bound to the next batch this shard builds. A failed replay
+    /// is an outcome, not an exception: the identity stays parked with the new error on its row.
+    /// </summary>
+    internal async Task<ParkedReplayResult> ReplayParkedAsync(string tenantId, object identity, ParkedAction action,
+        CancellationToken token)
+    {
+        if (!_execution.TryGetParkingHost(out var host) || !host.TryFindParked(tenantId, identity, out var parked))
+        {
+            return new ParkedReplayResult(identity, ParkedReplayOutcome.NotParked, 0);
+        }
+
+        try
+        {
+            var result = await RebuildIdentityAsync(new IdentityRebuildRequest(tenantId, parked.Identity)
+            {
+                SkipFailingEvents = action == ParkedAction.Discard
+            }, token).ConfigureAwait(false);
+
+            var outcome = !result.Unparked
+                ? ParkedReplayOutcome.NotParked
+                : action == ParkedAction.Discard
+                    ? ParkedReplayOutcome.Discarded
+                    : ParkedReplayOutcome.Replayed;
+
+            return new ParkedReplayResult(parked.Identity, outcome, result.BoundCeiling);
+        }
+        catch (IdentityRebuildRefusedException)
+        {
+            throw;
+        }
+        catch (Exception e) when (!token.IsCancellationRequested)
+        {
+            return new ParkedReplayResult(parked.Identity, ParkedReplayOutcome.FailedAgain, 0, e);
+        }
+    }
+
     // jasperfx#1201: set on the command loop the first time a per-identity rebuild is taken
     private IIdentityRebuilder? _identityRebuilder;
 
@@ -1174,7 +1313,12 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             ErrorOptions = ErrorOptions,
             Runtime = _runtime,
             Name = Name,
-            Metrics = Metrics
+            Metrics = Metrics,
+
+            // marten#6003: a single-stream aggregation parks the stream of an event the store can't read
+            ParksUnreadableEvents = Mode == ShardExecutionMode.Continuous &&
+                                    _execution.TryGetParkingHost(out var parking) &&
+                                    parking.ParksUnreadableEvents(ErrorOptions)
         };
 
         try

@@ -568,4 +568,58 @@ public interface IEventDatabase
         CancellationToken token)
         => throw new NotSupportedException(
             "ReadProjectionProgressAsync is not implemented on this IEventDatabase. Use an event store (Marten or Polecat) that supports reading a single projection progression row.");
+
+    // ---- marten#6003: parked identities ----
+
+    /// <summary>
+    ///     marten#6003: the parked identities this database holds, oldest first, for a monitor or the command line.
+    ///     Works from any process. A database that doesn't park answers an empty list.
+    /// </summary>
+    Task<IReadOnlyList<ParkedIdentity>> FetchParkedIdentitiesAsync(ParkedIdentityQuery query,
+        CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<ParkedIdentity>>([]);
+
+    /// <summary>
+    ///     marten#6003: how many identities each shard holds parked, optionally for one tenant. A database that
+    ///     doesn't park answers an empty list.
+    /// </summary>
+    Task<IReadOnlyList<ParkedShardCount>> FetchParkedCountsAsync(string? tenantId, CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<ParkedShardCount>>([]);
+
+    /// <summary>
+    ///     marten#6003: record a durable replay or discard request on every parked row that matches. The node that
+    ///     runs the shard picks it up on its heartbeat, so this works from any process, including one with no daemon.
+    ///     Returns how many rows it marked.
+    /// </summary>
+    Task<int> RequestParkedActionAsync(ParkedActionRequest request, CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not park projection identities (marten#6003).");
+
+    /// <summary>
+    ///     marten#6003, daemon-internal: every parked row of one shard (its name, version, shard key, and its tenant
+    ///     under tenant-partitioned events), read once when the shard starts. An empty answer should cost one indexed
+    ///     read.
+    /// </summary>
+    Task<IReadOnlyList<ParkedIdentity>> LoadParkedIdentitiesAsync(ShardName shard, CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<ParkedIdentity>>([]);
+
+    /// <summary>
+    ///     marten#6003, daemon-internal: the parked rows of one shard that carry a
+    ///     <see cref="ParkedIdentity.RequestedAction" />, oldest request first. Read on the shard's heartbeat, and only
+    ///     while the shard holds anything parked.
+    /// </summary>
+    Task<IReadOnlyList<ParkedIdentity>> LoadRequestedParkedActionsAsync(ShardName shard,
+        CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<ParkedIdentity>>([]);
+
+    /// <summary>
+    ///     marten#6003, daemon-internal: a replay or discard of a parked identity failed. Add one to its
+    ///     <see cref="ParkedIdentity.ReplayAttempts" />, set <see cref="ParkedIdentity.LastAttemptAt" /> and
+    ///     <see cref="ParkedIdentity.LastAttemptError" />, and clear its <see cref="ParkedIdentity.RequestedAction" />
+    ///     so the heartbeat doesn't retry it until someone asks again. Written out of band and best effort: losing it
+    ///     loses a counter, not data.
+    /// </summary>
+    Task RecordParkedReplayFailureAsync(ParkedIdentityKey key, DateTimeOffset attemptedAt, string error,
+        CancellationToken token = default)
+        => Task.CompletedTask;
 }

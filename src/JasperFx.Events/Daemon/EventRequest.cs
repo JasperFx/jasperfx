@@ -15,6 +15,15 @@ public class EventRequest
     public IDaemonRuntime Runtime { get; init; } = null!;
     public ISubscriptionMetrics Metrics { get; init; } = null!;
 
+    /// <summary>
+    /// marten#6003: the shard parks the stream of an event the store can't deserialize. A loader that sees this
+    /// reports such an event on <see cref="EventPage.Unreadable" /> -- with the row's stream id or key and tenant --
+    /// instead of throwing or dead-lettering it, and counts it as skipped for <see cref="EventPage.CalculateCeiling" />.
+    /// Only set for a single-stream aggregation whose <see cref="ErrorHandlingOptions.SerializationErrors" /> is
+    /// <see cref="ProjectionErrorAction.Park" />, on a store that parks.
+    /// </summary>
+    public bool ParksUnreadableEvents { get; init; }
+
     public override string ToString()
     {
         return $"{nameof(Floor)}: {Floor}, {nameof(HighWater)}: {HighWater}, {nameof(BatchSize)}: {BatchSize}";

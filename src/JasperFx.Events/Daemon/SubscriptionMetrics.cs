@@ -16,6 +16,12 @@ public class SubscriptionMetrics: ISubscriptionMetrics
     private readonly Uri _databaseUri;
     private readonly Counter<long> _skipped;
 
+    // marten#6003
+    private readonly Counter<long> _parked;
+    private readonly Counter<long> _unparked;
+    private readonly Counter<long> _heldEvents;
+    private int _parkedCurrent;
+
     public SubscriptionMetrics(IEventStore store, ShardName name, IEventDatabase database) : this(store, name,
         database.DatabaseUri)
     {
@@ -40,6 +46,16 @@ public class SubscriptionMetrics: ISubscriptionMetrics
 
         _skipped = _meter.CreateCounter<long>(SkippedMetricName, "number", "Skipped Events");
 
+        // marten#6003: parked identities
+        ParkedMetricName = $"{identifier}.parked";
+        _parked = _meter.CreateCounter<long>(ParkedMetricName, "identities", "Parked identities");
+        UnparkedMetricName = $"{identifier}.unparked";
+        _unparked = _meter.CreateCounter<long>(UnparkedMetricName, "identities", "Unparked identities");
+        HeldEventsMetricName = $"{identifier}.parked.held_events";
+        _heldEvents = _meter.CreateCounter<long>(HeldEventsMetricName, "events",
+            "Events held back for parked identities");
+        ParkedCurrentMetricName = $"{identifier}.parked.current";
+
         ExecutionSpanName = $"{identifier}.page.execution";
         LoadingSpanName = $"{identifier}.page.loading";
         GroupingSpanName = $"{identifier}.page.grouping";
@@ -48,6 +64,53 @@ public class SubscriptionMetrics: ISubscriptionMetrics
     }
 
     public string SkippedMetricName { get; }
+
+    /// <summary>marten#6003: counter of identities parked.</summary>
+    public string ParkedMetricName { get; }
+
+    /// <summary>marten#6003: counter of identities unparked, tagged with the outcome.</summary>
+    public string UnparkedMetricName { get; }
+
+    /// <summary>marten#6003: counter of events held back for parked identities.</summary>
+    public string HeldEventsMetricName { get; }
+
+    /// <summary>marten#6003: gauge of the identities the shard holds parked.</summary>
+    public string ParkedCurrentMetricName { get; }
+
+    public void IncrementParked(int count)
+    {
+        _parked.Add(count, new TagList { { OtelConstants.DatabaseUri, _databaseUri } });
+    }
+
+    public void IncrementUnparked(string outcome)
+    {
+        _unparked.Add(1, new TagList
+        {
+            { OtelConstants.DatabaseUri, _databaseUri },
+            { "outcome", outcome }
+        });
+    }
+
+    public void IncrementHeldEvents(int count)
+    {
+        _heldEvents.Add(count, new TagList { { OtelConstants.DatabaseUri, _databaseUri } });
+    }
+
+    private int _parkedGauge;
+
+    public void UpdateParkedCount(int count)
+    {
+        Volatile.Write(ref _parkedCurrent, count);
+
+        // Created on first use: a shard that never parks, and every description of one, registers no gauge
+        if (Interlocked.Exchange(ref _parkedGauge, 1) == 0)
+        {
+            _meter.CreateObservableGauge(ParkedCurrentMetricName,
+                () => new Measurement<int>(Volatile.Read(ref _parkedCurrent),
+                    new KeyValuePair<string, object?>(OtelConstants.DatabaseUri, _databaseUri)),
+                "identities", "Identities the shard holds parked");
+        }
+    }
 
     public string GapMetricName { get; }
 

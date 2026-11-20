@@ -83,6 +83,9 @@ public partial class InMemoryDocumentStore
                 else _progression.Remove(shardIdentity);
             });
 
+            // marten#6003: an identity parked above the new floor is parked again when the shard gets there
+            removeParkedRowsAtOrAbove(shardIdentity, sequence);
+
             return Task.CompletedTask;
         }, new InMemoryChangeSet(), token);
 
@@ -103,6 +106,9 @@ public partial class InMemoryDocumentStore
         return CommitAtomicallyAsync(_ =>
         {
             removeProgressionRowsFor(projectionName);
+
+            // marten#6003: a rebuild re-folds every identity, so nothing stays parked
+            removeParkedRowsFor(projectionName);
 
             foreach (var type in published)
             {
@@ -148,15 +154,59 @@ public partial class InMemoryDocumentStore
         }
     }
 
+    // marten#6003: the shard's loader, with events marked unreadable reported, skipped or thrown the way a real
+    // store's loader treats a body it can't deserialize
+    internal EventPage LoadPage(EventRequest request, EventFilterable filtering)
+    {
+        var page = new EventPage(request.Floor);
+        var loaded = EventsForShard(request.Floor, request.HighWater, request.BatchSize, filtering,
+            request.Name.TenantId);
+
+        var skipped = 0;
+        foreach (var @event in loaded)
+        {
+            if (!IsUnreadable(@event.Sequence))
+            {
+                page.Add(@event);
+                continue;
+            }
+
+            var failure = UnreadableFailure(@event);
+            if (request.ParksUnreadableEvents)
+            {
+                page.AddUnreadable(new UnreadableEvent(@event.Sequence,
+                    @event.StreamId == Guid.Empty ? null : @event.StreamId, @event.StreamKey, @event.TenantId,
+                    @event.EventTypeName, failure));
+            }
+            else if (request.ErrorOptions?.SkipSerializationErrors == true)
+            {
+                StoreDeadLetter(failure.ToDeadLetterEvent(request.Name));
+            }
+            else
+            {
+                throw failure;
+            }
+
+            skipped++;
+            page.LastObservedSequence = @event.Sequence;
+        }
+
+        if (loaded.Count > 0) page.LastObservedSequence = loaded[^1].Sequence;
+        page.CalculateCeiling(request.BatchSize, request.HighWater, skipped);
+
+        return page;
+    }
+
     // jasperfx#1201: the same rules as the shard's loader, for one stream
     internal IReadOnlyList<IEvent> EventsForIdentityRebuild(IdentityRebuildEventRequest request)
     {
         var key = unwrapStreamIdentity(request.StreamIdentity);
         var types = request.EventTypes;
 
+        List<IEvent> events;
         using (EnterReadGate())
         {
-            return _events
+            events = _events
                 .Where(x => x.Sequence > request.AfterSequence && x.Sequence <= request.Ceiling)
                 .Where(x => key is Guid id ? x.StreamId == id : x.StreamKey == (string)key)
                 .Where(x => types.Count == 0 || types.Any(t => t.IsAssignableFrom(x.EventType)))
@@ -165,6 +215,14 @@ public partial class InMemoryDocumentStore
                 .Take(Math.Max(request.Limit, 1))
                 .ToList();
         }
+
+        // marten#6003: an unreadable event fails the re-fold unless the request skips it
+        var unreadable = events.FirstOrDefault(x => IsUnreadable(x.Sequence));
+        if (unreadable == null) return events;
+
+        if (!request.SkipSerializationErrors) throw UnreadableFailure(unreadable);
+
+        return events.Where(x => !IsUnreadable(x.Sequence)).ToList();
     }
 
     // A strong-typed identifier wraps the stream's Guid or string

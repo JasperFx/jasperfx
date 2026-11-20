@@ -8,8 +8,16 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JasperFx.Events.Projections.Composite;
 
-public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, IJasperFxProjection<TOperations>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession> where TOperations : TQuerySession, IStorageOperations
+public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, IJasperFxProjection<TOperations>, IProjectionSource<TOperations, TQuerySession>, ISubscriptionFactory<TOperations, TQuerySession>, IHasIdentityAccess where TOperations : TQuerySession, IStorageOperations
 {
+    /// <summary>
+    /// marten#6003: a composite projection does not park in this version. A parked upstream document would feed stale
+    /// data to the stages after it, so a member that fails pauses the whole composite (or skips the event, if the error
+    /// action is skip).
+    /// </summary>
+    public IdentityAccess IdentityAccess { get; } = IdentityAccess.NotSupported(
+        "A composite projection does not park: a member that fails pauses the composite (or skips the event when the error action is Skip).");
+
     public CompositeProjection(string name)
     {
         Name = name;

@@ -61,5 +61,11 @@ public class EventFilterable: IEventFilterable
     /// </summary>
     public bool IncludeArchivedEvents { get; set; }
 
+    /// <summary>
+    /// marten#6003: does this projection slice by stored DCB tags (<c>IdentityFromTag&lt;TTag&gt;()</c>)? A store's
+    /// daemon event loader reads the events' tags for such a projection, which it otherwise skips.
+    /// </summary>
+    public bool IncludeEventTags { get; set; }
+
 
 }

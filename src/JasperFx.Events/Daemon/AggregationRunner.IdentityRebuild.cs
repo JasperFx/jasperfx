@@ -51,6 +51,11 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
         var entry = new PendingRebuild(ticket, ticket.Request.TenantId, id);
 
+        // marten#6003: a parked identity is pre-folded no further than its resume point. The events above it never
+        // ran their side effects, so the bound batch folds them itself and fires them once.
+        var parked = tryFindParked(entry.TenantId, id);
+        var prefoldTo = parked == null ? committedPosition : Math.Min(committedPosition, parked.ResumeAfter);
+
         lock (_identityRebuildLock)
         {
             (_identityRebuilds ??= new IdentityRebuildState()).Preparing.Add(entry);
@@ -62,8 +67,12 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
         {
             try
             {
-                entry.Prefold = await prefoldAsync(entry, committedPosition, CancellationToken.None)
-                    .ConfigureAwait(false);
+                // A discard folds everything inside the bound batch, where it can drop the events that fail
+                if (!ticket.Request.SkipFailingEvents)
+                {
+                    entry.Prefold = await prefoldAsync(entry, prefoldTo, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
             }
             catch (Exception e)
             {
@@ -72,6 +81,7 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
                     _identityRebuilds!.Preparing.Remove(entry);
                 }
 
+                if (parked != null) recordReplayFailure(parked, e);
                 ticket.TryFault(e);
                 return;
             }
@@ -190,20 +200,38 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
             var storage = await operations.FetchProjectionStorageAsync<TDoc, TId>(tenantId, cancellation)
                 .ConfigureAwait(false);
 
+            // marten#6003: any successful per-identity rebuild of a parked identity unparks it, whoever asked for it
+            var parkedRow = tryFindParked(tenantId, id);
+            var skipFailing = entries.Any(x => x.Ticket.Request.SkipFailingEvents);
+
+            // Side effects for the events of a parked identity above its resume point, which never ran them: once,
+            // in this batch, and not inside the blue/green gate's warm-up
+            var firesSideEffects = parkedRow != null && mode == ShardExecutionMode.Continuous &&
+                                   !range.Agent.SideEffectsSuppressed;
+
             // Computed before anything for the identity is added to the batch. A re-fold that fails -- its poison
             // event is still poison -- faults the request and leaves the identity exactly as it was, page and all,
             // and the batch carries on for everything else. A failing repair never pauses the shard.
             RefoldResult refold;
             try
             {
-                refold = await refoldAsync(entries[0], operations, storage, ceiling, cancellation)
+                refold = await refoldAsync(entries[0], operations, storage, ceiling, parkedRow?.ResumeAfter,
+                        skipFailing, cancellation)
                     .ConfigureAwait(false);
+
+                if (firesSideEffects && refold.SideEffectSlice is { } raising)
+                {
+                    await Projection.RaiseSideEffects(operations, id, raising).ConfigureAwait(false);
+                }
             }
             catch (Exception e) when (!cancellation.IsCancellationRequested)
             {
                 _logger.LogWarning(e,
                     "Per-identity rebuild of {Identity} in projection {Projection} failed; the shard carries on without it",
                     id, Projection.Name);
+
+                if (parkedRow != null) recordReplayFailure(parkedRow, e);
+
                 unbind(entries, e);
                 continue;
             }
@@ -239,10 +267,30 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
             applyRefold(refold, id, tenantId, storage);
 
+            if (parkedRow != null)
+            {
+                batch.UnparkIdentity(parkedRow.Key);
+                (_unparksToPromote ??= new()).Add((parkedRow, skipFailing ? "discarded" : "replayed"));
+            }
+
+            if (firesSideEffects && refold.SideEffectSlice is { } raised)
+            {
+                await writeSideEffectsAsync(batch, raised).ConfigureAwait(false);
+            }
+
+            // Records, like the dead letters a skip writes: out of band. The unpark is what has to be atomic.
+            foreach (var skipped in refold.Skipped)
+            {
+                await range.Agent.RecordDeadLetterEventAsync(new DeadLetterEvent(skipped.Event, range.ShardName,
+                    skipped)).ConfigureAwait(false);
+            }
+
             foreach (var entry in survivors)
             {
                 entry.Ticket.BoundCeiling = ceiling;
                 entry.Ticket.Action = refold.Action;
+                entry.Ticket.SkippedEvents = refold.Skipped.Count;
+                entry.Ticket.Unparked = parkedRow != null;
             }
         }
     }
@@ -306,29 +354,98 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
     }
 
     private async Task<RefoldResult> refoldAsync(PendingRebuild entry, TOperations operations,
-        IProjectionStorage<TDoc, TId> storage, long ceiling, CancellationToken cancellation)
+        IProjectionStorage<TDoc, TId> storage, long ceiling, long? silentThrough, bool skipFailing,
+        CancellationToken cancellation)
     {
         TDoc? snapshot = default;
         IEvent? lastPrefolded = null;
         long after = 0;
         var prefoldArchived = false;
+        var usedPrefold = false;
 
-        if (entry.Prefold is { } prefold && prefold.Position <= ceiling)
+        // marten#6003: a pre-fold that went past a parked identity's resume point (it was parked after the request
+        // was taken) would fold silently what owes side effects, so it is not used
+        if (!skipFailing && entry.Prefold is { } prefold && prefold.Position <= ceiling &&
+            (silentThrough == null || prefold.Position <= silentThrough))
         {
             snapshot = prefold.Snapshot;
             lastPrefolded = prefold.LastEvent;
             after = prefold.Position;
             prefoldArchived = prefold.ArchiveStream;
+            usedPrefold = true;
         }
 
         var events = await loadStreamAsync(entry.TenantId, entry.Id, after, ceiling, Projection.Options.BatchSize,
-            int.MaxValue, cancellation).ConfigureAwait(false);
+            int.MaxValue, skipFailing, cancellation).ConfigureAwait(false);
 
-        var refold = await foldAsync(entry.TenantId, entry.Id, snapshot, lastPrefolded, entry.Prefold != null, events,
+        // marten#6003: a discard drops each event that still fails and folds again from nothing without it, the way
+        // the skip path rebuilds its batch. Starting over matters: a failed fold may have mutated the aggregate.
+        var skipped = new List<ApplyEventException>();
+        while (true)
+        {
+            var folding = skipped.Count == 0
+                ? events
+                : events.Where(e => skipped.All(x => x.Event.Sequence != e.Sequence)).ToList();
+
+            RefoldResult refold;
+            try
+            {
+                refold = await foldSplitAsync(entry, snapshot, lastPrefolded, usedPrefold, folding, silentThrough,
+                    operations, storage, cancellation).ConfigureAwait(false);
+            }
+            catch (ApplyEventException e) when (skipFailing &&
+                                               !ProjectionExceptions.IsSystemicDatabaseFailure(e) &&
+                                               skipped.All(x => x.Event.Sequence != e.Event.Sequence))
+            {
+                skipped.Add(e);
+                continue;
+            }
+
+            // A stream archived inside the pre-folded part is still archived. Archiving is idempotent.
+            if (prefoldArchived && !refold.ArchiveStream && refold.Action != ActionType.Nothing)
+            {
+                refold = refold with { ArchiveStream = Projection.Scope == AggregationScope.SingleStream };
+            }
+
+            return skipped.Count == 0 ? refold : refold with { Skipped = skipped };
+        }
+    }
+
+    // marten#6003: for a parked identity, fold the events up to its resume point silently and the rest in a slice of
+    // their own, whose side effects the bound batch fires. Everything else folds in one go, with none.
+    private async Task<RefoldResult> foldSplitAsync(PendingRebuild entry, TDoc? snapshot, IEvent? lastPrefolded,
+        bool foldedAnything, IReadOnlyList<IEvent> events, long? silentThrough, TOperations operations,
+        IProjectionStorage<TDoc, TId> storage, CancellationToken cancellation)
+    {
+        if (silentThrough is not { } mark || events.All(x => x.Sequence <= mark))
+        {
+            return await foldAsync(entry.TenantId, entry.Id, snapshot, lastPrefolded, foldedAnything, events,
+                operations, storage, cancellation).ConfigureAwait(false);
+        }
+
+        var head = events.Where(x => x.Sequence <= mark).ToList();
+        var tail = events.Where(x => x.Sequence > mark).ToList();
+
+        var headArchived = false;
+        if (head.Count > 0)
+        {
+            var folded = await foldAsync(entry.TenantId, entry.Id, snapshot, lastPrefolded, foldedAnything, head,
+                operations, storage, cancellation).ConfigureAwait(false);
+
+            snapshot = folded.Action is ActionType.Delete or ActionType.HardDelete or ActionType.Nothing
+                ? default
+                : folded.Snapshot;
+            lastPrefolded = folded.LastEvent;
+            foldedAnything = true;
+            headArchived = folded.ArchiveStream;
+        }
+
+        var refold = await foldAsync(entry.TenantId, entry.Id, snapshot, lastPrefolded, foldedAnything, tail,
             operations, storage, cancellation).ConfigureAwait(false);
 
-        // A stream archived inside the pre-folded part is still archived. Archiving is idempotent.
-        return prefoldArchived && !refold.ArchiveStream && refold.Action != ActionType.Nothing
+        refold = refold with { SideEffectSlice = refold.Slice };
+
+        return headArchived && !refold.ArchiveStream && refold.Action != ActionType.Nothing
             ? refold with { ArchiveStream = Projection.Scope == AggregationScope.SingleStream }
             : refold;
     }
@@ -352,7 +469,7 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
         {
             return new RefoldResult(ActionType.Delete, default,
                 slice.Events().LastOrDefault() ?? compactedMarker ?? lastPrefolded,
-                wouldArchiveStream(slice, starting != null));
+                wouldArchiveStream(slice, starting != null)) { Slice = slice };
         }
 
         var (result, action) = await Projection.DetermineActionAsync(operations, starting, id, identitySetter,
@@ -384,8 +501,14 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
         var archive = wouldArchiveStream(slice, starting != null || result != null);
 
+        // What a side effect raised from this slice sees, as in ApplyChangesAsync
+        slice.Snapshot = result;
+
         // jasperfx#1214: the Compacted<T> marker is the last event of a slice that ends with it
-        return new RefoldResult(action, result, lastEvent ?? compactedMarker ?? lastPrefolded, archive);
+        return new RefoldResult(action, result, lastEvent ?? compactedMarker ?? lastPrefolded, archive)
+        {
+            Slice = slice
+        };
     }
 
     // jasperfx#1201: above BatchSize events, fold up to the committed position M off the loop and keep only the
@@ -438,8 +561,12 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
     }
 
     // Pages through the store's re-fold loader, at most `maximum` events in all
-    private async Task<IReadOnlyList<IEvent>> loadStreamAsync(string tenantId, TId id, long after, long ceiling,
+    private Task<IReadOnlyList<IEvent>> loadStreamAsync(string tenantId, TId id, long after, long ceiling,
         int pageSize, int maximum, CancellationToken cancellation)
+        => loadStreamAsync(tenantId, id, after, ceiling, pageSize, maximum, false, cancellation);
+
+    private async Task<IReadOnlyList<IEvent>> loadStreamAsync(string tenantId, TId id, long after, long ceiling,
+        int pageSize, int maximum, bool skipSerializationErrors, CancellationToken cancellation)
     {
         var filtering = Projection as EventFilterable;
         var eventTypes = filtering?.IncludedEventTypes.ToArray() ?? Projection.AllEventTypes;
@@ -452,7 +579,10 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
             var request = new IdentityRebuildEventRequest(tenantId, id, floor, ceiling, limit)
             {
                 EventTypes = eventTypes,
-                IncludeArchivedEvents = filtering?.IncludeArchivedEvents ?? false
+                IncludeArchivedEvents = filtering?.IncludeArchivedEvents ?? false,
+
+                // marten#6003: the request's own setting, never the store's continuous options
+                SkipSerializationErrors = skipSerializationErrors
             };
 
             var page = await _store.LoadEventsForIdentityRebuildAsync(_database, request, cancellation)
@@ -478,7 +608,17 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
             => throw new NotSupportedException("A pre-fold has no storage to read an identity from.");
     }
 
-    private sealed record RefoldResult(ActionType Action, TDoc? Snapshot, IEvent? LastEvent, bool ArchiveStream);
+    private sealed record RefoldResult(ActionType Action, TDoc? Snapshot, IEvent? LastEvent, bool ArchiveStream)
+    {
+        // The slice the fold ran over
+        public EventSlice<TDoc, TId>? Slice { get; init; }
+
+        // marten#6003: the slice of a parked identity's events above its resume point, whose side effects fire
+        public EventSlice<TDoc, TId>? SideEffectSlice { get; init; }
+
+        // marten#6003: the events a discard dropped
+        public IReadOnlyList<ApplyEventException> Skipped { get; init; } = [];
+    }
 
     private sealed record Prefolded(TDoc? Snapshot, long Position, IEvent? LastEvent, bool ArchiveStream);
 

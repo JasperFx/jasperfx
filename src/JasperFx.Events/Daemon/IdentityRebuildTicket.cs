@@ -38,6 +38,12 @@ internal sealed class IdentityRebuildTicket
     /// <summary>What the bound batch wrote for the identity.</summary>
     public ActionType Action { get; set; } = ActionType.Nothing;
 
+    /// <summary>marten#6003: events the bound re-fold dropped and dead-lettered.</summary>
+    public int SkippedEvents { get; set; }
+
+    /// <summary>marten#6003: the bound batch unparked the identity.</summary>
+    public bool Unparked { get; set; }
+
     public bool TryComplete()
     {
         try
@@ -50,7 +56,11 @@ internal sealed class IdentityRebuildTicket
             return _completion.TrySetException(e);
         }
 
-        return _completion.TrySetResult(new IdentityRebuildResult(BoundCeiling, Action));
+        return _completion.TrySetResult(new IdentityRebuildResult(BoundCeiling, Action)
+        {
+            SkippedEvents = SkippedEvents,
+            Unparked = Unparked
+        });
     }
 
     public bool TryFault(Exception e) => _completion.TrySetException(e);

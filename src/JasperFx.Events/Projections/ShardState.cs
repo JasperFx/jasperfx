@@ -189,6 +189,14 @@ public class ShardState
     public long? SkippedEventsCount { get; set; }
 
     /// <summary>
+    /// marten#6003: how many identities this shard holds parked. Null when the shard doesn't park (or hasn't
+    /// loaded its parked set yet), so a consumer can tell "not parking" from "nothing parked". A store writing
+    /// extended progression keeps it in a <c>parked_count</c> column, so a monitor can read it for a node that is
+    /// down.
+    /// </summary>
+    public int? ParkedCount { get; set; }
+
+    /// <summary>
     /// Subject URI of the <see cref="IEventStore"/> this shard state belongs
     /// to (e.g. <c>marten://main</c>, <c>marten://itarievenstore</c>). Set
     /// by the publisher — either the daemon itself when it constructs the

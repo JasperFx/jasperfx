@@ -14,7 +14,12 @@ public enum ProjectionAction
     /// <summary>
     /// See, pin, set or clear a projection's persisted start floor (jasperfx#1205)
     /// </summary>
-    floor
+    floor,
+
+    /// <summary>
+    /// List parked identities, or ask for a replay or discard of them (marten#6003)
+    /// </summary>
+    parked
 }
 
 public class ProjectionInput: NetCoreInput
@@ -60,7 +65,33 @@ public class ProjectionInput: NetCoreInput
     [FlagAlias("clear", longAliasOnly: true)]
     public bool ClearFlag { get; set; }
 
-    [Description("With the floor action: don't ask for confirmation before changing a floor")]
+    // marten#6003: the parked action's modes. Long-only, for the same reason as the floor action's.
+
+    [Description("With the parked action: ask the node that runs the shard to replay parked identities: one named with --identity, or --all, or --oldest N")]
+    [FlagAlias("replay", longAliasOnly: true)]
+    public bool ReplayFlag { get; set; }
+
+    [Description("With the parked action: ask the node that runs the shard to discard the parked identity named with --identity, dead-lettering each event that still fails")]
+    [FlagAlias("discard", longAliasOnly: true)]
+    public bool DiscardFlag { get; set; }
+
+    [Description("With the parked action: the parked identity to replay or discard")]
+    [FlagAlias("identity", longAliasOnly: true)]
+    public string? IdentityFlag { get; set; }
+
+    [Description("With the parked action and --replay: every parked identity of the projection")]
+    [FlagAlias("all", longAliasOnly: true)]
+    public bool AllFlag { get; set; }
+
+    [Description("With the parked action and --replay: only the N identities parked first")]
+    [FlagAlias("oldest", longAliasOnly: true)]
+    public int? OldestFlag { get; set; }
+
+    [Description("With the parked action: wait up to this many seconds for the requested identities to be unparked")]
+    [FlagAlias("wait", longAliasOnly: true)]
+    public int? WaitFlag { get; set; }
+
+    [Description("With the floor or parked action: don't ask for confirmation before changing anything")]
     [FlagAlias("yes", longAliasOnly: true)]
     public bool YesFlag { get; set; }
 

@@ -26,6 +26,13 @@ public class ProjectionController
             return false;
         }
 
+        if (input.Action == ProjectionAction.parked)
+        {
+            // ProjectionsCommand hands the parked action to ParkedIdentityController; it never runs a daemon
+            AnsiConsole.MarkupLine("[red]The parked action is run by ParkedIdentityController[/]");
+            return false;
+        }
+
         TimeSpan? shardTimeout = null;
         try
         {

@@ -164,6 +164,13 @@ public class GroupedProjectionExecution : ISubscriptionExecution
         return rebuilder != null;
     }
 
+    // marten#6003
+    bool ISubscriptionExecution.TryGetParkingHost([NotNullWhen(true)] out IParkedIdentityHost? host)
+    {
+        host = _runner as IParkedIdentityHost;
+        return host != null;
+    }
+
     // jasperfx#1201: a request still waiting when the shard goes away can never be bound
     private void abandonIdentityRebuilds()
     {

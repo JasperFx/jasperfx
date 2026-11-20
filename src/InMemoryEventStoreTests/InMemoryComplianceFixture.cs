@@ -126,6 +126,17 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
     // jasperfx#1201: the store runs JasperFx's daemon for async projections, and implements the re-fold seams
     public override bool SupportsIdentityRebuild => true;
 
+    // marten#6003: the reference implementation of the parked-identity storage
+    public override bool SupportsParkedIdentities => true;
+
+    public override bool SupportsUnreadableEvents => true;
+
+    public override Task MakeEventUnreadableAsync(long sequence)
+    {
+        Store.MarkEventUnreadable(sequence);
+        return Task.CompletedTask;
+    }
+
     public override bool SupportsSoftDeletedProjectionDocuments => true;
 
     // jasperfx#985: the store is an IEventStore

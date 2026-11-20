@@ -24,6 +24,13 @@ public sealed record IdentityRebuildRequest(string TenantId, object Identity)
     /// Runs after the bound batch commits and before the shard builds its next batch.
     /// </summary>
     public Action? OnCommitted { get; init; }
+
+    /// <summary>
+    /// marten#6003: discard semantics. An event that still fails in the re-fold is dropped and dead-lettered, the
+    /// way a skipped event is, and the fold carries on without it. Off by default, so a failing event faults the
+    /// request and leaves the identity as it was.
+    /// </summary>
+    public bool SkipFailingEvents { get; init; }
 }
 
 /// <summary>
@@ -31,7 +38,19 @@ public sealed record IdentityRebuildRequest(string TenantId, object Identity)
 /// </summary>
 /// <param name="BoundCeiling">The ceiling of the batch the rebuild was bound to. The identity's document is consistent with every event of its stream up to and including this sequence.</param>
 /// <param name="Action">What the re-fold wrote: <see cref="ActionType.Store" />, a delete, or <see cref="ActionType.Nothing" /> when the stream folds to nothing and no document is left.</param>
-public sealed record IdentityRebuildResult(long BoundCeiling, ActionType Action);
+public sealed record IdentityRebuildResult(long BoundCeiling, ActionType Action)
+{
+    /// <summary>
+    /// marten#6003: how many events the re-fold dropped and dead-lettered under
+    /// <see cref="IdentityRebuildRequest.SkipFailingEvents" />.
+    /// </summary>
+    public int SkippedEvents { get; init; }
+
+    /// <summary>
+    /// marten#6003: the identity was parked, and this rebuild unparked it.
+    /// </summary>
+    public bool Unparked { get; init; }
+}
 
 /// <summary>
 /// Why a per-identity rebuild was refused.
@@ -146,6 +165,13 @@ public sealed class IdentityRebuildEventRequest
 
     /// <summary>Whether the projection reads archived events.</summary>
     public bool IncludeArchivedEvents { get; init; }
+
+    /// <summary>
+    /// marten#6003: skip (and dead-letter) an event the store can't deserialize instead of throwing. Off by default,
+    /// and deliberately not taken from the store's continuous error options: a replay of an identity parked on an
+    /// unreadable event has to fail on it again, not skip the event it is meant to repair. A discard sets it.
+    /// </summary>
+    public bool SkipSerializationErrors { get; init; }
 }
 
 /// <summary>

@@ -12,6 +12,24 @@ public class EventPage: List<IEvent>
 
     public long HighWaterMark { get; set; }
 
+    private List<Daemon.UnreadableEvent>? _unreadable;
+
+    /// <summary>
+    /// marten#6003: events the loader could not deserialize and left out of the page because the request set
+    /// <see cref="Daemon.EventRequest.ParksUnreadableEvents" />. The daemon parks each one's stream. Empty for every
+    /// other page.
+    /// </summary>
+    public IReadOnlyList<Daemon.UnreadableEvent> Unreadable => (IReadOnlyList<Daemon.UnreadableEvent>?)_unreadable ?? [];
+
+    /// <summary>
+    /// marten#6003: report an event the loader could not deserialize. See <see cref="Unreadable" />.
+    /// </summary>
+    public void AddUnreadable(Daemon.UnreadableEvent unreadable)
+    {
+        ArgumentNullException.ThrowIfNull(unreadable);
+        (_unreadable ??= new()).Add(unreadable);
+    }
+
     /// <summary>
     /// The sequence of the last row the loader actually read, whether or not it survived into this
     /// page. Set it when a loader skips events, so a page that ends up empty can still report how
