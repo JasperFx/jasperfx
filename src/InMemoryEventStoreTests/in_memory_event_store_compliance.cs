@@ -84,3 +84,7 @@ public class event_rewrite_compliance
 
 public class backfill_compliance
     : BackfillCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+// marten#6003: the reference store for parking the failing slice
+public class parked_identity_compliance
+    : ParkedIdentityCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;

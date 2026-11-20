@@ -152,5 +152,87 @@ public sealed class InMemoryEventDatabase : IEventDatabase
 
     /// <inheritdoc />
     public Task StoreDeadLetterEventAsync(object storage, DeadLetterEvent deadLetterEvent, CancellationToken token)
-        => throw InMemoryEventRegistry.NotSupported("Dead letter events");
+    {
+        _store.StoreDeadLetter(deadLetterEvent);
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task<long> CountDeadLetterEventsAsync(ShardName shard, CancellationToken token = default)
+        => Task.FromResult((long)_store.DeadLetters(shard, null).Count);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<DeadLetterEvent>> QueryDeadLetterEventsAsync(ShardName shard, string? tenantId,
+        int offset, int limit, CancellationToken token = default)
+        => Task.FromResult<IReadOnlyList<DeadLetterEvent>>(_store.DeadLetters(shard, tenantId).Skip(offset)
+            .Take(limit).ToList());
+
+    // ---- marten#6003: parked identities ----
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ParkedIdentity>> FetchParkedIdentitiesAsync(ParkedIdentityQuery query,
+        CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var rows = _store.ParkedRows(x =>
+            (query.ProjectionName == null || x.ProjectionName == query.ProjectionName) &&
+            (query.ProjectionVersion == null || x.ProjectionVersion == query.ProjectionVersion) &&
+            (query.ShardKey == null || x.ShardKey == query.ShardKey) &&
+            (query.TenantId == null || x.TenantId == query.TenantId));
+
+        return Task.FromResult<IReadOnlyList<ParkedIdentity>>(rows.Take(Math.Max(query.Limit, 0)).ToList());
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ParkedShardCount>> FetchParkedCountsAsync(string? tenantId,
+        CancellationToken token = default)
+    {
+        var counts = _store.ParkedRows(x => tenantId == null || x.TenantId == tenantId)
+            .GroupBy(x => (x.ProjectionName, x.ProjectionVersion, x.ShardKey, x.TenantId))
+            .Select(x => new ParkedShardCount(x.Key.ProjectionName, x.Key.ProjectionVersion, x.Key.ShardKey,
+                x.Key.TenantId, x.Count()))
+            .ToList();
+
+        return Task.FromResult<IReadOnlyList<ParkedShardCount>>(counts);
+    }
+
+    /// <inheritdoc />
+    public Task<int> RequestParkedActionAsync(ParkedActionRequest request, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return _store.RequestParkedActionAsync(request, token);
+    }
+
+    // How often the daemon read the parked rows, for the tests that pin "nothing parked costs nothing"
+    internal int ParkedLoads;
+    internal int RequestedActionLoads;
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ParkedIdentity>> LoadParkedIdentitiesAsync(ShardName shard,
+        CancellationToken token = default)
+    {
+        Interlocked.Increment(ref ParkedLoads);
+        return Task.FromResult(_store.ParkedRows(x => matches(x, shard)));
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ParkedIdentity>> LoadRequestedParkedActionsAsync(ShardName shard,
+        CancellationToken token = default)
+    {
+        Interlocked.Increment(ref RequestedActionLoads);
+        return Task.FromResult<IReadOnlyList<ParkedIdentity>>(_store
+            .ParkedRows(x => matches(x, shard) && x.RequestedAction.HasValue)
+            .OrderBy(x => x.RequestedAt)
+            .ToList());
+    }
+
+    /// <inheritdoc />
+    public Task RecordParkedReplayFailureAsync(ParkedIdentityKey key, DateTimeOffset attemptedAt, string error,
+        CancellationToken token = default)
+        => _store.RecordParkedReplayFailureAsync(key, attemptedAt, error, token);
+
+    // One shard's rows: its name, version and key, and its tenant when the shard is a tenant's own
+    private static bool matches(ParkedIdentity row, ShardName shard)
+        => row.ProjectionName == shard.Name && row.ProjectionVersion == shard.Version &&
+           row.ShardKey == shard.ShardKey && (shard.TenantId == null || row.TenantId == shard.TenantId);
 }

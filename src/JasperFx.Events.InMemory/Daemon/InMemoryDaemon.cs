@@ -64,14 +64,7 @@ internal sealed class InMemoryHighWaterDetector(InMemoryDocumentStore store, InM
 internal sealed class InMemoryEventLoader(InMemoryDocumentStore store, EventFilterable filtering) : IEventLoader
 {
     public Task<EventPage> LoadAsync(EventRequest request, CancellationToken token)
-    {
-        var page = new EventPage(request.Floor);
-        page.AddRange(store.EventsForShard(request.Floor, request.HighWater, request.BatchSize, filtering,
-            request.Name.TenantId));
-        page.CalculateCeiling(request.BatchSize, request.HighWater);
-
-        return Task.FromResult(page);
-    }
+        => Task.FromResult(store.LoadPage(request, filtering));
 }
 
 /// <summary>
@@ -87,6 +80,10 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
 {
     private readonly InMemoryDocumentStore _store;
     private readonly List<(ShardName Shard, long Floor, long Ceiling)> _progress = new();
+
+    // marten#6003: applied in the commit, with the documents and the progression
+    private readonly List<ParkedIdentity> _parks = new();
+    private readonly List<ParkedIdentityKey> _unparks = new();
 
     internal InMemoryProjectionBatch(InMemoryDocumentStore store, ShardExecutionMode mode) : base(mode)
     {
@@ -109,6 +106,18 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
         }
 
         return ValueTask.CompletedTask;
+    }
+
+    public void ParkIdentity(ParkedIdentity parked)
+    {
+        ArgumentNullException.ThrowIfNull(parked);
+        lock (_parks) _parks.Add(parked);
+    }
+
+    public void UnparkIdentity(ParkedIdentityKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        lock (_parks) _unparks.Add(key);
     }
 
     protected override Task ExecuteOperationsInTransactionAsync(Func<CancellationToken, Task> beforeCommit,
@@ -136,6 +145,12 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
             if (raised.Count > 0)
             {
                 _store.AppendStreams(raised, Sessions.FirstOrDefault() ?? _store.LightweightSession());
+            }
+
+            lock (_parks)
+            {
+                foreach (var key in _unparks) _store.DeleteParked(key, set);
+                foreach (var parked in _parks) _store.WriteParked(parked, set);
             }
 
             await beforeCommit(token).ConfigureAwait(false);

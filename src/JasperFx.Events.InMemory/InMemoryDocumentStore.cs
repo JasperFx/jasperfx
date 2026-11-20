@@ -130,6 +130,11 @@ public partial class InMemoryDocumentStore : IDocumentSessionFactory<InMemoryDoc
         _streams.Clear();
         _events.Clear();
         _progression.Clear();
+
+        // marten#6003
+        _parked.Clear();
+        _deadLetters.Clear();
+        _unreadable.Clear();
     }
 
     // jasperfx#963. One commit at a time, so two sessions' units of work never interleave, and a

@@ -935,6 +935,28 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsIdentityRebuild => false;
 
     /// <summary>
+    /// True in a store that parks a failing identity of an async projection (marten#6003):
+    /// <c>IEventStore&lt;,&gt;.SupportsParkedIdentities</c>, a projection batch that writes and deletes parked rows in its
+    /// transaction, the parked-identity reads on <see cref="IEventDatabase" />, dead letters, and everything
+    /// <see cref="SupportsIdentityRebuild" /> needs. Gates
+    /// <see cref="ParkedIdentityCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    public virtual bool SupportsParkedIdentities => false;
+
+    /// <summary>
+    /// True when <see cref="MakeEventUnreadableAsync" /> can make a stored event fail to deserialize, so the parked
+    /// identity suite can check that an unreadable event parks its stream (marten#6003).
+    /// </summary>
+    public virtual bool SupportsUnreadableEvents => false;
+
+    /// <summary>
+    /// Make the stored event with this sequence fail to deserialize from now on, in the daemon's loader and in the
+    /// per-identity rebuild's loader. Only called when <see cref="SupportsUnreadableEvents" /> is true.
+    /// </summary>
+    public virtual Task MakeEventUnreadableAsync(long sequence)
+        => throw new NotSupportedException($"{GetType().Name} cannot make a stored event unreadable.");
+
+    /// <summary>
     /// True in a store whose registrar implements <see cref="IComplianceStoreRegistrar.SoftDeleted{TDoc}" />, so a
     /// projected document type can be stored soft-deleted (jasperfx#1201).
     /// </summary>
