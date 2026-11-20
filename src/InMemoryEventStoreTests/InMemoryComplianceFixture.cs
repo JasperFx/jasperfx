@@ -169,8 +169,10 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
     {
         public void AddEventType(Type eventType) => store.Events.AddEventType(eventType);
 
+        // marten#6003: events keep their tags in memory, which is all IdentityFromTag needs. Tag queries are still
+        // not supported.
         public ITagTypeRegistration RegisterTagType<TTag>(string tableSuffix) where TTag : notnull
-            => throw notSupported("Tags (DCB)");
+            => store.Events.RegisterTagType<TTag>(tableSuffix);
 
         public void Snapshot<TDoc>(SnapshotLifecycle lifecycle) where TDoc : notnull
             => store.Projections.Snapshot<TDoc>(lifecycle);

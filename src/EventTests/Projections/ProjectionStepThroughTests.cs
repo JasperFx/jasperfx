@@ -48,6 +48,7 @@ public class ProjectionStepThroughTests
         nameof(Closed) => wrap<Closed>(source),
         nameof(Rebuked) => wrap<Rebuked>(source),
         nameof(Batch) => wrap<Batch>(source),
+        nameof(Allocated) => wrap<Allocated>(source),
         nameof(Compacted<Ledger>) => wrap<Compacted<Ledger>>(source),
         _ => null
     };
@@ -804,6 +805,59 @@ public class ProjectionStepThroughTests
         @event.StreamKey.ShouldBe("not-a-guid");
     }
 
+    // ----- marten#6003: one identity of a multi-stream projection, from a starting state
+
+    [Fact]
+    public async Task stepping_one_identity_keeps_only_its_slice_and_starts_from_the_given_state()
+    {
+        var mine = record(new Allocated([3, 4], 10));
+        var theirs = record(new Allocated([4], 100));
+        var both = record(new Allocated([3, 4], 1));
+
+        var start = JsonSerializer.SerializeToElement(new BatchLedger { Id = 3, Balance = 50 });
+
+        var timeline = await stepThroughOf(new AllocationProjection()).RunMultiStreamProjectionForIdentityAsync(
+            "Allocations", 3, [mine, theirs, both], start, new FakeSession(), CancellationToken.None);
+
+        // Identity 4's own event is not a step of identity 3's timeline
+        timeline.Steps.Select(x => x.Event).ShouldBe([mine, both]);
+        timeline.Steps[0].Before!.Value.GetProperty(nameof(BatchLedger.Balance)).GetInt32().ShouldBe(50);
+        balance(timeline.FinalState).ShouldBe(61);
+    }
+
+    [Fact]
+    public async Task stepping_one_identity_fans_out_like_the_daemon()
+    {
+        var batch = record(new Batch([new Deposited(1), new Deposited(2)]));
+
+        var timeline = await stepThroughOf(new BatchProjection()).RunMultiStreamProjectionForIdentityAsync("Batches",
+            7, [batch], null, new FakeSession(), CancellationToken.None);
+
+        timeline.Steps.Select(x => x.Event.EventTypeName).ShouldBe([nameof(Batch), nameof(Deposited), nameof(Deposited)]);
+        balance(timeline.FinalState).ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task stepping_one_identity_takes_its_text()
+    {
+        var timeline = await stepThroughOf(new AllocationProjection()).RunMultiStreamProjectionForIdentityAsync(
+            "Allocations", "3", [record(new Allocated([3], 2))], null, new FakeSession(), CancellationToken.None);
+
+        balance(timeline.FinalState).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task stepping_an_identity_with_no_events_reports_its_starting_state()
+    {
+        var start = JsonSerializer.SerializeToElement(new BatchLedger { Id = 3, Balance = 5 });
+
+        var timeline = await stepThroughOf(new AllocationProjection()).RunMultiStreamProjectionForIdentityAsync(
+            "Allocations", 3, [record(new Allocated([4], 1))], start, new FakeSession(), CancellationToken.None);
+
+        timeline.Steps.ShouldBeEmpty();
+        balance(timeline.FinalState).ShouldBe(5);
+    }
+
     [Fact]
     public void a_record_without_a_tenant_lands_on_the_default_tenant()
     {
@@ -1025,6 +1079,29 @@ public class ProjectionStepThroughTests
     {
         public int Id { get; set; }
         public int Balance { get; set; }
+    }
+
+    public record Allocated(int[] Ledgers, int Amount);
+
+    public class AllocationProjection : JasperFxMultiStreamProjectionBase<BatchLedger, int, FakeOperations, FakeSession>
+    {
+        public AllocationProjection()
+        {
+            ((ProjectionBase)this).Name = "Allocations";
+            Identities<Allocated>(x => x.Ledgers);
+        }
+
+        public override BatchLedger? Evolve(BatchLedger? snapshot, int id, IEvent e)
+        {
+            snapshot ??= new BatchLedger { Id = id };
+
+            if (e.Data is Allocated allocated)
+            {
+                snapshot.Balance += allocated.Amount;
+            }
+
+            return snapshot;
+        }
     }
 
     public class BatchProjection : JasperFxMultiStreamProjectionBase<BatchLedger, int, FakeOperations, FakeSession>

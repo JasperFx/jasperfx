@@ -88,3 +88,8 @@ public class backfill_compliance
 // marten#6003: the reference store for parking the failing slice
 public class parked_identity_compliance
     : ParkedIdentityCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
+// marten#6003 phase 2: the reference store for parking a multi-stream identity -- by stream, by DCB tag, and through the
+// slice index -- and for rebuilding one by scan
+public class multi_stream_parked_identity_compliance
+    : MultiStreamParkedIdentityCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;

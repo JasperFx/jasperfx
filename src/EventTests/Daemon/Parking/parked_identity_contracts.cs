@@ -72,6 +72,22 @@ public partial class OrderSummaryMixed : JasperFxMultiStreamProjectionBase<Order
     public void Apply(OrderSummary doc, OrderShipped e) => doc.Events++;
 }
 
+public class TenantSummary
+{
+    public string Id { get; set; } = "";
+    public int Events { get; set; }
+}
+
+public partial class TenantRollupSummary : JasperFxMultiStreamProjectionBase<TenantSummary, string, FakeOperations, FakeSession>
+{
+    public TenantRollupSummary()
+    {
+        RollUpByTenant();
+    }
+
+    public void Apply(TenantSummary doc, OrderPlaced e) => doc.Events++;
+}
+
 public class parked_identity_contracts
 {
     [Fact]
@@ -211,8 +227,9 @@ public class parked_identity_contracts
         access.Class.ShouldBe(IdentityAccessClass.Stream);
         access.Exact.ShouldBeTrue();
 
-        // Multi-stream parking is phase 2
-        access.CanPark.ShouldBeFalse();
+        // marten#6003 phase 2: every exact class parks
+        access.CanPark.ShouldBeTrue();
+        access.Source.ShouldBe(IdentityEventSource.Stream);
     }
 
     [Fact]
@@ -223,6 +240,67 @@ public class parked_identity_contracts
         projection.IdentityAccess.Class.ShouldBe(IdentityAccessClass.Tag);
         projection.IdentityAccess.Exact.ShouldBeTrue();
         projection.IncludeEventTags.ShouldBeTrue();
+    }
+
+    // ---- marten#6003 phase 2: the slice index
+
+    [Fact]
+    public void the_slice_index_makes_a_delegate_grouping_findable()
+    {
+        var projection = new OrderSummaryByDelegate();
+        projection.IdentityAccess.Class.ShouldBe(IdentityAccessClass.ScanOnly);
+        projection.IdentityAccess.Reason.ShouldContain("UseSliceIndex()");
+
+        projection.Options.UseSliceIndex();
+
+        projection.IdentityAccess.Class.ShouldBe(IdentityAccessClass.SliceIndex);
+        projection.IdentityAccess.CanPark.ShouldBeTrue();
+        projection.IdentityAccess.Source.ShouldBe(IdentityEventSource.SliceIndex);
+        projection.IdentityAccess.Reason.ShouldContain("ForParking");
+    }
+
+    [Fact]
+    public void the_slice_index_keeps_seven_days_for_parking_by_default()
+    {
+        var options = new AsyncOptions().UseSliceIndex();
+
+        options.Retention.ShouldBe(SliceIndexRetention.ForParking(TimeSpan.FromDays(7)));
+        options.Retention.IsFull.ShouldBeFalse();
+        options.CustomGroupingReplay.ShouldBe(SliceIndexGroupingReplay.AsRecorded);
+        options.PruneInterval.ShouldBe(TimeSpan.FromHours(1));
+
+        options.KeepEverything().Retention.IsFull.ShouldBeTrue();
+        options.RerunCustomGroupingOnReplay().CustomGroupingReplay.ShouldBe(SliceIndexGroupingReplay.RerunGrouping);
+
+        new AsyncOptions().UseSliceIndex(SliceIndexRetention.Full).Retention.ShouldBeSameAs(SliceIndexRetention.Full);
+        Should.Throw<ArgumentOutOfRangeException>(() => SliceIndexRetention.ForParking(TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void using_the_slice_index_twice_keeps_one_set_of_options()
+    {
+        var options = new AsyncOptions();
+        options.UseSliceIndex().ShouldBeSameAs(options.UseSliceIndex());
+        options.SliceIndex.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void grouping_across_tenants_needs_the_slice_index()
+    {
+        var projection = new OrderSummaryByStream { TenancyGrouping = TenancyGrouping.AcrossTenants };
+        projection.IdentityAccess.Class.ShouldBe(IdentityAccessClass.ScanOnly);
+
+        projection.Options.UseSliceIndex();
+        projection.IdentityAccess.Class.ShouldBe(IdentityAccessClass.SliceIndex);
+    }
+
+    [Fact]
+    public void rolling_up_by_tenant_stays_scan_only_with_the_slice_index()
+    {
+        var projection = new TenantRollupSummary();
+        projection.Options.UseSliceIndex();
+
+        projection.IdentityAccess.Class.ShouldBe(IdentityAccessClass.ScanOnly);
     }
 
     [Fact]

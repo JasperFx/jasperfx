@@ -644,8 +644,10 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
         await shouldNotBeLiveAsync(id);
     }
 
+    // marten#6003: a multi-stream projection can rebuild one identity when its identities can be found exactly. This
+    // one groups by a plain delegate, so it can only be scanned.
     [Fact]
-    public async Task a_multi_stream_projection_is_refused()
+    public async Task a_multi_stream_projection_that_cannot_find_one_identity_is_refused()
     {
         SkipUnlessSupported();
         await reconfigureAsync(_withMultiStreamConfiguration);
@@ -661,7 +663,8 @@ public abstract class IdentityRebuildCompliance<TFixture, TOperations, TQuerySes
         var refused = await Should.ThrowAsync<IdentityRebuildRefusedException>(() =>
             daemon.RebuildIdentityAsync(multiStream, null, "engineering", Cancellation));
 
-        refused.Reason.ShouldBe(IdentityRebuildRefusal.NotASingleStreamProjection);
+        refused.Reason.ShouldBe(IdentityRebuildRefusal.IdentityNotFindable);
+        refused.Message.ShouldContain("scan");
     }
 
     [Fact]
