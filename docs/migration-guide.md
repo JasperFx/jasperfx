@@ -1,5 +1,9 @@
 # Migration Guide
 
+## Key Changes in 3.9.0
+
+* **Culture-independent names** ([#1246](https://github.com/JasperFx/jasperfx/pull/1246), [#1248](https://github.com/JasperFx/jasperfx/issues/1248)). `EqualsIgnoreCase`, `StartsWithIgnoreCase` and `EndsWithIgnoreCase` now compare with `StringComparison.OrdinalIgnoreCase` instead of the current culture, and `ToTableAlias` lowers with the invariant culture. On most machines nothing changes. On a machine whose culture is Turkish or Azerbaijani, an uppercase `I` used to become a dotless `ı`. Event type names, tag table suffixes and duplicated-field column names created there with an `I` in the type or member name will now be spelled differently. If you ran on such a machine, map the old names with an event type alias before upgrading.
+
 ## Key Changes in 3.6.0
 
 * **New time-ordered Guids, `SequentialGuid`.** `JasperFx.Core.SequentialGuid` makes Guids in MassTransit's NewId layout (a 100 ns timestamp, a 6-byte worker id drawn at random once per process, and a sequence) without a lock and without a random number per id. There are two sort orders, one per database: `SequentialGuid.NextPostgresOrder()` for PostgreSQL `uuid` (and SQLite, or anything that stores the id as text) and `SequentialGuid.NextSqlServerOrder()` for SQL Server `uniqueidentifier`. `SequentialGuid.PostgresOrder` and `SequentialGuid.SqlServerOrder` are the same thing as an `IGuidGenerator` to hand to something else.
