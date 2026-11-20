@@ -5,6 +5,7 @@ using JasperFx.Descriptors;
 using JasperFx.Events;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Daemon;
+using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using JasperFx.Events.Projections.Composite;
 using JasperFx.Events.Projections.ContainerScoped;
@@ -837,6 +838,55 @@ public class ProjectionStepThroughTests
         balance(timeline.FinalState).ShouldBe(3);
     }
 
+    // A stepped fan-out or enrichment event carries the tags of the record it came from, which is what the store
+    // would show for it. Grouping never read them; only the step's record did.
+    private static readonly IReadOnlyDictionary<string, string> BatchTags =
+        new Dictionary<string, string> { ["ledger"] = "7", ["region"] = "north" };
+
+    [Fact]
+    public async Task an_event_a_fan_out_created_carries_the_tags_of_its_source()
+    {
+        var batch = record(new Batch([new Deposited(1), new Deposited(2)])) with { Tags = BatchTags };
+        var untagged = record(new Batch([new Deposited(4)]));
+
+        var result = await stepThroughOf(new BatchProjection()).RunMultiStreamProjectionAsync("Batches",
+            [batch, untagged], new FakeSession(), CancellationToken.None);
+
+        var steps = result.AggregatesByIdentity["7"].Steps;
+        steps.Select(x => x.Event.EventTypeName)
+            .ShouldBe([nameof(Batch), nameof(Deposited), nameof(Deposited), nameof(Batch), nameof(Deposited)]);
+
+        steps[1].Event.Tags.ShouldBe(BatchTags);
+        steps[2].Event.Tags.ShouldBe(BatchTags);
+        steps[4].Event.Tags.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task stepping_one_identity_fans_out_with_the_tags_of_the_source()
+    {
+        var batch = record(new Batch([new Deposited(1), new Deposited(2)])) with { Tags = BatchTags };
+
+        var timeline = await stepThroughOf(new BatchProjection()).RunMultiStreamProjectionForIdentityAsync("Batches",
+            7, [batch], null, new FakeSession(), CancellationToken.None);
+
+        timeline.Steps.Select(x => x.Event.Tags).ShouldAllBe(x => x == BatchTags);
+    }
+
+    [Fact]
+    public async Task an_enriched_event_carries_the_tags_of_its_source()
+    {
+        var allocated = record(new Allocated([3], 2)) with { Tags = BatchTags };
+
+        var timeline = await stepThroughOf(new EnrichedAllocationProjection()).RunMultiStreamProjectionForIdentityAsync(
+            "Allocations", 3, [allocated], null, new FakeSession(), CancellationToken.None);
+
+        var step = timeline.Steps.ShouldHaveSingleItem();
+        step.Event.ShouldNotBeSameAs(allocated);
+        step.Event.Data.GetProperty(nameof(Allocated.Amount)).GetInt32().ShouldBe(20);
+        step.Event.Tags.ShouldBe(BatchTags);
+        balance(timeline.FinalState).ShouldBe(20);
+    }
+
     [Fact]
     public async Task stepping_one_identity_takes_its_text()
     {
@@ -1101,6 +1151,27 @@ public class ProjectionStepThroughTests
             }
 
             return snapshot;
+        }
+    }
+
+    // Enrichment replaces each event with a clone carrying new data, the way an EnrichWith step does
+    public class EnrichedAllocationProjection : AllocationProjection
+    {
+        public override Task EnrichEventsAsync(SliceGroup<BatchLedger, int> group, FakeSession querySession,
+            CancellationToken cancellation)
+        {
+            foreach (var slice in group.Slices)
+            {
+                foreach (var e in slice.Events().ToArray())
+                {
+                    if (e.Data is Allocated allocated)
+                    {
+                        slice.ReplaceEvent(e, allocated with { Amount = allocated.Amount * 10 });
+                    }
+                }
+            }
+
+            return Task.CompletedTask;
         }
     }
 
