@@ -139,22 +139,10 @@ public sealed class ProjectionStepThrough<TQuerySession>
 
         var aggregation = _find(projectionName).Aggregation;
 
-        // Keyed by reference back to the record each event came from, because the fold hands back the
-        // same IEvent instances and the caller supplied the record it wants to see.
-        var recordFor = new Dictionary<IEvent, EventRecord>(ReferenceEqualityComparer.Instance);
-        var domainEvents = new List<IEvent>(events.Count);
-
-        foreach (var record in events)
-        {
-            if (_toEvent(record) is not { } domainEvent) continue;
-
-            recordFor[domainEvent] = record;
-            domainEvents.Add(domainEvent);
-        }
+        var (domainEvents, recordOf) = readEvents(events);
 
         return await aggregation
-            .BuildTimelinesAsync(domainEvents, session, _states,
-                e => recordFor.TryGetValue(e, out var record) ? record : toRecord(e), null, ct)
+            .BuildTimelinesAsync(domainEvents, session, _states, recordOf, null, ct)
             .ConfigureAwait(false);
     }
 
@@ -174,20 +162,10 @@ public sealed class ProjectionStepThrough<TQuerySession>
 
         var aggregation = _find(projectionName).Aggregation;
 
-        var recordFor = new Dictionary<IEvent, EventRecord>(ReferenceEqualityComparer.Instance);
-        var domainEvents = new List<IEvent>(events.Count);
-
-        foreach (var record in events)
-        {
-            if (_toEvent(record) is not { } domainEvent) continue;
-
-            recordFor[domainEvent] = record;
-            domainEvents.Add(domainEvent);
-        }
+        var (domainEvents, recordOf) = readEvents(events);
 
         return await aggregation
-            .BuildIdentityTimelineAsync(identity, domainEvents, session, startingState, _states,
-                e => recordFor.TryGetValue(e, out var record) ? record : toRecord(e), ct)
+            .BuildIdentityTimelineAsync(identity, domainEvents, session, startingState, _states, recordOf, ct)
             .ConfigureAwait(false);
     }
 
@@ -207,10 +185,38 @@ public sealed class ProjectionStepThrough<TQuerySession>
     private TState? copyOf<TState>(JsonElement? json, EventRecord? at)
         => json is { } state ? _states.RoundTrip<TState>(state, at) : default;
 
+    // Reads the records into the events the fold sees, and answers the record behind each event the fold hands
+    // back: the caller's own record, by reference, for an event read from one, or a new record for an event the
+    // projection made.
+    private (List<IEvent> Events, Func<IEvent, EventRecord> RecordOf) readEvents(IReadOnlyList<EventRecord> events)
+    {
+        var recordFor = new Dictionary<IEvent, EventRecord>(ReferenceEqualityComparer.Instance);
+
+        // A fan-out or enrichment event is a clone of the event it came from, keeping its id and sequence. Two
+        // records reading back to one id and sequence leave that key without a source, rather than a guessed one.
+        var sourceFor = new Dictionary<(Guid, long), EventRecord?>();
+        var domainEvents = new List<IEvent>(events.Count);
+
+        foreach (var record in events)
+        {
+            if (_toEvent(record) is not { } domainEvent) continue;
+
+            recordFor[domainEvent] = record;
+            var key = (domainEvent.Id, domainEvent.Sequence);
+            sourceFor[key] = sourceFor.ContainsKey(key) ? null : record;
+            domainEvents.Add(domainEvent);
+        }
+
+        return (domainEvents, e => recordFor.TryGetValue(e, out var record)
+            ? record
+            : toRecord(e, sourceFor.GetValueOrDefault((e.Id, e.Sequence))));
+    }
+
     // A fan-out event, or an enrichment's WithData, is a new IEvent no record stands behind. Polecat and
     // Fisher looked those up unconditionally, so a projection with a FanOut threw KeyNotFoundException
-    // out of the whole replay.
-    private EventRecord toRecord(IEvent e) => new(e.Id, e.Sequence, e.Version,
+    // out of the whole replay. It carries the tags of the record it came from: an IEvent's tags are typed
+    // values and a record's are the store's own text, so only the source record has them in the right form.
+    private EventRecord toRecord(IEvent e, EventRecord? source) => new(e.Id, e.Sequence, e.Version,
         e.StreamKey ?? e.StreamId.ToString(), e.EventTypeName ?? e.EventType.Name,
-        _states.Serialize(e.Data)!.Value, null, e.Timestamp, e.TenantId, null);
+        _states.Serialize(e.Data)!.Value, null, e.Timestamp, e.TenantId, source?.Tags);
 }
