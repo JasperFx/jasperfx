@@ -85,6 +85,9 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
     private readonly List<ParkedIdentity> _parks = new();
     private readonly List<ParkedIdentityKey> _unparks = new();
 
+    // marten#6003: the slice index rows, applied in the commit too
+    private readonly List<SliceIndexRows> _sliceIndex = new();
+
     internal InMemoryProjectionBatch(InMemoryDocumentStore store, ShardExecutionMode mode) : base(mode)
     {
         _store = store;
@@ -120,6 +123,12 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
         lock (_parks) _unparks.Add(key);
     }
 
+    public void AppendSliceIndex(SliceIndexRows rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        lock (_parks) _sliceIndex.Add(rows);
+    }
+
     protected override Task ExecuteOperationsInTransactionAsync(Func<CancellationToken, Task> beforeCommit,
         CancellationToken token)
     {
@@ -151,6 +160,7 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
             {
                 foreach (var key in _unparks) _store.DeleteParked(key, set);
                 foreach (var parked in _parks) _store.WriteParked(parked, set);
+                foreach (var rows in _sliceIndex) _store.WriteSliceIndex(rows, set);
             }
 
             await beforeCommit(token).ConfigureAwait(false);
