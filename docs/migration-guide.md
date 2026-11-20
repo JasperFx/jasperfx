@@ -1,5 +1,15 @@
 # Migration Guide
 
+## Key Changes in 3.11.0
+
+* **Transient failures while building a projection batch are retried through the store's resilience pipeline** ([#1256](https://github.com/JasperFx/jasperfx/issues/1256)). A batch that fails for a transient reason (a timeout, a dropped connection, a driver's transient error) is built again through the store's existing Polly pipeline, under every error policy, whether one slice failed or several. When the pipeline gives up, the shard pauses with `IsTransient = true` so a supervisor such as Wolverine can restart it. Skip no longer retries such a batch without limit. `IEventStore` has a new `ResiliencePipeline` member that defaults to `ResiliencePipeline.Empty`; with the default, a transient failure pauses the shard the first time.
+
+* **Replaying or discarding a parked identity right after it parks** no longer answers `NotParked` ([#1258](https://github.com/JasperFx/jasperfx/issues/1258)).
+
+* **The extended progression row keeps the parked count current** with periodic heartbeats off ([#1255](https://github.com/JasperFx/jasperfx/issues/1255)).
+
+* **Stepping a projection from stored events keeps their DCB tags** ([#1254](https://github.com/JasperFx/jasperfx/issues/1254)). A new `WithRecordMetadata(..., tagTypes)` overload rebuilds an event's tags from `EventRecord.Tags`, whose keys are the tag type's name (a table suffix is accepted too). Events created by fan-out or enrichment while stepping carry their source event's tags.
+
 ## Key Changes in 3.10.0
 
 * **Parking a failing projection identity** ([marten#6003](https://github.com/JasperFx/marten/issues/6003), [#1251](https://github.com/JasperFx/jasperfx/pull/1251), [#1252](https://github.com/JasperFx/jasperfx/pull/1252)). An async projection can now set aside the one identity whose events fail to apply, keep running for every other identity, and replay or discard the parked one later. Nothing parks unless a store or your configuration asks for it, so JasperFx's own default does not change. See [Parking a Failing Identity](/events/parked-identities).
