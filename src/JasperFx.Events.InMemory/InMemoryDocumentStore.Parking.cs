@@ -19,6 +19,13 @@ public partial class InMemoryDocumentStore
     public bool SupportsParkedIdentities => true;
 
     /// <summary>
+    /// jasperfx#1258: for tests, the post-commit work of an async projection batch, given the parked rows the batch
+    /// committed. It runs where Marten's and Polecat's after-commit hooks run, after the commit and before the daemon
+    /// takes the batch's parks into the shard, so a test can hold the daemon in that window.
+    /// </summary>
+    internal Func<IReadOnlyList<ParkedIdentity>, Task>? ProjectionBatchCommitted { get; set; }
+
+    /// <summary>
     /// For testing how the daemon handles an event the store can't deserialize: from now on the daemon's event loader,
     /// and the per-identity rebuild's loader, treat the event with this sequence as unreadable.
     /// </summary>

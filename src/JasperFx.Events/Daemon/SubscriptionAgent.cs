@@ -1197,9 +1197,21 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
     internal async Task<ParkedReplayResult> ReplayParkedAsync(string tenantId, object identity, ParkedAction action,
         CancellationToken token)
     {
-        if (!_execution.TryGetParkingHost(out var host) || !host.TryFindParked(tenantId, identity, out var parked))
+        if (!_execution.TryGetParkingHost(out var host))
         {
             return new ParkedReplayResult(identity, ParkedReplayOutcome.NotParked, 0);
+        }
+
+        if (!host.TryFindParked(tenantId, identity, out var parked))
+        {
+            // jasperfx#1258: a batch commits its parks, runs the store's after-commit hooks, and only then are they in
+            // the parked set. Wait out a park of this identity that is in that window before answering.
+            await host.WaitForParkInFlightAsync(tenantId, identity, token).ConfigureAwait(false);
+
+            if (!host.TryFindParked(tenantId, identity, out parked))
+            {
+                return new ParkedReplayResult(identity, ParkedReplayOutcome.NotParked, 0);
+            }
         }
 
         try

@@ -158,6 +158,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
     void IIdentityRebuilder.FaultBound(Exception exception)
     {
+        // jasperfx#1258: the batch failed, so the parks it carried will never land
+        settleParksInFlight();
+
         PendingRebuild[] bound;
         lock (_identityRebuildLock)
         {
@@ -174,6 +177,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
 
     void IIdentityRebuilder.AbandonAll()
     {
+        // jasperfx#1258: the shard is going away, so nothing in flight will land
+        settleParksInFlight();
+
         PendingRebuild[] all;
         lock (_identityRebuildLock)
         {

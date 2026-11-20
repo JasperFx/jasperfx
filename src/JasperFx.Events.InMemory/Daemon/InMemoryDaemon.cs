@@ -167,6 +167,18 @@ internal sealed class InMemoryProjectionBatch : ProjectionBatchBase<InMemoryDocu
         }, changes, token);
     }
 
+    // jasperfx#1258: the store's after-commit hooks, which this store only has for tests
+    protected override Task AfterCommitAsync()
+    {
+        var hook = _store.ProjectionBatchCommitted;
+        if (hook == null) return Task.CompletedTask;
+
+        ParkedIdentity[] parks;
+        lock (_parks) parks = _parks.ToArray();
+
+        return hook(parks);
+    }
+
     private sealed class NoOutbox : IMessageOutbox
     {
         public ValueTask<IMessageBatch> CreateBatch(IDocumentSessionOperations session)

@@ -37,6 +37,11 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
     private List<ParkedIdentity>? _parksToPromote;
     private List<(ParkedIdentity Row, string Outcome)>? _unparksToPromote;
 
+    // jasperfx#1258: the parks a build wrote into its batch, from then until they are promoted after the commit, or
+    // the batch is given up. A replay asked for in that window waits for it instead of answering NotParked, because the
+    // commit, and the store's after-commit hooks, come before the promotion.
+    private volatile ParksInFlight? _parksInFlight;
+
     private static Func<IEvent, TId>? _streamIdentitySource;
 
     /// <summary>How many identities this runner holds parked, or null before it has loaded or parked any.</summary>
@@ -102,6 +107,23 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             .ToList();
     }
 
+    Task IParkedIdentityHost.WaitForParkInFlightAsync(string tenantId, object identity, CancellationToken token)
+    {
+        var inFlight = _parksInFlight;
+        if (inFlight == null || !tryCoerce(identity, out var id) || !inFlight.Holds(tenantId, id))
+        {
+            return Task.CompletedTask;
+        }
+
+        return inFlight.Landed.WaitAsync(token);
+    }
+
+    // Promoted, or never going to be. Either way a replay waiting on it reads the parked set again.
+    private void settleParksInFlight()
+    {
+        Interlocked.Exchange(ref _parksInFlight, null)?.Settle();
+    }
+
     private ParkedIdentity? tryFindParked(string tenantId, TId id)
     {
         var parked = _parked;
@@ -143,6 +165,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
     // loads the rows it parked before (here or on another node).
     private async Task prepareParkingAsync(EventRange range, ShardExecutionMode mode, CancellationToken cancellation)
     {
+        // jasperfx#1258: a build that wrote parks and never committed. Normally FaultBound already settled them.
+        settleParksInFlight();
+
         _pendingParks = new ConcurrentQueue<PendingPark>();
         _parksToPromote = null;
         _unparksToPromote = null;
@@ -380,6 +405,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         }
 
         _parksToPromote = rows;
+
+        settleParksInFlight();
+        _parksInFlight = new ParksInFlight(rows);
     }
 
     // From ApplyPendingCacheUpdates: the batch committed
@@ -390,7 +418,11 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         _parksToPromote = null;
         _unparksToPromote = null;
 
-        if (parks == null && unparks == null) return;
+        if (parks == null && unparks == null)
+        {
+            settleParksInFlight();
+            return;
+        }
 
         lock (_parkedLock)
         {
@@ -409,6 +441,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             _parked = map;
             _parkedCount = map.Count();
         }
+
+        // jasperfx#1258: after the parked set holds them, so a replay that waited finds them
+        settleParksInFlight();
 
         var agent = _parkingAgent;
         if (agent == null) return;
@@ -472,6 +507,18 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
 
     private sealed class UnreadableEventStub;
 
+    private sealed class ParksInFlight(IReadOnlyList<ParkedIdentity> rows)
+    {
+        private readonly TaskCompletionSource _landed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Landed => _landed.Task;
+
+        public bool Holds(string tenantId, TId id)
+            => rows.Any(x => x.TenantId == tenantId && EqualityComparer<TId>.Default.Equals((TId)x.Identity, id));
+
+        public void Settle() => _landed.TrySetResult();
+    }
+
     private sealed record PendingPark(
         string TenantId,
         TId Id,
@@ -498,6 +545,12 @@ internal interface IParkedIdentityHost
 
     /// <summary>Find a parked identity. The identity may be the projection's own identity type, or its text.</summary>
     bool TryFindParked(string tenantId, object identity, out ParkedIdentity parked);
+
+    /// <summary>
+    /// jasperfx#1258: when a batch that parks this identity has been built and its parks are not in the parked set yet,
+    /// wait until they are, or until the batch is given up. Returns at once otherwise. Read the parked set again after.
+    /// </summary>
+    Task WaitForParkInFlightAsync(string tenantId, object identity, CancellationToken token);
 
     /// <summary>Every parked identity, oldest first.</summary>
     IReadOnlyList<ParkedIdentity> ParkedSnapshot();
