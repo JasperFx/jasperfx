@@ -385,7 +385,8 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     /// <param name="toEvent">
     ///     A wire record as an <see cref="IEvent" />, or null when this process cannot read it. This is
     ///     where a store's upcasting and event type lookup belong;
-    ///     <see cref="EventExtensions.WithRecordMetadata" /> stamps the rest.
+    ///     <see cref="EventExtensions.WithRecordMetadata(IEvent, EventRecord, StreamIdentity, IEnumerable{Tags.ITagTypeRegistration})" />
+    ///     stamps the rest, the record's tags included, so a projection grouped by tag groups it (jasperfx#1254).
     /// </param>
     /// <param name="states">The store's own serializer.</param>
     public ProjectionStepThrough<TQuerySession> StepThrough(Func<EventRecord, IEvent?> toEvent,
