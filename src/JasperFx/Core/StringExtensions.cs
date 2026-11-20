@@ -160,27 +160,27 @@ public static partial class StringExtensions
     }
 
     /// <summary>
-    ///     Performs a case-insensitive comparison of strings
+    ///     Performs an ordinal, case-insensitive comparison of strings, the same in every culture
     /// </summary>
     public static bool EqualsIgnoreCase(this string thisString, string otherString)
     {
-        return thisString.Equals(otherString, StringComparison.CurrentCultureIgnoreCase);
+        return thisString.Equals(otherString, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    ///     Performs a case-insensitive comparison of the first string starting with the second string
+    ///     Performs an ordinal, case-insensitive check that the first string starts with the second string
     /// </summary>
     public static bool StartsWithIgnoreCase(this string thisString, string prefix)
     {
-        return thisString.StartsWith(prefix, StringComparison.CurrentCultureIgnoreCase);
+        return thisString.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    ///     Performs a case-insensitive comparison of the first string ending with the second string
+    ///     Performs an ordinal, case-insensitive check that the first string ends with the second string
     /// </summary>
     public static bool EndsWithIgnoreCase(this string thisString, string suffix)
     {
-        return thisString.EndsWith(suffix, StringComparison.CurrentCultureIgnoreCase);
+        return thisString.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

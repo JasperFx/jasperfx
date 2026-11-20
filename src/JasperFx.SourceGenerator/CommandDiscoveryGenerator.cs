@@ -109,7 +109,7 @@ public sealed class CommandDiscoveryGenerator : IIncrementalGenerator
             CanConstruct = CanConstruct(symbol, symbol.ContainingAssembly),
             InputTypeName = inputTypeName,
             FullyQualifiedTypeName = fullName,
-            CommandName = commandName.ToLower(),
+            CommandName = commandName.ToLowerInvariant(),
         };
     }
 

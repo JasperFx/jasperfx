@@ -199,8 +199,8 @@ public sealed class InputParserGenerator : IIncrementalGenerator
         // explicit one-letter alias keeps its case (e.g. [FlagAlias('C')] => -C). The default
         // short form is the lower-cased first letter of the pascal-split member name.
         var splitName = SplitPascalCaseAndAddHyphens(RemoveFlagSuffix(name));
-        var longForm = (flagAliasLong ?? splitName).ToLower();
-        var shortForm = (flagAliasShort?.ToString() ?? char.ToLower(splitName[0]).ToString());
+        var longForm = (flagAliasLong ?? splitName).ToLowerInvariant();
+        var shortForm = (flagAliasShort?.ToString() ?? char.ToLowerInvariant(splitName[0]).ToString());
 
         string? elementTypeFullName = null;
         if (isEnumerable)

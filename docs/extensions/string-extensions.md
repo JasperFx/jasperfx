@@ -39,7 +39,7 @@ public void StringHelpers()
 | `IsNotEmpty()` | Inverse of `IsEmpty()` |
 | `Join(separator)` | Joins an enumerable of strings with a separator |
 | `ToDelimitedString(delimiter)` | Converts a collection to a delimited string |
-| `EqualsIgnoreCase(other)` | Case-insensitive string comparison |
+| `EqualsIgnoreCase(other)` | Ordinal, case-insensitive string comparison (the same in every culture) |
 | `Matches(pattern)` | Regex match helper |
 | `SplitOnNewLine()` | Splits on `\n` and `\r\n` |
 | `ToFullPath()` | Resolves a relative path to a full filesystem path |

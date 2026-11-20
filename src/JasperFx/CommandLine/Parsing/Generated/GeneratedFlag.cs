@@ -23,7 +23,7 @@ public sealed class GeneratedFlag<T> : ITokenHandler
         _setter = setter;
         _converter = converter;
         _isEnum = isEnum;
-        _flagNameForUsage = InputParser.RemoveFlagSuffix(memberName).ToLower();
+        _flagNameForUsage = InputParser.RemoveFlagSuffix(memberName).ToLowerInvariant();
     }
 
     public string Description { get; }

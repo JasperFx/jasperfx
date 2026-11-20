@@ -53,7 +53,7 @@ public class EnumerableFlag : Flag
     {
         var flagAliases = InputParser.ToFlagAliases(_member);
 
-        var name = InputParser.RemoveFlagSuffix(_member.Name).ToLower();
+        var name = InputParser.RemoveFlagSuffix(_member.Name).ToLowerInvariant();
         return $"[{flagAliases} <{name}1 {name}2 {name}3 ...>]";
     }
 }
