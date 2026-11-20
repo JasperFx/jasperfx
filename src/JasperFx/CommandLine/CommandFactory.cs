@@ -323,7 +323,7 @@ public class CommandFactory : ICommandFactory
     [RequiresUnreferencedCode("Resolves the command type reflectively via ICommandCreator. The type's public constructor must survive trimming.")]
     public IJasperFxCommand Build(string commandName)
     {
-        return _commandCreator.CreateCommand(_commandTypes[commandName.ToLower()]);
+        return _commandCreator.CreateCommand(_commandTypes[commandName.ToLowerInvariant()]);
     }
 
 
@@ -381,7 +381,7 @@ public class CommandFactory : ICommandFactory
 
         type.ForAttribute<DescriptionAttribute>(att => name = att.Name ?? name);
 
-        return name.ToLower();
+        return name.ToLowerInvariant();
     }
 
     public static string DescriptionFor(Type type)
