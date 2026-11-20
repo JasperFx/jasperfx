@@ -42,7 +42,11 @@ namespace JasperFx.Events.Daemon;
 /// <see cref="ShardAction.Stopped"/>) flush immediately — a paused/stopped shard is exactly when the
 /// persisted status matters most, and these writes are rare, so they keep the "durable across a
 /// crash" story for the data where it means something. The pending heartbeat batch, if periodic
-/// beats are enabled, rides along in the same write.</item>
+/// beats are enabled, rides along in the same write. jasperfx#1255: <see cref="ShardAction.Parked"/>
+/// and <see cref="ShardAction.Unparked"/> count as transitions too. They carry
+/// <see cref="ShardState.ParkedCount"/>, and they are just as rare (one per batch that parks or
+/// unparks something), so dropping them with the heartbeats left a persisted parked count stale until
+/// the shard's next start, pause or stop.</item>
 /// <item>jasperfx#631: a transition published at sequence 0 — which is every fresh shard's
 /// <see cref="ShardAction.Started"/>, since the agent starts before its first batch commits — has no
 /// progression row to decorate and every store's write is update-only, so it lands nowhere. Such a
@@ -126,7 +130,7 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         // Plain progress publications (e.g. rebuild range completions) carry no agent telemetry
         if (value.AgentStatus == null && value.LastHeartbeat == null) return;
 
-        var isTransition = value.Action is ShardAction.Started or ShardAction.Paused or ShardAction.Stopped;
+        var isTransition = isStatusTransition(value.Action);
 
         // jasperfx#631 -- a transition published before the shard has committed anything has no
         // progression row to decorate, and every store's write is update-only, so it lands nowhere.
@@ -185,6 +189,12 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
             flush(now);
         }
     }
+
+    // jasperfx#1255: Parked and Unparked carry the shard's parked count, which a store persists alongside the
+    // agent status. With the periodic beat off they were dropped like heartbeats, so a park or unpark after the
+    // shard's first committed batch never reached the database.
+    private static bool isStatusTransition(ShardAction action) => action is ShardAction.Started
+        or ShardAction.Paused or ShardAction.Stopped or ShardAction.Parked or ShardAction.Unparked;
 
     private void flush(DateTimeOffset now)
     {

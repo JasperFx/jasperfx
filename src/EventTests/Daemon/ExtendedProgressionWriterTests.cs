@@ -548,6 +548,63 @@ public class ExtendedProgressionWriterTests
         (await theDatabase.Batches()).Count.ShouldBe(1);
     }
 
+    private static ShardState parkedSetChanged(ShardAction action, int parkedCount, long sequence) =>
+        new("Counters:All", sequence)
+        {
+            Action = action,
+            AgentStatus = "Running",
+            LastHeartbeat = DateTimeOffset.UtcNow,
+            ParkedCount = parkedCount
+        };
+
+    // jasperfx#1255: Parked and Unparked carry the shard's parked count. With the periodic beat off (the default),
+    // the writer used to drop them like heartbeats, so a store's persisted parked count kept whatever the shard's
+    // last Started, Paused or Stopped carried. Park two identities, then replay one and discard the other.
+    [Fact]
+    public async Task writes_the_parked_count_on_every_park_and_unpark_with_heartbeats_off()
+    {
+        theWriter.PeriodicHeartbeatsEnabled.ShouldBeFalse();
+
+        theWriter.OnNext(transition(ShardAction.Started, "Running"));      // sequence 42, the row is there
+        theWriter.OnNext(parkedSetChanged(ShardAction.Parked, 2, 50));
+        theWriter.OnNext(heartbeat(sequence: 51));                          // still dropped
+        theWriter.OnNext(parkedSetChanged(ShardAction.Unparked, 1, 51));   // the replay
+        theWriter.OnNext(parkedSetChanged(ShardAction.Unparked, 0, 51));   // the discard
+
+        var writes = await theDatabase.WaitForWrites(4);
+
+        writes.Select(x => x.Action)
+            .ShouldBe([ShardAction.Started, ShardAction.Parked, ShardAction.Unparked, ShardAction.Unparked]);
+        writes.Skip(1).Select(x => x.ParkedCount).ShouldBe([2, 1, 0]);
+
+        // Each one is written on its own, without waiting on a flush interval, and the heartbeat stays dropped
+        (await theDatabase.Batches()).Count.ShouldBe(4);
+    }
+
+    // A park in the first batch a fresh shard commits lands the Started that had no row to land on (jasperfx#631),
+    // because the Parked write carries the same telemetry. Nothing is replayed after it.
+    [Fact]
+    public async Task a_park_at_a_committed_sequence_lands_an_unlanded_start()
+    {
+        theWriter.OnNext(new ShardState("Counters:All", 0)
+        {
+            Action = ShardAction.Started,
+            AgentStatus = "Running",
+            LastHeartbeat = DateTimeOffset.UtcNow
+        });
+
+        theWriter.OnNext(parkedSetChanged(ShardAction.Parked, 1, 17));
+
+        var writes = await theDatabase.WaitForWrites(2);
+        writes[1].Action.ShouldBe(ShardAction.Parked);
+        writes[1].AgentStatus.ShouldBe("Running");
+        writes[1].ParkedCount.ShouldBe(1);
+
+        theWriter.OnNext(heartbeat(sequence: 18));
+        await Task.Delay(100);
+        (await theDatabase.Batches()).Count.ShouldBe(2);
+    }
+
     private class RecordingEventDatabase : IEventDatabase
     {
         private readonly List<ShardState[]> _batches = new();
