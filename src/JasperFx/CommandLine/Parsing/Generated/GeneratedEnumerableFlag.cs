@@ -50,7 +50,7 @@ public sealed class GeneratedEnumerableFlag<T> : ITokenHandler
 
     public string ToUsageDescription()
     {
-        var name = InputParser.RemoveFlagSuffix(MemberName).ToLower();
+        var name = InputParser.RemoveFlagSuffix(MemberName).ToLowerInvariant();
         return $"[{_aliases} <{name}1 {name}2 {name}3 ...>]";
     }
 }

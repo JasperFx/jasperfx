@@ -98,7 +98,7 @@ $                   # match the entire string";
 
 
             var number = double.Parse(match.Groups["quantity"].Value, CultureInfo.InvariantCulture);
-            var units = match.Groups["units"].Value.ToLower();
+            var units = match.Groups["units"].Value.ToLowerInvariant();
             switch (units)
             {
                 case "s":

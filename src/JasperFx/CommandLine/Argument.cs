@@ -67,6 +67,6 @@ public class Argument : TokenHandlerBase
             return Enum.GetNames(memberType).Join("|");
         }
 
-        return $"<{_member.Name.ToLower()}>";
+        return $"<{_member.Name.ToLowerInvariant()}>";
     }
 }

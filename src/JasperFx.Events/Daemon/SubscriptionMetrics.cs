@@ -28,7 +28,7 @@ public class SubscriptionMetrics: ISubscriptionMetrics
         _meter = store.Meter;
         Name = name;
 
-        var identifier = $"{store.MetricsPrefix}.{name.Name.ToLower()}.{name.ShardKey.ToLower()}";
+        var identifier = $"{store.MetricsPrefix}.{name.Name.ToLowerInvariant()}.{name.ShardKey.ToLowerInvariant()}";
         
         _processed = _meter.CreateCounter<long>(
             $"{identifier}.processed");

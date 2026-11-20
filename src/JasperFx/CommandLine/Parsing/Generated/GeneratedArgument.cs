@@ -57,6 +57,6 @@ public sealed class GeneratedArgument<T> : Argument
             return Enum.GetNames(typeof(T)).Join("|");
         }
 
-        return $"<{MemberName.ToLower()}>";
+        return $"<{MemberName.ToLowerInvariant()}>";
     }
 }

@@ -59,7 +59,7 @@ public class Flag : TokenHandlerBase
             return $"[{flagAliases} {enumValues}]";
         }
 
-        var name = InputParser.RemoveFlagSuffix(_member.Name).ToLower();
+        var name = InputParser.RemoveFlagSuffix(_member.Name).ToLowerInvariant();
         return $"[{flagAliases} <{name}>]";
     }
 }

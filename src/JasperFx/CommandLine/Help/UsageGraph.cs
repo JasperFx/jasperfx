@@ -155,7 +155,7 @@ public class UsageGraph
         table.AddColumns("Usage", "Description");
         table.Columns[0].Alignment = Justify.Right;
 
-        foreach (var argument in Arguments) table.AddRow(argument.MemberName.ToLower(), argument.Description);
+        foreach (var argument in Arguments) table.AddRow(argument.MemberName.ToLowerInvariant(), argument.Description);
 
         foreach (var flag in Flags) table.AddRow("[" + flag.ToUsageDescription() + "]", flag.Description);
 

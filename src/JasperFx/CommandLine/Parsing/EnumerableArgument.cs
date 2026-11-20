@@ -45,7 +45,7 @@ public class EnumerableArgument : Argument
 
     public override string ToUsageDescription()
     {
-        var name = _member.Name.ToLower();
+        var name = _member.Name.ToLowerInvariant();
         return $"<{name}1 {name}2 {name}3 ...>";
     }
 }

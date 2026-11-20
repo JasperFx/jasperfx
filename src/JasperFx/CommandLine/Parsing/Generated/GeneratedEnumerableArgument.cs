@@ -39,7 +39,7 @@ public sealed class GeneratedEnumerableArgument<T> : Argument
 
     public override string ToUsageDescription()
     {
-        var name = MemberName.ToLower();
+        var name = MemberName.ToLowerInvariant();
         return $"<{name}1 {name}2 {name}3 ...>";
     }
 }

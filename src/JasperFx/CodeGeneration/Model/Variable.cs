@@ -254,7 +254,7 @@ public class Variable
             parts = parts.Skip(1).ToArray();
         }
 
-        var raw = (parts.First().ToLower() + parts.Skip(1).Join("")).Split('`').First();
+        var raw = (parts.First().ToLowerInvariant() + parts.Skip(1).Join("")).Split('`').First();
 
         // For closed generic types, append the generic type argument names to ensure
         // unique variable names (e.g. IStorageAction<Agent> -> "storageActionOfAgent")

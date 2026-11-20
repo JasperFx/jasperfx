@@ -30,4 +30,38 @@ public class StringExtensionsCultureTester
             "IsActive".ToTableAlias().ShouldBe("is_active");
         });
     }
+
+    [Fact]
+    public void equals_ignore_case_does_not_depend_on_the_current_culture()
+    {
+        inTurkish(() =>
+        {
+            "Inline".EqualsIgnoreCase("inline").ShouldBeTrue();
+            "INVOICES".EqualsIgnoreCase("invoices").ShouldBeTrue();
+            "invoices".EqualsIgnoreCase("Invoices").ShouldBeTrue();
+            "Inline".EqualsIgnoreCase("Outline").ShouldBeFalse();
+        });
+    }
+
+    [Fact]
+    public void starts_with_ignore_case_does_not_depend_on_the_current_culture()
+    {
+        inTurkish(() =>
+        {
+            "InvoiceIssued".StartsWithIgnoreCase("invoice").ShouldBeTrue();
+            "invoiceIssued".StartsWithIgnoreCase("INVOICE").ShouldBeTrue();
+            "InvoiceIssued".StartsWithIgnoreCase("issued").ShouldBeFalse();
+        });
+    }
+
+    [Fact]
+    public void ends_with_ignore_case_does_not_depend_on_the_current_culture()
+    {
+        inTurkish(() =>
+        {
+            "InvoiceIssued".EndsWithIgnoreCase("issued").ShouldBeTrue();
+            "invoiceissued".EndsWithIgnoreCase("ISSUED").ShouldBeTrue();
+            "InvoiceIssued".EndsWithIgnoreCase("invoice").ShouldBeFalse();
+        });
+    }
 }

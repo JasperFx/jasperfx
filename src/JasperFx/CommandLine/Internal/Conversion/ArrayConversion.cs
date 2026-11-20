@@ -26,7 +26,7 @@ public class ArrayConversion : IConversionProvider
 
         return stringValue =>
         {
-            if (stringValue.ToUpper() == "EMPTY" || stringValue.Trim().IsEmpty())
+            if (stringValue.Equals("EMPTY", StringComparison.OrdinalIgnoreCase) || stringValue.Trim().IsEmpty())
             {
                 return Array.CreateInstance(innerType, 0);
             }

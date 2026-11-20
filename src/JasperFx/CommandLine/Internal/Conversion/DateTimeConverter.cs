@@ -67,7 +67,7 @@ public class DateTimeConverter
     private static bool isDayOfWeek(string text)
     {
         var days = Enum.GetNames(typeof(DayOfWeek));
-        return days.FirstOrDefault(x => text.ToLower().StartsWith(x.ToLower())) != null;
+        return days.FirstOrDefault(x => text.StartsWith(x, StringComparison.OrdinalIgnoreCase)) != null;
     }
 
 
