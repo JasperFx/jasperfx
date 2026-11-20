@@ -948,6 +948,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             // marten#6003: durable replay and discard requests, from any process, are run by the node that runs
             // the shard. Only looked for while the shard holds something parked.
             pollParkedRequests();
+
+            // marten#6003: a slice index kept for parking drops rows that fell out of its window
+            maintainSliceIndex();
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
@@ -1096,6 +1099,33 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }
     }
 
+    private int _maintainingSliceIndex;
+
+    private void maintainSliceIndex()
+    {
+        if (_disposed || _cancellation.IsCancellationRequested) return;
+        if (Status != AgentStatus.Running || Mode != ShardExecutionMode.Continuous) return;
+        if (!_execution.TryGetParkingHost(out var host)) return;
+        if (Interlocked.CompareExchange(ref _maintainingSliceIndex, 1, 0) != 0) return;
+
+        var committed = LastCommitted;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await host.MaintainSliceIndexAsync(committed, _cancellation.Token).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogDebug(e, "Error maintaining the slice index of {Name}", ProjectionShardIdentity);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _maintainingSliceIndex, 0);
+            }
+        });
+    }
+
     private void pollParkedRequests()
     {
         if (_disposed || _cancellation.IsCancellationRequested) return;
@@ -1176,7 +1206,10 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         {
             var result = await RebuildIdentityAsync(new IdentityRebuildRequest(tenantId, parked.Identity)
             {
-                SkipFailingEvents = action == ParkedAction.Discard
+                SkipFailingEvents = action == ParkedAction.Discard,
+
+                // A multi-stream identity resumes from its stored document over the events after its resume point
+                ResumesParkedIdentity = true
             }, token).ConfigureAwait(false);
 
             var outcome = !result.Unparked

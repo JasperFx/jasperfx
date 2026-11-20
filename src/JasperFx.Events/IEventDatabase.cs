@@ -622,4 +622,15 @@ public interface IEventDatabase
     Task RecordParkedReplayFailureAsync(ParkedIdentityKey key, DateTimeOffset attemptedAt, string error,
         CancellationToken token = default)
         => Task.CompletedTask;
+
+    /// <summary>
+    ///     marten#6003, daemon-internal: delete the slice index rows of one projection version that are at or below
+    ///     <see cref="SliceIndexPruneRequest.DeleteThrough" /> and whose event is older than
+    ///     <see cref="SliceIndexPruneRequest.OlderThan" />. Returns the highest sequence it deleted a row for, or null
+    ///     when it deleted nothing; the daemon moves the index's start mark up to it. Runs on the shard's heartbeat, at
+    ///     most once per <see cref="SliceIndexOptions.PruneInterval" />, for <see cref="SliceIndexRetention.ForParking" />.
+    ///     A database without slice indexes answers null.
+    /// </summary>
+    Task<long?> PruneSliceIndexAsync(SliceIndexPruneRequest request, CancellationToken token = default)
+        => Task.FromResult<long?>(null);
 }

@@ -319,6 +319,20 @@ public interface IProjectionDaemon: IDisposable
         => throw new NotSupportedException($"{GetType().FullName} does not support per-identity projection rebuilds.");
 
     /// <summary>
+    /// marten#6003: rebuild one identity of a projection whose identities can only be found by scanning
+    /// (<see cref="Projections.IdentityAccessClass.ScanOnly" />), or of any aggregation projection: read every event of
+    /// the projection's types from the start up to the shard's committed position off the shard's loop, slice each page
+    /// and keep the identity's events, then bind the rest to the next batch the way
+    /// <see cref="RebuildIdentityAsync(string, string?, object, CancellationToken)" /> does. Unparks the identity if it
+    /// was parked. This reads the whole event store's worth of the projection's events, so it is logged as a warning
+    /// and reports <paramref name="progress" />; turn on the event-type index if your store has one. Cancelling it
+    /// before it binds changes nothing.
+    /// </summary>
+    Task<IdentityRebuildResult> RebuildIdentityByScanAsync(string projectionName, string? tenantId, object identity,
+        IProgress<Projections.IdentityScanProgress>? progress, CancellationToken token)
+        => throw new NotSupportedException($"{GetType().FullName} does not support per-identity projection rebuilds.");
+
+    /// <summary>
     /// marten#6003: the identities of a projection that are parked in this daemon's database, oldest first, with the
     /// error that parked each one.
     /// </summary>

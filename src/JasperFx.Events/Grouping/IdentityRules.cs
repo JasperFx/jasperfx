@@ -88,11 +88,22 @@ internal static class IdentityRules
 internal sealed class IdentityRuleLog
 {
     private readonly List<(IdentityAccessClass Class, string Rule)> _rules = new();
+    private readonly List<Type> _tagTypes = new();
+
+    /// <summary>Is any rule <c>IdentityFromStream</c>?</summary>
+    public bool HasStreamRules => _rules.Any(x => x.Class == IdentityAccessClass.Stream);
+
+    /// <summary>The tag types of the <c>IdentityFromTag</c> rules.</summary>
+    public IReadOnlyList<Type> TagTypes => _tagTypes;
 
     public void Stream(Type eventType) => _rules.Add((IdentityAccessClass.Stream,
         $"IdentityFromStream<{eventType.ShortNameInCode()}>()"));
 
-    public void Tag(Type tagType) => _rules.Add((IdentityAccessClass.Tag, $"IdentityFromTag<{tagType.ShortNameInCode()}>()"));
+    public void Tag(Type tagType)
+    {
+        _rules.Add((IdentityAccessClass.Tag, $"IdentityFromTag<{tagType.ShortNameInCode()}>()"));
+        if (!_tagTypes.Contains(tagType)) _tagTypes.Add(tagType);
+    }
 
     public void Delegate(string rule) => _rules.Add((IdentityAccessClass.ScanOnly, rule));
 
@@ -107,7 +118,7 @@ internal sealed class IdentityRuleLog
         if (scanOnly.Length > 0)
         {
             return IdentityAccess.ScanOnly(
-                $"{string.Join(", ", scanOnly)} can't be inverted to find one identity's events. Declare the grouping with IdentityFromStream<TEvent>() or IdentityFromTag<TTag>() instead.");
+                $"{string.Join(", ", scanOnly)} can't be inverted to find one identity's events. Declare the grouping with IdentityFromStream<TEvent>() or IdentityFromTag<TTag>() instead, or turn on the slice index with UseSliceIndex().");
         }
 
         var rules = string.Join(", ", _rules.Select(x => x.Rule));

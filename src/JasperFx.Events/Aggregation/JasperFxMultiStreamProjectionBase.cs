@@ -181,10 +181,11 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
     }
     
     /// <summary>
-    /// marten#6003: how the daemon finds one identity's events for this projection, judged from its grouping rules.
-    /// Only <see cref="IdentityFromStream{TEvent}" /> and <see cref="IdentityFromTag{TTag}" /> are exact; a plain
-    /// <c>Identity</c>/<c>Identities</c> delegate, custom grouping, a custom slicer or rolling up by tenant make it
-    /// <see cref="IdentityAccessClass.ScanOnly" />.
+    /// marten#6003: how the daemon finds one identity's events for this projection, judged from its grouping rules and
+    /// whether it keeps a slice index. <see cref="IdentityFromStream{TEvent}" /> and <see cref="IdentityFromTag{TTag}" />
+    /// are exact, and so is any grouping with <see cref="AsyncOptions.UseSliceIndex()" />. A plain
+    /// <c>Identity</c>/<c>Identities</c> delegate, custom grouping, a custom slicer, grouping across tenants or rolling
+    /// up by tenant make it <see cref="IdentityAccessClass.ScanOnly" /> without the index.
     /// </summary>
     public override IdentityAccess IdentityAccess
     {
@@ -196,14 +197,87 @@ public abstract class JasperFxMultiStreamProjectionBase<TDoc, TId, TOperations, 
                     "RollUpByTenant() makes the tenant the identity, and a tenant's events can only be found by scanning them.");
             }
 
+            if (Options.SliceIndex is { } sliceIndex)
+            {
+                if (_customSlicer == null && _defaultSlicer.HasLookupGrouping && _defaultSlicer.HasBeforeGroupingFanOut)
+                {
+                    return IdentityAccess.ScanOnly(
+                        "A custom grouping combined with a fan-out before grouping can't be replayed from the slice index: the index records the parent event, and only the custom grouping knows which of its children went where.");
+                }
+
+                var custom = _customSlicer != null || _defaultSlicer.HasLookupGrouping;
+                var grouping = !custom
+                    ? "replays slice its indexed events again"
+                    : sliceIndex.CustomGroupingReplay == SliceIndexGroupingReplay.AsRecorded
+                        ? "replays give an identity the events the index recorded for it, without running the custom grouping again"
+                        : "replays run the custom grouping again over the indexed events (RerunCustomGroupingOnReplay())";
+
+                return IdentityAccess.SliceIndex(
+                    $"The slice index (UseSliceIndex(), retention {sliceIndex.Retention}) records which identities each event went to; {grouping}.");
+            }
+
+            if (TenancyGrouping == TenancyGrouping.AcrossTenants)
+            {
+                return IdentityAccess.ScanOnly(
+                    "Grouping across tenants puts every tenant's events in one identity, so its events can't be read by stream or tag. Turn on the slice index with UseSliceIndex().");
+            }
+
             if (_customSlicer != null)
             {
                 return IdentityAccess.ScanOnly(
-                    $"The custom slicer {_customSlicer.GetType().FullNameInCode()} can't be inverted to find one identity's events.");
+                    $"The custom slicer {_customSlicer.GetType().FullNameInCode()} can't be inverted to find one identity's events. Turn on the slice index with UseSliceIndex().");
             }
 
             return _defaultSlicer.IdentityAccess;
         }
+    }
+
+    internal override IdentitySourcePlan IdentitySources
+    {
+        get
+        {
+            var access = IdentityAccess;
+            var acrossTenants = TenancyGrouping == TenancyGrouping.AcrossTenants;
+
+            switch (access.Class)
+            {
+                case IdentityAccessClass.SliceIndex:
+                    var custom = _customSlicer != null || _defaultSlicer.HasLookupGrouping;
+                    var asRecorded = custom && Options.SliceIndex!.CustomGroupingReplay == SliceIndexGroupingReplay.AsRecorded;
+                    return new IdentitySourcePlan(access, false, [], true, asRecorded, acrossTenants);
+
+                case IdentityAccessClass.Stream:
+                case IdentityAccessClass.Tag:
+                    return new IdentitySourcePlan(access, _defaultSlicer.Rules.HasStreamRules,
+                        _defaultSlicer.Rules.TagTypes, false, false, false);
+
+                default:
+                    return new IdentitySourcePlan(access, false, [], false, false, acrossTenants);
+            }
+        }
+    }
+
+    internal override async ValueTask<EventSlice<TDoc, TId>?> SliceForIdentityAsync(TQuerySession session,
+        string tenantId, TId id, IReadOnlyList<IEvent> candidates, bool asRecorded)
+    {
+        if (asRecorded)
+        {
+            // The index is the grouping: these are the identity's events. Fan-out after grouping runs again, since the
+            // index recorded the parent event.
+            var recorded = new EventSlice<TDoc, TId>(id, tenantId, candidates);
+            if (_customSlicer == null) _defaultSlicer.ApplyAfterGroupingFanOut(recorded);
+            return recorded;
+        }
+
+        var groups = await BuildSlicer(session).SliceAsync(candidates).ConfigureAwait(false);
+        var groupTenant = TenancyGrouping == TenancyGrouping.AcrossTenants ? StorageConstants.DefaultTenantId : tenantId;
+
+        foreach (var group in groups.OfType<SliceGroup<TDoc, TId>>())
+        {
+            if (group.TenantId == groupTenant && group.Slices.TryFind(id, out var slice)) return slice;
+        }
+
+        return null;
     }
 
     /// <summary>

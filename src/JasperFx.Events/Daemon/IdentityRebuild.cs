@@ -31,6 +31,15 @@ public sealed record IdentityRebuildRequest(string TenantId, object Identity)
     /// request and leaves the identity as it was.
     /// </summary>
     public bool SkipFailingEvents { get; init; }
+
+    // marten#6003: a replay or discard of a parked multi-stream identity resumes from its stored document over the
+    // events after its resume point, instead of re-folding from nothing
+    internal bool ResumesParkedIdentity { get; init; }
+
+    // marten#6003: find the identity's events by scanning every event of the projection's types
+    internal bool ByScan { get; init; }
+
+    internal IProgress<Projections.IdentityScanProgress>? ScanProgress { get; init; }
 }
 
 /// <summary>
@@ -57,7 +66,10 @@ public sealed record IdentityRebuildResult(long BoundCeiling, ActionType Action)
 /// </summary>
 public enum IdentityRebuildRefusal
 {
-    /// <summary>The projection is not a single-stream aggregation, or is a member of a composite.</summary>
+    /// <summary>
+    /// The projection is not an aggregation, or is a member of a composite. (Before marten#6003, also any multi-stream
+    /// projection.)
+    /// </summary>
     NotASingleStreamProjection,
 
     /// <summary>The event store does not implement the re-fold loader.</summary>
@@ -76,7 +88,23 @@ public enum IdentityRebuildRefusal
     ShardLiveOnAnotherNode,
 
     /// <summary>The shard stopped or paused before the rebuild could be bound to a batch.</summary>
-    ShardStopped
+    ShardStopped,
+
+    /// <summary>
+    /// marten#6003: a multi-stream projection whose grouping can't be inverted
+    /// (<see cref="Projections.IdentityAccessClass.ScanOnly" />), so one identity's events can only be found by
+    /// scanning. Use <see cref="IProjectionDaemon.RebuildIdentityByScanAsync" />, or declare the grouping with
+    /// <c>IdentityFromStream</c>/<c>IdentityFromTag</c> or turn on the slice index.
+    /// </summary>
+    IdentityNotFindable,
+
+    /// <summary>
+    /// marten#6003: the projection's slice index does not reach back to the start, so it can't rebuild an identity from
+    /// nothing. Rebuild the projection (which rewrites the index from its start), keep the index with
+    /// <see cref="Projections.SliceIndexRetention.Full" />, or replay a parked identity instead, which only needs the
+    /// rows after its resume point.
+    /// </summary>
+    SliceIndexIncomplete
 }
 
 /// <summary>
@@ -113,6 +141,10 @@ public class IdentityRebuildRefusedException : Exception
             IdentityRebuildRefusal.ShardLiveOnAnotherNode =>
                 "the projection's shard is running on another node; rebuild it there",
             IdentityRebuildRefusal.ShardStopped => "the projection's shard stopped before the rebuild was bound to a batch",
+            IdentityRebuildRefusal.IdentityNotFindable =>
+                "the projection's grouping can't be inverted to find one identity's events; rebuild it by scan, or declare IdentityFromStream/IdentityFromTag or UseSliceIndex()",
+            IdentityRebuildRefusal.SliceIndexIncomplete =>
+                "the projection's slice index does not reach back to the start; rebuild the projection or keep the index with SliceIndexRetention.Full",
             _ => reason.ToString()
         };
 
