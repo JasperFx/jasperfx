@@ -7,6 +7,7 @@ using JasperFx.Events.Aggregation;
 using JasperFx.Events.Grouping;
 using JasperFx.Events.Projections;
 using Microsoft.Extensions.Logging;
+using Polly;
 
 namespace JasperFx.Events.Daemon;
 
@@ -107,6 +108,36 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
 
         var batch = range.ActiveBatch as IProjectionBatch<TOperations, TQuerySession> ?? await _store.StartProjectionBatchAsync(range, _database, mode, Projection.Options, cancellation);
 
+        try
+        {
+            await buildIntoAsync(batch, range, mode, applyMode, cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            // jasperfx#1256: a build that fails is built again into a new batch, so this one would never be disposed.
+            // A composite member's batch is its parent's to dispose.
+            if (!ReferenceEquals(batch, range.ActiveBatch))
+            {
+                try
+                {
+                    await batch.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    // Never in place of the failure that got here
+                    _logger.LogDebug(e, "Error disposing the batch of a failed build for {Projection}", Projection.Name);
+                }
+            }
+
+            throw;
+        }
+
+        return batch;
+    }
+
+    private async Task buildIntoAsync(IProjectionBatch<TOperations, TQuerySession> batch, EventRange range,
+        ShardExecutionMode mode, ShardExecutionMode applyMode, CancellationToken cancellation)
+    {
         if (SliceBehavior == SliceBehavior.JustInTime)
         {
             // TODO -- instrument this maybe?
@@ -221,8 +252,6 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         // entities without them being evicted out from under it. See JasperFx/marten#4329.
 
         await Projection.EndBatchAsync();
-
-        return batch;
     }
 
     public Task CompactCachesAsync()
@@ -370,6 +399,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
     {
         return _store.ErrorHandlingOptions(mode);
     }
+
+    // jasperfx#1256. Null from a store test double that doesn't answer it.
+    ResiliencePipeline IGroupedProjectionRunner.ResiliencePipeline => _store.ResiliencePipeline ?? ResiliencePipeline.Empty;
 
     // Assume this is pointed at the correct tenant id from the get go
     // THIS IS ONLY USED FOR ASYNC!!!

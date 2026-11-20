@@ -213,7 +213,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
             batch = options.SkipApplyErrors
                 ? await buildBatchWithSkipping(range, _cancellation.Token).ConfigureAwait(false)
-                : await buildBatchWithNoSkippingAsync(range, _cancellation.Token).ConfigureAwait(false);
+                : await buildBatchResilientlyAsync(range, _cancellation.Token).ConfigureAwait(false);
             return batch;
         }
         catch
@@ -307,7 +307,7 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
         {
             try
             {
-                batch = await buildBatchWithNoSkippingAsync(range, cancellationToken).ConfigureAwait(false);
+                batch = await buildBatchResilientlyAsync(range, cancellationToken).ConfigureAwait(false);
             }
             // jasperfx#1029: a systemic database failure is not this event's fault, so it pauses the shard
             // rather than being dead-lettered -- otherwise every following event would be skipped the same way
@@ -321,6 +321,11 @@ public class ProjectionExecution<TOperations, TQuerySession> : ISubscriptionExec
 
         return batch!;
     }
+
+    // jasperfx#1256: a build that fails transiently is built again for as long as the store's pipeline retries
+    private Task<IProjectionBatch> buildBatchResilientlyAsync(EventRange range, CancellationToken cancellationToken)
+        => ResilientBatchBuild.BuildAsync(_store.ResiliencePipeline, range,
+            token => buildBatchWithNoSkippingAsync(range, token), cancellationToken);
 
     protected virtual async Task<IProjectionBatch> buildBatchWithNoSkippingAsync(EventRange range, CancellationToken cancellationToken)
     {
