@@ -44,6 +44,15 @@ public interface IProjectionBatch : IAsyncDisposable
     /// </summary>
     void UnparkIdentity(ParkedIdentityKey key)
         => throw new NotSupportedException($"{GetType().FullName} does not park projection identities (marten#6003).");
+
+    /// <summary>
+    /// marten#6003: write slice index rows in this batch, so they commit with the documents and the progression of the
+    /// events they describe. Only called for a projection with <see cref="AsyncOptions.UseSliceIndex()" /> on a store
+    /// that answers <see cref="IEventStore{TOperations,TQuerySession}.SupportsIdentityEventSource" /> with true for
+    /// <see cref="IdentityEventSource.SliceIndex" />. May be called more than once per batch.
+    /// </summary>
+    void AppendSliceIndex(SliceIndexRows rows)
+        => throw new NotSupportedException($"{GetType().FullName} does not write projection slice indexes (marten#6003).");
 }
 
 public interface IProjectionBatch<TOperations, TQuerySession> : IProjectionBatch where TOperations : TQuerySession, IStorageOperations

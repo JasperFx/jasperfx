@@ -136,6 +136,20 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
         return _groupers.Any() || _lookupGroupers.Any();
     }
 
+    // marten#6003: what the identity source of a multi-stream projection needs to know about its grouping
+    internal IdentityRuleLog Rules => _rules;
+
+    internal bool HasLookupGrouping => _lookupGroupers.Count > 0;
+
+    internal bool HasBeforeGroupingFanOut => _beforeGroupingFanoutRules.Count > 0;
+
+    // marten#6003: a slice index replayed "as recorded" gives the identity its indexed events directly, and only the
+    // fan-out that runs after grouping is applied again
+    internal void ApplyAfterGroupingFanOut(EventSlice<TDoc, TId> slice)
+    {
+        if (_afterGroupingFanoutRules.Count > 0) slice.ApplyFanOutRules(_afterGroupingFanoutRules);
+    }
+
     public IEnumerable<Type> DetermineEventTypes()
     {
         foreach (var rule in _beforeGroupingFanoutRules) yield return rule.OriginatingType;

@@ -569,6 +569,9 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
                     .ConfigureAwait(false);
             }
 
+            // marten#6003: teardown cleared the projection's slice index, and this rebuild writes it again from here
+            await markSliceIndexStartAsync(agent, floor).ConfigureAwait(false);
+
             var request = new SubscriptionExecutionRequest(floor, ShardExecutionMode.Rebuild, errorOptions, this);
             await agent.ReplayAsync(request, highWaterMark, shardTimeout).ConfigureAwait(false);
 
@@ -1343,6 +1346,39 @@ public partial class JasperFxAsyncDaemon<TOperations, TQuerySession, TProjection
 
         return Task.FromException<IdentityRebuildResult>(
             new IdentityRebuildRefusedException(projectionName, request.Identity, reason));
+    }
+
+    // marten#6003: a rebuild writes the slice index again from its floor, so the index starts there
+    private async Task markSliceIndexStartAsync(ISubscriptionAgent agent, long floor)
+    {
+        if (agent.Options.SliceIndex == null || !_store.SupportsIdentityEventSource(IdentityEventSource.SliceIndex))
+        {
+            return;
+        }
+
+        try
+        {
+            await Database.SetEventRangeMarkAsync(SliceIndexMarks.KeyFor(agent.Name), agent.Name.TenantId, floor,
+                _cancellation.Token).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            Logger.LogWarning(e, "Could not mark where the slice index of {ShardName} starts", agent.Name.Identity);
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<IdentityRebuildResult> RebuildIdentityByScanAsync(string projectionName, string? tenantId,
+        object identity, IProgress<IdentityScanProgress>? progress, CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+
+        return RebuildIdentityAsync(projectionName,
+            new IdentityRebuildRequest(tenantId ?? StorageConstants.DefaultTenantId, identity)
+            {
+                ByScan = true,
+                ScanProgress = progress
+            }, token);
     }
 
     // ---- marten#6003: parked identities ----

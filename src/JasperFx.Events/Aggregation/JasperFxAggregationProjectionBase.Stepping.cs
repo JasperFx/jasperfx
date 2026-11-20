@@ -137,19 +137,54 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         return new ProjectionTimeline<JsonElement?>(steps, before);
     }
 
+    /// <inheritdoc />
+    public async Task<ProjectionTimelineRaw> BuildIdentityTimelineAsync(
+        object identity,
+        IReadOnlyList<IEvent> events,
+        TQuerySession session,
+        JsonElement? startingState,
+        ProjectionStateSerializer states,
+        Func<IEvent, EventRecord> toRecord,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(states);
+        ArgumentNullException.ThrowIfNull(toRecord);
+
+        var id = coerceIdentity(identity);
+        var tenantId = events.Count > 0 ? events[0].TenantId ?? StorageConstants.DefaultTenantId : StorageConstants.DefaultTenantId;
+        var plan = IdentitySources;
+
+        var slice = events.Count == 0
+            ? null
+            : await SliceForIdentityAsync(session, tenantId, id, events, plan.SliceIndex && plan.AsRecorded)
+                .ConfigureAwait(false);
+        slice ??= new EventSlice<TDoc, TId>(id, tenantId);
+
+        // Faithful to the daemon: enrichment happens after slicing, before applying
+        var group = new SliceGroup<TDoc, TId>(tenantId);
+        group.Slices.Fill(id, slice);
+        await EnrichEventsAsync(group, session, cancellation).ConfigureAwait(false);
+
+        // Read from the JSON, so the fold can't reach whatever object the caller started from
+        var snapshot = startingState is { } start ? states.Deserialize<TDoc>(start) : default;
+
+        return await foldSliceAsync(slice, session, states, toRecord, null, cancellation, snapshot,
+            states.Serialize(snapshot)).ConfigureAwait(false);
+    }
+
     private async Task<ProjectionTimelineRaw> foldSliceAsync(
         EventSlice<TDoc, TId> slice,
         TQuerySession session,
         ProjectionStateSerializer states,
         Func<IEvent, EventRecord> toRecord,
         IProjectionStepObserver? observer,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        TDoc? snapshot = default,
+        JsonElement? before = null)
     {
         var identity = slice.Id?.ToString() ?? string.Empty;
         var steps = new List<ProjectionStepResultRaw>();
-
-        TDoc? snapshot = default;
-        JsonElement? before = null;
 
         foreach (var @event in slice.Events())
         {

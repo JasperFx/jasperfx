@@ -158,6 +158,39 @@ public sealed class ProjectionStepThrough<TQuerySession>
             .ConfigureAwait(false);
     }
 
+    /// <summary>
+    ///     marten#6003: the single-identity step-through behind
+    ///     <see cref="IEventStore.RunMultiStreamProjectionForIdentityAsync" />: slices the events the way the daemon
+    ///     does, keeps <paramref name="identity" />'s slice, and steps it from <paramref name="startingState" />. An event
+    ///     <c>toEvent</c> cannot read is left out, as in <see cref="RunMultiStreamProjectionAsync" />.
+    /// </summary>
+    public async Task<ProjectionTimelineRaw> RunMultiStreamProjectionForIdentityAsync(string projectionName,
+        object identity, IReadOnlyList<EventRecord> events, JsonElement? startingState, TQuerySession session,
+        CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(projectionName);
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(events);
+
+        var aggregation = _find(projectionName).Aggregation;
+
+        var recordFor = new Dictionary<IEvent, EventRecord>(ReferenceEqualityComparer.Instance);
+        var domainEvents = new List<IEvent>(events.Count);
+
+        foreach (var record in events)
+        {
+            if (_toEvent(record) is not { } domainEvent) continue;
+
+            recordFor[domainEvent] = record;
+            domainEvents.Add(domainEvent);
+        }
+
+        return await aggregation
+            .BuildIdentityTimelineAsync(identity, domainEvents, session, startingState, _states,
+                e => recordFor.TryGetValue(e, out var record) ? record : toRecord(e), ct)
+            .ConfigureAwait(false);
+    }
+
     private ISteppableAggregation<TQuerySession> findProjection<TState>(string projectionName)
     {
         ArgumentException.ThrowIfNullOrEmpty(projectionName);

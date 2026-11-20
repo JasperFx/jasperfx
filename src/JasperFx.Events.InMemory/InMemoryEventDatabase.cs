@@ -151,6 +151,10 @@ public sealed class InMemoryEventDatabase : IEventDatabase
     }
 
     /// <inheritdoc />
+    public Task<long?> PruneSliceIndexAsync(SliceIndexPruneRequest request, CancellationToken token = default)
+        => _store.PruneSliceIndexAsync(request, token);
+
+    /// <inheritdoc />
     public Task StoreDeadLetterEventAsync(object storage, DeadLetterEvent deadLetterEvent, CancellationToken token)
     {
         _store.StoreDeadLetter(deadLetterEvent);

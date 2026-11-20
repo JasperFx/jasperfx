@@ -5,7 +5,14 @@ using Microsoft.Extensions.Logging;
 
 namespace JasperFx.Events.Daemon;
 
-// jasperfx#1201: per-identity rebuild of a single-stream projection, bound to the next batch the shard builds.
+// jasperfx#1201: per-identity rebuild of an aggregation projection, bound to the next batch the shard builds.
+//
+// marten#6003 widens it to multi-stream projections whose identities can be found exactly (by stream, by DCB tag, or
+// through the slice index), and to any multi-stream projection by scanning. A multi-stream identity's events are read
+// from its identity source and sliced (IdentityEvents on the projection), and the bound batch takes the identity's
+// slice of its own page rather than reading the page's events back, because the slice index rows of the page are only
+// written in that batch. A replay or discard of a parked multi-stream identity resumes from its stored document over the
+// events after its resume point (the "resume fold"), which is all that is owed.
 //
 // There is no hold window. A request waits for the next batch boundary, and that batch re-folds the identity
 // from nothing over every event of its stream up to the batch's ceiling C, takes the identity out of its own
@@ -28,7 +35,18 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
     {
         get
         {
-            if (Projection.Scope != AggregationScope.SingleStream) return IdentityRebuildRefusal.NotASingleStreamProjection;
+            // marten#6003: a multi-stream projection decides per request, once it knows the identity and whether it is
+            // parked (Submit)
+            if (Projection.Scope == AggregationScope.MultiStream && identityProjection == null)
+            {
+                return IdentityRebuildRefusal.NotASingleStreamProjection;
+            }
+
+            if (Projection.Scope is not (AggregationScope.SingleStream or AggregationScope.MultiStream))
+            {
+                return IdentityRebuildRefusal.NotASingleStreamProjection;
+            }
+
             if (!_store.SupportsIdentityRebuild) return IdentityRebuildRefusal.NotSupportedByStore;
             return null;
         }
@@ -56,6 +74,14 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
         var parked = tryFindParked(entry.TenantId, id);
         var prefoldTo = parked == null ? committedPosition : Math.Min(committedPosition, parked.ResumeAfter);
 
+        // marten#6003: how a multi-stream identity's events are found
+        if (Projection.Scope == AggregationScope.MultiStream)
+        {
+            entry.Multi = true;
+            entry.Scan = ticket.Request.ByScan;
+            entry.Resume = parked != null && ticket.Request.ResumesParkedIdentity && !entry.Scan;
+        }
+
         lock (_identityRebuildLock)
         {
             (_identityRebuilds ??= new IdentityRebuildState()).Preparing.Add(entry);
@@ -67,11 +93,32 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
         {
             try
             {
-                // A discard folds everything inside the bound batch, where it can drop the events that fail
-                if (!ticket.Request.SkipFailingEvents)
+                // marten#6003: a multi-stream identity can only be rebuilt from a source the store reads
+                if (entry.Multi && await refuseIdentitySourceAsync(entry) is { } refusal)
                 {
-                    entry.Prefold = await prefoldAsync(entry, prefoldTo, CancellationToken.None)
-                        .ConfigureAwait(false);
+                    lock (_identityRebuildLock)
+                    {
+                        _identityRebuilds!.Preparing.Remove(entry);
+                    }
+
+                    ticket.TryFault(refusal);
+                    return;
+                }
+
+                if (entry.Scan)
+                {
+                    _logger.LogWarning(
+                        "Rebuilding {Identity} of projection {Projection} by scanning every event of its types up to sequence {Position}",
+                        id, Projection.Name, prefoldTo);
+                }
+
+                // A discard folds everything inside the bound batch, where it can drop the events that fail. A resume
+                // fold starts from the stored document and owes side effects for all of it, so it folds there too.
+                if (!ticket.Request.SkipFailingEvents && !entry.Resume)
+                {
+                    entry.Prefold = entry.Multi
+                        ? await prefoldIdentityAsync(entry, prefoldTo, CancellationToken.None).ConfigureAwait(false)
+                        : await prefoldAsync(entry, prefoldTo, CancellationToken.None).ConfigureAwait(false);
                 }
             }
             catch (Exception e)
@@ -209,15 +256,32 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
             var firesSideEffects = parkedRow != null && mode == ShardExecutionMode.Continuous &&
                                    !range.Agent.SideEffectsSuppressed;
 
+            // marten#6003: a multi-stream identity takes its slice of this page from the page's own grouping, where
+            // the slice index rows of the page are not committed yet
+            IReadOnlyList<IEvent>? pageEvents = null;
+            if (entries[0].Multi)
+            {
+                pageEvents = [];
+                foreach (var group in range.Groups.OfType<SliceGroup<TDoc, TId>>())
+                {
+                    if (group.TenantId == tenantId && group.Slices.TryFind(id, out var pageSlice))
+                    {
+                        pageEvents = pageSlice.Events().ToList();
+                    }
+                }
+            }
+
             // Computed before anything for the identity is added to the batch. A re-fold that fails -- its poison
             // event is still poison -- faults the request and leaves the identity exactly as it was, page and all,
             // and the batch carries on for everything else. A failing repair never pauses the shard.
             RefoldResult refold;
             try
             {
-                refold = await refoldAsync(entries[0], operations, storage, ceiling, parkedRow?.ResumeAfter,
-                        skipFailing, cancellation)
-                    .ConfigureAwait(false);
+                refold = entries[0].Multi
+                    ? await refoldIdentityAsync(entries[0], operations, storage, range.SequenceFloor, pageEvents!,
+                        parkedRow, skipFailing, cancellation).ConfigureAwait(false)
+                    : await refoldAsync(entries[0], operations, storage, ceiling, parkedRow?.ResumeAfter,
+                        skipFailing, cancellation).ConfigureAwait(false);
 
                 if (firesSideEffects && refold.SideEffectSlice is { } raising)
                 {
@@ -628,6 +692,15 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession>
         public string TenantId { get; } = tenantId;
         public TId Id { get; } = id;
         public Prefolded? Prefold { get; set; }
+
+        // marten#6003: a multi-stream identity, found through the projection's identity source
+        public bool Multi { get; set; }
+
+        // marten#6003: found by scanning
+        public bool Scan { get; set; }
+
+        // marten#6003: a parked multi-stream identity resumed from its stored document
+        public bool Resume { get; set; }
     }
 
     private sealed class IdentityRebuildState

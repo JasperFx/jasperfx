@@ -26,8 +26,9 @@ public enum IdentityAccessClass
     Tag,
 
     /// <summary>
-    /// A multi-stream projection that keeps a slice index: the daemon records which identities each event went to,
-    /// so an identity's events are found through the index. Not available yet.
+    /// A multi-stream projection that keeps a slice index (<see cref="AsyncOptions.UseSliceIndex()" />): the daemon
+    /// records which identities each event went to, so an identity's events are found through the index, whatever the
+    /// grouping rules are.
     /// </summary>
     SliceIndex,
 
@@ -64,12 +65,21 @@ public sealed record IdentityAccess(IdentityAccessClass Class, string Reason)
     public long? CompleteFrom { get; init; }
 
     /// <summary>
-    /// Does the daemon park a failing identity of this projection? Only a single-stream projection, in this version.
-    /// Every other class falls back to pausing the shard when the error action is
-    /// <see cref="Daemon.ProjectionErrorAction.Park" />.
+    /// Does the daemon park a failing identity of this projection? Every exact class does: a single-stream projection,
+    /// a multi-stream projection declared by stream or by tag, and one with a slice index. A projection that can only
+    /// be scanned, and one that doesn't support parking, falls back to pausing the shard when the error action is
+    /// <see cref="Daemon.ProjectionErrorAction.Park" />. So does any projection on a store that can't read its source.
     /// </summary>
-    // Phase 2 of marten#6003 widens this to the exact multi-stream classes
-    public bool CanPark => Class == IdentityAccessClass.SingleStream;
+    public bool CanPark => Exact;
+
+    /// <summary>Where the daemon reads one identity's events from, or null for a class that can't.</summary>
+    public IdentityEventSource? Source => Class switch
+    {
+        IdentityAccessClass.SingleStream or IdentityAccessClass.Stream => IdentityEventSource.Stream,
+        IdentityAccessClass.Tag => IdentityEventSource.Tag,
+        IdentityAccessClass.SliceIndex => IdentityEventSource.SliceIndex,
+        _ => null
+    };
 
     public static IdentityAccess SingleStream { get; } = new(IdentityAccessClass.SingleStream,
         "A single-stream projection: an identity's events are its stream.");
@@ -77,6 +87,8 @@ public sealed record IdentityAccess(IdentityAccessClass Class, string Reason)
     public static IdentityAccess NotSupported(string reason) => new(IdentityAccessClass.NotSupported, reason);
 
     public static IdentityAccess ScanOnly(string reason) => new(IdentityAccessClass.ScanOnly, reason);
+
+    public static IdentityAccess SliceIndex(string reason) => new(IdentityAccessClass.SliceIndex, reason);
 
     public override string ToString() => $"{Class}: {Reason}";
 }

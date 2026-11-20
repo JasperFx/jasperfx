@@ -83,8 +83,10 @@ public partial class InMemoryDocumentStore
                 else _progression.Remove(shardIdentity);
             });
 
-            // marten#6003: an identity parked above the new floor is parked again when the shard gets there
+            // marten#6003: an identity parked above the new floor is parked again when the shard gets there, and the
+            // slice index rows above it are written again
             removeParkedRowsAtOrAbove(shardIdentity, sequence);
+            removeSliceIndexAbove(shardIdentity, sequence);
 
             return Task.CompletedTask;
         }, new InMemoryChangeSet(), token);
@@ -99,16 +101,18 @@ public partial class InMemoryDocumentStore
     // A rebuild starts from no progression and none of the projection's documents
     internal Task TeardownProjectionAsync(string projectionName, CancellationToken token)
     {
-        var published = Projections.TryFindProjection(projectionName, out var source)
-            ? source.PublishedTypes().ToArray()
-            : [];
+        var found = Projections.TryFindProjection(projectionName, out var source);
+        var published = found ? source!.PublishedTypes().ToArray() : [];
+        uint? version = found ? source!.Version : null;
 
         return CommitAtomicallyAsync(_ =>
         {
             removeProgressionRowsFor(projectionName);
 
-            // marten#6003: a rebuild re-folds every identity, so nothing stays parked
+            // marten#6003: a rebuild re-folds every identity, so nothing stays parked, and it writes the slice index
+            // again from its start
             removeParkedRowsFor(projectionName);
+            removeSliceIndexFor(projectionName, version);
 
             foreach (var type in published)
             {

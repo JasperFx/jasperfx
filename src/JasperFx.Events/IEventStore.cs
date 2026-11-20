@@ -1092,6 +1092,25 @@ public interface IEventStore
             "RunMultiStreamProjectionAsync is not implemented on this IEventStore. Use Marten or Polecat 6+ for projection step-through.");
 
     /// <summary>
+    /// marten#6003: step one identity of a projection through <paramref name="events" />, starting from
+    /// <paramref name="startingState" /> instead of from nothing, and return that identity's timeline. The events are
+    /// sliced the way the daemon slices them (or taken as the identity's, for a slice index replayed as recorded), so
+    /// fan-out and enrichment behave as they do in the daemon, and only the identity's own steps come back. Read the
+    /// events with <see cref="IEventStore{TOperations,TQuerySession}.LoadIdentityEventsAsync" />; for a parked identity,
+    /// start from its stored document and the events after its resume point. Stateless. The default implementation
+    /// throws <see cref="NotImplementedException" />; a store forwards to
+    /// <see cref="ProjectionStepThrough{TQuerySession}.RunMultiStreamProjectionForIdentityAsync" />.
+    /// </summary>
+    Task<ProjectionTimelineRaw> RunMultiStreamProjectionForIdentityAsync(
+        string projectionName,
+        object identity,
+        IReadOnlyList<EventRecord> events,
+        JsonElement? startingState,
+        CancellationToken ct)
+        => throw new NotImplementedException(
+            "RunMultiStreamProjectionForIdentityAsync is not implemented on this IEventStore (marten#6003).");
+
+    /// <summary>
     /// jasperfx#1215: can this store rewrite stored events through <see cref="RewriteStoredEventsAsync" />? A store
     /// that answers true also implements the event-range marks on its <see cref="IEventDatabase" />.
     /// </summary>
@@ -1333,4 +1352,71 @@ public interface IEventStore<TOperations, TQuerySession> : IEventStore where TOp
         IdentityRebuildEventRequest request, CancellationToken token)
         => throw new NotSupportedException(
             $"{GetType().FullName} does not load events for a per-identity projection rebuild (jasperfx#1201).");
+
+    /// <summary>
+    /// marten#6003: can this store read one identity's events from <paramref name="source" />
+    /// (<see cref="LoadEventsForIdentityAsync" />)? <see cref="IdentityEventSource.Stream" /> comes with
+    /// <see cref="SupportsIdentityRebuild" />. A store that answers true for <see cref="IdentityEventSource.SliceIndex" />
+    /// also writes the index (<see cref="IProjectionBatch.AppendSliceIndex" />), prunes it
+    /// (<see cref="IEventDatabase.PruneSliceIndexAsync" />), clears it with the projection's rebuild teardown, a rewind
+    /// (rows above the new floor), a tenant's removal and a retired version's eject, and implements the event-range marks.
+    /// A multi-stream projection whose source the store can't read does not park: it falls back to pausing.
+    /// </summary>
+    bool SupportsIdentityEventSource(IdentityEventSource source)
+        => source == IdentityEventSource.Stream && SupportsIdentityRebuild;
+
+    /// <summary>
+    /// marten#6003: the events one source holds for one identity, for parking, replaying and rebuilding one identity of
+    /// a multi-stream projection and for the single-identity stepper. See <see cref="IdentityEventLoadRequest" /> for
+    /// what each source reads. The default reads <see cref="IdentityEventSource.Stream" /> through
+    /// <see cref="LoadEventsForIdentityRebuildAsync" /> and refuses the rest.
+    /// </summary>
+    Task<IReadOnlyList<IEvent>> LoadEventsForIdentityAsync(IEventDatabase database, IdentityEventLoadRequest request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.Source == IdentityEventSource.Stream && request.Identity != null && request.TenantId != null)
+        {
+            return LoadEventsForIdentityRebuildAsync(database,
+                new IdentityRebuildEventRequest(request.TenantId, request.Identity, request.AfterSequence,
+                    request.Ceiling, request.Limit)
+                {
+                    EventTypes = request.EventTypes,
+                    IncludeArchivedEvents = request.IncludeArchivedEvents,
+                    SkipSerializationErrors = request.SkipSerializationErrors
+                }, token);
+        }
+
+        throw new NotSupportedException(
+            $"{GetType().FullName} does not read one identity's events from the {request.Source} source (marten#6003).");
+    }
+
+    /// <summary>
+    /// marten#6003: one page of the events a projection gave one identity, in sequence order, read from wherever that
+    /// projection's identities can be found (<see cref="IdentityAccess" />): its stream, its DCB tag, its slice index,
+    /// or, for a projection that can only be scanned, a scan of <see cref="IdentityEventsRequest.ScanWindow" /> events.
+    /// The contract behind the single-identity stepper (CritterWatch). Works from any process; reads only.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The projection's identities can only be found by scanning and the
+    /// request gives no <see cref="IdentityEventsRequest.ScanWindow" />, or its slice index does not reach back to
+    /// <see cref="IdentityEventsRequest.AfterSequence" />.</exception>
+    Task<IdentityEventPage> LoadIdentityEventsAsync(IEventDatabase database, IdentityEventsRequest request,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        ArgumentNullException.ThrowIfNull(request);
+
+        var shard = AllShards().FirstOrDefault(x => x.Name.Name == request.ProjectionName)
+                    ?? throw new ArgumentOutOfRangeException(nameof(request),
+                        $"Unknown projection '{request.ProjectionName}'.");
+
+        if (shard.Factory is not Aggregation.IIdentityEventReader<TOperations, TQuerySession> reader)
+        {
+            throw new NotSupportedException(
+                $"Projection '{request.ProjectionName}' is not an aggregation projection, so it has no identities to read events for.");
+        }
+
+        return reader.LoadIdentityEventsAsync(this, database, request, token);
+    }
 }

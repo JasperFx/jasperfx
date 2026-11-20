@@ -13,9 +13,10 @@ namespace JasperFx.Events.Daemon;
 // identity rides the batch that moves the shard's progression. Later batches drop the identity's slices until a
 // per-identity rebuild (jasperfx#1201) re-folds it and unparks it in the same batch.
 //
-// Phase 1 parks single-stream aggregations only. A multi-stream projection is classified (IdentityAccess) but falls
-// back to Pause: parking it needs the resume fold over an exact identity source, which is the seam marked "phase 2"
-// below.
+// A single-stream aggregation always parks. A multi-stream projection parks when its identities can be found exactly
+// (IdentityAccess: by stream, by DCB tag, or through its slice index) and the store can read that source; a replay
+// then resumes from the stored document over the identity's events since (AggregationRunner.IdentityRebuild.cs).
+// Everything else falls back to Pause.
 public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : IParkedIdentityHost
 {
     // Null until the shard has parked something, or loaded a parked row at start. The whole of the idle cost is the
@@ -41,12 +42,24 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
     /// <summary>How many identities this runner holds parked, or null before it has loaded or parked any.</summary>
     int? IParkedIdentityHost.ParkedCount => _parkedLoaded || _parked != null ? _parkedCount : null;
 
-    // Phase 1: single-stream aggregations only. Phase 2 widens this to multi-stream projections whose IdentityAccess
-    // is exact (IdentityFromStream / IdentityFromTag / the slice index), with the resume fold over that source.
-    private bool projectionCanPark => Projection.Scope == AggregationScope.SingleStream;
+    private bool? _projectionCanPark;
 
+    // A single-stream aggregation, or a multi-stream projection whose identities the store can find exactly
+    private bool projectionCanPark => _projectionCanPark ??= computeCanPark();
+
+    private bool computeCanPark()
+    {
+        if (Projection.Scope == AggregationScope.SingleStream) return true;
+        if (Projection.Scope != AggregationScope.MultiStream) return false;
+
+        var plan = identitySources;
+        return plan != null && plan.Access.CanPark && plan.Sources.All(_store.SupportsIdentityEventSource);
+    }
+
+    // Only a single-stream aggregation parks an unreadable event: a multi-stream slicer needs the body to know whose
+    // event it is
     bool IParkedIdentityHost.ParksUnreadableEvents(ErrorHandlingOptions options)
-        => projectionCanPark && _store.SupportsParkedIdentities &&
+        => Projection.Scope == AggregationScope.SingleStream && _store.SupportsParkedIdentities &&
            options.SerializationErrors == ProjectionErrorAction.Park;
 
     bool IParkedIdentityHost.TryFindParked(string tenantId, object identity, out ParkedIdentity parked)
@@ -137,6 +150,15 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         var individualContinuous = mode == ShardExecutionMode.Continuous &&
                                    range.BatchBehavior == BatchBehavior.Individual;
 
+        _parkingAgent = range.Agent;
+        _parkingShard ??= range.ShardName;
+
+        // marten#6003: where the slice index starts, set the first time the shard runs with it
+        if (individualContinuous)
+        {
+            await ensureSliceIndexStartAsync(range.ShardName, range.SequenceFloor, cancellation).ConfigureAwait(false);
+        }
+
         _parkingThisBuild = individualContinuous && projectionCanPark && _store.SupportsParkedIdentities &&
                             _store.ErrorHandlingOptions(ShardExecutionMode.Continuous).ApplyErrors ==
                             ProjectionErrorAction.Park;
@@ -148,14 +170,15 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             _store.ErrorHandlingOptions(ShardExecutionMode.Continuous).ApplyErrors == ProjectionErrorAction.Park)
         {
             var access = (Projection as IHasIdentityAccess)?.IdentityAccess;
+            var why = access is { CanPark: true }
+                ? $"{access}, but the event store can't read the {string.Join(", ", identitySources?.Sources ?? [])} source"
+                : access?.ToString() ?? "not identity-sliced";
+
             _logger.LogInformation(
                 "Projection {Projection} does not park failing identities ({Access}); a failing event pauses shard {Shard} instead",
-                Projection.Name, access?.ToString() ?? "not identity-sliced", range.ShardName.Identity);
+                Projection.Name, why, range.ShardName.Identity);
             _loggedParkingFallback = true;
         }
-
-        _parkingAgent = range.Agent;
-        _parkingShard ??= range.ShardName;
 
         if (_parkedLoaded || !projectionCanPark) return;
 
@@ -481,4 +504,9 @@ internal interface IParkedIdentityHost
 
     /// <summary>The durable operator requests for identities this shard holds, at most one replay batch of them.</summary>
     Task<IReadOnlyList<ParkedIdentity>> LoadRequestedActionsAsync(CancellationToken token);
+
+    /// <summary>
+    /// On the heartbeat: prune the shard's slice index if it keeps one for parking only and the prune interval passed.
+    /// </summary>
+    Task MaintainSliceIndexAsync(long committed, CancellationToken token);
 }

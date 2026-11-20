@@ -111,6 +111,36 @@ public class AsyncOptions
     public int RebuildFlushThreshold { get; set; } = 0;
 
     /// <summary>
+    /// marten#6003: the projection's slice index, or null when it has none (the default). See
+    /// <see cref="UseSliceIndex()" />.
+    /// </summary>
+    public SliceIndexOptions? SliceIndex { get; private set; }
+
+    /// <summary>
+    /// marten#6003: keep a slice index for this multi-stream projection. The async daemon records, in the batch that
+    /// applies each event, which identities it went to. That makes one identity's events findable whatever the
+    /// grouping rules are, so a failing identity can be parked and replayed, and (with
+    /// <see cref="SliceIndexRetention.Full" />) one identity can be rebuilt from the start. Rows are kept for
+    /// <see cref="SliceIndexRetention.ForParking" /> 7 days by default. Costs one more write per batch and a row per
+    /// (event, identity) pair. Has no effect on a single-stream projection, or on an event store that does not support
+    /// it.
+    /// </summary>
+    public SliceIndexOptions UseSliceIndex() => SliceIndex ??= new SliceIndexOptions();
+
+    /// <summary>
+    /// marten#6003: keep a slice index for this multi-stream projection, with this retention. See
+    /// <see cref="UseSliceIndex()" />.
+    /// </summary>
+    public SliceIndexOptions UseSliceIndex(SliceIndexRetention retention)
+    {
+        ArgumentNullException.ThrowIfNull(retention);
+
+        var options = UseSliceIndex();
+        options.Retention = retention;
+        return options;
+    }
+
+    /// <summary>
     ///     Add explicit teardown rule to delete all documents of type T
     ///     when this projection shard is rebuilt
     /// </summary>

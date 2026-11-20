@@ -87,4 +87,21 @@ public interface ISteppableAggregation<TQuerySession>
         CancellationToken cancellation)
         => throw new NotSupportedException(
             $"{GetType().FullNameInCode()} does not implement the single-aggregate step-through. Use {nameof(BuildTimelinesAsync)}.");
+
+    /// <summary>
+    /// marten#6003: one identity's timeline over <paramref name="events" />, starting from
+    /// <paramref name="startingState" />. The events are sliced the way the daemon slices them (or taken as the
+    /// identity's, for a slice index replayed as recorded) and enriched, and only the identity's slice is folded, so
+    /// fan-out and enrichment behave as they do in the daemon. Nothing is persisted.
+    /// </summary>
+    Task<ProjectionTimelineRaw> BuildIdentityTimelineAsync(
+        object identity,
+        IReadOnlyList<IEvent> events,
+        TQuerySession session,
+        JsonElement? startingState,
+        ProjectionStateSerializer states,
+        Func<IEvent, EventRecord> toRecord,
+        CancellationToken cancellation)
+        => throw new NotSupportedException(
+            $"{GetType().FullNameInCode()} does not implement the single-identity step-through (marten#6003).");
 }

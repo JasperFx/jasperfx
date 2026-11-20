@@ -114,6 +114,18 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             await range.SliceAsync(Slicer);
         }
 
+        // marten#6003: the slice index rows of this page, taken before anything leaves the grouping
+        var sliceIndex = collectSliceIndex(range);
+        if (_deferWrites && sliceIndex is { Count: > 0 })
+        {
+            lock (_bufferLock)
+            {
+                _flush!.SliceIndex.AddRange(sliceIndex);
+            }
+
+            sliceIndex = null;
+        }
+
         // Concurrent because it has two writers: the block's OnError, invoked from the block's own
         // threads, and the jasperfx#683 inline path below, invoked from this one. The block runs in the
         // background across groups, so an inline group can be applying while a previous group's posted
@@ -196,8 +208,10 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             throw new AggregateException(exceptions);
         }
 
-        // marten#6003: the parked rows ride this batch, so they commit with its progression or not at all
+        // marten#6003: the parked rows and the slice index ride this batch, so they commit with its progression or not
+        // at all
         writePendingParks(range, batch, identitiesInBatch);
+        if (!_deferWrites) writeSliceIndex(batch, range.ShardName, sliceIndex);
 
         // #4730: for standalone (Individual) batches, both cache population and compaction are
         // deferred to ApplyPendingCacheUpdates, which the execution calls only after the batch
@@ -688,10 +702,12 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
     public async Task FlushDeferredRebuildWritesAsync(EventRange range, long ceiling, CancellationToken cancellation)
     {
         List<(string TenantId, TId Id, PendingWrite Write, bool PreviouslyFlushed)> entries;
+        List<SliceIndexEntry> sliceIndex;
         long windowFloor;
         lock (_bufferLock)
         {
             entries = _flush?.Drain().ToList() ?? new();
+            sliceIndex = _flush?.SliceIndex.ToList() ?? new();
             windowFloor = _flush?.WindowFloor ?? range.SequenceFloor;
         }
 
@@ -731,12 +747,16 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
                 }
             }
 
+            // marten#6003: a rebuild rewrites the slice index from its start, flush by flush
+            writeSliceIndex(batch, range.ShardName, sliceIndex);
+
             await batch.ExecuteAsync(cancellation).ConfigureAwait(false);
             await range.Agent.MarkSuccessAsync(ceiling).ConfigureAwait(false);
 
             lock (_bufferLock)
             {
                 _flush?.Commit(ceiling);
+                _flush?.SliceIndex.RemoveRange(0, Math.Min(sliceIndex.Count, _flush.SliceIndex.Count));
             }
         }
         finally
@@ -819,6 +839,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
         private readonly Dictionary<string, HashSet<TId>> _flushed = new();
 
         private bool _floorSet;
+
+        // marten#6003: the slice index rows of the ranges buffered since the last flush
+        public List<SliceIndexEntry> SliceIndex { get; } = new();
 
         public int DirtyCount { get; private set; }
 
