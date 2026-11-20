@@ -59,7 +59,8 @@ export default withMermaid(
           text: 'Event Sourcing',
           collapsed: false,
           items: [
-            { text: 'Unit Testing Handlers', link: '/events/unit-testing-handlers' }
+            { text: 'Unit Testing Handlers', link: '/events/unit-testing-handlers' },
+            { text: 'Parking a Failing Identity', link: '/events/parked-identities' }
           ]
         },
         {
