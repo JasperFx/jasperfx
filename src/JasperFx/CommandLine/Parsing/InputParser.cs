@@ -99,7 +99,7 @@ public static class InputParser
         var name = RemoveFlagSuffix(member.Name);
         name = splitOnPascalCaseAndAddHyphens(name);
 
-        var oneLetterName = name.ToLower()[0];
+        var oneLetterName = name.ToLowerInvariant()[0];
         var longFormOnly = false;
 
         member.ForAttribute<FlagAliasAttribute>(att =>
@@ -112,7 +112,7 @@ public static class InputParser
         return new FlagAliases
         {
             ShortForm = SHORT_FLAG_PREFIX + oneLetterName,
-            LongForm = LONG_FLAG_PREFIX + name.ToLower(),
+            LongForm = LONG_FLAG_PREFIX + name.ToLowerInvariant(),
             LongFormOnly = longFormOnly
         };
     }
@@ -120,7 +120,7 @@ public static class InputParser
     public static string RemoveFlagSuffix(string fullFlagName)
     {
         var suffixLength = FLAG_SUFFIX.Length;
-        var shouldBeRemoved = fullFlagName.ToLower().EndsWith(FLAG_SUFFIX.ToLower())
+        var shouldBeRemoved = fullFlagName.ToLowerInvariant().EndsWith(FLAG_SUFFIX.ToLowerInvariant())
                               && fullFlagName.Length > suffixLength;
         if (shouldBeRemoved)
         {
