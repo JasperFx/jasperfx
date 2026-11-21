@@ -373,6 +373,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                 ProjectionShardIdentity, request.Floor, _sideEffectGateMark);
         }
 
+        // jasperfx#1263: before the first page, so that batch finds the set loaded instead of reading it again
+        var loadedParked = request.Mode == ShardExecutionMode.Continuous && await loadParkedAsync().ConfigureAwait(false);
+
         await _commandBlock.PostAsync(Command.Started(request.StartingHighWater ?? _tracker.HighWaterMark, request.Floor));
         await _tracker.PublishAsync(stamp(new ShardState(Name, request.Floor)
         {
@@ -382,6 +385,9 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         }));
 
         startHeartbeatTimer();
+
+        // jasperfx#1263: a replay or discard asked for while the shard was stopped runs now, not after the next event
+        if (loadedParked) pollParkedRequests();
 
         _logger.LogInformation("Started projection agent {Name}", ProjectionShardIdentity);
     }
@@ -1078,6 +1084,30 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
         _execution.TryGetParkingHost(out var host) && host.ParkedCount is { } count ? count : 0;
 
     private int _pollingParked;
+
+    // jasperfx#1263: the parked set is otherwise loaded by the first batch, and a shard with no new events builds none,
+    // which left a durable request waiting on it until the next event. One read per start, nothing when it doesn't park.
+    private async Task<bool> loadParkedAsync()
+    {
+        if (!_execution.TryGetParkingHost(out var host)) return false;
+
+        try
+        {
+            await host.LoadParkedAsync(Name, this, _cancellation.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception e)
+        {
+            // The first batch loads it instead
+            if (!_cancellation.IsCancellationRequested)
+            {
+                _logger.LogWarning(e, "Could not load the parked identities of {Name} at start",
+                    ProjectionShardIdentity);
+            }
+
+            return false;
+        }
+    }
 
     // Called by the runner after a batch that parked or unparked something committed
     internal void ParkedSetChanged(ShardAction action)
