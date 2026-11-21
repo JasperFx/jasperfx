@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using JasperFx.Blocks;
 using JasperFx.Core;
 using JasperFx.Events.Projections;
@@ -556,6 +557,11 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
                     Name.Identity);
                 var cancellationSource = new CancellationTokenSource(timeout);
                 await executor.StartAsync(request, this, cancellationSource.Token).ConfigureAwait(false);
+
+                // jasperfx#1277: a replay executor reports a failed page by pausing or stopping this agent, not by
+                // throwing, and nothing on this branch waits on _rebuild. Throw the shard's failure here, as the
+                // paged branch below does, or the rebuild is reported as done.
+                throwIfTheReplayFailed();
             }
             else
             {
@@ -581,6 +587,27 @@ public partial class SubscriptionAgent : ISubscriptionAgent, IAsyncDisposable
             Mode = ShardExecutionMode.Continuous;
 
             await DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private void throwIfTheReplayFailed()
+    {
+        if (_rebuild is { Task.IsFaulted: true } rebuild)
+        {
+            ExceptionDispatchInfo.Capture(rebuild.Task.Exception!.InnerException ?? rebuild.Task.Exception).Throw();
+        }
+
+        // Reporting the failure can itself fail after the status changed but before _rebuild was faulted, and a hard
+        // stop in the middle of the replay leaves no failure at all. Either way the replay did not finish.
+        if (Status != AgentStatus.Running)
+        {
+            if (CriticalException != null)
+            {
+                ExceptionDispatchInfo.Capture(CriticalException).Throw();
+            }
+
+            throw new InvalidOperationException(
+                $"The rebuild of {ProjectionShardIdentity} ended with the shard {Status.ToString().ToLowerInvariant()}");
         }
     }
 
