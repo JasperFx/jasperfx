@@ -160,14 +160,14 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     public EventSlicer<TDoc, TId, TQuerySession> Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         _groupers.Add((events, grouping) => grouping.AddEvents(identityFunc, events));
-        _rules.Delegate($"Identity<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
+        _rules.Delegate($"Identity<{typeof(TEvent).ShortNameInCode()}>(...)");
         return this;
     }
 
     public EventSlicer<TDoc, TId, TQuerySession> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         _groupers.Add((events, grouping) => grouping.AddEvents(identitiesFunc, events));
-        _rules.Delegate($"Identities<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
+        _rules.Delegate($"Identities<{typeof(TEvent).ShortNameInCode()}>(...)");
         return this;
     }
 
@@ -204,7 +204,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(IJasperFxAggregateGrouper<TId, TQuerySession> grouper)
     {
         _lookupGroupers.Add(grouper);
-        _rules.Delegate($"Custom grouping ({grouper.GetType().ShortNameInCode()})");
+        _rules.CustomGrouping($"custom grouping ({grouper.GetType().ShortNameInCode()})");
 
         return this;
     }
@@ -216,7 +216,7 @@ public class EventSlicer<TDoc, TId, TQuerySession>: IEventSlicer<TDoc, TId, TQue
     public EventSlicer<TDoc, TId, TQuerySession> CustomGrouping(Func<TQuerySession, IReadOnlyList<IEvent>, IEventGrouping<TId>, Task> func)
     {
         _lookupGroupers.Add(new LambdaAggregateGrouper<TId, TQuerySession>(func));
-        _rules.Delegate("Custom grouping");
+        _rules.CustomGrouping("custom grouping");
 
         return this;
     }

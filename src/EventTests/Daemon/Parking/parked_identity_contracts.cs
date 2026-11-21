@@ -36,6 +36,34 @@ public partial class OrderSummaryByDelegate : JasperFxMultiStreamProjectionBase<
     public void Apply(OrderSummary doc, OrderPlaced e) => doc.Events++;
 }
 
+public record OrderCancelled(Guid OrderId);
+
+public partial class OrderSummaryByTwoDelegates : JasperFxMultiStreamProjectionBase<OrderSummary, Guid, FakeOperations, FakeSession>
+{
+    public OrderSummaryByTwoDelegates()
+    {
+        Identity<OrderPlaced>(x => x.OrderId);
+        Identity<OrderShipped>(x => x.OrderId);
+    }
+
+    public void Apply(OrderSummary doc, OrderPlaced e) => doc.Events++;
+    public void Apply(OrderSummary doc, OrderShipped e) => doc.Events++;
+}
+
+public partial class OrderSummaryByManyDelegates : JasperFxMultiStreamProjectionBase<OrderSummary, Guid, FakeOperations, FakeSession>
+{
+    public OrderSummaryByManyDelegates()
+    {
+        Identity<OrderPlaced>(x => x.OrderId);
+        Identity<OrderShipped>(x => x.OrderId);
+        Identities<OrderCancelled>(x => [x.OrderId]);
+    }
+
+    public void Apply(OrderSummary doc, OrderPlaced e) => doc.Events++;
+    public void Apply(OrderSummary doc, OrderShipped e) => doc.Events++;
+    public void Apply(OrderSummary doc, OrderCancelled e) => doc.Events++;
+}
+
 public partial class OrderSummaryByStream : JasperFxMultiStreamProjectionBase<OrderSummary, Guid, FakeOperations, FakeSession>
 {
     public OrderSummaryByStream()
@@ -217,6 +245,33 @@ public class parked_identity_contracts
         access.CanPark.ShouldBeFalse();
         access.Reason.ShouldContain("Identity<OrderPlaced>");
         access.Reason.ShouldContain("IdentityFromTag");
+    }
+
+    // jasperfx#1264: the reason reads as a sentence for one, two and many delegates
+    private const string CantBeInverted =
+        " can't be inverted to find one identity's events. Declare the grouping with IdentityFromStream<TEvent>() or IdentityFromTag<TTag>() instead, or turn on the slice index with UseSliceIndex().";
+
+    [Fact]
+    public void the_reason_for_one_delegate()
+    {
+        new OrderSummaryByDelegate().IdentityAccess.Reason
+            .ShouldBe("Identity<OrderPlaced>(...) is a delegate, which" + CantBeInverted);
+    }
+
+    [Fact]
+    public void the_reason_for_two_delegates()
+    {
+        new OrderSummaryByTwoDelegates().IdentityAccess.Reason
+            .ShouldBe("Identity<OrderPlaced>(...) and Identity<OrderShipped>(...) are delegates, which" + CantBeInverted);
+    }
+
+    [Fact]
+    public void the_reason_for_many_delegates()
+    {
+        new OrderSummaryByManyDelegates().IdentityAccess.Reason
+            .ShouldBe(
+                "Identity<OrderPlaced>(...), Identity<OrderShipped>(...) and Identities<OrderCancelled>(...) are delegates, which" +
+                CantBeInverted);
     }
 
     [Fact]
