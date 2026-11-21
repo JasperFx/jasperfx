@@ -917,13 +917,12 @@ public abstract class ParkedIdentityCompliance<TFixture, TOperations, TQuerySess
             var daemon = await StartDaemonAsync();
             await WaitForNonStaleProjectionDataAsync(_timeout);
 
-            // Loaded at start: still held
-            daemon.IsIdentityParked(ParkingWatchtowerProjection.ProjectionName, null, parked).ShouldBeTrue();
-            (await loadTowerAsync(parked))!.Ticks.ShouldBe(2);
-
+            // jasperfx#1263: the shard loads its parked set as it starts and runs the pending request then, so the
+            // row goes without waiting for a heartbeat
             await eventuallyAsync(async () =>
                 (await parkedRowsAsync(ParkingWatchtowerProjection.ProjectionName)).Count == 0 ? "gone" : null,
                 TimeSpan.FromSeconds(45));
+            daemon.IsIdentityParked(ParkingWatchtowerProjection.ProjectionName, null, parked).ShouldBeFalse();
 
             await theTowerMatchesItsStreamAsync(parked);
         }

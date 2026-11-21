@@ -800,13 +800,11 @@ public abstract class MultiStreamParkedIdentityCompliance<TFixture, TOperations,
         var daemon = await StartDaemonAsync();
         await WaitForNonStaleProjectionDataAsync(_timeout);
 
-        // Loaded at start: still held
-        daemon.IsIdentityParked(projectionName, null, parked).ShouldBeTrue();
-        (await ticksOfAsync(parked)).ShouldBe(2);
-
-        // The heartbeat runs every ten seconds
+        // jasperfx#1263: the shard loads its parked set as it starts and runs the pending request then, so the row
+        // goes without waiting for a heartbeat
         await eventuallyAsync(async () => (await parkedRowsAsync()).Count == 0 ? "gone" : null,
             TimeSpan.FromSeconds(45));
+        daemon.IsIdentityParked(projectionName, null, parked).ShouldBeFalse();
 
         await theTallyHasEverythingAsync(parked);
     }
