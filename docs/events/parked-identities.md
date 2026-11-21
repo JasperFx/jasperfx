@@ -13,7 +13,9 @@ The parked identity's document stays at its last good state. Nothing is lost: th
 
 ## Turning it on
 
-The default in JasperFx is unchanged. Each event store decides its own default, so check your store's documentation. To ask for parking explicitly:
+JasperFx's own default is unchanged: a continuous run skips apply and serialization errors (`ProjectionGraph.Errors`), and a rebuild pauses on them (`ProjectionGraph.RebuildErrors`, and any `new ErrorHandlingOptions()`). Each event store sets its own default on top of that. Marten 10, Polecat 6 and Fisher 2 park a failing identity by default, and pause where they can't park. `RestoreV9Defaults()`, `RestoreV5Defaults()` and `RestoreV1Defaults()` put skipping back.
+
+To ask for parking explicitly, or with a store that doesn't park by default:
 
 ```cs
 // Marten / Polecat / Fisher: StoreOptions.Projections.Errors is an ErrorHandlingOptions

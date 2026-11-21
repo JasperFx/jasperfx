@@ -30,8 +30,10 @@ public class ProjectionErrorHandlingDescriptor
     /// code? Mirror of <see cref="JasperFx.Events.Daemon.ErrorHandlingOptions.SkipApplyErrors"/>.
     /// </summary>
     /// <remarks>
-    /// JasperFx.Events 2.0 default for normal-run is <see langword="true"/>;
-    /// the rebuild-mode default is <see langword="false"/>.
+    /// JasperFx's own default for a normal run is <see langword="true"/> and for a rebuild is
+    /// <see langword="false"/>. Each store sets its own normal-run default: Marten 10, Polecat 6 and Fisher 2
+    /// park a failing identity, so this reads <see langword="false"/> there and <see cref="ApplyErrors"/> reads
+    /// <c>Park</c>.
     /// </remarks>
     public bool SkipApplyErrors { get; set; }
 

@@ -33,8 +33,8 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     }
 
     /// <summary>
-    /// Async daemon error handling policies while running in a rebuild mode. The defaults
-    /// are to *not* skip any errors
+    /// Async daemon error handling policies while running in a rebuild mode. The defaults are to *not* skip any
+    /// errors: apply and serialization errors pause the rebuild. A rebuild never parks.
     /// </summary>
     [ChildDescription]
     public ErrorHandlingOptions RebuildErrors { get; } = new();
@@ -76,9 +76,16 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     }
 
     /// <summary>
-    /// Async daemon error handling polices while running continuously. The defaults
-    /// are to skip serialization errors, unknown events, and apply errors
+    /// Async daemon error handling policies while running continuously. JasperFx's defaults are to skip
+    /// serialization errors, unknown events, and apply errors.
     /// </summary>
+    /// <remarks>
+    /// Each event store sets its own default on top of these. Marten 10, Polecat 6 and Fisher 2 set
+    /// <see cref="ErrorHandlingOptions.ApplyErrors" /> and <see cref="ErrorHandlingOptions.SerializationErrors" /> to
+    /// <see cref="ProjectionErrorAction.Park" />, so a failing identity parks (or the shard pauses where it can't
+    /// park). Their <c>RestoreV9Defaults()</c>, <c>RestoreV5Defaults()</c> and <c>RestoreV1Defaults()</c> put
+    /// <see cref="ProjectionErrorAction.Skip" /> back.
+    /// </remarks>
     [ChildDescription]
     public ErrorHandlingOptions Errors { get; } = new()
     {
