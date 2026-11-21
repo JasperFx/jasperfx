@@ -378,12 +378,18 @@ public interface IEventDatabase
     ///     <para>
     ///     Contract for implementations:
     ///     <list type="bullet">
-    ///     <item>Best-effort telemetry — never throw for a missing row; a shard that has not yet
-    ///     committed any progression simply has nowhere to record status, and the write should no-op.
+    ///     <item>Best-effort telemetry. Never throw because the shard has no progression row yet.
     ///     Transient failures may throw; the caller logs at debug and never fails the shard.</item>
-    ///     <item>Do NOT advance or regress <c>last_seq_id</c>-equivalent progression from this path.
-    ///     Progression is owned by the projection batch commit; this write updates only the extended
-    ///     telemetry columns, so it can never race a concurrent batch commit into losing progress.</item>
+    ///     <item>A missing row depends on the state. A state carrying a <see cref="ShardState.Failure" />
+    ///     creates the shard's progression row at the shard's start position, <c>max(state.Sequence, 0)</c>,
+    ///     and writes the failure onto it, so a shard that pauses before its first commit still records why
+    ///     (marten#6127, fisher#660). Every other state is update-only: with no row, it writes nothing. The
+    ///     shard's first commit must still succeed over a row created this way, and must clear the failure
+    ///     it carried.</item>
+    ///     <item>Do NOT advance or regress <c>last_seq_id</c>-equivalent progression on an existing row.
+    ///     Progression is owned by the projection batch commit; on an existing row this write updates only
+    ///     the extended telemetry columns, so it can never race a concurrent batch commit into losing
+    ///     progress.</item>
     ///     <item>jasperfx#565: persist <see cref="ShardState.Failure" /> when it is non-null, and CLEAR the
     ///     persisted failure when it is null on a <see cref="Daemon.ShardAction.Started" /> state — a
     ///     recovered shard must not keep reporting the reason it paused an hour ago. The classified fields
@@ -417,7 +423,8 @@ public interface IEventDatabase
     ///     a sharded multi-tenant deployment to its database server's connection ceiling (jasperfx#553).
     ///     <para>
     ///     Same contract as the single-state overload: best-effort telemetry, never advance or
-    ///     regress progression, missing rows no-op. The batch is at-most-one-state-per-shard
+    ///     regress progression on an existing row, and create a missing row only for a state carrying a
+    ///     <see cref="ShardState.Failure" />, at <c>max(state.Sequence, 0)</c>. The batch is at-most-one-state-per-shard
     ///     (the writer keeps only the latest state per shard between flushes), and it arrives ordered by
     ///     shard name so that two writers racing over the same rows can never take their locks in
     ///     opposite orders.
