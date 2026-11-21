@@ -309,6 +309,16 @@ public class ParkedIdentityController
 
 internal class ParkedIdentityView : IParkedIdentityView
 {
+    private readonly IAnsiConsole? _console;
+
+    /// <param name="console">Where to write. The process's <see cref="AnsiConsole.Console" /> when null.</param>
+    public ParkedIdentityView(IAnsiConsole? console = null)
+    {
+        _console = console;
+    }
+
+    private IAnsiConsole console => _console ?? AnsiConsole.Console;
+
     public void WriteParked(IReadOnlyList<ParkedIdentityRow> rows)
     {
         var table = new Table();
@@ -316,6 +326,7 @@ internal class ParkedIdentityView : IParkedIdentityView
         table.AddColumn("Projection");
         table.AddColumn("Tenant");
         table.AddColumn("Identity");
+        table.AddColumn("Natural Key");
         table.AddColumn(new TableColumn("Failed At").RightAligned());
         table.AddColumn("Error");
         table.AddColumn("Parked");
@@ -330,6 +341,7 @@ internal class ParkedIdentityView : IParkedIdentityView
                 Markup.Escape(parked.ProjectionName + (parked.ProjectionVersion > 1 ? $" V{parked.ProjectionVersion}" : "")),
                 Markup.Escape(parked.TenantId),
                 Markup.Escape(parked.IdentityText),
+                Markup.Escape(parked.NaturalKey ?? ""),
                 parked.FirstFailingSequence.ToString(),
                 Markup.Escape($"{parked.Category}: {error}"),
                 Markup.Escape(parked.ParkedAt.ToString("u")),
@@ -338,12 +350,12 @@ internal class ParkedIdentityView : IParkedIdentityView
                     : parked.ReplayAttempts.ToString());
         }
 
-        AnsiConsole.Write(table);
+        console.Write(table);
     }
 
-    public void WriteMessage(string message) => AnsiConsole.MarkupLine(Markup.Escape(message));
+    public void WriteMessage(string message) => console.MarkupLine(Markup.Escape(message));
 
-    public void WriteError(string message) => AnsiConsole.MarkupLine($"[red]{Markup.Escape(message)}[/]");
+    public void WriteError(string message) => console.MarkupLine($"[red]{Markup.Escape(message)}[/]");
 
     public bool Confirm(string question)
     {
@@ -353,6 +365,6 @@ internal class ParkedIdentityView : IParkedIdentityView
             return false;
         }
 
-        return AnsiConsole.Confirm(Markup.Escape(question), defaultValue: false);
+        return console.Confirm(Markup.Escape(question), defaultValue: false);
     }
 }

@@ -226,6 +226,19 @@ dotnet run -- projections parked --projection Trip --replay --all --wait 60
 
 The command writes durable requests. It says so when no node is running the shard right now.
 
+The listing shows one row per parked identity:
+
+```
+┌──────────┬────────────┬───────────┬──────────┬─────────────┬───────────┬──────────────────┬──────────────────────┬─────────┐
+│ Database │ Projection │ Tenant    │ Identity │ Natural Key │ Failed At │ Error            │ Parked               │ Replays │
+├──────────┼────────────┼───────────┼──────────┼─────────────┼───────────┼──────────────────┼──────────────────────┼─────────┤
+│ main     │ Orders     │ *DEFAULT* │ order-1  │ ORD-1001    │        12 │ ApplyEvent: boom │ 2026-11-20 08:30:00Z │ 1       │
+│ main     │ Orders     │ *DEFAULT* │ order-2  │             │        12 │ ApplyEvent: boom │ 2026-11-20 08:30:00Z │ 1       │
+└──────────┴────────────┴───────────┴──────────┴─────────────┴───────────┴──────────────────┴──────────────────────┴─────────┘
+```
+
+`Natural Key` is the stream's natural key when the aggregate has one, and blank when it doesn't or the stream never got one. `--identity` still takes the stream id from the `Identity` column, not the natural key.
+
 ## For event store authors
 
 A store that parks multi-stream identities implements, beyond what single-stream parking needs:
@@ -235,5 +248,7 @@ A store that parks multi-stream identities implements, beyond what single-stream
 - For the slice index: `IProjectionBatch.AppendSliceIndex` in the batch's transaction, `IEventDatabase.PruneSliceIndexAsync`, the event-range marks (the index's start is the mark under `SliceIndexMarks.KeyFor(...)`), and deleting the index's rows with the projection's rebuild teardown, a rewind (rows above the new floor), a tenant's removal and a retired version's eject. One index per projection name and version, keyed by (tenant, identity, sequence).
 
 The `MultiStreamParkedIdentityCompliance` suite checks all of it. The in-memory store in `JasperFx.Events.InMemory` is the reference implementation.
+
+A store that supports natural keys fills `ParkedIdentity.NaturalKey` in `IEventDatabase.FetchParkedIdentitiesAsync`, with one natural-key lookup per projection. It's never stored on the parked row.
 
 To have transient batch failures retried, return your store's Polly pipeline from `IEventStore<TOperations, TQuerySession>.ResiliencePipeline`. The daemon only hands it failures it already judged transient, and an `AggregateException` from several identities failing at once is handed over as its first inner exception, so a `ShouldHandle` written against your driver's exceptions works as it is.
