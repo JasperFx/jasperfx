@@ -71,8 +71,11 @@ public class NaturalKeyDefinition
         var memberType = member.GetMemberType()!;
         OuterType = memberType;
 
-        // Determine if this is a strong-typed id (value type wrapper) or a primitive
-        if (IsPrimitiveKeyType(memberType))
+        // Determine if this is a strong-typed id (value type wrapper) or a primitive. A type from the
+        // core library is never a strong-typed id, even when it happens to fit the wrapper shape:
+        // decimal has one public property (Scale) and an implicit conversion from byte, which made it
+        // look like a wrapper around a byte (jasperfx#1272).
+        if (IsPrimitiveKeyType(memberType) || memberType.Assembly == typeof(object).Assembly)
         {
             InnerType = memberType;
         }

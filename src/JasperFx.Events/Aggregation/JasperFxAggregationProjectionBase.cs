@@ -119,7 +119,23 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
     /// </summary>
     private void assertNaturalKeyValidity()
     {
-        if (NaturalKeyDefinition == null || NaturalKeyDefinition.DiscoveryProblems.Count == 0) return;
+        if (NaturalKeyDefinition == null) return;
+
+        // jasperfx#1272: the natural key lookup table only knows how to store an int, a long or a
+        // string. Anything else (a Guid, say) used to pass validation and then fail inside the store
+        // on the first append, so refuse it while the projection is being registered.
+        if (!NaturalKeyDefinition.IsValid())
+        {
+            var keyType = NaturalKeyDefinition.ValueTypeInfo == null
+                ? NaturalKeyDefinition.OuterType.FullNameInCode()
+                : $"{NaturalKeyDefinition.OuterType.FullNameInCode()}, which wraps {NaturalKeyDefinition.InnerType.FullNameInCode()}";
+
+            throw new InvalidProjectionException(
+                $"The natural key '{typeof(TDoc).FullNameInCode()}.{NaturalKeyDefinition.Member.Name}' on {GetType().FullNameInCode()} is of type {keyType}. " +
+                "A natural key must be an int, long or string, or a strong-typed identifier wrapping an int, long or string.");
+        }
+
+        if (NaturalKeyDefinition.DiscoveryProblems.Count == 0) return;
 
         var problems = NaturalKeyDefinition.DiscoveryProblems
             .Select(x => "  * " + x)
