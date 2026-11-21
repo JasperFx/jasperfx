@@ -1,5 +1,15 @@
 # Migration Guide
 
+## Key Changes in 3.12.0
+
+* **JasperFx now depends on the .NET 11 GA packages** ([#1270](https://github.com/JasperFx/jasperfx/issues/1270)). The net11.0 build takes `Microsoft.Extensions.*` and `Microsoft.Bcl.TimeProvider` 11.0.0 instead of 11.0.0-rc.3, so no .NET 11 prerelease package comes in through JasperFx any more.
+
+* **A natural key of a type a store can't hold is refused when the projection is registered** ([#1272](https://github.com/JasperFx/jasperfx/issues/1272)). A natural key must be an `int`, `long` or `string`, or a strong-typed identifier wrapping one of those. Anything else, a `Guid` for example, used to pass validation and then fail on the first append. It now throws `InvalidProjectionException` at startup, naming the aggregate, the member and its type.
+
+* **A parked identity can carry its natural key** ([#1273](https://github.com/JasperFx/jasperfx/issues/1273)). `ParkedIdentity` has a new `NaturalKey` property that a store fills when it reads the parked list, and `projections parked` shows it in a new "Natural Key" column after "Identity". `--identity` still takes the stream id. See [Parking a Failing Identity](/events/parked-identities).
+
+* **The extended progression write contract is restated** ([#1270](https://github.com/JasperFx/jasperfx/issues/1270)). A state carrying a failure creates the shard's progression row at its start position when there isn't one yet; every other state only updates an existing row. This is documentation for store authors and doesn't change JasperFx's behaviour.
+
 ## Key Changes in 3.11.0
 
 * **Transient failures while building a projection batch are retried through the store's resilience pipeline** ([#1256](https://github.com/JasperFx/jasperfx/issues/1256)). A batch that fails for a transient reason (a timeout, a dropped connection, a driver's transient error) is built again through the store's existing Polly pipeline, under every error policy, whether one slice failed or several. When the pipeline gives up, the shard pauses with `IsTransient = true` so a supervisor such as Wolverine can restart it. Skip no longer retries such a batch without limit. `IEventStore` has a new `ResiliencePipeline` member that defaults to `ResiliencePipeline.Empty`; with the default, a transient failure pauses the shard the first time.
