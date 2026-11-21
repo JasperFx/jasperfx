@@ -205,10 +205,23 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
             _loggedParkingFallback = true;
         }
 
+        await loadParkedAsync(range.ShardName, range.Agent, cancellation).ConfigureAwait(false);
+    }
+
+    // jasperfx#1263: the agent loads the parked set when a continuous shard starts, so a durable request waiting on a
+    // stopped shard runs without a new event to build a batch. The first batch loads it otherwise.
+    Task IParkedIdentityHost.LoadParkedAsync(ShardName shard, ISubscriptionAgent agent, CancellationToken token)
+        => _store.SupportsParkedIdentities ? loadParkedAsync(shard, agent, token) : Task.CompletedTask;
+
+    private async Task loadParkedAsync(ShardName shard, ISubscriptionAgent agent, CancellationToken cancellation)
+    {
         if (_parkedLoaded || !projectionCanPark) return;
 
+        _parkingAgent ??= agent;
+        _parkingShard ??= shard;
+
         // Once per shard start: the runner, like its execution, lives as long as the agent does
-        var rows = await _database.LoadParkedIdentitiesAsync(range.ShardName, cancellation).ConfigureAwait(false);
+        var rows = await _database.LoadParkedIdentitiesAsync(shard, cancellation).ConfigureAwait(false);
 
         lock (_parkedLock)
         {
@@ -221,7 +234,7 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
                 {
                     _logger.LogWarning(
                         "Ignoring parked row {Identity} of {Shard}: it is not an identity of type {IdType}",
-                        row.IdentityText, range.ShardName.Identity, typeof(TId).FullNameInCode());
+                        row.IdentityText, shard.Identity, typeof(TId).FullNameInCode());
                     continue;
                 }
 
@@ -235,9 +248,9 @@ public partial class AggregationRunner<TDoc, TId, TOperations, TQuerySession> : 
 
         if (_parkedCount > 0)
         {
-            _logger.LogInformation("Shard {Shard} starts with {Count} parked identities", range.ShardName.Identity,
+            _logger.LogInformation("Shard {Shard} starts with {Count} parked identities", shard.Identity,
                 _parkedCount);
-            range.Agent.Metrics.UpdateParkedCount(_parkedCount);
+            agent.Metrics.UpdateParkedCount(_parkedCount);
         }
     }
 
@@ -554,6 +567,12 @@ internal interface IParkedIdentityHost
 
     /// <summary>Every parked identity, oldest first.</summary>
     IReadOnlyList<ParkedIdentity> ParkedSnapshot();
+
+    /// <summary>
+    /// jasperfx#1263: load the identities the shard parked before, once per shard start. Does nothing when they are
+    /// loaded already, or when the shard doesn't park.
+    /// </summary>
+    Task LoadParkedAsync(ShardName shard, ISubscriptionAgent agent, CancellationToken token);
 
     /// <summary>The durable operator requests for identities this shard holds, at most one replay batch of them.</summary>
     Task<IReadOnlyList<ParkedIdentity>> LoadRequestedActionsAsync(CancellationToken token);

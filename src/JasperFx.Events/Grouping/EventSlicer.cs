@@ -44,7 +44,7 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
     public EventSlicer<TDoc, TId> Identity<TEvent>(Func<TEvent, TId> identityFunc) where TEvent : notnull
     {
         _configurations.Add((group, events) => group.AddEvents(identityFunc, events));
-        _rules.Delegate($"Identity<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
+        _rules.Delegate($"Identity<{typeof(TEvent).ShortNameInCode()}>(...)");
 
         return this;
     }
@@ -52,7 +52,7 @@ public class EventSlicer<TDoc, TId>: IEventSlicer<TDoc, TId> where TId : notnull
     public EventSlicer<TDoc, TId> Identities<TEvent>(Func<TEvent, IReadOnlyList<TId>> identitiesFunc) where TEvent : notnull
     {
         _configurations.Add((group, events) => group.AddEvents(identitiesFunc, events));
-        _rules.Delegate($"Identities<{typeof(TEvent).ShortNameInCode()}>(...) is a delegate and");
+        _rules.Delegate($"Identities<{typeof(TEvent).ShortNameInCode()}>(...)");
 
         return this;
     }

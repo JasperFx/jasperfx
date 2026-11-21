@@ -88,6 +88,9 @@ internal static class IdentityRules
 internal sealed class IdentityRuleLog
 {
     private readonly List<(IdentityAccessClass Class, string Rule)> _rules = new();
+
+    // jasperfx#1264: the scan-only rules that are Identity()/Identities() delegates, as opposed to custom groupings
+    private int _delegates;
     private readonly List<Type> _tagTypes = new();
 
     /// <summary>Is any rule <c>IdentityFromStream</c>?</summary>
@@ -105,7 +108,15 @@ internal sealed class IdentityRuleLog
         if (!_tagTypes.Contains(tagType)) _tagTypes.Add(tagType);
     }
 
-    public void Delegate(string rule) => _rules.Add((IdentityAccessClass.ScanOnly, rule));
+    /// <summary>An <c>Identity</c> or <c>Identities</c> delegate, named like <c>Identity&lt;TEvent&gt;(...)</c>.</summary>
+    public void Delegate(string rule)
+    {
+        _rules.Add((IdentityAccessClass.ScanOnly, rule));
+        _delegates++;
+    }
+
+    /// <summary>A custom grouping, named like <c>custom grouping (TGrouper)</c>.</summary>
+    public void CustomGrouping(string rule) => _rules.Add((IdentityAccessClass.ScanOnly, rule));
 
     public IdentityAccess Classify()
     {
@@ -117,8 +128,14 @@ internal sealed class IdentityRuleLog
         var scanOnly = _rules.Where(x => x.Class == IdentityAccessClass.ScanOnly).Select(x => x.Rule).ToArray();
         if (scanOnly.Length > 0)
         {
+            // jasperfx#1264: "X is a delegate, which", "X and Y are delegates, which", "X, Y and Z are delegates, which"
+            var subject = sentenceList(scanOnly);
+            var what = _delegates != scanOnly.Length ? subject
+                : scanOnly.Length == 1 ? $"{subject} is a delegate, which"
+                : $"{subject} are delegates, which";
+
             return IdentityAccess.ScanOnly(
-                $"{string.Join(", ", scanOnly)} can't be inverted to find one identity's events. Declare the grouping with IdentityFromStream<TEvent>() or IdentityFromTag<TTag>() instead, or turn on the slice index with UseSliceIndex().");
+                $"{char.ToUpperInvariant(what[0])}{what[1..]} can't be inverted to find one identity's events. Declare the grouping with IdentityFromStream<TEvent>() or IdentityFromTag<TTag>() instead, or turn on the slice index with UseSliceIndex().");
         }
 
         var rules = string.Join(", ", _rules.Select(x => x.Rule));
@@ -126,4 +143,8 @@ internal sealed class IdentityRuleLog
             ? new IdentityAccess(IdentityAccessClass.Tag, $"Every grouping rule is declared by stream or by tag: {rules}.")
             : new IdentityAccess(IdentityAccessClass.Stream, $"Every grouping rule is declared by stream: {rules}.");
     }
+
+    // "A", "A and B", "A, B and C"
+    private static string sentenceList(IReadOnlyList<string> items)
+        => items.Count == 1 ? items[0] : $"{string.Join(", ", items.Take(items.Count - 1))} and {items[^1]}";
 }
