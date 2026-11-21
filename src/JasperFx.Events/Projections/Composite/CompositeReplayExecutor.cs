@@ -68,13 +68,19 @@ internal class CompositeReplayExecutor : IReplayExecutor
             "Starting single-pass composite rebuild for {ShardName} over events {Floor} to {Ceiling}",
             _shardName.Identity, floor, ceiling);
 
-        while (floor < ceiling && !cancellation.IsCancellationRequested)
+        while (floor < ceiling)
         {
+            // jasperfx#1277: a pass cut short by its timeout throws, like a load the timeout interrupts, rather than
+            // returning as if it had reached the ceiling
+            cancellation.ThrowIfCancellationRequested();
+
             // Under a tenant load budget, each page holds a page's worth of it from its load until it is processed
             var governor = agent.TenantLoadGovernor;
             if (governor != null &&
                 !await governor.ReserveAsync(_options.BatchSize, cancellation).ConfigureAwait(false))
             {
+                // Only a cancelled wait comes back without a reservation
+                cancellation.ThrowIfCancellationRequested();
                 return;
             }
 
@@ -111,6 +117,7 @@ internal class CompositeReplayExecutor : IReplayExecutor
 
                 // The composite execution swallows a member failure and pauses/stops the agent rather than
                 // throwing. Honor the all-or-nothing contract: stop the single pass without advancing further.
+                // A rebuild's SubscriptionAgent.ReplayAsync then throws the failure the agent reported (jasperfx#1277).
                 if (agent.Status != AgentStatus.Running)
                 {
                     _logger.LogWarning(
