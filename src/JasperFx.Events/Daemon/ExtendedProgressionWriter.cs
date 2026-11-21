@@ -49,8 +49,9 @@ namespace JasperFx.Events.Daemon;
 /// the shard's next start, pause or stop.</item>
 /// <item>jasperfx#631: a transition published at sequence 0 — which is every fresh shard's
 /// <see cref="ShardAction.Started"/>, since the agent starts before its first batch commits — has no
-/// progression row to decorate and every store's write is update-only, so it lands nowhere. Such a
-/// shard is remembered and written again on the first publication carrying a committed sequence,
+/// progression row yet. A store creates the row only for a state carrying a
+/// <see cref="ShardState.Failure"/>; every other write is update-only, so a plain Started lands nowhere.
+/// Such a shard is remembered and written again on the first publication carrying a committed sequence,
 /// which is proof the row now exists. Without this the telemetry columns stay NULL for the entire
 /// life of a healthy agent once periodic beats are off.</item>
 /// <item>Writes are best-effort and serialized on a background block: a failed write is logged at
@@ -133,7 +134,8 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         var isTransition = isStatusTransition(value.Action);
 
         // jasperfx#631 -- a transition published before the shard has committed anything has no
-        // progression row to decorate, and every store's write is update-only, so it lands nowhere.
+        // progression row yet. A store creates the row only for a state carrying a Failure (at the shard's
+        // start position, marten#6127); every other write is update-only, so it lands nowhere.
         // That is the normal case for a fresh shard: SubscriptionAgent.StartAsync publishes Started at
         // floor 0, and the row is not created until the first batch commits. Until jasperfx#622 the 5s
         // periodic beat wrote again a moment later and covered for it; with the beat off, Started was
@@ -147,7 +149,8 @@ public sealed class ExtendedProgressionWriter : IObserver<ShardState>, IExclusiv
         // UPDATE per shard per agent start, one-shot -- not periodic, and nothing like the 5s beat
         // #622 removed. It rides the same one-row-per-transaction, shard-name-ordered write path, so
         // it takes one row lock briefly and cannot convoy. The sequence-0 write it compensates for
-        // takes NO lock at all when the row is absent, because it matches no rows. And the replay is
+        // takes NO lock at all when the row is absent, because it matches no rows; one that carries a
+        // Failure creates the row instead, a single-row write per failure. And the replay is
         // ordered safely by construction: the store commits the batch (which creates the progression
         // row) BEFORE the agent calls MarkSuccessAsync, so the publication that triggers the replay
         // always follows the row write rather than contending with it.

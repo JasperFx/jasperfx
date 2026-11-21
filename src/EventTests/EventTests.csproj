@@ -10,11 +10,11 @@
 
     <!--
       jasperfx#1053: the union event tests use the C# 15 `union` keyword, which only compiles on
-      net11.0 and still needs the preview language version on the .NET 11 SDK. Scoped to this test
-      project's net11.0 build; the libraries stay on Directory.Build.props' LangVersion.
+      net11.0. C# 15 is GA with the .NET 11 SDK, so this no longer needs the preview language version.
+      Scoped to this test project's net11.0 build; the libraries stay on Directory.Build.props' LangVersion.
     -->
     <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0'">
-        <LangVersion>preview</LangVersion>
+        <LangVersion>15</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>
