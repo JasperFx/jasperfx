@@ -1,5 +1,9 @@
 # Migration Guide
 
+## Key Changes in 3.12.1
+
+* **A composite projection rebuild that fails now throws** ([#1277](https://github.com/JasperFx/jasperfx/issues/1277)). Rebuilding a composite projection used to return normally when a page failed and the shard ended up paused or stopped, so the rebuild looked finished when it wasn't. It now throws the shard's own failure, the same way a single-stream rebuild always has. A composite rebuild that runs out of time between pages throws `OperationCanceledException`. A full rebuild never parks identities, so `RebuildErrors = Park` behaves like Pause there and throws too.
+
 ## Key Changes in 3.12.0
 
 * **JasperFx now depends on the .NET 11 GA packages** ([#1270](https://github.com/JasperFx/jasperfx/issues/1270)). The net11.0 build takes `Microsoft.Extensions.*` and `Microsoft.Bcl.TimeProvider` 11.0.0 instead of 11.0.0-rc.3, so no .NET 11 prerelease package comes in through JasperFx any more.
