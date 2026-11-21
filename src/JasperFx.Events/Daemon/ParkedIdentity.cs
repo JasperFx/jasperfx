@@ -42,6 +42,13 @@ public sealed record ParkedIdentity
     /// <summary><c>guid</c>, <c>string</c>, <c>int</c> or <c>long</c>: the type of the unwrapped identity.</summary>
     public required string IdentityType { get; init; }
 
+    /// <summary>
+    /// The natural key of the identity's stream, as text (jasperfx#1273). A store fills it in when it reads the
+    /// parked list in <see cref="IEventDatabase.FetchParkedIdentitiesAsync" />; it is never stored on the parked row.
+    /// Null when the aggregate has no natural key, or the stream never got one.
+    /// </summary>
+    public string? NaturalKey { get; init; }
+
     /// <summary>The sequence of the event that failed.</summary>
     public long FirstFailingSequence { get; init; }
 

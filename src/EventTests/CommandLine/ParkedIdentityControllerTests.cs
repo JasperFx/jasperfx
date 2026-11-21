@@ -99,6 +99,28 @@ public class ParkedIdentityControllerTests
     }
 
     [Fact]
+    public async Task lists_the_natural_key_the_store_filled_in()
+    {
+        theRows.Add(aParkedRow("trip-1") with { NaturalKey = "TRIP-1001" });
+        theRows.Add(aParkedRow("trip-2"));
+
+        (await execute(new ProjectionInput())).ShouldBeTrue();
+
+        theView.Parked.Select(x => x.Parked.NaturalKey).ShouldBe(["TRIP-1001", null]);
+    }
+
+    [Fact]
+    public async Task a_replay_by_identity_still_names_the_stream_id_when_there_is_a_natural_key()
+    {
+        theRows.Add(aParkedRow("trip-1") with { NaturalKey = "TRIP-1001" });
+
+        (await execute(new ProjectionInput { ProjectionFlag = "Trips", ReplayFlag = true, IdentityFlag = "trip-1" }))
+            .ShouldBeTrue();
+
+        theRequests.ShouldHaveSingleItem().IdentityText.ShouldBe("trip-1");
+    }
+
+    [Fact]
     public async Task says_when_nothing_is_parked()
     {
         (await execute(new ProjectionInput())).ShouldBeTrue();
