@@ -459,7 +459,8 @@ public interface IEventDatabase
 
     /// <summary>
     ///     Count the stored dead letter events for a single projection/subscription shard. With
-    ///     <c>SkipApplyErrors</c> on (the JasperFx.Events 2.0 default), a failed <c>Apply()</c> is
+    ///     <c>ApplyErrors</c> set to <c>Skip</c> (JasperFx's own continuous-run default; Marten 10, Polecat 6 and
+    ///     Fisher 2 park a failing identity instead), a failed <c>Apply()</c> is
     ///     recorded as a <see cref="DeadLetterEvent" /> and the shard keeps advancing, so the
     ///     accumulation of these is the primary "this projection is unhealthy" signal.
     ///     The default implementation returns 0 as a stand-in; event stores that persist dead
