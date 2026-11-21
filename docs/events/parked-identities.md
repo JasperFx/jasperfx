@@ -15,6 +15,8 @@ The parked identity's document stays at its last good state. Nothing is lost: th
 
 JasperFx's own default is unchanged: a continuous run skips apply and serialization errors (`ProjectionGraph.Errors`), and a rebuild pauses on them (`ProjectionGraph.RebuildErrors`, and any `new ErrorHandlingOptions()`). Each event store sets its own default on top of that. Marten 10, Polecat 6 and Fisher 2 park a failing identity by default, and pause where they can't park. `RestoreV9Defaults()`, `RestoreV5Defaults()` and `RestoreV1Defaults()` put skipping back.
 
+The in-memory prototyping store (`JasperFx.Events.InMemory`) pauses the shard on an apply or serialization error by default, so a prototype stops loudly. Change it through `Projections.Errors` the same as any other store, for example `ConfigureProjections(g => g.Errors.ApplyErrors = ProjectionErrorAction.Park)`. The store's old `ContinuousErrors` and `RebuildErrors` properties still work, but they're obsolete and are now just `Projections.Errors` and `Projections.RebuildErrors`.
+
 To ask for parking explicitly, or with a store that doesn't park by default:
 
 ```cs

@@ -32,7 +32,7 @@ public class parked_count_reaches_extended_progression : IAsyncLifetime
         theStore.Events.AddEventType(typeof(Counted));
         theStore.Events.AddEventType(typeof(CountedPoison));
         theStore.Projections.Snapshot<ParkTally>(SnapshotLifecycle.Async);
-        theStore.ContinuousErrors.ApplyErrors = ProjectionErrorAction.Park;
+        theStore.Projections.Errors.ApplyErrors = ProjectionErrorAction.Park;
         theProjectionName = theStore.AllShards().Single().Name.Name;
 
         theDatabase = (InMemoryEventDatabase)(await theStore.AllDatabases()).Single();

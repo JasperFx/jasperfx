@@ -126,15 +126,29 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
     /// <inheritdoc />
     public string DefaultDatabaseName => InMemoryEventDatabase.Name;
 
-    /// <inheritdoc />
-    public ErrorHandlingOptions ContinuousErrors { get; } = new();
+    /// <summary>
+    /// The daemon's error handling for a continuous run. This is <c>Projections.Errors</c>; set it there
+    /// (jasperfx#1267).
+    /// </summary>
+    [Obsolete("Use Projections.Errors, which is the same object. This store pauses on an error by default.")]
+    public ErrorHandlingOptions ContinuousErrors => Projections.Errors;
 
-    /// <inheritdoc />
-    public ErrorHandlingOptions RebuildErrors { get; } = new();
+    /// <summary>
+    /// The daemon's error handling for a rebuild. This is <c>Projections.RebuildErrors</c>; set it there
+    /// (jasperfx#1267).
+    /// </summary>
+    [Obsolete("Use Projections.RebuildErrors, which is the same object.")]
+    public ErrorHandlingOptions RebuildErrors => Projections.RebuildErrors;
+
+    ErrorHandlingOptions IEventStore<IInMemoryDocumentSession, IInMemoryQuerySession>.ContinuousErrors
+        => Projections.Errors;
+
+    ErrorHandlingOptions IEventStore<IInMemoryDocumentSession, IInMemoryQuerySession>.RebuildErrors
+        => Projections.RebuildErrors;
 
     /// <inheritdoc />
     public ErrorHandlingOptions ErrorHandlingOptions(ShardExecutionMode mode)
-        => mode == ShardExecutionMode.Rebuild ? RebuildErrors : ContinuousErrors;
+        => mode == ShardExecutionMode.Rebuild ? Projections.RebuildErrors : Projections.Errors;
 
     /// <summary>
     /// jasperfx#1256: the pipeline the async daemon builds each projection batch through, so a batch whose build fails

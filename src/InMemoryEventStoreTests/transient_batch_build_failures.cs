@@ -133,7 +133,7 @@ public class transient_batch_build_failures : IAsyncLifetime
 
     private async Task startAsync(ProjectionErrorAction policy, ResiliencePipeline pipeline)
     {
-        theStore.ContinuousErrors.ApplyErrors = policy;
+        theStore.Projections.Errors.ApplyErrors = policy;
         theStore.ResiliencePipeline = pipeline;
 
         // Watching before anything runs, so a pause can't be missed

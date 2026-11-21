@@ -67,7 +67,7 @@ public class multi_stream_parking_internals : IAsyncLifetime
         theStore.Events.AddEventType(typeof(Scored));
         theStore.Events.AddEventType(typeof(ScoredPoison));
         theStore.Projections.Add(new ScoreboardProjection(), ProjectionLifecycle.Async);
-        theStore.ContinuousErrors.ApplyErrors = ProjectionErrorAction.Park;
+        theStore.Projections.Errors.ApplyErrors = ProjectionErrorAction.Park;
         theShard = theStore.AllShards().Single();
         theShard.Options.BatchSize = 5;
 
@@ -114,7 +114,7 @@ public class multi_stream_parking_internals : IAsyncLifetime
             HighWater = theStore.HighestEventSequence(),
             BatchSize = theShard.Options.BatchSize,
             Name = theShard.Name,
-            ErrorOptions = theStore.ContinuousErrors,
+            ErrorOptions = theStore.Projections.Errors,
             Metrics = theAgent.Metrics
         }, CancellationToken.None);
 
