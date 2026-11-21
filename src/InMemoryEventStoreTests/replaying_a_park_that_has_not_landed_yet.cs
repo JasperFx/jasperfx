@@ -30,7 +30,7 @@ public class replaying_a_park_that_has_not_landed_yet : IAsyncLifetime
         theStore.Events.AddEventType(typeof(Counted));
         theStore.Events.AddEventType(typeof(CountedPoison));
         theStore.Projections.Snapshot<ParkTally>(SnapshotLifecycle.Async);
-        theStore.ContinuousErrors.ApplyErrors = ProjectionErrorAction.Park;
+        theStore.Projections.Errors.ApplyErrors = ProjectionErrorAction.Park;
         theProjectionName = theStore.AllShards().Single().Name.Name;
 
         theDatabase = (InMemoryEventDatabase)(await theStore.AllDatabases()).Single();

@@ -28,7 +28,7 @@ public class a_request_waiting_on_a_stopped_shard : IAsyncLifetime
         theStore.Events.AddEventType(typeof(Counted));
         theStore.Events.AddEventType(typeof(CountedPoison));
         theStore.Projections.Snapshot<ParkTally>(SnapshotLifecycle.Async);
-        theStore.ContinuousErrors.ApplyErrors = ProjectionErrorAction.Park;
+        theStore.Projections.Errors.ApplyErrors = ProjectionErrorAction.Park;
         theShard = theStore.AllShards().Single().Name;
 
         theDatabase = (InMemoryEventDatabase)(await theStore.AllDatabases()).Single();

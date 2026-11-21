@@ -1,4 +1,5 @@
 using JasperFx.Events.Appending;
+using JasperFx.Events.Daemon;
 using JasperFx.MultiTenancy;
 
 namespace JasperFx.Events.InMemory;
@@ -25,11 +26,25 @@ public partial class InMemoryDocumentStore
     /// The projections registered on the store, and the source of the aggregators live aggregation folds
     /// with (jasperfx#964).
     /// </summary>
+    /// <remarks>
+    /// The async daemon reads its error handling from <c>Projections.Errors</c> (a continuous run) and
+    /// <c>Projections.RebuildErrors</c> (a rebuild), as on Marten, Polecat and Fisher. This store's default for a
+    /// continuous run is to pause the shard on an apply or serialization error, where JasperFx's own default skips:
+    /// a prototyping store should stop loudly. Set <c>Projections.Errors.ApplyErrors</c> to
+    /// <see cref="ProjectionErrorAction.Skip"/> or <see cref="ProjectionErrorAction.Park"/> to change it
+    /// (jasperfx#1267).
+    /// </remarks>
     public Projections.InMemoryProjectionGraph Projections => _projections ??= buildProjections();
 
     private Projections.InMemoryProjectionGraph buildProjections()
     {
         var projections = new Projections.InMemoryProjectionGraph(Events);
+
+        // jasperfx#1267: the in-memory store pauses by default where JasperFx's ProjectionGraph skips, the same
+        // way Marten, Polecat and Fisher set Park on top of it.
+        projections.Errors.ApplyErrors = ProjectionErrorAction.Pause;
+        projections.Errors.SerializationErrors = ProjectionErrorAction.Pause;
+        projections.Errors.SkipUnknownEvents = false;
 
         // Self-aggregating types with a source-generated evolver are reported by AllAggregateTypes() without
         // being registered, as on Marten, Polecat and Fisher.

@@ -52,7 +52,7 @@ public class parking_internals : IAsyncLifetime
         theStore.Events.AddEventType(typeof(Counted));
         theStore.Events.AddEventType(typeof(CountedPoison));
         theStore.Projections.Snapshot<ParkTally>(SnapshotLifecycle.Async);
-        theStore.ContinuousErrors.ApplyErrors = ProjectionErrorAction.Park;
+        theStore.Projections.Errors.ApplyErrors = ProjectionErrorAction.Park;
         theShard = theStore.AllShards().Single();
         theShard.Options.BatchSize = 5;
 
@@ -101,7 +101,7 @@ public class parking_internals : IAsyncLifetime
             HighWater = theStore.HighestEventSequence(),
             BatchSize = theShard.Options.BatchSize,
             Name = theShard.Name,
-            ErrorOptions = theStore.ContinuousErrors,
+            ErrorOptions = theStore.Projections.Errors,
             Metrics = theAgent.Metrics
         }, CancellationToken.None);
 
@@ -247,7 +247,7 @@ public class parking_internals : IAsyncLifetime
                 HighWater = theStore.HighestEventSequence(),
                 BatchSize = theShard.Options.BatchSize,
                 Name = theShard.Name,
-                ErrorOptions = theStore.ContinuousErrors,
+                ErrorOptions = theStore.Projections.Errors,
                 Metrics = theAgent.Metrics
             }, CancellationToken.None);
             await again.ProcessRangeAsync(new EventRange(theAgent, page.Floor, page.Ceiling) { Events = page });
@@ -265,7 +265,7 @@ public class parking_internals : IAsyncLifetime
     [Fact]
     public async Task the_default_still_pauses_rather_than_parks()
     {
-        theStore.ContinuousErrors.ApplyErrors = ProjectionErrorAction.Pause;
+        theStore.Projections.Errors.ApplyErrors = ProjectionErrorAction.Pause;
 
         var id = await appendAsync(null, new Counted());
         await processEverythingAsync();
