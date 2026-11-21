@@ -1,6 +1,8 @@
 name: DotNet CI
 
 on:
+  # Manual runs, so a green CI run on main can be proven without a push (JasperFx CI stays on from 11/21).
+  workflow_dispatch:
   push:
     branches:
       - main
