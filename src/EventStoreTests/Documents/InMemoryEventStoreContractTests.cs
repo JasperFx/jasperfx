@@ -65,6 +65,19 @@ namespace EventStoreTests.Documents
             ((IEventStore)store).FindNaturalKeyDefinition(typeof(PlainOrder)).ShouldBeNull();
             ((IEventStore)store).FindNaturalKeyDefinition(typeof(Ticket)).ShouldBeNull();
         }
+
+        [Fact]
+        public void a_natural_key_the_store_cannot_hold_is_refused_at_registration()
+        {
+            // jasperfx#1272: a Guid natural key used to register fine and fail on the first append
+            var store = new InMemoryDocumentStore();
+
+            var ex = Should.Throw<InvalidProjectionException>(
+                () => store.Projections.Snapshot<SerialLedger>(SnapshotLifecycle.Inline));
+
+            ex.Message.ShouldContain($"{typeof(SerialLedger).FullName}.{nameof(SerialLedger.Serial)}");
+            ex.Message.ShouldContain("must be an int, long or string");
+        }
     }
 
     /// <summary>
@@ -149,6 +162,19 @@ namespace EventStoreTests.Documents.EventStoreContract
 
         [NaturalKeySource]
         public static KeyedOrder Create(OrderPlaced e) => new() { Number = e.Number };
+    }
+
+    public record LedgerIssued(Guid Serial);
+
+    public partial class SerialLedger
+    {
+        public Guid Id { get; set; }
+
+        [NaturalKey]
+        public Guid Serial { get; set; }
+
+        [NaturalKeySource]
+        public static SerialLedger Create(LedgerIssued e) => new() { Serial = e.Serial };
     }
 
     public partial class PlainOrder
