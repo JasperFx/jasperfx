@@ -145,6 +145,74 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
         return projection != null;
     }
 
+    /// <summary>
+    /// Every registered aggregate projection, including the children of composite projections, each once.
+    /// </summary>
+    public IEnumerable<IAggregateProjection> AllAggregateProjections()
+    {
+        var children = All.OfType<CompositeProjection<TOperations, TQuerySession>>()
+            .SelectMany(x => x.AllChildren())
+            .OfType<IAggregateProjection>();
+
+        return All.OfType<IAggregateProjection>().Concat(children).Distinct();
+    }
+
+    /// <summary>
+    /// Points each mapped natural key at the owned key of its source projection, and reports every mapped
+    /// key whose source is not registered, owns no key, or owns a key of a different type. The build-time
+    /// analyzers catch most of these, but only the registered projections say which source is actually in
+    /// play, and a source in another assembly can change without this one being rebuilt.
+    /// </summary>
+    internal IReadOnlyList<string> ResolveMappedNaturalKeys()
+    {
+        var aggregates = AllAggregateProjections().ToArray();
+        var problems = new List<string>();
+
+        foreach (var aggregate in aggregates)
+        {
+            foreach (var mapped in aggregate.MappedNaturalKeyDefinitions)
+            {
+                var sourceType = mapped.SourceProjectionType!;
+                var key = $"Mapped natural key {aggregate.AggregateType.FullNameInCode()}.{mapped.Member.Name}";
+
+                var source = aggregates.FirstOrDefault(x => isSourceFor(x, sourceType));
+                if (source == null)
+                {
+                    problems.Add(
+                        $"{key} reads the natural key lookup of {sourceType.FullNameInCode()}, but no aggregate projection for that type is registered. The source projection maintains the lookup, so it has to be registered too.");
+                    continue;
+                }
+
+                var owned = source.NaturalKeyDefinition;
+                if (owned == null)
+                {
+                    problems.Add(
+                        $"{key} reads the natural key lookup of {sourceType.FullNameInCode()}, but {source.AggregateType.FullNameInCode()} does not own a natural key. Mark one of its properties with [NaturalKey].");
+                    continue;
+                }
+
+                if (owned.OuterType != mapped.OuterType)
+                {
+                    problems.Add(
+                        $"{key} has type {mapped.OuterType.FullNameInCode()}, but its source {source.AggregateType.FullNameInCode()} owns natural key {owned.Member.Name} of type {owned.OuterType.FullNameInCode()}.");
+                    continue;
+                }
+
+                mapped.SourceProjectionDefinition = owned;
+            }
+        }
+
+        return problems;
+    }
+
+    // A mapped key names its source either by the aggregate type or by the projection class.
+    private static bool isSourceFor(IAggregateProjection candidate, Type sourceType)
+    {
+        if (candidate.AggregateType == sourceType) return true;
+
+        return candidate is ISubscriptionSource subscription && subscription.ImplementationType == sourceType;
+    }
+
     protected abstract void onAddProjection(object projection);
 
     /// <summary>
@@ -581,6 +649,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
             .OfType<IValidatedProjection<T>>()
             .Distinct()
             .SelectMany(x => x.ValidateConfiguration(options))
+            .Concat(ResolveMappedNaturalKeys())
             .ToArray();
 
         _asyncShards = new Lazy<Dictionary<string, AsyncShard<TOperations, TQuerySession>>>(() =>

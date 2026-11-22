@@ -701,7 +701,7 @@ public class AggregateWriteCacheSessionTests
     {
         public List<AggregateCacheKey> Published { get; } = [];
 
-        protected override void OnPublished(AggregateCacheKey key) => Published.Add(key);
+        protected override void OnPublished(AggregateCacheKey key, object aggregate) => Published.Add(key);
     }
 
     #endregion

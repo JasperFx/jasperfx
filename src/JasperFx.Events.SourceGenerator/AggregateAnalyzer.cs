@@ -1828,14 +1828,18 @@ internal static class AggregateAnalyzer
     }
 
     /// <summary>
-    /// Checks if the type has a property marked with [NaturalKey] attribute
+    /// Checks if the type has a property marked with an <i>owned</i> [NaturalKey] attribute. A mapped key
+    /// ([NaturalKey(SourceProjection = ...)] or [MappedNaturalKey&lt;T&gt;]) does not count: its lookup is
+    /// maintained by the source projection, so the aggregate must not be auto-registered as an inline
+    /// natural key owner.
     /// </summary>
     private static bool HasNaturalKeyProperty(INamedTypeSymbol type)
     {
         return type.GetMembers()
             .OfType<IPropertySymbol>()
             .Any(p => p.GetAttributes()
-                .Any(a => a.AttributeClass?.Name is "NaturalKeyAttribute" or "NaturalKey"));
+                .Any(a => a.AttributeClass?.Name is "NaturalKeyAttribute" or "NaturalKey"
+                          && !a.NamedArguments.Any(x => x.Key == "SourceProjection" && x.Value.Value != null)));
     }
 
     /// <summary>

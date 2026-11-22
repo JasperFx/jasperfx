@@ -479,6 +479,7 @@ public class ProjectionEventModelSourceTests
         public Type[] AllEventTypes => events;
         public AsyncOptions Options { get; } = new();
         public NaturalKeyDefinition? NaturalKeyDefinition => null;
+        public NaturalKeyDefinition[] MappedNaturalKeyDefinitions => [];
     }
 
     private sealed class FakeFilterableSubscription : EventFilterable, ISubscriptionSource

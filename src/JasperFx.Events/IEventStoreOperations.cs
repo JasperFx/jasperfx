@@ -319,6 +319,29 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
         return streams;
     }
 
+    /// <summary>
+    /// Fetch the projected aggregate T for each of <paramref name="ids" /> for writing, by a natural key or
+    /// any registered identifier type, in one round trip on a store that implements this member — the
+    /// many-stream form of <see cref="FetchForWriting{T, TId}(TId, CancellationToken)" />.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same contract as <see cref="FetchManyForWriting{T}(IReadOnlyList{Guid}, CancellationToken)" />: one
+    /// handle per id, in order, each with its own starting version. An id that matches no stream comes back
+    /// as a handle with a <see langword="null" /> aggregate at version 0, as a single fetch by that id would.
+    /// </para>
+    /// <para>
+    /// <typeparamref name="TId" /> is never <c>Nullable&lt;T&gt;</c>, and no id is null: drop the ids you
+    /// already know to be missing before fetching.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// When <paramref name="ids" /> repeats an id, or <typeparamref name="TId" /> is <c>Nullable&lt;T&gt;</c>.
+    /// </exception>
+    /// <exception cref="ArgumentNullException">When an id is null.</exception>
+    Task<IReadOnlyList<IEventStream<T>>> FetchManyForWriting<T, TId>(IReadOnlyList<TId> ids,
+        CancellationToken cancellation = default) where T : class where TId : notnull;
+
     private static void assertDistinct<TKey>(IReadOnlyList<TKey> keys, string paramName) where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(keys, paramName);
@@ -510,6 +533,14 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     /// with built-in optimistic concurrency checks.
     /// </summary>
     Task<IEventStream<T>> FetchForWriting<T, TId>(TId id, CancellationToken cancellation = default)
+        where T : class where TId : notnull;
+
+    /// <summary>
+    /// Fetch projected aggregate T by a natural key or any registered identifier type, and expected,
+    /// current version. Fails immediately with a concurrency exception if the expectedVersion is stale.
+    /// </summary>
+    Task<IEventStream<T>> FetchForWriting<T, TId>(TId id, long expectedVersion,
+        CancellationToken cancellation = default)
         where T : class where TId : notnull;
 
     /// <summary>

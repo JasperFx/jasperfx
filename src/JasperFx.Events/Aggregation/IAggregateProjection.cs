@@ -22,4 +22,11 @@ public interface IAggregateProjection
     /// The natural key definition for this aggregate, if one is configured via [NaturalKey] attribute.
     /// </summary>
     NaturalKeyDefinition? NaturalKeyDefinition { get; }
+
+    /// <summary>
+    /// Natural keys on this aggregate whose lookup is owned by another projection, configured via
+    /// <c>[NaturalKey(SourceProjection = ...)]</c> or <c>[MappedNaturalKey&lt;T&gt;]</c>. Each has a distinct
+    /// key type, also distinct from <see cref="NaturalKeyDefinition" />'s.
+    /// </summary>
+    NaturalKeyDefinition[] MappedNaturalKeyDefinitions { get; }
 }

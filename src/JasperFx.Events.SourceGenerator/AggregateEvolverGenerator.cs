@@ -84,6 +84,36 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             if (!pair.Right || pair.Left.IsDefaultOrEmpty) return;
             spc.AddSource(EmittedEventsFileName, EmittedEventsAnalyzer.EmitManifest(pair.Left));
         });
+
+        // Pipeline 5: natural key validation (JFXEVT010-015). Diagnostics only. Collected so that a type
+        // split across partial declarations is reported once, not once per declaration.
+        var naturalKeyDiagnostics = context.SyntaxProvider.CreateSyntaxProvider(
+                predicate: static (node, _) => NaturalKeyAnalyzer.IsPossibleCandidate(node),
+                transform: static (ctx, ct) => NaturalKeyAnalyzer.Analyze(ctx, ct))
+            .Where(static diagnostics => !diagnostics.IsDefaultOrEmpty)
+            .Collect();
+
+        context.RegisterSourceOutput(naturalKeyDiagnostics, static (spc, all) =>
+        {
+            foreach (var diagnostic in all.SelectMany(x => x).Distinct())
+            {
+                spc.ReportDiagnostic(diagnostic);
+            }
+        });
+
+        // Pipeline 6: the natural key type named by Wolverine's model attributes (JFXEVT016-017)
+        var modelNaturalKeyDiagnostics = context.SyntaxProvider.CreateSyntaxProvider(
+                predicate: static (node, _) => NaturalKeyAnalyzer.IsPossibleModelParameter(node),
+                transform: static (ctx, ct) => NaturalKeyAnalyzer.AnalyzeModelParameter(ctx, ct))
+            .Where(static diagnostics => !diagnostics.IsDefaultOrEmpty);
+
+        context.RegisterSourceOutput(modelNaturalKeyDiagnostics, static (spc, diagnostics) =>
+        {
+            foreach (var diagnostic in diagnostics)
+            {
+                spc.ReportDiagnostic(diagnostic);
+            }
+        });
     }
 
     /// <summary>Tracking name of the per-method emitted-events step, for incrementality tests.</summary>

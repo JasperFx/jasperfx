@@ -125,4 +125,107 @@ internal static class DiagnosticDescriptors
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
+
+    // ── Natural keys (JFXEVT010-015). The runtime raises the same per-aggregate problems from
+    //    AssembleAndAssertValidity; these move them to build time, and add the cross-projection checks
+    //    on SourceProjection that the runtime can only make once every projection is registered. ──
+
+    /// <summary>
+    /// More than one owned natural key on one aggregate. Discovery refuses it at configuration time, and
+    /// this reports it at build time.
+    /// </summary>
+    public static readonly DiagnosticDescriptor MultipleOwnedNaturalKeys = new(
+        id: "JFXEVT010",
+        title: "An aggregate can own at most one natural key",
+        messageFormat:
+            "'{0}' marks both '{1}' and '{2}' with [NaturalKey], but an aggregate can own at most one natural key; map the others to the projection that owns them with [MappedNaturalKey<T>]",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// Fetching by natural key is keyed on the .NET type of the key, so two keys of one type on the same
+    /// aggregate would be indistinguishable.
+    /// </summary>
+    public static readonly DiagnosticDescriptor DuplicateNaturalKeyType = new(
+        id: "JFXEVT011",
+        title: "Natural keys on one aggregate need distinct types",
+        messageFormat:
+            "'{0}' has natural keys '{1}' and '{2}' of the same type '{3}'; every natural key on an aggregate needs a distinct type",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor NaturalKeySourceIsSelf = new(
+        id: "JFXEVT012",
+        title: "A natural key cannot be mapped to its own aggregate",
+        messageFormat:
+            "Natural key '{0}.{1}' names its own aggregate as its source projection; remove the source projection to make it an owned key",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// The source is neither an aggregate projection nor an aggregate with an owned [NaturalKey], so
+    /// there is no lookup to resolve the mapped key through.
+    /// </summary>
+    public static readonly DiagnosticDescriptor NaturalKeySourceHasNoKey = new(
+        id: "JFXEVT013",
+        title: "The source projection of a mapped natural key has no natural key",
+        messageFormat:
+            "Natural key '{0}.{1}' is mapped to '{2}', which {3}",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// Mapped keys resolve through exactly one lookup table, the one the source owns, so a source whose
+    /// key of that type is itself mapped cannot serve it.
+    /// </summary>
+    public static readonly DiagnosticDescriptor NaturalKeySourceIsMapped = new(
+        id: "JFXEVT014",
+        title: "Mapped natural keys cannot be chained",
+        messageFormat:
+            "Natural key '{0}.{1}' is mapped to '{2}', whose '{3}' key is itself mapped; map it to the projection that owns the key instead",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor NaturalKeySourceTypeMismatch = new(
+        id: "JFXEVT015",
+        title: "A mapped natural key must have the type of its source's natural key",
+        messageFormat:
+            "Natural key '{0}.{1}' has type '{2}', but its source '{3}' owns natural key '{4}' of type '{5}'",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    // ── Wolverine's [WriteAggregate<TKey>] / [ReadAggregate<TKey>] / [WriteModel<TKey>] / [ReadModel<TKey>]
+    //    (JFXEVT016-017). Matched by name, so this analyzer needs no reference to Wolverine. The named key
+    //    type has to be one the aggregate declares, which is all attributes the checks above already read;
+    //    Wolverine checks the same at codegen against the registered projections. ──
+
+    /// <summary>
+    ///     A handler parameter names a natural key type its aggregate does not have.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ModelNaturalKeyNotFound = new(
+        id: "JFXEVT016",
+        title: "The natural key type named for a model must be one of the model's natural keys",
+        messageFormat: "Parameter '{0}' names natural key type '{1}', but '{2}' {3}",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    ///     A handler parameter names <c>TKey?</c> as the natural key type. The key is <c>TKey</c>; a <c>TKey?</c>
+    ///     member is still matched to it.
+    /// </summary>
+    public static readonly DiagnosticDescriptor ModelNaturalKeyIsNullable = new(
+        id: "JFXEVT017",
+        title: "Name a natural key by its non-nullable type",
+        messageFormat:
+            "Parameter '{0}' names natural key type '{1}'; name '{2}' instead, which a '{1}' member is still matched to",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
 }

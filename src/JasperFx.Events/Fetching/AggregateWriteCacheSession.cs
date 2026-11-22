@@ -281,7 +281,7 @@ public class AggregateWriteCacheSession
                 // stored costs one uncached fetch.
             }
 
-            OnPublished(key);
+            OnPublished(key, write.Aggregate);
         }
     }
 
@@ -292,9 +292,12 @@ public class AggregateWriteCacheSession
     /// The seam for a session to give up its own handle on the instance. Polecat evicts it from its
     /// aggregate identity map here, because otherwise the instance is reachable both from the cache,
     /// where another session may claim it, and from a session that may fold onto it. Marten's identity
-    /// map has the same exposure.
+    /// map has the same exposure. It is also where a store indexes the aggregate by anything other than
+    /// its stream id: Marten points the aggregate's natural keys at the stream here.
     /// </remarks>
-    protected virtual void OnPublished(AggregateCacheKey key)
+    /// <param name="key">The stream's key, carrying its tenant.</param>
+    /// <param name="aggregate">The instance written back, which is the one the commit left the stream at.</param>
+    protected virtual void OnPublished(AggregateCacheKey key, object aggregate)
     {
     }
 
