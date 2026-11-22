@@ -2,6 +2,7 @@ using System.Linq;
 using JasperFx.Events;
 using JasperFx.Events.Aggregation;
 using JasperFx.Events.Projections;
+using JasperFx.Events.Projections.Composite;
 using NSubstitute;
 using Shouldly;
 
@@ -37,6 +38,54 @@ public class MappedNaturalKeyResolutionTests
         theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
 
         shipment.MappedNaturalKeyDefinitions.Single().SourceProjectionDefinition
+            .ShouldBeSameAs(owner.NaturalKeyDefinition);
+    }
+
+    [Fact]
+    public void a_mapped_key_resolves_against_a_key_its_source_inherits()
+    {
+        var owner = new MnkInheritedOrderProjection();
+        var view = new MnkInheritedOrderViewProjection();
+        theGraph.All.Add(owner);
+        theGraph.All.Add(view);
+
+        theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
+
+        view.MappedNaturalKeyDefinitions.Single().SourceProjectionDefinition
+            .ShouldBeSameAs(owner.NaturalKeyDefinition);
+    }
+
+    [Fact]
+    public void a_source_inside_a_composite_projection_is_found()
+    {
+        var owner = new MnkOrderProjection();
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("Orders");
+        composite.StageFor(1).Add(owner);
+
+        var summary = new MnkOrderSummaryProjection();
+        theGraph.All.Add(composite);
+        theGraph.All.Add(summary);
+
+        theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
+
+        summary.MappedNaturalKeyDefinitions.Single().SourceProjectionDefinition
+            .ShouldBeSameAs(owner.NaturalKeyDefinition);
+    }
+
+    [Fact]
+    public void a_mapped_key_inside_a_composite_projection_is_resolved()
+    {
+        var owner = new MnkOrderProjection();
+        var summary = new MnkOrderSummaryProjection();
+        var composite = new CompositeProjection<FakeOperations, FakeSession>("Summaries");
+        composite.StageFor(1).Add(summary);
+
+        theGraph.All.Add(owner);
+        theGraph.All.Add(composite);
+
+        theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
+
+        summary.MappedNaturalKeyDefinitions.Single().SourceProjectionDefinition
             .ShouldBeSameAs(owner.NaturalKeyDefinition);
     }
 
@@ -131,3 +180,17 @@ public class MnkWrongTypeProjection : SingleStreamProjection<MnkWrongType, Guid>
 }
 
 #pragma warning restore JFXEVT013, JFXEVT015
+
+// Maps to an aggregate whose natural key is declared on its base class
+public sealed record MnkInheritedOrderView
+{
+    public Guid Id { get; set; }
+
+    [MappedNaturalKey<MnkInheritedOrder>]
+    public MnkOrderNumber Number { get; set; } = default!;
+}
+
+public class MnkInheritedOrderViewProjection : SingleStreamProjection<MnkInheritedOrderView, Guid>
+{
+    public override MnkInheritedOrderView? Evolve(MnkInheritedOrderView? snapshot, Guid id, IEvent e) => snapshot;
+}

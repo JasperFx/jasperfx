@@ -429,6 +429,124 @@ public class Bad
         diagnostic.GetMessage().ShouldContain("'Bad.Number'");
     }
 
+    private const string KeyedBase = @"
+// Runtime discovery reads public instance properties, inherited ones included
+public class KeyedBase
+{
+    [NaturalKey]
+    public OrderNumber Number { get; set; } = default!;
+}
+";
+
+    [Fact]
+    public void a_mapped_key_whose_source_inherits_its_key_reports_nothing()
+    {
+        NaturalKeyDiagnostics(KeyedBase + @"
+public class Shipment : KeyedBase
+{
+    public Guid Id { get; set; }
+}
+
+public class ShipmentView
+{
+    public Guid Id { get; set; }
+
+    [MappedNaturalKey<Shipment>]
+    public OrderNumber Number { get; set; } = default!;
+}
+").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void JFXEVT010_an_inherited_owned_key_and_a_declared_one()
+    {
+        var diagnostic = NaturalKeyDiagnostics(KeyedBase + @"
+public class Parcel : KeyedBase
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public CustomerCode Code { get; set; } = default!;
+}
+").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT010");
+        diagnostic.GetMessage().ShouldContain("'Parcel' marks both 'Number' and 'Code'");
+    }
+
+    [Fact]
+    public void JFXEVT011_an_inherited_key_and_a_declared_key_of_its_type()
+    {
+        var diagnostic = NaturalKeyDiagnostics(KeyedBase + @"
+public class Crate : KeyedBase
+{
+    public Guid Id { get; set; }
+
+    [MappedNaturalKey<Order>]
+    public OrderNumber Other { get; set; } = default!;
+}
+").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT011");
+        diagnostic.GetMessage().ShouldContain("'Crate'");
+    }
+
+    [Fact]
+    public void a_problem_on_a_base_class_is_not_reported_again_on_a_subclass()
+    {
+        var diagnostic = NaturalKeyDiagnostics(@"
+public class TwoOwnersBase
+{
+    [NaturalKey]
+    public OrderNumber Number { get; set; } = default!;
+
+    [NaturalKey]
+    public CustomerCode Code { get; set; } = default!;
+}
+
+public record Region(string Value);
+
+public class RegionOwner
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public Region Region { get; set; } = default!;
+}
+
+public class Regional : TwoOwnersBase
+{
+    public Guid Id { get; set; }
+
+    [MappedNaturalKey<RegionOwner>]
+    public Region Region { get; set; } = default!;
+}
+").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT010");
+        diagnostic.GetMessage().ShouldContain("'TwoOwnersBase'");
+    }
+
+    [Fact]
+    public void an_overridden_key_counts_once()
+    {
+        NaturalKeyDiagnostics(@"
+public class VirtualKeyBase
+{
+    [NaturalKey]
+    public virtual OrderNumber Number { get; set; } = default!;
+}
+
+public class Overriding : VirtualKeyBase
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public override OrderNumber Number { get; set; } = default!;
+}
+").ShouldBeEmpty();
+    }
+
     private static List<MetadataReference> References()
     {
         var runtimeDir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;

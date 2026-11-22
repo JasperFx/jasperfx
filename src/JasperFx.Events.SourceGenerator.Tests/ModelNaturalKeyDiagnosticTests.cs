@@ -169,6 +169,44 @@ namespace Test
     }
 
     [Fact]
+    public void a_subclass_of_a_wolverine_attribute_is_checked()
+    {
+        // As Wolverine.Http.Marten's [Aggregate] derives from [WriteAggregate]
+        var diagnostic = ModelDiagnostics(@"
+    public class AggregateAttribute : WriteAggregateAttribute { }
+
+    public static class Handlers
+    {
+        public static void A(Command c, [Aggregate(NaturalKey = typeof(ShelfCode))] Product product) { }
+        public static void B(Command c, [Aggregate(NaturalKey = typeof(Sku))] Product product) { }
+    }").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT016");
+        diagnostic.GetMessage().ShouldContain("'Test.ShelfCode'");
+    }
+
+    [Fact]
+    public void a_key_the_model_inherits_is_one_of_its_keys()
+    {
+        ModelDiagnostics(@"
+    public class SkuKeyedBase
+    {
+        [NaturalKey]
+        public Sku Sku { get; set; }
+    }
+
+    public class Bin : SkuKeyedBase
+    {
+        public Guid Id { get; set; }
+    }
+
+    public static class Handlers
+    {
+        public static void A(Command c, [WriteAggregate<Sku>] Bin bin) { }
+    }").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void attributes_outside_wolverine_are_ignored()
     {
         ModelDiagnostics(@"

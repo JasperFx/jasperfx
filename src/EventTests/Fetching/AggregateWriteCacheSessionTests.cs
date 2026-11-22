@@ -678,11 +678,61 @@ public class AggregateWriteCacheSessionTests
         var session = new HandingOffSession();
         var key = theStore.KeyFor(theId);
 
-        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
-        theCache.Store(key, new Tab(), 7);
+        var mine = new Tab();
+        var cached = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), mine, 1);
+        theCache.Store(key, cached, 7);
         session.Flush();
 
         session.Published.ShouldBe([key]);
+        session.PublishedAggregates[key].ShouldBeSameAs(mine);
+    }
+
+    [Fact]
+    public void a_session_is_handed_the_instance_it_registered_for_each_key()
+    {
+        var session = new HandingOffSession();
+        var first = theStore.KeyFor(theId);
+        var second = theStore.KeyFor(Guid.NewGuid());
+        var firstTab = new Tab();
+        var secondTab = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, first, 1), firstTab, 1);
+        session.Register(session.TakeBaseline<Tab>(theCache, second, 1), secondTab, 1);
+        session.Flush();
+
+        session.PublishedAggregates[first].ShouldBeSameAs(firstTab);
+        session.PublishedAggregates[second].ShouldBeSameAs(secondTab);
+    }
+
+    [Fact]
+    public void a_session_is_handed_the_instance_the_commit_advanced_to()
+    {
+        var session = new HandingOffSession();
+        var key = theStore.KeyFor(theId);
+        var projected = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
+        session.Advance(key, projected, 2).ShouldBeTrue();
+        session.Flush();
+
+        session.PublishedAggregates[key].ShouldBeSameAs(projected);
+    }
+
+    [Fact]
+    public void a_key_registered_twice_hands_over_the_last_instance()
+    {
+        var session = new HandingOffSession();
+        var key = theStore.KeyFor(theId);
+        var last = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), last, 2);
+        session.Flush();
+
+        session.Published.ShouldBe([key]);
+        session.PublishedAggregates[key].ShouldBeSameAs(last);
     }
 
     [Fact]
@@ -701,7 +751,13 @@ public class AggregateWriteCacheSessionTests
     {
         public List<AggregateCacheKey> Published { get; } = [];
 
-        protected override void OnPublished(AggregateCacheKey key, object aggregate) => Published.Add(key);
+        public Dictionary<AggregateCacheKey, object> PublishedAggregates { get; } = [];
+
+        protected override void OnPublished(AggregateCacheKey key, object aggregate)
+        {
+            Published.Add(key);
+            PublishedAggregates[key] = aggregate;
+        }
     }
 
     #endregion

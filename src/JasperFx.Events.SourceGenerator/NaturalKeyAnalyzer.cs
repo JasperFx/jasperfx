@@ -45,8 +45,13 @@ internal static class NaturalKeyAnalyzer
 
         var diagnostics = new List<Diagnostic>();
 
+        // A problem that only involves inherited keys is reported on the base type that declares them, not
+        // again on every type that derives from it. Base keys come first, so a clash between an inherited key
+        // and one declared here lands on the one declared here.
+        bool declaredHere(NaturalKeyInfo key) => SymbolEqualityComparer.Default.Equals(key.Property.ContainingType, type);
+
         var owned = keys.Where(x => x.Source == null).ToList();
-        foreach (var extra in owned.Skip(1))
+        foreach (var extra in owned.Skip(1).Where(declaredHere))
         {
             diagnostics.Add(Diagnostic.Create(DiagnosticDescriptors.MultipleOwnedNaturalKeys, extra.Location,
                 type.Name, owned[0].Property.Name, extra.Property.Name));
@@ -55,14 +60,14 @@ internal static class NaturalKeyAnalyzer
         foreach (var group in keys.GroupBy(x => x.KeyType, SymbolEqualityComparer.Default))
         {
             var sameType = group.ToList();
-            foreach (var extra in sameType.Skip(1))
+            foreach (var extra in sameType.Skip(1).Where(declaredHere))
             {
                 diagnostics.Add(Diagnostic.Create(DiagnosticDescriptors.DuplicateNaturalKeyType, extra.Location,
                     type.Name, sameType[0].Property.Name, extra.Property.Name, extra.KeyType.ToDisplayString()));
             }
         }
 
-        foreach (var mapped in keys.Where(x => x.Source != null))
+        foreach (var mapped in keys.Where(x => x.Source != null).Where(declaredHere))
         {
             var diagnostic = CheckSource(type, mapped);
             if (diagnostic != null) diagnostics.Add(diagnostic);
@@ -242,37 +247,71 @@ internal static class NaturalKeyAnalyzer
         return null;
     }
 
+    /// <summary>
+    /// The natural keys of a type, its base types' included, as runtime discovery sees them: public instance
+    /// properties, inherited ones too. Base types come first, and a property overridden further down counts
+    /// once, as its most-derived declaration that carries the attribute.
+    /// </summary>
     private static List<NaturalKeyInfo> NaturalKeysOf(INamedTypeSymbol type)
     {
-        var keys = new List<NaturalKeyInfo>();
-
-        foreach (var property in type.GetMembers().OfType<IPropertySymbol>())
+        var chain = new List<INamedTypeSymbol>();
+        for (var current = type; current is { SpecialType: not SpecialType.System_Object }; current = current.BaseType)
         {
-            foreach (var attribute in property.GetAttributes())
-            {
-                if (!IsNaturalKeyAttribute(attribute.AttributeClass, out var isMappedGeneric)) continue;
+            chain.Add(current);
+        }
 
-                ITypeSymbol? source = null;
-                if (isMappedGeneric)
+        chain.Reverse();
+
+        var keys = new List<NaturalKeyInfo>();
+        foreach (var declaring in chain)
+        {
+            var inherited = !SymbolEqualityComparer.Default.Equals(declaring, type);
+            foreach (var property in declaring.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (inherited && (property.IsStatic || property.DeclaredAccessibility != Accessibility.Public)) continue;
+
+                if (KeyOf(property) is not { } key) continue;
+
+                var overridden = keys.FindIndex(x => x.Property.Name == property.Name);
+                if (overridden >= 0)
                 {
-                    source = attribute.AttributeClass!.TypeArguments[0];
+                    keys[overridden] = key;
                 }
                 else
                 {
-                    var named = attribute.NamedArguments.FirstOrDefault(x => x.Key == "SourceProjection");
-                    source = named.Value.Value as ITypeSymbol;
+                    keys.Add(key);
                 }
-
-                var location = attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation()
-                               ?? property.Locations.FirstOrDefault()
-                               ?? Location.None;
-
-                keys.Add(new NaturalKeyInfo(property, source as INamedTypeSymbol, location));
-                break;
             }
         }
 
         return keys;
+    }
+
+    private static NaturalKeyInfo? KeyOf(IPropertySymbol property)
+    {
+        foreach (var attribute in property.GetAttributes())
+        {
+            if (!IsNaturalKeyAttribute(attribute.AttributeClass, out var isMappedGeneric)) continue;
+
+            ITypeSymbol? source;
+            if (isMappedGeneric)
+            {
+                source = attribute.AttributeClass!.TypeArguments[0];
+            }
+            else
+            {
+                var named = attribute.NamedArguments.FirstOrDefault(x => x.Key == "SourceProjection");
+                source = named.Value.Value as ITypeSymbol;
+            }
+
+            var location = attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation()
+                           ?? property.Locations.FirstOrDefault()
+                           ?? Location.None;
+
+            return new NaturalKeyInfo(property, source as INamedTypeSymbol, location);
+        }
+
+        return null;
     }
 
     private static bool IsNaturalKeyAttribute(INamedTypeSymbol? attributeClass, out bool isMappedGeneric)

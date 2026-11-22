@@ -90,6 +90,30 @@ public class MappedNaturalKeyDiscoveryTests
     }
 
     [Fact]
+    public void a_key_declared_on_a_base_class_is_discovered()
+    {
+        var projection = new MnkInheritedOrderProjection();
+
+        projection.NaturalKeyDefinition.ShouldNotBeNull();
+        projection.NaturalKeyDefinition!.Member.Name.ShouldBe(nameof(MnkKeyedBase.Number));
+        projection.NaturalKeyDefinition.AggregateType.ShouldBe(typeof(MnkInheritedOrder));
+        projection.NaturalKeyDefinition.EventMappings.ShouldHaveSingleItem().EventType.ShouldBe(typeof(MnkOrderPlaced));
+
+        Should.NotThrow(() => projection.AssembleAndAssertValidity());
+    }
+
+    [Fact]
+    public void an_inherited_owned_key_and_a_declared_one_fail_at_configuration_time()
+    {
+        var ex = Should.Throw<InvalidProjectionException>(
+            () => new MnkInheritedAndDeclaredProjection().AssembleAndAssertValidity());
+
+        ex.Message.ShouldContain(nameof(MnkKeyedBase.Number));
+        ex.Message.ShouldContain(nameof(MnkInheritedAndDeclared.Code));
+        ex.Message.ShouldContain("at most one");
+    }
+
+    [Fact]
     public void more_than_one_owned_key_fails_at_configuration_time()
     {
         var ex = Should.Throw<InvalidProjectionException>(
@@ -261,3 +285,40 @@ public class MnkSelfMappedProjection : SingleStreamProjection<MnkSelfMapped, Gui
 }
 
 #pragma warning restore JFXEVT010, JFXEVT011, JFXEVT012
+
+// A natural key declared on a base class, which runtime discovery and the analyzer both see.
+public abstract record MnkKeyedBase
+{
+    [NaturalKey]
+    public MnkOrderNumber Number { get; set; } = default!;
+}
+
+public sealed record MnkInheritedOrder : MnkKeyedBase
+{
+    public Guid Id { get; set; }
+
+    [NaturalKeySource]
+    public static MnkOrderNumber KeyFor(MnkOrderPlaced e) => e.Number;
+}
+
+public class MnkInheritedOrderProjection : SingleStreamProjection<MnkInheritedOrder, Guid>
+{
+    public override MnkInheritedOrder? Evolve(MnkInheritedOrder? snapshot, Guid id, IEvent e) => snapshot;
+}
+
+#pragma warning disable JFXEVT010
+
+public sealed record MnkInheritedAndDeclared : MnkKeyedBase
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public MnkCustomerCode Code { get; set; } = default!;
+}
+
+public class MnkInheritedAndDeclaredProjection : SingleStreamProjection<MnkInheritedAndDeclared, Guid>
+{
+    public override MnkInheritedAndDeclared? Evolve(MnkInheritedAndDeclared? snapshot, Guid id, IEvent e) => snapshot;
+}
+
+#pragma warning restore JFXEVT010
