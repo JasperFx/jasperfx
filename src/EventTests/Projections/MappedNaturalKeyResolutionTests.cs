@@ -56,20 +56,31 @@ public class MappedNaturalKeyResolutionTests
     }
 
     [Fact]
-    public void a_source_inside_a_composite_projection_is_found()
+    public void an_owned_key_inside_a_composite_projection_is_refused()
     {
-        var owner = new MnkOrderProjection();
         var composite = new CompositeProjection<FakeOperations, FakeSession>("Orders");
-        composite.StageFor(1).Add(owner);
-
-        var summary = new MnkOrderSummaryProjection();
+        composite.StageFor(1).Add(new MnkOrderProjection());
         theGraph.All.Add(composite);
-        theGraph.All.Add(summary);
 
-        theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
+        var message = theGraph.FindOwnedNaturalKeysInComposites().ShouldHaveSingleItem();
+        message.ShouldContain("EventTests.Projections.MnkOrder.Number is an owned natural key");
+        message.ShouldContain("the composite projection 'Orders'");
 
-        summary.MappedNaturalKeyDefinitions.Single().SourceProjectionDefinition
-            .ShouldBeSameAs(owner.NaturalKeyDefinition);
+        var ex = Should.Throw<InvalidProjectionException>(() => theGraph.AssertValidity(new object()));
+        ex.Message.ShouldContain("cannot own a natural key");
+    }
+
+    [Fact]
+    public void an_owned_key_inside_a_nested_composite_projection_is_refused()
+    {
+        var inner = new CompositeProjection<FakeOperations, FakeSession>("Inner");
+        inner.StageFor(1).Add(new MnkOrderProjection());
+        var outer = new CompositeProjection<FakeOperations, FakeSession>("Outer");
+        outer.StageFor(1).Add(inner);
+        theGraph.All.Add(outer);
+
+        theGraph.FindOwnedNaturalKeysInComposites().ShouldHaveSingleItem()
+            .ShouldContain("EventTests.Projections.MnkOrder.Number");
     }
 
     [Fact]
@@ -82,6 +93,27 @@ public class MappedNaturalKeyResolutionTests
 
         theGraph.All.Add(owner);
         theGraph.All.Add(composite);
+
+        // A mapped key reads the lookup of an owner outside the composite, so it is allowed there
+        theGraph.FindOwnedNaturalKeysInComposites().ShouldBeEmpty();
+        theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
+
+        summary.MappedNaturalKeyDefinitions.Single().SourceProjectionDefinition
+            .ShouldBeSameAs(owner.NaturalKeyDefinition);
+    }
+
+    [Fact]
+    public void a_mapped_key_inside_a_nested_composite_projection_is_resolved()
+    {
+        var owner = new MnkOrderProjection();
+        var summary = new MnkOrderSummaryProjection();
+        var inner = new CompositeProjection<FakeOperations, FakeSession>("Inner");
+        inner.StageFor(1).Add(summary);
+        var outer = new CompositeProjection<FakeOperations, FakeSession>("Outer");
+        outer.StageFor(1).Add(inner);
+
+        theGraph.All.Add(owner);
+        theGraph.All.Add(outer);
 
         theGraph.ResolveMappedNaturalKeys().ShouldBeEmpty();
 

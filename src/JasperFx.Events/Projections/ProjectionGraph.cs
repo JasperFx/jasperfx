@@ -151,10 +151,50 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
     public IEnumerable<IAggregateProjection> AllAggregateProjections()
     {
         var children = All.OfType<CompositeProjection<TOperations, TQuerySession>>()
-            .SelectMany(x => x.AllChildren())
+            .SelectMany(membersOf)
             .OfType<IAggregateProjection>();
 
         return All.OfType<IAggregateProjection>().Concat(children).Distinct();
+    }
+
+    /// <summary>
+    /// The members of a composite projection, and of any composite nested in it.
+    /// </summary>
+    private static IEnumerable<IProjectionSource<TOperations, TQuerySession>> membersOf(
+        CompositeProjection<TOperations, TQuerySession> composite)
+    {
+        foreach (var child in composite.AllChildren())
+        {
+            yield return child;
+
+            if (child is CompositeProjection<TOperations, TQuerySession> nested)
+            {
+                foreach (var member in membersOf(nested)) yield return member;
+            }
+        }
+    }
+
+    /// <summary>
+    /// An aggregate projected by a composite projection cannot own a natural key: the store keeps a key's lookup
+    /// current alongside the events, which it does only for aggregate projections registered on their own. A
+    /// mapped key is allowed, because it reads the lookup of an owner registered outside the composite.
+    /// </summary>
+    internal IReadOnlyList<string> FindOwnedNaturalKeysInComposites()
+    {
+        var problems = new List<string>();
+
+        foreach (var composite in All.OfType<CompositeProjection<TOperations, TQuerySession>>())
+        {
+            foreach (var member in membersOf(composite).OfType<IAggregateProjection>())
+            {
+                if (member.NaturalKeyDefinition is not { } owned) continue;
+
+                problems.Add(
+                    $"{member.AggregateType.FullNameInCode()}.{owned.Member.Name} is an owned natural key, but {member.AggregateType.FullNameInCode()} is projected by the composite projection '{composite.Name}', and an aggregate in a composite projection cannot own a natural key. Register the aggregate's projection outside the composite, or map the key to an owner registered outside it with [MappedNaturalKey<TSource>].");
+            }
+        }
+
+        return problems;
     }
 
     /// <summary>
@@ -649,6 +689,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
             .OfType<IValidatedProjection<T>>()
             .Distinct()
             .SelectMany(x => x.ValidateConfiguration(options))
+            .Concat(FindOwnedNaturalKeysInComposites())
             .Concat(ResolveMappedNaturalKeys())
             .ToArray();
 
