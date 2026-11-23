@@ -1696,7 +1696,11 @@ function outcomeFor(sliceName: string): string | null {
 }
 /* #298 — the wide arrow over a chapter's slices. Clipped to an arrowhead on the right because the
    timeline runs left to right and the band is a span of it, not a box around it. `currentColor` at
-   low alpha so it reads in both consoles' palettes without a colour of its own. */
+   low alpha so it reads in both consoles' palettes without a colour of its own.
+
+   ⚠️ The alpha is in the FILL (color-mix), never `opacity` on the band. Opacity applies to the
+   whole subtree, so the band's own name was painted at 10% too and could not be read: no child
+   can be "at full strength on its own" inside a parent with opacity, whatever it sets. */
 .em-chapter-band {
   position: absolute;
   display: flex;
@@ -1704,7 +1708,7 @@ function outcomeFor(sliceName: string): string | null {
   box-sizing: border-box;
   padding: 0 10px 2px 10px;
   border: none;
-  background: currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -1713,19 +1717,19 @@ function outcomeFor(sliceName: string): string | null {
   text-align: left;
   cursor: pointer;
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
-  opacity: 0.1;
   pointer-events: auto;
 }
 .em-chapter-band:hover,
 .em-chapter-band[data-focused='true'] {
-  opacity: 0.22;
+  background: color-mix(in srgb, currentColor 22%, transparent);
 }
 .em-chapter-band[data-dimmed='true'] {
-  opacity: 0.05;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+.em-chapter-band[data-dimmed='true'] .em-chapter-name {
+  opacity: 0.45;
 }
 .em-chapter-name {
-  /* The band's fill is `currentColor` at low alpha, so the name has to be painted at full
-     strength on its own: a child element with its own opacity, not the parent's. */
   position: relative;
   color: inherit;
   overflow: hidden;
