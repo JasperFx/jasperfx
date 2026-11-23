@@ -6,12 +6,12 @@ This guide walks through publishing a .NET application that uses JasperFx (and t
 - **Publish size is small** — typically 15-40 MB self-contained, comparable to a Go binary.
 - **No runtime code generation** — anything that needs `Reflection.Emit`, `Type.MakeGenericType`, or `Activator.CreateInstance(Type)` on a type the trimmer didn't statically see will warn at publish time and may fail at runtime.
 
-JasperFx 2.0 is the first release where AOT publishing is a supported posture for apps that don't need runtime code generation. JasperFx and JasperFx.Events 2.0.0-alpha.12+ build with `IsAotCompatible=true` and 0 IL warnings; the rest of the Critter Stack family (Marten, Wolverine, Polecat) is on the same arc.
+AOT publishing has been a supported posture since JasperFx 2.0 for apps that don't need runtime code generation. `JasperFx` and `JasperFx.Events` build with `IsAotCompatible=true`, and JasperFx's CI publishes Native AOT smoke apps on every pull request to keep it that way.
 
 ::: tip Prerequisites
 - .NET 10 SDK
 - An application using `TypeLoadMode.Static` (see [CLI: codegen Command](./cli.md))
-- All Critter Stack packages at the 2026-wave alphas or later (JasperFx 2.0, JasperFx.Events 2.0, Weasel 9.0, Marten 9.0, Wolverine 6.0, Polecat 4.0)
+- Critter Stack packages on the current line: JasperFx 3.x with Weasel 10, Marten 10, Wolverine 7, Polecat 6 or Fisher 2. The 2.x line (Marten 9, Wolverine 6, Polecat 4) supports the same two-phase model
 :::
 
 ## The two-phase model
@@ -195,7 +195,7 @@ Notes:
 
 - Pass sibling *generated* types by name (the `IEnumerable<string>` overload). They do not exist as runtime `Type`s while `codegen write` is running. There are also overloads taking `IEnumerable<Type>` for types that do already exist, and `IEnumerable<AttributeArg>` when you need to mix the two.
 - `[DynamicDependency]` has `AttributeUsage(Constructor | Field | Method)`, so it cannot sit on the class — the method is the only legal home for the block.
-- The companion is **C# only**. The F# compiler does not honor `ModuleInitializerAttribute` (an F# module's `do` bindings initialize lazily and are not an ILC root), so `AddAotRoots` returns `null` and emits nothing when `assembly.TargetLanguage` is `fsharp` rather than emitting rooting that silently does nothing.
+- The companion is **C# only**. The F# compiler does not honor `ModuleInitializerAttribute` (an F# module's `do` bindings initialize lazily and are not an ILC root), so `AddAotRoots` returns `null` and emits nothing when `assembly.TargetLanguage` is `fsharp` rather than emitting rooting that silently does nothing. An assembly assembled on the C# default and then rendered with `GenerateFSharpCode()` leaves the companion out as well (since 3.7.0), because its by-name roots don't compile as F#.
 - `codegen test` compiles each `ICodeFile` into its own in-memory assembly, so a sibling generated type named by another file does not exist there. When `assembly.CompiledInIsolation` is set (only `codegen test` sets it), `AddAotRoots` leaves out the by-name roots that don't resolve to a type of the same assembly; roots to existing `Type`s and to the file's own generated types are kept. That compile is never written to disk, so `codegen write` still emits every root. See [wolverine#4486](https://github.com/JasperFx/wolverine/issues/4486).
 - Deciding *which* types to root is the consuming framework's call — see [jasperfx#743](https://github.com/JasperFx/jasperfx/issues/743) and [wolverine#4287](https://github.com/JasperFx/wolverine/issues/4287).
 
@@ -212,7 +212,6 @@ For a smoke-level confidence check, JasperFx's repo includes [`src/JasperFx.AotS
 
 ## What's annotated vs. AOT-clean
 
-As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 
 ### AOT-clean (no annotation; safe in AOT publishes)
 
@@ -226,7 +225,7 @@ As of JasperFx 2.0.0-alpha.12 and JasperFx.Events 2.0.0-alpha.5:
 - All of `JasperFx.CommandLine` — `CommandFactory`, `CommandExecutor`, `CommandLineHostingExtensions`. The annotations stay because the reflective fallback is still there for assemblies built without `JasperFx.SourceGenerator`; an attribute cannot tell whether the generator ran. With the generator wired in, the command line does run in an AOT binary and the call site can be suppressed: see [Running the command line in an AOT binary](#running-the-command-line-in-an-aot-binary).
 - `TypeRepository` / `AssemblyFinder` / `AssemblyTypes` — assembly scanning is fundamentally trim-hostile. Command discovery and extension/option discovery route around it via the [`DiscoveredCommands`](#source-generated-command-manifest) and [`DiscoveredExtensions`](#source-generated-extension-manifest) manifests.
 - `JasperFx.Core.IoC` convention-based registration (`AssemblyScanner.Scan`, `IRegistrationConvention` impls). AOT consumers use explicit `services.AddSingleton<TService, TImpl>()` registrations.
-- `JasperFx.Core.Reflection.LambdaBuilder` + `ValueTypeInfo` — expression-tree compilation via FastExpressionCompiler. AOT consumers source-generate accessor delegates.
+- `JasperFx.Core.Reflection.LambdaBuilder` + `ValueTypeInfo` — member accessors and value-type wrappers compiled from expression trees with FastExpressionCompiler under the JIT. Where dynamic code isn't supported they fall back to a reflective path instead of failing, so they run in an AOT binary, just more slowly. Projection dispatch doesn't use them at all: it is entirely source-generated (see [Projection Apply Dispatch](./projection-apply-dispatch.md)).
 - `JasperFx.CodeGeneration.GeneratedType` / `GeneratedAssembly` / `MethodCall` — the codegen builder API. Reached only at codegen-write time, not at production startup in Static mode.
 - `OptionsDescription` — diagnostic reflection over runtime types for the `describe` command.
 - `JasperFx.Events.Tags.TagTypeRegistration.Create<TTag>()` (JasperFx.Events 2.90.0+; suppressed before) — discovers a DCB tag's inner type through `ValueTypeInfo` and closes `TagTypeRegistration<,>` with `MakeGenericType`. A store's `RegisterTagType<TTag>()` that calls it carries the warning to your call site; register with an explicit unwrapper through `FromUnwrapper<TTag, TInner>` instead.
@@ -322,17 +321,16 @@ var extensions = GeneratedExtensionManifest
 
 Enable it with the same `JasperFx.SourceGenerator` package reference shown above; no separate package is required.
 
-## Cross-stack AOT story
+## Across the Critter Stack
 
-| Package | AOT status (as of 2026-wave alphas) |
+| Package | AOT posture |
 |---|---|
-| **JasperFx** 2.0.0-alpha.12 | 0 IL warnings; AOT-clean modulo annotated reflective surface |
-| **JasperFx.Events** 2.0.0-alpha.5 | `IsAotCompatible=true`; ~248 propagation-cascade warnings tracked in [#262](https://github.com/JasperFx/jasperfx/issues/262) |
-| **JasperFx.RuntimeCompiler** | Annotated `[RequiresDynamicCode]` + `[RequiresUnreferencedCode]` at the class level — intentionally absent from production publishes |
-| **Weasel** 9.0 | `IsAotCompatible=true` on Weasel.Core; per-area annotation in progress |
-| **Marten** 9.0 | Pre-generation via `dotnet run -- codegen write` + `TypeLoadMode.Static` is the supported AOT path |
-| **Wolverine** 6.0 | Same pattern — pre-generated handlers + Static mode; runtime codegen stays as an opt-in seam, intentionally not replaced by source generators ([per the 2026 plan](https://github.com/JasperFx/jasperfx/issues/217)) |
-| **Polecat** 4.0 | `IsAotCompatible=true`; per-area annotation in progress (issues #71, #72, #73) |
+| **JasperFx**, **JasperFx.Events** | `IsAotCompatible=true`. The reflective surface listed above is annotated, and everything else is AOT-clean |
+| **JasperFx.RuntimeCompiler** | Annotated `[RequiresDynamicCode]` + `[RequiresUnreferencedCode]` at the class level, and intentionally absent from production publishes |
+| **Marten**, **Polecat**, **Fisher** | Pre-generate with `dotnet run -- codegen write` and run in `TypeLoadMode.Static`. Projection dispatch comes from the source generator, so it needs no runtime code generation |
+| **Wolverine** | The same pattern: pre-generated handlers and Static mode. Runtime code generation stays an opt-in seam, deliberately not replaced by source generators |
+
+Check each product's own documentation for its current annotation status.
 
 ## Known limitations
 
@@ -343,9 +341,6 @@ Enable it with the same `JasperFx.SourceGenerator` package reference shown above
 
 ## References
 
-- [Critter Stack 2026 master plan](https://github.com/JasperFx/jasperfx/issues/217)
-- [AOT compliance pillar](https://github.com/JasperFx/jasperfx/issues/213)
-- [Cold-start pillar](https://github.com/JasperFx/jasperfx/issues/212)
 - [CLI: codegen Command](./cli.md) — the dev-time codegen tooling this guide builds on
 - [Migration Guide](../migration-guide.md#aot-publishing) — broader 1.x → 2.0 context for AOT
 - [.NET trim warning reference](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/trim-warnings/) — Microsoft's catalog of IL warning codes

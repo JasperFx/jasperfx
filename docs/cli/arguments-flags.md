@@ -85,6 +85,28 @@ This allows both `--verbose` and `-v` on the command line.
 | `int` | `--flag value` | `--parallel 8` |
 | `Enum` | `--flag value` | `--level Debug` |
 
+Numbers and `TimeSpan` quantities are read with the invariant culture, so the decimal separator is always `.`,
+whatever culture the machine runs in. `--ratio 1.5` means one and a half on a German machine too, where it used to
+read as 15. Dates are the exception: a `DateTime` value is still parsed with the machine's culture, because a local
+date format is a fair thing to type. Command and flag names are matched the same way in every culture as well.
+
+## Flags Every Command Gets
+
+A command whose input derives from `NetCoreInput`, which is every command that builds your host, also takes these:
+
+| Flag | What it does |
+|---|---|
+| `--environment <name>` | Overrides `IHostEnvironment.EnvironmentName` |
+| `--contentRoot <path>` | Overrides `IHostEnvironment.ContentRoot` |
+| `--applicationName <name>` | Overrides `IHostEnvironment.ApplicationName` |
+| `--config:<Key> <value>` | Overrides one configuration item, for example `--config:Database:Port 5433` |
+| `--env-variable` / `-v` `KEY=VALUE` | Sets an environment variable for this process |
+| `--log-level <level>` | Overrides the log level |
+| `--verbose` | Writes much more at startup and turns on console logging |
+
+`--log-level` and `--verbose` win over any `Logging:LogLevel` rules your configuration binds. Before 3.1 a
+configured rule silently overrode them.
+
 ## Description Attribute
 
 Use `[Description]` on properties to provide help text displayed in the CLI:

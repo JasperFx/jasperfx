@@ -1,271 +1,89 @@
-# Projection apply-method dispatch — FEC → SG audit (issue #276)
+# Projection Apply Dispatch
 
-This document enumerates every runtime FastExpressionCompiler (FEC) site in the
-`JasperFx.Events` projection-apply dispatch code path and maps each to the
-matching emit from `JasperFx.Events.SourceGenerator` (SG). Produced as the
-first investigation deliverable for [JasperFx#276](https://github.com/JasperFx/jasperfx/issues/276)
-before any code is removed.
+When you write conventional methods on an aggregate or a projection, something has to turn "an event of type `X` arrived" into a call to your `Apply(X, ...)`. In the Critter Stack, that something is generated C#, written at build time by the source generator that ships inside the `JasperFx.Events` package.
 
-## In scope
+```csharp
+public class Trip
+{
+    public Guid Id { get; set; }
+    public double Traveled { get; set; }
 
-- `src/JasperFx.Events/Aggregation/AggregateApplication.{Register,Applies,Creating,ShouldDelete}.cs`
-- `src/JasperFx.Events/Aggregation/AggregateVersioning.cs`
-- `src/JasperFx.Events/Projections/EventProjectionApplication.cs`
+    public static Trip Create(TripStarted e) => new() { Id = e.TripId };
+    public void Apply(Travel e) => Traveled += e.Distance;
+    public bool ShouldDelete(TripAborted e) => true;
+}
+```
 
-## Out of scope
+The generator reads that type and emits an evolver: a `switch` over the event types that calls `Create`, `Apply` and `ShouldDelete` directly, with no reflection and no expression compilation at runtime. That's the only dispatch path. There is no runtime fallback, so if no generated dispatcher exists for a projection that needs one, the projection is refused when it's registered with `InvalidProjectionException: No source-generated dispatcher found`.
 
-- `src/JasperFx.Events/IEvent.cs:261` — strong-typed-id converter, not projection dispatch.
-- `src/JasperFx.Events/StreamAction.cs:516` — strong-typed-id converter, not projection dispatch.
-- `src/JasperFx.Events/Tags/TagTypeRegistration.cs:39` — value-type wrapper/unwrapper for tag types, not projection dispatch.
-- `src/JasperFx.Events/Internals/MethodSlot.cs:14` — orthogonal slot invocation path.
-- `src/JasperFx.Events/Protected/StreamCompactingRequest.cs:70` — compactor aggregator graph plumbing, not projection dispatch.
+::: info
+Before JasperFx 2.0, conventional methods were found by reflection when a projection was registered and compiled into delegates with FastExpressionCompiler. That path was deleted in 2.0 ([#276](https://github.com/JasperFx/jasperfx/issues/276)), along with the inline-lambda registration APIs (`CreateEvent`, `ProjectEvent`, `Project<TEvent>(handler)` and friends) that only it could serve. If you're coming from Marten 8 or earlier, see the [migration guide](/migration-guide).
+:::
 
-Of these, only the strong-typed-id converters in `IEvent.cs` / `StreamAction.cs`
-are guaranteed to keep the `FastExpressionCompiler` package reference alive
-after #276 lands. The other off-scope sites can be revisited later.
+## What the generator emits
 
-## How the SG plugs into runtime today
-
-The SG emits one of five shapes through `EvolverCodeEmitter`
-(`src/JasperFx.Events.SourceGenerator/EvolverCodeEmitter.cs`):
-
-| Mode | Emits | How runtime picks it up |
+| Your code | What's generated | How the runtime finds it |
 |---|---|---|
-| `PartialProjection` | Standalone `file`-scoped evolver + assembly-level `[GeneratedEvolverAttribute]` carrying the projection type. When its conventional methods live on the projection instance, the evolver takes that projection through its constructor. Falls back to an `Evolve` / `EvolveAsync` / `DetermineActionAsync` override injected into the user's class only when a separate type cannot name the projection at all — it is generic, or not visible from another file. | `tryUseAssemblyRegisteredEvolver(...)` selects the registration and `activateEvolver` builds the evolver, passing `this` when it asks for the projection, so dispatch runs on the registered instance. For the injected-override fallback, `isOverridden(...)` returns `true` first. Either way `_usesConventionalApplication = false` and `AggregateApplication` is never invoked for dispatch. |
-| `SelfAggregating` | Standalone evolver class implementing `IGeneratedSyncEvolver<TDoc,TId>` or `IGeneratedSyncDetermineAction<TDoc,TId>` + an assembly-level `[GeneratedEvolverAttribute]` | `JasperFxAggregationProjectionBase.tryUseAssemblyRegisteredEvolver(...)` activates and binds the evolver. |
-| `SelfAggregatingEvolve` | Standalone evolver class implementing `IGeneratedSyncEvolver<TDoc,TId>` or `IGeneratedAsyncEvolver<TDoc,TId>` + `[GeneratedEvolverAttribute]`. When the type inherits public `Apply` / `Create` / `ShouldDelete` methods from a base class, those event types are routed to the inherited methods first (then to `Evolve` as well when its body names the type, a base type or interface of it, or names no type at all), everything else to `Evolve`, and the inherited event types join `EventTypes`; an inherited `ShouldDelete` makes it `IGeneratedSyncDetermineAction` / `IGeneratedAsyncDetermineAction` (#1241). | Same as above. The bound evolver's `EventTypes` is the aggregate's whole event filter: an empty one (a catch-all `Evolve`) stays empty. |
-| `EventProjection` | Partial `ApplyAsync(TOperations, IEvent, CancellationToken)` override on the user's `JasperFxEventProjectionBase<TOperations>` subclass | The override wins at vtable dispatch. `EventProjectionApplication` is only used when the base `ApplyAsync` is not overridden. |
-| `EventProjectionTypeRegistrationOnly` | Partial constructor that calls `RegisterPublishedType<T>()` for every emitted type | Bookkeeping; does not change dispatch. |
+| A self-aggregating type with `Apply` / `Create` / `ShouldDelete` methods, used through `Snapshot<T>()`, `AggregateStreamAsync<T>()`, a single-stream projection of `T` and the like | A separate, `file`-scoped evolver class implementing `IGeneratedSyncEvolver<TDoc, TId>`, or `IGeneratedSyncDetermineAction<TDoc, TId>` when there's a `ShouldDelete`, registered with an assembly-level `[GeneratedEvolver]` | The projection base class looks up the `[GeneratedEvolver]` registrations in the aggregate's assembly, and the projection's when that differs, and binds the evolver |
+| A self-aggregating type with its own `Evolve` method | The same kind of evolver, built around your `Evolve`, implementing `IGeneratedSyncEvolver` or `IGeneratedAsyncEvolver` | The same |
+| A `SingleStreamProjection` or `MultiStreamProjection` subclass with conventional methods | A separate evolver registered with `[GeneratedEvolver]`. When the methods are instance methods, the evolver takes the registered projection instance through its constructor, so a projection built by your IoC container keeps its dependencies | The same, passing the projection instance to the evolver |
+| An `EventProjection` with `Project`, `Create` or `Transform` methods | An `ApplyAsync` override written into your class, which is why the class has to be `partial` | Ordinary virtual dispatch |
+| An `EventProjection` that writes documents from `ApplyAsync` | A `PublishedTypes()` override that registers each document type it writes, so schema creation and rebuild teardown know about them | Read when the projection is registered |
 
-So the runtime contract is: **if the SG ran against the user's assembly and the
-projection / aggregate class is `partial`, the FEC path in
-`AggregateApplication` / `EventProjectionApplication` is never exercised for
-dispatch.** The FEC path is the fallback for assemblies the SG has not run
-against, or for projection classes that are not `partial`.
+A projection that the separate evolver can't name, because it's generic or nested behind `private` or `protected`, gets its dispatcher written into the class itself instead, as an `Evolve`, `EvolveAsync` or `DetermineActionAsync` override. That's the other case that needs `partial`, on the class and on every type it's nested in.
 
-Issue #276's doctrine for 2.0 flips the contract: SG is the only path, and we
-fail fast at registration when no `[GeneratedEvolver]` is found. The runtime
-classes lose their FEC-built dispatchers entirely.
+If you'd rather write the dispatch yourself, override `Evolve`, `EvolveAsync`, `DetermineAction` or `DetermineActionAsync` (or `ApplyAsync` on an `EventProjection`). Then there's nothing to generate, and no `partial` is needed.
 
-## FEC site audit
+### When `partial` is required
 
-Counts in the brief total 15 distinct `CompileFast()` / `Expression.Compile()`
-call sites across the listed files. Below each is grouped by the shape it
-covers and tagged with how the SG output compares today.
+Most projections do **not** need to be `partial`. Only these do:
 
-### `Aggregation/AggregateApplication.Register.cs` — runtime inline-lambda registration
+- an `EventProjection` with conventional methods, because its dispatcher is an override on your class;
+- a generic projection, or one nested behind `private` or `protected`, along with every containing type.
 
-| # | Site | Shape | SG coverage |
-|---|---|---|---|
-| 1 | [`createEvent` line 53](../../src/JasperFx.Events/Aggregation/AggregateApplication.Register.cs#L53) | Wraps a user-supplied `Func<TEvent, ...>` or `Func<TEvent, TQuerySession, Task<TAggregate>>` registered via `CreateEvent<TEvent>(handler)` | **SG cannot cover.** The handler is a runtime value, not a method on a discoverable type. Replacement is a closure-based dispatcher (no `CompileFast`, just `(_, e, s, t) => handler(...)`), not an SG hookup. |
-| 2 | [`deleteEvent` line 106](../../src/JasperFx.Events/Aggregation/AggregateApplication.Register.cs#L106) | Wraps a user-supplied `Func<...,bool>` / `Func<...,Task<bool>>` registered via `DeleteEvent<TEvent>(handler)` | Same as above — closure rewrite. |
-| 3 | [`projectEvent` line 188](../../src/JasperFx.Events/Aggregation/AggregateApplication.Register.cs#L188) | Wraps a user-supplied apply-style handler registered via `ProjectEvent<TEvent>(handler)` | Same as above — closure rewrite. |
+The build reports `JFXEVT003` when one of those is missing the modifier. A DI-activated projection hasn't needed `partial` since 2.48.0 ([#653](https://github.com/JasperFx/jasperfx/issues/653)). See [Build Diagnostics](/codegen/diagnostics) for every diagnostic the generator reports.
 
-**Gap.** These three sites are inline-lambda registration APIs. The SG is
-compile-time and only sees methods on classes. It cannot emit a dispatcher for
-a lambda the user passes to `ProjectEvent<TEvent>(handler)` at runtime. The
-correct replacement is a closure-based wrapper (cast `IEvent` to
-`IEvent<TEvent>`, read `.Data`, invoke the handler) — slightly slower than the
-FEC-compiled delegate but no runtime codegen. **This needs a doctrine clarification
-on the issue.** Either:
+### Only public members are called
 
-1. Keep the inline-lambda registration API and rewrite these three sites using
-   closures, **not** SG. The PR title's "depend on the source generator
-   instead" is then a half-truth for these three.
-2. Deprecate the inline-lambda registration API in 2.0 and require everything
-   to come through methods on a partial class.
+Generated code calls public `Apply`, `Create`, `ShouldDelete`, `Project` and `Transform` methods, and public single-argument event constructors. A non-public one is skipped, which reflection-based dispatch never did, so the build warns with `JFXEVT009`. Make it public, or mark a helper that only shares the name with `[JasperFxIgnore]`.
 
-### `Aggregation/AggregateApplication.Applies.cs` — discovery-style `Apply` dispatch
+An aggregate's parameterless constructor is the exception. If it's private, protected or internal, the evolver calls it through `[UnsafeAccessor]` (since 3.3.0), so its body and your field initializers run, and the call stays trim and AOT safe. Only an aggregate with no parameterless constructor at all, or a generic or private-nested one the generated file can't name, is created without running one.
 
-| # | Site | Shape | SG coverage |
-|---|---|---|---|
-| 4 | [`determineApplication` line 79](../../src/JasperFx.Events/Aggregation/AggregateApplication.Applies.cs#L79) | Reflects `Apply` method on aggregate/projection by event type and compiles `(snapshot, IEvent, session, ct) -> ValueTask<TAggregate?>` | **Covered.** `EvolverCodeEmitter.EmitEvolveOverride` / `EmitEvolveAsyncOverride` / `EmitDetermineActionAsyncOverride` emit equivalent dispatch for the projection-class case (`PartialProjection`). `EmitSelfAggregatingEvolver` / `EmitSelfAggregatingEvolveEvolver` cover the self-aggregating case. Both paths handle the same parameter shapes (`TEvent`, `IEvent<TEvent>`, `TQuerySession`, `CancellationToken`, `IEvent`). |
+### Inherited methods
 
-### `Aggregation/AggregateApplication.Creating.cs` — `Create` and default-ctor dispatch
+When a self-aggregating type with an `Evolve` method inherits public `Apply`, `Create` or `ShouldDelete` methods from a base class, those event types go to the inherited methods first (and to `Evolve` as well when its body names the type, a base type or interface of it, or no type at all), and everything else goes to `Evolve` (since 3.8.0, [#1241](https://github.com/JasperFx/jasperfx/issues/1241)).
 
-| # | Site | Shape | SG coverage |
-|---|---|---|---|
-| 5 | [`determineCreator` line 77](../../src/JasperFx.Events/Aggregation/AggregateApplication.Creating.cs#L77) | Compiles a `Func<TAggregate>` factory from `TAggregate`'s parameterless ctor when no `Create` method exists | **Covered.** The SG-emitted `EmitNullSnapshotCases` / `EmitNullSnapshotCasesAsync` produce `snapshot = new TAggregate()` directly in the switch arm. |
-| 6 | [`determineCreator` line 90](../../src/JasperFx.Events/Aggregation/AggregateApplication.Creating.cs#L90) | Compiles an `Apply` lambda used as a "create from default + apply event" path when no explicit `Create` exists | **Covered** — same SG emit path, the `new TAggregate()` is followed by the same `Apply` call the regular apply path emits. |
-| 7 | [`determineCreator` line 119](../../src/JasperFx.Events/Aggregation/AggregateApplication.Creating.cs#L119) | Reflects `Create` method (instance or static, on aggregate or projection) and compiles `(IEvent, session, ct) -> ValueTask<TAggregate>` | **Covered.** `EmitCreateCall` / `EmitCreateCallSync` / `EmitSelfAggregatingCreateCall` cover instance and static methods on both aggregate and projection classes, sync and async, with/without `TQuerySession`, with/without `CancellationToken`. |
+## Which events an aggregate fetches
 
-### `Aggregation/AggregateApplication.ShouldDelete.cs` — `ShouldDelete` dispatch
+Every evolver carries an `EventTypes` filter, and the store only fetches those events for the aggregate. With conventional methods it's simply the event types your methods take.
 
-| # | Site | Shape | SG coverage |
-|---|---|---|---|
-| 8 | [`tryBuildShouldDelete` line 19](../../src/JasperFx.Events/Aggregation/AggregateApplication.ShouldDelete.cs#L19) | Reflects `ShouldDelete` method by event type and compiles `(snapshot, IEvent, session, ct) -> ValueTask<bool>` | **Covered.** `EmitDetermineActionAsyncOverride` + `EmitShouldDeleteCall` produce the same boolean dispatch as part of the `DetermineActionAsync` switch. SG only fires this path when the projection class itself has `ShouldDelete` methods on the aggregate type; the projection-class case routes through `PartialProjection` and works identically. |
+For an `Evolve` method, the generator reads the method body. Every type it matches on counts: a declaration pattern (`case Foo foo:`), a bare type pattern (`case Foo:` or a `Foo =>` switch arm), a `case Foo when ...:` clause, and each type inside an `or` or parenthesized pattern. A `not Foo` pattern is skipped. Before 3.9.0 only declaration patterns counted, so events matched any other way were never fetched ([#1243](https://github.com/JasperFx/jasperfx/issues/1243)). A body that names no type at all leaves the filter empty, which means every event.
 
-### `Aggregation/AggregateVersioning.cs` — version-property setter
+## Telling "the generator never ran" from "the generator declined your type"
 
-| # | Site | Shape | SG coverage |
-|---|---|---|---|
-| 9 | [`buildAction` line 116](../../src/JasperFx.Events/Aggregation/AggregateVersioning.cs#L116) | Compiles `Action<T, IEvent>` that sets the aggregate's `Version` property/field from `IEvent.Version` (single-stream) or `IEvent.Sequence` (multi-stream), with a `Convert.ToInt32` on `int` members | **Gap.** The SG does not emit a version-setter at all today. The dispatch is on a property/field, not on a method, so it's a fundamentally different emitter shape from anything in `EvolverCodeEmitter`. Two options: (a) a new SG mode `EmitVersionSetter` that emits an `IGeneratedVersionSetter<T>` and a `[GeneratedEvolverAttribute]`-style assembly registration; (b) rewrite this site to use `PropertyInfo.SetValue` / `FieldInfo.SetValue` (reflective, no runtime codegen — `IL3050` clean even without SG). Option (b) is simpler and the perf cost is small because `TrySetVersion` is called once per aggregate per slice, not per event. |
+`No source-generated dispatcher found` has two very different causes: the generator never ran against your assembly (a build configuration problem), or it ran and couldn't generate for your type (a code problem). The error message tells you which.
 
-### `Projections/EventProjectionApplication.cs` — `EventProjection` dispatch
+The generator writes `[assembly: JasperFxSourceGeneratorApplied]` into every compilation it's attached to, whether or not it found anything to generate, and the runtime reads it back from the aggregate's assembly and the projection's:
 
-| # | Site | Shape | SG coverage |
-|---|---|---|---|
-| 10 | [`buildApplication` line 145](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L145) | `ValueTask`-returning `Project` method | **Covered.** `EmitEventProjectionApplyAsync` emits `case TEvent data: await Project(args); break;` with `IsAsync` and parameter-shape detection. |
-| 11 | [`buildApplication` line 152](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L152) | `Task`-returning `Project` method | **Covered** — same SG emit path. |
-| 12 | [`buildApplication` line 157](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L157) | `void`-returning `Project` method | **Covered** — same SG emit path. |
-| 13 | [`CreatorBuilder<T>.Build` line 357](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L357) | Synchronous `Create` / `Transform` returning `T` | **Covered.** `EmitEventProjectionCreateCall` emits `storeEntity(operations, Create(args));`. |
-| 14 | [`CreatorBuilder<T>.Build` line 370](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L370) | `ValueTask<T>`-returning `Create` / `Transform` | **Covered** — same SG emit path with `await`. |
-| 15 | [`CreatorBuilder<T>.Build` line 380](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L380) | `Task<T>`-returning `Create` / `Transform` | **Covered** — same SG emit path with `await`. |
-| 16 | [`projectEvent` line 282 / 290 / 297](../../src/JasperFx.Events/Projections/EventProjectionApplication.cs#L282) | Inline-lambda registration via `Project<TEvent>(handler)` / `ProjectAsync<TEvent>(handler)` | **SG cannot cover** — same situation as the Register.cs sites above. Closure rewrite required. |
+| The assembly carries | What the message tells you |
+|---|---|
+| `[JasperFxSourceGeneratorApplied]` | The generator ran and declined your type. It names the `partial` rules and `JFXEVT003`. |
+| `[GeneratedEvolver]` but no marker | The same conclusion. An older generator, from before the marker, ran. |
+| Neither | The generator most likely never ran here. It points at `ExcludeAssets="analyzers"` and `PrivateAssets="all"` on the package reference. |
 
-(The brief's "× 6" count for `EventProjectionApplication.cs` rolls up to the seven distinct
-`CompileFast()` calls grouped by intent; the three sync/Task/ValueTask cases in `buildApplication`,
-the three return-shape cases in `CreatorBuilder<T>.Build`, and the lambda registration. Audit
-keeps them split because they map to different SG emit decisions.)
+The typical way to end up with no generator: a library references Marten with `PrivateAssets="all"`, and a test project references that library and declares the aggregates. That builds with no warnings and no evolvers ([marten#5495](https://github.com/JasperFx/marten/issues/5495)).
 
-## Coverage summary
-
-| Bucket | Sites | SG already covers | Gap |
-|---|---|---|---|
-| Method-discovery `Apply` / `Create` / `ShouldDelete` on aggregate or projection (Aggregation) | 5 | 5 | 0 |
-| `EventProjection` `Project` / `Create` / `Transform` method discovery | 6 | 6 | 0 |
-| Inline-lambda registration (`CreateEvent` / `DeleteEvent` / `ProjectEvent` / `Project`) | 4 | 0 | 4 — needs closure-based rewrite |
-| `Version` member setter | 1 | 0 | 1 — needs new SG emitter, or reflective fallback |
-
-**11 of 16 sites** are direct equivalents to existing SG output. **4 sites**
-(inline-lambda registration in `Register.cs` + the `projectEvent` lambda in
-`EventProjectionApplication.cs`) cannot be replaced by SG by design — the
-handler is a runtime closure, not a discoverable method. **1 site**
-(`AggregateVersioning`) is not covered by SG today and would need either a new
-emit shape or a reflective rewrite.
-
-## Decisions (resolved and applied)
-
-1. **Inline-lambda registration removed in this PR (folds in #286).** The
-   `CreateEvent` / `DeleteEvent` / `ProjectEvent` / `Project<TEvent>(handler)` /
-   `ProjectAsync<TEvent>(handler)` APIs are deleted from the JasperFx.Events
-   public surface. Marten 9.0 migration advice is tracked at
-   [JasperFx/marten#4467](https://github.com/JasperFx/marten/issues/4467).
-2. **`AggregateVersioning` routes through `LambdaBuilder`, which is now
-   AOT-aware.** `LambdaBuilder.{Setter, Getter, GetProperty, SetProperty,
-   GetField, SetField}` branch on `RuntimeFeature.IsDynamicCodeSupported`:
-   FEC under a JIT runtime (same perf as before), reflective `PropertyInfo.SetValue`
-   / `FieldInfo.SetValue` under NativeAOT (correct, no crash). The
-   class-level `IL2026` suppression on `AggregateVersioning.cs` stays
-   because the JIT branch still uses FEC; `IL3050` is no longer needed at
-   the call site because the dynamic-code requirement moved to the private
-   `LambdaBuilder.Compiled*` helpers.
-3. **`partial` is required only on `EventProjection` /
-   `SingleStreamProjection` / `MultiStreamProjection` types that use
-   conventional methods.** Types that do not use conventional methods
-   (e.g. those that override `ApplyAsync` or `Evolve*` directly) do not need
-   to be `partial`. The fail-fast exception message at registration spells
-   out this narrower condition.
-
-   > Narrowed again since. Moving the aggregation dispatcher to a file-scoped
-   > evolver (#462) removed the requirement for `SingleStreamProjection` /
-   > `MultiStreamProjection` subclasses as well — it survives only where the
-   > dispatcher still has to be written into the user's class: an
-   > `EventProjection`, a projection dispatching on a DI-built instance
-   > (marten#4787), and generic or non-visible projections. Reported as
-   > `JFXEVT003` at build time.
-
-## What shipped in #276
-
-| Action | Files | Notes |
-|---|---|---|
-| **AOT-aware `LambdaBuilder`** | `src/JasperFx/Core/Reflection/LambdaBuilder.cs` | Every public accessor (`Getter`/`Setter`/`GetProperty`/`SetProperty`/`GetField`/`SetField`) branches on `RuntimeFeature.IsDynamicCodeSupported`. JIT runtime: FEC. NativeAOT: reflective `GetValue`/`SetValue`. `[RequiresDynamicCode]` moves to the private `Compiled*` helpers. |
-| **`AggregateVersioning` routed through `LambdaBuilder`** | `src/JasperFx.Events/Aggregation/AggregateVersioning.cs` | Site #9. Picks up the AOT-aware behaviour automatically. |
-| **Inline-lambda APIs removed** (folds in #286) | `AggregateApplication.Register.cs` (deleted), `IAggregationSteps.cs` trimmed to `DeleteEvent<TEvent>()`/`TransformsEvent<TEvent>()`, `JasperFxAggregationProjectionBase.AggregationSteps.cs` matching trim, `EventProjectionApplication` `Project<T>`/`ProjectAsync<T>`/`projectEvent` deleted, `JasperFxEventProjectionBase` `Project<T>`/`ProjectAsync<T>` wrappers deleted | Sites #1, #2, #3, #16. |
-| **FEC method-discovery dispatch deleted** | `AggregateApplication.Applies.cs`, `AggregateApplication.Creating.cs`, `AggregateApplication.ShouldDelete.cs` (all deleted); `AggregateApplication.cs` rewritten as validity-only. `EventProjectionApplication.cs` FEC paths (`determineApplication` / `buildApplication` / `buildCreator` / `CreatorBuilder<T>`) deleted; class trimmed to validity-only. | Sites #4–#8, #10–#15. Hot-path dispatch is now exclusively the source-generated `Evolve` / `EvolveAsync` / `DetermineActionAsync` / `ApplyAsync` override on the user's partial projection class. |
-| **Class-level FEC suppressions dropped** | `AggregateApplication.cs`, `EventProjectionApplication.cs` | `IL2026` / `IL3050` suppressions on these classes are gone because their FEC paths are gone. `AggregateVersioning.cs` keeps `IL2026` because the JIT branch of `LambdaBuilder` still uses FEC internally. |
-| **`[GeneratedCodeAttribute]` on partial-projection overrides** | `src/JasperFx.Events.SourceGenerator/EvolverCodeEmitter.cs` (`EmitEvolveOverride`, `EmitEvolveAsyncOverride`, `EmitDetermineActionAsyncOverride`) | Matches what `EventProjection` mode already does. Runtime uses this to distinguish source-generated dispatch from user-authored overrides in `AssembleAndAssertValidity`. |
-| **Fail-fast at registration** | `JasperFxAggregationProjectionBase.AssembleAndAssertValidity`, `JasperFxEventProjectionBase.AssembleAndAssertValidity` | Throws when a `Single/Multi/Event` projection has conventional methods declared but no source-generated dispatcher is in place. Error names the type, points at `JasperFx.Events.SourceGenerator`, and notes that the projection class must be `partial`. Source-generated override + conventional methods is the supported pairing; user override + source-generated override is rejected as a configuration conflict. |
-| **Runtime backstop** | `JasperFxAggregationProjectionBase.Runtime.cs` virtual `EvolveAsync` body; `EventProjectionApplication.ApplyAsync` body; `AggregateApplication.BuildAsync` body | All throw the same fail-fast message. Hot-path SG override always wins at vtable dispatch; these bodies are only reached if a projection is exercised outside the registration flow that runs the fail-fast. |
-| **Test-suite cascade** | `EventTests.csproj` references the SG as an analyzer; conventional-method fixtures are `partial`; `LambdaEventProjection` / `InlineProjection` fixtures deleted; `AggregateApplicationTests.cs` deleted (it tested the now-gone FEC dispatch surface); colliding `EventTests.EventTests` class renamed to `EventBasicsTests` so the SG resolves `EventTests.Projections.*` correctly. |
-| **Version bump** | `JasperFx.Events.csproj` 2.0.0-alpha.10 → 2.0.0-alpha.11, `JasperFx.Events.SourceGenerator.csproj` 2.0.0-alpha.2 → 2.0.0-alpha.3 |
-
-## What stays on FEC after #276 lands
-
-- `AggregateVersioning` — version-property setter via `LambdaBuilder`,
-  which uses FEC on JIT and reflection on AOT.
-- `IEvent.cs` line 261, `StreamAction.cs` line 516 — strong-typed-id
-  converters, out of scope for #276. Both `[RequiresDynamicCode]`
-  unchanged.
-- `Tags/TagTypeRegistration.cs`, `Internals/MethodSlot.cs`,
-  `Protected/StreamCompactingRequest.cs` — orthogonal sites, not projection
-  dispatch. Could be made AOT-aware in a follow-up.
-
-The `FastExpressionCompiler` package reference stays as long as any of these
-sites do. It is not dropped under #276.
-
-## Known follow-up: source generator should emit `global::` prefixes
-
-Tracked at [JasperFx/jasperfx#288](https://github.com/JasperFx/jasperfx/issues/288).
-While porting the EventTests suite to the source-generator path, the generator
-produced uncompilable code in the presence of a same-named class shadowing a
-namespace lookup (e.g. a `class EventTests` inside `namespace EventTests`
-collides with the parent namespace when the generated file is inside
-`namespace EventTests.Projections;`). The pragmatic fix in this PR was to
-rename the colliding test class. A proper fix — making
-`EvolverCodeEmitter.ToDisplayString()` call sites consistently use
-`SymbolDisplayFormat.FullyQualifiedFormat` so generated output uses
-`global::` prefixes everywhere — is tracked separately.
-
-## Telling "the generator never ran" from "the generator declined your type" (#887)
-
-The runtime contract above — *if the SG ran, a dispatcher exists; if it did not, none
-does* — used to be unobservable in the failing direction. The generator emitted source
-only when it found a candidate, so an assembly it processed and an assembly it never saw
-were indistinguishable: both simply have no `[GeneratedEvolver]`. That is why
-`MissingDispatcherMessage()` had to describe a csproj problem and a code-shape problem in
-one paragraph, asserting neither.
-
-Since [#887](https://github.com/JasperFx/jasperfx/issues/887) the generator emits
-`[assembly: JasperFxSourceGeneratorApplied]` into **every** compilation it is attached to,
-candidates or not, and `SourceGeneratorMarker` reads it back:
-
-| Evidence | What the assembly carries | What the message says |
-|---|---|---|
-| `Confirmed` | `[JasperFxSourceGeneratorApplied]` | The generator ran and declined this type — a code-shape problem. Names the `partial` rules and `JFXEVT003`. |
-| `OlderGenerator` | `[GeneratedEvolver]` but no marker | Same conclusion: a generator did run, one older than the marker. |
-| `Unconfirmed` | Neither | The generator most likely never ran here — a build-configuration problem. Names `ExcludeAssets="analyzers"` / `PrivateAssets="all"`, and says how to rule out the older-generator case rather than claiming more than it knows. |
-
-Both assemblies the runtime actually scans are asked — the aggregate's, and the
-projection's when it differs — because a projection-specific evolver is emitted into the
-projection's assembly (`collectGeneratedEvolverAttributes`).
-
-Two implementation constraints are worth keeping in mind when touching this:
-
-- The marker is emitted from a `CompilationProvider.Select(...)` output, **not** from
-  `RegisterPostInitializationOutput`. Post-initialization cannot see the compilation, and the
-  analyzer package is analyzer-only with no declared dependency — so a project can carry the
-  analyzer without referencing `JasperFx.Events` at all, and an unconditional assembly
-  attribute would turn that build from "compiles, silently ungenerated" into `CS0246`.
-  Selecting down to a `bool` keeps the output incremental while staying independent of the
-  candidate pipelines, which is the property the marker needs.
-- `JasperFxSourceGeneratorAppliedAttribute` sets `AllowMultiple = true`, because the analyzer
-  can be loaded twice over one compilation (#462) and a second application of a single-use
-  assembly attribute is `CS0579`.
-
-The silent topology that motivated all of this — a library referencing Marten with
-`PrivateAssets="all"`, a test project referencing the library and declaring the aggregates —
-still builds with 0 warnings and 0 generated evolvers ([marten#5495](https://github.com/JasperFx/marten/issues/5495)).
-The marker does not fix that build; it makes the eventual runtime failure say which of the
-two problems the reader has.
-
-Since #892 there is also a build-time answer, opt-in per project:
+To catch that at build time instead, opt in per project:
 
 ```xml
 <JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>
 ```
 
-fails the build with `JFXEVT900` when no `JasperFx.Events.SourceGenerator` analyzer is
-attached to that project. It is opt-in because nothing in MSBuild can tell a project that
-*should* have the generator from one with no aggregates at all — and because "analyzer flow
-suppressed" is not by itself evidence of a mistake: Marten's own build suppresses the
-analyzer package's assets deliberately, bundling the dll instead. That is the finding that
-argued #894 out of being a default warning.
+The build then fails with `JFXEVT900` when no `JasperFx.Events.SourceGenerator` analyzer is attached to the project. It's opt-in because MSBuild can't tell a project that should have the generator from one with no aggregates at all, and because "the analyzer asset is suppressed" isn't proof of a mistake: some builds bundle the generator deliberately instead.
 
-## Inferring a handler's emitted events (#990)
+## The emitted-events manifest
 
-Since [#990](https://github.com/JasperFx/jasperfx/issues/990) the generator also records which
-events each handler method appends, read from its body, as an assembly-level manifest:
+The generator also records which events each handler method appends, read from the method body, as an assembly-level manifest that Wolverine reads:
 
 ```csharp
 [assembly: JasperFx.Events.EmittedEvents(typeof(AcceptHomeCheckAssignmentHandler), "Handle",
@@ -273,32 +91,11 @@ events each handler method appends, read from its body, as an assembly-level man
     ParameterTypes = new System.Type[] { typeof(AcceptHomeCheckAssignment), typeof(IEventStream<HomeCheck>) })]
 ```
 
-Each overload of a method name gets its own entry, told apart by `ParameterTypes`
-([#1021](https://github.com/JasperFx/jasperfx/issues/1021)), so one handler class with a `Handle`
-per command doesn't credit every command with every overload's events. An overload whose
-parameter types can't all be named by a `typeof` at assembly scope (a private nested type, a
-`file`-local type, a `ref` or `out` parameter) is recorded without `ParameterTypes`, and those
-entries merge by name as every overload did before. A consumer matches the entries whose
-`ParameterTypes` equal the method's parameter types and, only when there are none, the entries
-with no `ParameterTypes`.
+- A method is a candidate when a parameter is an `IEventStream<T>`, a parameter carries an `IRefersToAggregate` attribute (like Wolverine's `[WriteAggregate]`, `[WriteModel]` or `[DcbModel]`), or the return type, or a tuple element of it through `Task<T>` / `ValueTask<T>`, implements `ICarriesEvents`.
+- Events are read from `AppendOne` / `AppendMany` on an `IEventStream<T>`, from the arguments of a constructor or factory returning an `ICarriesEvents` type, and from `Add` (or a collection initializer) on one. Only `object`-typed parameter slots count, so a stream id beside them is never mistaken for an event.
+- Each overload gets its own entry, told apart by `ParameterTypes` ([#1021](https://github.com/JasperFx/jasperfx/issues/1021)). An overload whose parameter types can't be named by `typeof` at assembly scope is recorded without them.
+- An event whose static type is `object` can't be inferred and is skipped. The manifest is a lower bound, and Wolverine's explicit `[Emits]` is the override.
 
-It keys off JasperFx.Events types only, so the generator needs nothing from Wolverine:
+## Where FastExpressionCompiler is still used
 
-- A method is a candidate when a parameter is an `IEventStream<T>`, a parameter carries an
-  `IRefersToAggregate` attribute, or the return type (or a tuple element, through
-  `Task<T>` / `ValueTask<T>`) implements the `ICarriesEvents` marker.
-- Events are read from `AppendOne` / `AppendMany` on an `IEventStream<T>`, from the arguments
-  of a constructor or factory returning an `ICarriesEvents` type, and from `Add` (or a
-  collection initializer) on one. Only `object`-typed parameter slots count as events, so a
-  `Guid` or `string` stream id beside them is never mistaken for one.
-- An event whose static type is `object` can't be inferred and is skipped silently. The
-  manifest is a lower bound, and an explicit `[Emits]` remains the override.
-
-Reading the manifest belongs to the consumer (Wolverine). Like the marker above, it is emitted
-only when the compilation can see `EmittedEventsAttribute`, and the attribute allows
-multiple applications for the double-load case.
-
-The same issue fixed pass 2's syntax filter, which let a method through only when a parameter
-attribute had "Aggregate" in its name. Wolverine's `[WriteModel]` / `[ReadModel]` /
-`[DcbModel]` implement `IRefersToAggregate` but never reached the semantic check. The filter
-now admits any attributed parameter, and the marker check decides.
+Not for projections. JasperFx still compiles a few expression trees with FastExpressionCompiler under the JIT. Member accessors (`LambdaBuilder`, which also sets an aggregate's `Version`), strong-typed identifier wrappers (`ValueTypeInfo`, `StrongTypedIdResolver`) and message publishing check `RuntimeFeature.IsDynamicCodeSupported` and take a non-compiling path in a Native AOT binary. The rest, such as discovering a DCB tag type's inner value with `TagTypeRegistration.Create<TTag>()`, are annotated `[RequiresDynamicCode]` so the AOT publish warns about them. See [Publishing AOT](/codegen/aot) for the list and the alternatives.

@@ -59,6 +59,7 @@ export default withMermaid(
           text: 'Event Sourcing',
           collapsed: false,
           items: [
+            { text: 'Event Store Abstractions', link: '/events/' },
             { text: 'Unit Testing Handlers', link: '/events/unit-testing-handlers' },
             { text: 'Parking a Failing Identity', link: '/events/parked-identities' }
           ]
@@ -75,7 +76,8 @@ export default withMermaid(
             { text: 'Built-in Frames', link: '/codegen/built-in-frames' },
             { text: 'CLI: codegen Command', link: '/codegen/cli' },
             { text: 'Pre-generating Codegen in Docker', link: '/codegen/docker' },
-            { text: 'Publishing AOT', link: '/codegen/aot' }
+            { text: 'Publishing AOT', link: '/codegen/aot' },
+            { text: 'Build Diagnostics', link: '/codegen/diagnostics' }
           ]
         },
         {

@@ -27,8 +27,8 @@ Add the package to your Aspire **AppHost** project (not the service itself):
 dotnet add package JasperFx.Aspire
 ```
 
-`JasperFx.Aspire` targets .NET 10 and requires .NET Aspire 9.2 or later (built and tested against
-Aspire 13.x).
+`JasperFx.Aspire` 3.x targets .NET 10 and .NET 11 and is built against `Aspire.Hosting` 13.6.5, so your
+AppHost moves to at least that version with it.
 
 ## Basic usage
 
