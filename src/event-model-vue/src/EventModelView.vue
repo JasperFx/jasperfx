@@ -94,6 +94,15 @@ const props = withDefaults(
      * claims; `sticky` keeps the old separate hotspot card. Findings stay stickies either way.
      */
     disagreementPresentation?: DisagreementPresentation
+    /**
+     * What a slice header SAYS, when that differs from the slice's name.
+     *
+     * A slice's `name` is its key everywhere in this package: collapse, outcomes, focus, links. A host
+     * drawing several applications on one canvas qualifies the names to keep them unique, since two
+     * services may each have a `PlaceOrder`, and then wants the header to read `PlaceOrder` again under
+     * a band that names the service. Absent, the header reads the name, exactly as before.
+     */
+    sliceLabel?: (slice: EventModelSliceDescriptor) => string
   }>(),
   {
     descriptor: null,
@@ -103,9 +112,26 @@ const props = withDefaults(
     filterable: true,
     minimap: true,
     initialViewport: null,
-    disagreementPresentation: 'badge'
+    disagreementPresentation: 'badge',
+    sliceLabel: undefined
   }
 )
+
+defineSlots<{
+  /**
+   * A badge on a card, for a host that has something to say about what the card
+   * shows: a reading, an alert. Rendered inside the card, in its bottom-right corner, so it moves and
+   * dims with the card. The card is a button, so the content must not be interactive: a click on a
+   * badge is a click on its card, which is the page the badge is about. A `title` on the content
+   * shows, since the badge takes the pointer. Nothing is drawn where the
+   * host renders nothing, so a host that never uses the slot (Bobcat) renders exactly as before.
+   */
+  'card-badge'?(props: {
+    element: EventModelElement
+    slice: EventModelSliceDescriptor
+    sliceName: string
+  }): unknown
+}>()
 
 const emit = defineEmits<{
   'element-click': [element: EventModelElement]
@@ -816,7 +842,17 @@ function routeFor(element: EventModelElement) {
  * expects it. The name itself is untouched; this is only how it is drawn.
  */
 function sliceRouteFor(slice: EventModelSliceDescriptor) {
-  return parseRoute(slice.name)
+  return parseRoute(labelOf(slice))
+}
+
+/** What the header says: the host's label, else the name. */
+function labelOf(slice: EventModelSliceDescriptor): string {
+  return props.sliceLabel?.(slice) || slice.name
+}
+
+/** The slice a card belongs to, for the badge slot. */
+function sliceOf(node: { sliceName: string }): EventModelSliceDescriptor | undefined {
+  return graph.value.slices.find((s) => s.name === node.sliceName)?.descriptor
 }
 
 /**
@@ -1190,7 +1226,7 @@ function outcomeFor(sliceName: string): string | null {
                   class="em-slice-collapse"
                   :data-collapsed="slice.collapsed ? 'true' : undefined"
                   :aria-expanded="slice.collapsed ? 'false' : 'true'"
-                  :title="slice.collapsed ? `Expand ${slice.name}` : `Collapse ${slice.name}`"
+                  :title="slice.collapsed ? `Expand ${labelOf(slice.descriptor)}` : `Collapse ${labelOf(slice.descriptor)}`"
                   @click.stop="toggleCollapsed(slice.name)"
                 >
                   {{ slice.collapsed ? '›' : '‹' }}
@@ -1206,7 +1242,7 @@ function outcomeFor(sliceName: string): string | null {
                   type="button"
                   class="em-slice-focus"
                   :data-focused="focus?.kind === 'slice' && focus.name === slice.name ? 'true' : undefined"
-                  :title="`Focus ${slice.name} and its neighbours`"
+                  :title="`Focus ${labelOf(slice.descriptor)} and its neighbours`"
                   @click.stop="focusOn({ kind: 'slice', name: slice.name })"
                 >
                   ⌖
@@ -1226,7 +1262,7 @@ function outcomeFor(sliceName: string): string | null {
                 <button
                   class="em-slice-name"
                   type="button"
-                  :title="slice.name"
+                  :title="labelOf(slice.descriptor)"
                   @click="selectSlice(slice.descriptor)"
                 >
                   <template v-if="sliceRouteFor(slice.descriptor)"
@@ -1235,7 +1271,7 @@ function outcomeFor(sliceName: string): string | null {
                     }}</span
                     >{{ sliceRouteFor(slice.descriptor)!.path }}</template
                   >
-                  <template v-else>{{ slice.name }}</template>
+                  <template v-else>{{ labelOf(slice.descriptor) }}</template>
                 </button>
                 <!-- bobcat#183 — the bound-specification count, verdict-tinted where the host gave
                      run evidence. `no spec` is deliberately spelled out rather than shown as 0: it is
@@ -1373,6 +1409,16 @@ function outcomeFor(sliceName: string): string | null {
                 :data-count="cardDisagreements(node).length"
                 aria-hidden="true"
               />
+              <span
+                v-if="$slots['card-badge'] && sliceOf(node)"
+                class="em-card-badge"
+                data-testid="card-badge"
+              ><slot
+                name="card-badge"
+                :element="node.element"
+                :slice="sliceOf(node)!"
+                :slice-name="node.sliceName"
+              /></span>
               <span v-if="hotspotFor(node)" class="em-hotspot">
                 <span class="em-hotspot-origin">{{ originLabelFor(hotspotFor(node)!) }}</span>
                 <template v-if="claimsFor(hotspotFor(node)!)">
@@ -1854,6 +1900,24 @@ function outcomeFor(sliceName: string): string | null {
   opacity: 0.9;
 }
 
+/* The host's badge, bottom right: the origin chevron holds the top left and a disagreement the top
+   right. It takes the pointer so its own tooltip shows; a click on it still reaches the card, because
+   it is inside the card's button. */
+.em-card-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.em-card-badge:empty {
+  display: none;
+}
 /* The origin chevron. Top-left of the card, small, and quiet until hovered — it is a navigation
    affordance on a card whose subject is its own label. */
 .em-origin {
