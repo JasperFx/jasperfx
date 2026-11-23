@@ -868,7 +868,15 @@ public interface IRestOfTheContract : IEventStoreOperations
     Task<IEventStream<T>> IEventStoreOperations.FetchForWriting<T, TId>(TId id, CancellationToken cancellation)
         => throw NotPartOfTheBase;
 
+    Task<IEventStream<T>> IEventStoreOperations.FetchForWriting<T, TId>(TId id, long expectedVersion,
+        CancellationToken cancellation)
+        => throw NotPartOfTheBase;
+
     Task<IEventStream<T>> IEventStoreOperations.FetchForExclusiveWriting<T, TId>(TId id, CancellationToken cancellation)
+        => throw NotPartOfTheBase;
+
+    Task<IReadOnlyList<IEventStream<T>>> IEventStoreOperations.FetchManyForWriting<T, TId>(IReadOnlyList<TId> ids,
+        CancellationToken cancellation)
         => throw NotPartOfTheBase;
 
     ValueTask<T?> IEventStoreOperations.FetchLatest<T>(Guid id, CancellationToken cancellation) where T : class

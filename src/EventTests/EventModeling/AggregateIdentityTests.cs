@@ -307,6 +307,7 @@ namespace EventTests.EventModeling.Identities
             public Type[] AllEventTypes => [typeof(OrderPlaced)];
             public AsyncOptions Options { get; } = new();
             public NaturalKeyDefinition? NaturalKeyDefinition => null;
+            public NaturalKeyDefinition[] MappedNaturalKeyDefinitions => [];
         }
     }
 }

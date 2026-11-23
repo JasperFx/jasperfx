@@ -99,9 +99,35 @@ public partial class InMemoryEventOperations
         };
 
     /// <inheritdoc />
+    public Task<IEventStream<T>> FetchForWriting<T, TId>(TId id, long expectedVersion,
+        CancellationToken cancellation = default)
+        where T : class where TId : notnull
+        => unwrap<T, TId>(id) switch
+        {
+            Guid guid => FetchForWriting<T>(guid, expectedVersion, cancellation),
+            var key => FetchForWriting<T>((string)key, expectedVersion, cancellation)
+        };
+
+    /// <inheritdoc />
     public Task<IEventStream<T>> FetchForExclusiveWriting<T, TId>(TId id, CancellationToken cancellation = default)
         where T : class where TId : notnull
         => FetchForWriting<T, TId>(id, cancellation);
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<IEventStream<T>>> FetchManyForWriting<T, TId>(IReadOnlyList<TId> ids,
+        CancellationToken cancellation = default) where T : class where TId : notnull
+    {
+        IEventStoreOperations.AssertFetchableIds(ids, nameof(ids));
+
+        // Nothing is gained by batching in memory, so one fetch per id, in order
+        var streams = new IEventStream<T>[ids.Count];
+        for (var i = 0; i < ids.Count; i++)
+        {
+            streams[i] = await FetchForWriting<T, TId>(ids[i], cancellation).ConfigureAwait(false);
+        }
+
+        return streams;
+    }
 
     private async Task<IEventStream<T>> fetchForWritingAsync<T>(object streamId, long? expectedVersion,
         CancellationToken token) where T : class

@@ -281,7 +281,15 @@ public class AggregateWriteCacheSession
                 // stored costs one uncached fetch.
             }
 
-            OnPublished(key);
+            try
+            {
+                OnPublished(key, write.Aggregate);
+            }
+            catch (Exception)
+            {
+                // Same reasoning as the cache above: the commit has happened, so a store's own bookkeeping
+                // failing here must not turn it into a SaveChangesAsync that reports failure and is retried.
+            }
         }
     }
 
@@ -292,8 +300,21 @@ public class AggregateWriteCacheSession
     /// The seam for a session to give up its own handle on the instance. Polecat evicts it from its
     /// aggregate identity map here, because otherwise the instance is reachable both from the cache,
     /// where another session may claim it, and from a session that may fold onto it. Marten's identity
-    /// map has the same exposure.
+    /// map has the same exposure. It is also where a store indexes the aggregate by anything other than
+    /// its stream id: Marten points the aggregate's natural keys at the stream here.
     /// </remarks>
+    /// <param name="key">The stream's key, carrying its tenant.</param>
+    /// <param name="aggregate">The instance written back, which is the one the commit left the stream at.</param>
+    protected virtual void OnPublished(AggregateCacheKey key, object aggregate)
+    {
+        OnPublished(key);
+    }
+
+    /// <summary>
+    /// The form of <see cref="OnPublished(AggregateCacheKey, object)" /> without the aggregate, which that one
+    /// calls unless it is overridden. Kept so a store compiled against an older JasperFx still loads and
+    /// still has its override called; override the other form in new code.
+    /// </summary>
     protected virtual void OnPublished(AggregateCacheKey key)
     {
     }

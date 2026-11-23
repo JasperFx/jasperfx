@@ -31,6 +31,9 @@ public class EventStoreOperationsDefaultsTests
     {
         public readonly List<string> Fetched = new();
 
+        /// <summary>The starting version of every stream the proxy hands back; null is a new stream.</summary>
+        public long? StartingVersion { get; set; }
+
         public void Intercept(IInvocation invocation)
         {
             if (invocation.Method.Name == nameof(IEventStoreOperations.FetchForWriting)
@@ -41,6 +44,7 @@ public class EventStoreOperationsDefaultsTests
 
                 var stream = Substitute.For<IEventStream<Account>>();
                 stream.Key.Returns(identity);
+                stream.StartingVersion.Returns(StartingVersion);
                 invocation.ReturnValue = Task.FromResult(stream);
                 return;
             }
@@ -176,5 +180,112 @@ public class EventStoreOperationsDefaultsTests
         refusal.Message.ShouldContain(theOperations.GetType().FullName!);
     }
 
+    /// <summary>
+    /// Run the contract's own body of a generic member, closed over <see cref="Account" /> and
+    /// <typeparamref name="TId" />, against the proxy with a non-virtual call.
+    /// </summary>
+    private object callDefault<TId>(string name, Type[] parameterTypes, params object?[] arguments)
+    {
+        var method = typeof(IEventStoreOperations).GetMethods()
+            .Single(m => m.Name == name && m.IsGenericMethodDefinition && m.GetGenericArguments().Length == 2
+                         && m.GetParameters().Length == parameterTypes.Length + 1)
+            .MakeGenericMethod(typeof(Account), typeof(TId));
+        method.IsAbstract.ShouldBeFalse();
+
+        var caller = new DynamicMethod("callDefault", method.ReturnType,
+            [typeof(IEventStoreOperations), .. method.GetParameters().Select(x => x.ParameterType)],
+            typeof(EventStoreOperationsDefaultsTests).Module, skipVisibility: true);
+        var il = caller.GetILGenerator();
+        for (short i = 0; i <= method.GetParameters().Length; i++) il.Emit(OpCodes.Ldarg, i);
+        il.Emit(OpCodes.Call, method);
+        il.Emit(OpCodes.Ret);
+
+        try
+        {
+            return caller.Invoke(null, [theOperations, .. arguments, CancellationToken.None])!;
+        }
+        catch (TargetInvocationException e) when (e.InnerException != null)
+        {
+            throw e.InnerException;
+        }
+    }
+
+    private Task<IReadOnlyList<IEventStream<Account>>> fetchManyByAnyIdentity<TId>(IReadOnlyList<TId> ids)
+        => (Task<IReadOnlyList<IEventStream<Account>>>)callDefault<TId>(
+            nameof(IEventStoreOperations.FetchManyForWriting), [typeof(IReadOnlyList<TId>)], ids);
+
+    private Task<IEventStream<Account>> fetchAtVersion<TId>(TId id, long expectedVersion)
+        => (Task<IEventStream<Account>>)callDefault<TId>(
+            nameof(IEventStoreOperations.FetchForWriting), [typeof(TId), typeof(long)], id, expectedVersion);
+
+    [Fact]
+    public async Task fetches_one_stream_per_natural_key_in_the_order_given()
+    {
+        AccountNumber[] keys = [new("c"), new("a"), new("b")];
+
+        var streams = await fetchManyByAnyIdentity(keys);
+
+        streams.Select(x => x.Key).ShouldBe(keys.Select(x => x.ToString()));
+    }
+
+    [Fact]
+    public async Task fetch_many_by_any_identity_rejects_a_repeated_id_before_fetching_anything()
+    {
+        var ex = await Should.ThrowAsync<ArgumentException>(
+            () => fetchManyByAnyIdentity<AccountNumber>([new("a"), new("b"), new("a")]));
+
+        ex.ParamName.ShouldBe("ids");
+        theInterceptor.Fetched.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task fetch_many_by_any_identity_rejects_a_null_id_before_fetching_anything()
+    {
+        var ex = await Should.ThrowAsync<ArgumentNullException>(
+            () => fetchManyByAnyIdentity<AccountNumber>([new("a"), null!]));
+
+        ex.ParamName.ShouldBe("ids");
+        ex.Message.ShouldContain("position 1");
+        theInterceptor.Fetched.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task fetch_many_by_any_identity_rejects_a_nullable_id_type()
+    {
+        var ex = await Should.ThrowAsync<ArgumentException>(() => fetchManyByAnyIdentity<int?>([1, 2]));
+
+        ex.Message.ShouldContain("Int32?");
+        theInterceptor.Fetched.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(3L, 3L)]
+    [InlineData(null, 0L)]
+    public async Task fetch_at_the_current_version_returns_the_stream(long? startingVersion, long expectedVersion)
+    {
+        theInterceptor.StartingVersion = startingVersion;
+
+        var stream = await fetchAtVersion(new AccountNumber("a"), expectedVersion);
+
+        stream.Key.ShouldBe(new AccountNumber("a").ToString());
+    }
+
+    [Theory]
+    [InlineData(3L, 2L)]
+    [InlineData(null, 1L)]
+    public async Task fetch_at_a_stale_version_is_a_concurrency_failure(long? startingVersion, long expectedVersion)
+    {
+        theInterceptor.StartingVersion = startingVersion;
+
+        var ex = await Should.ThrowAsync<EventStreamUnexpectedMaxEventIdException>(
+            () => fetchAtVersion(new AccountNumber("a"), expectedVersion));
+
+        ex.Id.ShouldBe(new AccountNumber("a"));
+        ex.AggregateType.ShouldBe(typeof(Account));
+        ex.Message.ShouldContain($"expected {expectedVersion} but was {startingVersion ?? 0}");
+    }
+
     public class Account;
+
+    public record AccountNumber(string Value);
 }

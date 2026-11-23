@@ -319,6 +319,79 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
         return streams;
     }
 
+    /// <summary>
+    /// Fetch the projected aggregate T for each of <paramref name="ids" /> for writing, by a natural key or
+    /// any registered identifier type, in one round trip on a store that implements this member — the
+    /// many-stream form of <see cref="FetchForWriting{T, TId}(TId, CancellationToken)" />.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same contract as <see cref="FetchManyForWriting{T}(IReadOnlyList{Guid}, CancellationToken)" />: one
+    /// handle per id, in order, each with its own starting version. An id that matches no stream comes back
+    /// as a handle with a <see langword="null" /> aggregate at version 0, as a single fetch by that id would.
+    /// </para>
+    /// <para>
+    /// <typeparamref name="TId" /> is never <c>Nullable&lt;T&gt;</c>, and no id is null: drop the ids you
+    /// already know to be missing before fetching.
+    /// </para>
+    /// <para>
+    /// <b>The default implementation is correct but not batched</b>, like the
+    /// <see cref="FetchManyForWriting{T}(IReadOnlyList{Guid}, CancellationToken)" /> default: it checks the ids
+    /// with <see cref="AssertFetchableIds{TId}" />, then calls
+    /// <see cref="FetchForWriting{T, TId}(TId, CancellationToken)" /> once per id, sequentially. A store
+    /// overrides it to get the single round trip.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// When <paramref name="ids" /> repeats an id, or <typeparamref name="TId" /> is <c>Nullable&lt;T&gt;</c>.
+    /// </exception>
+    /// <exception cref="ArgumentNullException">When an id is null.</exception>
+    async Task<IReadOnlyList<IEventStream<T>>> FetchManyForWriting<T, TId>(IReadOnlyList<TId> ids,
+        CancellationToken cancellation = default) where T : class where TId : notnull
+    {
+        AssertFetchableIds(ids, nameof(ids));
+
+        var streams = new IEventStream<T>[ids.Count];
+        for (var i = 0; i < ids.Count; i++)
+        {
+            streams[i] = await FetchForWriting<T, TId>(ids[i], cancellation).ConfigureAwait(false);
+        }
+
+        return streams;
+    }
+
+    /// <summary>
+    /// The argument checks of <see cref="FetchManyForWriting{T, TId}(IReadOnlyList{TId}, CancellationToken)" />,
+    /// for a store that overrides it: <typeparamref name="TId" /> is not <c>Nullable&lt;T&gt;</c>, and
+    /// <paramref name="ids" /> holds no null and no repeated id.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// When <paramref name="ids" /> repeats an id, or <typeparamref name="TId" /> is <c>Nullable&lt;T&gt;</c>.
+    /// </exception>
+    /// <exception cref="ArgumentNullException">When <paramref name="ids" /> or an id in it is null.</exception>
+    public static void AssertFetchableIds<TId>(IReadOnlyList<TId> ids, string paramName) where TId : notnull
+    {
+        if (Nullable.GetUnderlyingType(typeof(TId)) is { } underlying)
+        {
+            throw new ArgumentException(
+                $"{nameof(FetchManyForWriting)} fetches by {underlying.Name}, not {underlying.Name}?. Drop the null ids before fetching.",
+                paramName);
+        }
+
+        ArgumentNullException.ThrowIfNull(ids, paramName);
+
+        for (var i = 0; i < ids.Count; i++)
+        {
+            if (ids[i] is null)
+            {
+                throw new ArgumentNullException(paramName,
+                    $"{nameof(FetchManyForWriting)} was given a null id at position {i}. Drop the null ids before fetching.");
+            }
+        }
+
+        assertDistinct(ids, paramName);
+    }
+
     private static void assertDistinct<TKey>(IReadOnlyList<TKey> keys, string paramName) where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(keys, paramName);
@@ -511,6 +584,36 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
     /// </summary>
     Task<IEventStream<T>> FetchForWriting<T, TId>(TId id, CancellationToken cancellation = default)
         where T : class where TId : notnull;
+
+    /// <summary>
+    /// Fetch projected aggregate T by a natural key or any registered identifier type, and expected,
+    /// current version. Fails immediately with a concurrency exception if the expectedVersion is stale.
+    /// </summary>
+    /// <remarks>
+    /// The default implementation fetches with <see cref="FetchForWriting{T, TId}(TId, CancellationToken)" />
+    /// and compares the stream's starting version, a stream that does not exist being at version 0. The
+    /// handle it returns then guards that version at <c>SaveChangesAsync</c>, as any fetch for writing does.
+    /// Because the check follows the fetch, the stream is already enlisted in the session when a stale version
+    /// throws, so abandon the session rather than carry on with it. A store overrides this to check the version
+    /// before it enlists anything, as its by-id overloads do.
+    /// </remarks>
+    /// <exception cref="EventStreamUnexpectedMaxEventIdException">
+    /// When the stream is not at <paramref name="expectedVersion" />.
+    /// </exception>
+    async Task<IEventStream<T>> FetchForWriting<T, TId>(TId id, long expectedVersion,
+        CancellationToken cancellation = default)
+        where T : class where TId : notnull
+    {
+        var stream = await FetchForWriting<T, TId>(id, cancellation).ConfigureAwait(false);
+
+        var actual = stream.StartingVersion ?? 0;
+        if (actual != expectedVersion)
+        {
+            throw new EventStreamUnexpectedMaxEventIdException(id, typeof(T), expectedVersion, actual);
+        }
+
+        return stream;
+    }
 
     /// <summary>
     /// Fetch projected aggregate T by a natural key for exclusive writing with row-level locking.

@@ -678,11 +678,90 @@ public class AggregateWriteCacheSessionTests
         var session = new HandingOffSession();
         var key = theStore.KeyFor(theId);
 
-        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
-        theCache.Store(key, new Tab(), 7);
+        var mine = new Tab();
+        var cached = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), mine, 1);
+        theCache.Store(key, cached, 7);
         session.Flush();
 
         session.Published.ShouldBe([key]);
+        session.PublishedAggregates[key].ShouldBeSameAs(mine);
+    }
+
+    [Fact]
+    public void a_session_is_handed_the_instance_it_registered_for_each_key()
+    {
+        var session = new HandingOffSession();
+        var first = theStore.KeyFor(theId);
+        var second = theStore.KeyFor(Guid.NewGuid());
+        var firstTab = new Tab();
+        var secondTab = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, first, 1), firstTab, 1);
+        session.Register(session.TakeBaseline<Tab>(theCache, second, 1), secondTab, 1);
+        session.Flush();
+
+        session.PublishedAggregates[first].ShouldBeSameAs(firstTab);
+        session.PublishedAggregates[second].ShouldBeSameAs(secondTab);
+    }
+
+    [Fact]
+    public void a_session_is_handed_the_instance_the_commit_advanced_to()
+    {
+        var session = new HandingOffSession();
+        var key = theStore.KeyFor(theId);
+        var projected = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
+        session.Advance(key, projected, 2).ShouldBeTrue();
+        session.Flush();
+
+        session.PublishedAggregates[key].ShouldBeSameAs(projected);
+    }
+
+    [Fact]
+    public void a_session_overriding_only_the_keyed_form_is_still_told()
+    {
+        // A store compiled against a JasperFx before OnPublished took the aggregate overrides only this form
+        var session = new KeyOnlySession();
+        var key = theStore.KeyFor(theId);
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
+        session.Flush();
+
+        session.Published.ShouldBe([key]);
+    }
+
+    [Fact]
+    public void a_failing_hand_off_does_not_fail_the_flush_or_skip_the_other_keys()
+    {
+        // The commit has already happened by the time Flush runs
+        var session = new ThrowingSession();
+        var first = theStore.KeyFor(theId);
+        var second = theStore.KeyFor(Guid.NewGuid());
+
+        session.Register(session.TakeBaseline<Tab>(theCache, first, 1), new Tab(), 1);
+        session.Register(session.TakeBaseline<Tab>(theCache, second, 1), new Tab(), 1);
+
+        Should.NotThrow(() => session.Flush());
+
+        session.Attempted.ShouldBe([first, second], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void a_key_registered_twice_hands_over_the_last_instance()
+    {
+        var session = new HandingOffSession();
+        var key = theStore.KeyFor(theId);
+        var last = new Tab();
+
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), new Tab(), 1);
+        session.Register(session.TakeBaseline<Tab>(theCache, key, 1), last, 2);
+        session.Flush();
+
+        session.Published.ShouldBe([key]);
+        session.PublishedAggregates[key].ShouldBeSameAs(last);
     }
 
     [Fact]
@@ -698,6 +777,30 @@ public class AggregateWriteCacheSessionTests
     }
 
     private sealed class HandingOffSession: AggregateWriteCacheSession
+    {
+        public List<AggregateCacheKey> Published { get; } = [];
+
+        public Dictionary<AggregateCacheKey, object> PublishedAggregates { get; } = [];
+
+        protected override void OnPublished(AggregateCacheKey key, object aggregate)
+        {
+            Published.Add(key);
+            PublishedAggregates[key] = aggregate;
+        }
+    }
+
+    private class ThrowingSession : AggregateWriteCacheSession
+    {
+        public List<AggregateCacheKey> Attempted { get; } = [];
+
+        protected override void OnPublished(AggregateCacheKey key, object aggregate)
+        {
+            Attempted.Add(key);
+            throw new InvalidOperationException("store bookkeeping failed");
+        }
+    }
+
+    private class KeyOnlySession : AggregateWriteCacheSession
     {
         public List<AggregateCacheKey> Published { get; } = [];
 

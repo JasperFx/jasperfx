@@ -63,12 +63,31 @@ public class NaturalKeyDefinition
 {
     private readonly List<NaturalKeySourceProblem> _problems = new();
 
-    public NaturalKeyDefinition(Type aggregateType, MemberInfo member)
+    public NaturalKeyDefinition(Type aggregateType, MemberInfo member) : this(aggregateType, member, null)
+    {
+    }
+
+    /// <summary>
+    /// A natural key whose lookup is owned by <paramref name="sourceProjectionType" /> when that is not
+    /// null; see <see cref="SourceProjectionType" />.
+    /// </summary>
+    public NaturalKeyDefinition(Type aggregateType, MemberInfo member, Type? sourceProjectionType)
     {
         AggregateType = aggregateType;
         Member = member;
+        SourceProjectionType = sourceProjectionType;
 
-        var memberType = member.GetMemberType()!;
+        // A struct key declared as TKey? on the aggregate is still a TKey key: the lookup, the fetch
+        // APIs and every comparison with another key use the underlying type. GetMemberType() already
+        // strips Nullable<T>, so the declared type is read off the member itself.
+        var declaredType = member switch
+        {
+            PropertyInfo property => property.PropertyType,
+            FieldInfo field => field.FieldType,
+            _ => member.GetMemberType()!
+        };
+        var memberType = KeyTypeOf(declaredType);
+        IsNullable = memberType != declaredType;
         OuterType = memberType;
 
         // Determine if this is a strong-typed id (value type wrapper) or a primitive. A type from the
@@ -99,9 +118,46 @@ public class NaturalKeyDefinition
     public MemberInfo Member { get; }
 
     /// <summary>
-    /// The outer type of the natural key (may be a strong-typed id wrapper).
+    /// The projection (or self-aggregating snapshot type) that owns this natural key's lookup, from
+    /// <c>[NaturalKey(SourceProjection = ...)]</c> or <c>[MappedNaturalKey&lt;T&gt;]</c>. Null for an owned key.
+    /// </summary>
+    public Type? SourceProjectionType { get; }
+
+    /// <summary>
+    /// True when this key's lookup is owned by another projection (<see cref="SourceProjectionType" />).
+    /// A mapped key has no event mappings of its own.
+    /// </summary>
+    public bool IsMapped => SourceProjectionType != null;
+
+    /// <summary>
+    /// The owned natural key definition of the source projection, resolved by the event store once every
+    /// projection is registered. Null for an owned key, or before resolution.
+    /// </summary>
+    public NaturalKeyDefinition? SourceProjectionDefinition { get; internal set; }
+
+    /// <summary>
+    /// The aggregate type whose natural key lookup serves this key: the source projection's aggregate
+    /// for a mapped key once resolved, otherwise this key's own aggregate.
+    /// </summary>
+    public Type LookupAggregateType => SourceProjectionDefinition?.AggregateType ?? AggregateType;
+
+    /// <summary>
+    /// The outer type of the natural key (may be a strong-typed id wrapper). For a member declared as
+    /// <c>Nullable&lt;T&gt;</c> this is <c>T</c>; see <see cref="IsNullable" />.
     /// </summary>
     public Type OuterType { get; }
+
+    /// <summary>
+    /// True when the member is declared as <c>Nullable&lt;T&gt;</c> of the key type. It is the same key as a
+    /// member of type <c>T</c>; an aggregate whose key is still null simply has no lookup row.
+    /// </summary>
+    public bool IsNullable { get; }
+
+    /// <summary>
+    /// The natural key type a member, event property or <c>[NaturalKeySource]</c> return type of
+    /// <paramref name="type" /> stands for: <c>T</c> for <c>Nullable&lt;T&gt;</c>, otherwise the type itself.
+    /// </summary>
+    public static Type KeyTypeOf(Type type) => Nullable.GetUnderlyingType(type) ?? type;
 
     /// <summary>
     /// The inner/primitive type of the natural key (int, long, or string).
@@ -151,6 +207,33 @@ public class NaturalKeyDefinition
         if (HasMappingFor(eventType)) return;
 
         _problems.Add(new NaturalKeySourceProblem(method, eventType, reason));
+    }
+
+    /// <summary>
+    /// Record a second <c>[NaturalKeySource]</c> method for an event type that already has one. Unlike
+    /// <see cref="RecordProblem" /> this is recorded even though the event is mapped; an explicit
+    /// registration for the event still clears it.
+    /// </summary>
+    internal void RecordDuplicateSource(MethodInfo method, Type eventType, string reason)
+    {
+        _problems.Add(new NaturalKeySourceProblem(method, eventType, reason));
+    }
+
+    /// <summary>
+    /// The key's current value on <paramref name="aggregate" />, unwrapped to its inner primitive
+    /// representation as <see cref="Unwrap" /> does; null when the aggregate has no key yet. Lets a store
+    /// match an aggregate it already holds -- in an identity map or a cache -- against a natural key.
+    /// </summary>
+    public object? ReadValue(object aggregate)
+    {
+        var value = Member switch
+        {
+            PropertyInfo property => property.GetValue(aggregate),
+            FieldInfo field => field.GetValue(aggregate),
+            _ => null
+        };
+
+        return Unwrap(value);
     }
 
     /// <summary>

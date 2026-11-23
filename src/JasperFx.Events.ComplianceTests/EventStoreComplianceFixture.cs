@@ -557,6 +557,18 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </remarks>
     public virtual bool SupportsNaturalKeys => false;
 
+    /// <summary>
+    /// True in a store that resolves <i>mapped</i> natural keys (<c>[MappedNaturalKey&lt;T&gt;]</c> /
+    /// <c>[NaturalKey(SourceProjection = ...)]</c>) through the source projection's lookup, which is
+    /// what <see cref="MappedNaturalKeyCompliance{TFixture,TOperations,TQuerySession}"/> asserts.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="SupportsNaturalKeys"/>, and only consulted when that is also true, so a
+    /// store with owned keys can take this package before it implements mapped ones. Like that gate, it
+    /// guards no seam member and short-circuits configuration as well as the facts.
+    /// </remarks>
+    public virtual bool SupportsMappedNaturalKeys => false;
+
 
     /// <summary>
     /// Build and START an application host whose container registers this store the way the
