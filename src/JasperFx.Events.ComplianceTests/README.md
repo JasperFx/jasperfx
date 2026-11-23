@@ -463,6 +463,7 @@ shared interfaces (`IEventStoreOperations`, `IQueryEventStore`, `IEventRegistry`
 | The projection error path and dead letters | `DeadLetterCompliance` |
 | The persisted projection start floor on `IEventDatabase` (jasperfx#809) | `ProjectionFloorCompliance` |
 | The age of the oldest unprocessed event, `FetchFirstEventTimestampsAfterAsync` on `IEventDatabase` (jasperfx#1150) | `PendingEventAgeCompliance` |
+| The aggregate types a store knows (`IEventStore.RegisteredAggregateTypes`) and its streams counted by aggregate type (`IEventDatabase.FetchAggregateStreamStatsAsync`, jasperfx#1282), gated by `SupportsAggregateStreamStats` | `AggregateStreamStatsCompliance` |
 | Rebuilding one identity of a single-stream projection inside its running shard (jasperfx#1201), gated by `SupportsIdentityRebuild` | `IdentityRebuildCompliance` |
 | Conjoined (per-tenant) event tenancy | `ConjoinedEventTenancyCompliance` |
 | The cross-stream event query (`QueryEventsAsync`) | `EventQueryCompliance` |

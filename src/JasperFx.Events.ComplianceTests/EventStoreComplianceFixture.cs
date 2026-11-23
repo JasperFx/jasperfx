@@ -898,6 +898,19 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     public virtual bool SupportsPendingEventAges => false;
 
     /// <summary>
+    /// True in a store that implements <see cref="IEventStore.RegisteredAggregateTypes" /> and
+    /// <see cref="IEventDatabase.FetchAggregateStreamStatsAsync" /> (jasperfx#1282), the aggregate types it knows
+    /// and its streams counted by aggregate type. Gates
+    /// <see cref="AggregateStreamStatsCompliance{TFixture,TOperations,TQuerySession}" />.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong>: both members ship with throwing defaults. Answer the list from
+    /// <c>ProjectionGraph.AllAggregateTypes()</c> and the stats in one grouped read of the streams table, then
+    /// flip this.
+    /// </remarks>
+    public virtual bool SupportsAggregateStreamStats => false;
+
+    /// <summary>
     /// True in a store whose <see cref="IEventDatabase" /> implements the event-range marks —
     /// <see cref="IEventDatabase.FetchEventRangeMarkAsync" />, <see cref="IEventDatabase.TrySetEventRangeMarkAsync" />
     /// and <see cref="IEventDatabase.SetEventRangeMarkAsync" /> (jasperfx#1215 / #1222). Gates

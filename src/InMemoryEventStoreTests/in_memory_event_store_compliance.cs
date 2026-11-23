@@ -67,6 +67,9 @@ public class projection_floor_compliance
 public class pending_event_age_compliance
     : PendingEventAgeCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
 
+public class aggregate_stream_stats_compliance
+    : AggregateStreamStatsCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
+
 public class event_data_query_compliance
     : EventDataQueryCompliance<InMemoryComplianceFixture, IInMemoryDocumentSession, IInMemoryQuerySession>;
 

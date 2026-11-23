@@ -169,6 +169,42 @@ public interface IEventDatabase
         return ages.Count == 0 ? null : ages[0].Timestamp;
     }
 
+    /// <summary>
+    ///     jasperfx#1282: the streams in this database grouped by aggregate type: how many there are, how many
+    ///     events they hold, how many reach each length threshold, and the longest of them. What a monitoring
+    ///     tool shows event-stream size by aggregate type from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    ///     <b>Semantics.</b> One <see cref="AggregateStreamStats" /> per aggregate type alias found on the
+    ///     streams, in no particular order, and one more under a null alias for the streams started without an
+    ///     aggregate type. An alias this deployment cannot resolve is still reported, with a null
+    ///     <see cref="AggregateStreamStats.AggregateType" />. A type with no streams has no entry, so an empty
+    ///     database answers an empty list. Stream length is the stream's version.
+    /// </para>
+    /// <para>
+    ///     <b>Tenants and archiving.</b> See <see cref="AggregateStreamStatsRequest.TenantId" /> and
+    ///     <see cref="AggregateStreamStatsRequest.IncludeArchived" />.
+    /// </para>
+    /// <para>
+    ///     <b>Cost.</b> This reads every stream row in the database, so it is an on-demand read, never one to
+    ///     poll or put on a first paint. Implementations answer it in one round trip over the streams table:
+    ///     one grouped count with a conditional count per threshold, and one ranking per type for the longest
+    ///     streams when <see cref="AggregateStreamStatsRequest.LongestStreams" /> is not zero. Never one query
+    ///     per aggregate type, and never by reading the events table.
+    /// </para>
+    /// <para>
+    ///     The default implementation throws <see cref="NotSupportedException" /> rather than answering an
+    ///     empty list, which would read as a database with no streams.
+    /// </para>
+    /// </remarks>
+    /// <param name="request">What to report. <c>new AggregateStreamStatsRequest()</c> has usable defaults.</param>
+    /// <param name="token"></param>
+    Task<IReadOnlyList<AggregateStreamStats>> FetchAggregateStreamStatsAsync(AggregateStreamStatsRequest request,
+        CancellationToken token = default)
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventDatabase)}.{nameof(FetchAggregateStreamStatsAsync)} (jasperfx#1282), so it cannot report stream counts and lengths by aggregate type.");
+
 
     /// <summary>
     ///     Check the current progress of all asynchronous projections

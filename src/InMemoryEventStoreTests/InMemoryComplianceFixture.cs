@@ -110,6 +110,8 @@ public class InMemoryComplianceFixture : EventStoreComplianceFixture<IInMemoryDo
 
     public override bool SupportsPendingEventAges => true;
 
+    public override bool SupportsAggregateStreamStats => true;
+
     // jasperfx#1215 / #1222: the reference implementation of the marks, the rewrite and the backfill
     public override bool SupportsEventRangeMarks => true;
 

@@ -86,6 +86,11 @@ public sealed class InMemoryEventDatabase : IEventDatabase
         IReadOnlyList<(string? TenantId, long Sequence)> positions, CancellationToken token = default)
         => Task.FromResult(_store.FirstEventTimestampsAfter(positions));
 
+    /// <inheritdoc />
+    public Task<IReadOnlyList<AggregateStreamStats>> FetchAggregateStreamStatsAsync(
+        AggregateStreamStatsRequest request, CancellationToken token = default)
+        => Task.FromResult(_store.AggregateStreamStats(request));
+
     // jasperfx#809: projection start floors, keyed by projection name (no version) and tenant
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Projection, string Tenant), long> _floors = new();
 
