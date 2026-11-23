@@ -1,6 +1,6 @@
 # Introduction
 
-JasperFx is the shared infrastructure library that underpins the Critter Stack family of .NET libraries, including [Marten](https://martendb.io) and [Wolverine](https://wolverine.netlify.app).
+JasperFx is the shared infrastructure library that underpins the Critter Stack family of .NET libraries, including [Marten](https://martendb.io) and [Wolverine](https://wolverinefx.io).
 
 ## What Does JasperFx Provide?
 
@@ -14,7 +14,7 @@ JasperFx gives you:
 
 ## Target Frameworks
 
-JasperFx targets .NET 10.0.
+JasperFx 3.x targets .NET 10.0 and .NET 11.0 (`net10.0;net11.0`). Stay on JasperFx 2.x if you still need .NET 9. See the [migration guide](/migration-guide) for what changed.
 
 ## Source Code
 

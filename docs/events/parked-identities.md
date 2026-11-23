@@ -116,7 +116,7 @@ A custom grouping combined with a fan-out before grouping (`FanoutMode.BeforeGro
 
 ### Composite projections don't park
 
-A composite projection does not park in this version. A parked upstream document would feed stale data to the stages after it, so a member that fails pauses the whole composite, or skips the event if the error action is `Skip`. `describe` shows composites as `NotSupported` with that reason.
+A composite projection does not park in this version. A parked upstream document would feed stale data to the stages after it, so a member that fails pauses the whole composite, or skips the event if the error action is `Skip`. `describe` shows composites as `NotSupported` with that reason. A full rebuild of a composite that ends up paused or stopped throws the shard's failure (since 3.12.1), so a failed composite rebuild never looks finished.
 
 ## What fails and what parks
 
@@ -177,9 +177,19 @@ Nothing replays a parked identity outside the shard's own batch. If no node is r
 
 Any successful per-identity rebuild of a parked identity unparks it too, whoever asked for it.
 
-## Rebuilding one identity of a multi-stream projection
+## Rebuilding one identity
 
-`RebuildIdentityAsync` works for a multi-stream projection whose identities can be found exactly. It re-folds the identity from nothing in the shard that runs it, the way it does for a single-stream projection:
+Parking is built on per-identity rebuilds, which you can also ask for directly when one document is wrong and you don't want to rebuild the whole projection. Since 3.6.0, `RebuildIdentityAsync` rebuilds one identity of a single-stream projection inside the shard that's already running it. The rebuild is bound to the next batch the shard builds: that batch re-folds the identity over its stream up to the batch's ceiling, through the projection's own write path with side effects suppressed, and commits it with the shard's progression. There's no window where the shard is held, and an idle shard runs the request on an empty batch.
+
+```cs
+var result = await daemon.RebuildIdentityAsync("Trip", tenantId: null, tripId, token);
+```
+
+A rebuild that can't run is refused before anything is written, with an `IdentityRebuildRefusedException` whose `IdentityRebuildRefusal` says why: the store doesn't support it, the shard is being rebuilt, has never committed, isn't running on this node, is running on another node, or stopped before the rebuild could be bound to a batch.
+
+### Rebuilding one identity of a multi-stream projection
+
+Since 3.10.0 `RebuildIdentityAsync` also works for a multi-stream projection whose identities can be found exactly. It re-folds the identity from nothing in the shard that runs it, the way it does for a single-stream projection:
 
 ```cs
 await daemon.RebuildIdentityAsync("InvoiceTotals", tenantId: null, invoiceId, token);

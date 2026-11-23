@@ -54,6 +54,34 @@
 
 * **Culture-independent names** ([#1246](https://github.com/JasperFx/jasperfx/pull/1246), [#1248](https://github.com/JasperFx/jasperfx/issues/1248)). `EqualsIgnoreCase`, `StartsWithIgnoreCase` and `EndsWithIgnoreCase` now compare with `StringComparison.OrdinalIgnoreCase` instead of the current culture, and `ToTableAlias` lowers with the invariant culture. On most machines nothing changes. On a machine whose culture is Turkish or Azerbaijani, an uppercase `I` used to become a dotless `ı`. Event type names, tag table suffixes and duplicated-field column names created there with an `I` in the type or member name will now be spelled differently. If you ran on such a machine, map the old names with an event type alias before upgrading.
 
+* **Command and flag names are matched the same way in every culture** ([#1248](https://github.com/JasperFx/jasperfx/issues/1248)). Command names, flag names and aliases are lower-cased and compared with the invariant culture, both at runtime and in the code the CLI source generator writes. On a Turkish machine, a command or flag with an `I` in its name used to miss.
+
+* **More of an `Evolve` body counts toward the events an aggregate fetches** ([#1243](https://github.com/JasperFx/jasperfx/issues/1243)). The generator used to read only declaration patterns (`case Foo foo:`) when it built the evolver's `EventTypes` filter. A bare `case Foo:`, a `Foo =>` switch arm, `case Foo when ...:` and the types inside an `or` pattern now count too, and `not Foo` is still skipped. Events matched any of those ways were never fetched before, so an aggregate written that way can start seeing events it was always meant to handle. See [Projection Apply Dispatch](/codegen/projection-apply-dispatch).
+
+## Key Changes in 3.8.0
+
+* **Command line numbers and time spans are read with the invariant culture** ([#1237](https://github.com/JasperFx/jasperfx/issues/1237)). Number flags and arguments, `TimeSpan` quantities, and the `TODAY+N` and `HH:mm` forms of a date used the machine's culture. On a German machine `1.5` read as 15, on a French machine `-1.5` was split into three short flags, and on an Arabic machine `-5` threw. The decimal separator is now always `.`. A full date (`DateTime.Parse`) still uses the machine's culture. See [Arguments and Flags](/cli/arguments-flags).
+
+* **An `Evolve` aggregate can inherit its conventional methods** ([#1241](https://github.com/JasperFx/jasperfx/issues/1241)). When a self-aggregating type with an `Evolve` method inherits public `Apply`, `Create` or `ShouldDelete` methods from a base class, the generated evolver now routes those event types to the inherited methods first, and they join the aggregate's `EventTypes`. Before, those methods were never called.
+
+## Key Changes in 3.7.1
+
+* **Stopping the daemon while a shard is loading a page no longer fails it** ([#1231](https://github.com/JasperFx/jasperfx/issues/1231)). Stopping an agent now waits for its in-flight page load, and a page that arrives after the stop is dropped. This showed up as "The channel has been closed" failing a catch-up that had actually worked.
+
+* **A rebuild reads the running agents after it takes the registry lock** ([#1233](https://github.com/JasperFx/jasperfx/issues/1233)), so it can't miss an agent that started in between.
+
+## Key Changes in 3.7.0
+
+* **Backfilling a new projection version from where the old one stopped** ([#1222](https://github.com/JasperFx/jasperfx/issues/1222)). `AsyncOptions.SubscribeFromPriorVersionMark(backfillName)` starts a new version of a projection where its prior version left off, at a mark stored for the named backfill. The backfill job stops at the same mark, so the live version and the backfill split history at exactly one sequence and nothing is processed twice. The jobs that run backfills live in Wolverine. A store that doesn't implement event-range marks fails the shard at startup with `NotSupportedException`, rather than replaying history the backfill also covers.
+
+* **Rewriting stored events** ([#1215](https://github.com/JasperFx/jasperfx/issues/1215)). `EventRegistry.AddRewriteTransform<T>(name, transform)` registers a named transform that a rewrite can apply to stored events, and naming one that isn't registered throws `UnknownRewriteTransformException`. This rewrites history: nothing derived from the old events, like projections, natural keys or tags, is updated.
+
+* **New store members for event store authors, all with defaults**: `IEventStore.SupportsEventRewrites` and `RewriteStoredEventsAsync`, `IEventStore.SupportsBackfills` and `RunBackfillAsync`, and `IEventDatabase.FetchEventRangeMarkAsync`, `TrySetEventRangeMarkAsync` and `SetEventRangeMarkAsync`. The contracts are `EventRangeMarkCompliance`, `EventRewriteCompliance` and `BackfillCompliance`.
+
+* **Stopping the daemon saves the `Stopped` status** ([#1225](https://github.com/JasperFx/jasperfx/issues/1225)). With extended progression on, `StopAllAsync()` followed straight away by `Dispose()` left the shard's progression row saying `Running`. Both `StopAllAsync()` and `StopAgentAsync()` now wait for the status to be written, bounded by `DaemonSettings.StopAndDrainTimeout`.
+
+* **F# output leaves the AOT roots companion out** ([#1228](https://github.com/JasperFx/jasperfx/issues/1228)), even for an assembly assembled on the C# default and rendered with `GenerateFSharpCode()`. See [Publishing AOT](/codegen/aot).
+
 ## Key Changes in 3.6.0
 
 * **New time-ordered Guids, `SequentialGuid`.** `JasperFx.Core.SequentialGuid` makes Guids in MassTransit's NewId layout (a 100 ns timestamp, a 6-byte worker id drawn at random once per process, and a sequence) without a lock and without a random number per id. There are two sort orders, one per database: `SequentialGuid.NextPostgresOrder()` for PostgreSQL `uuid` (and SQLite, or anything that stores the id as text) and `SequentialGuid.NextSqlServerOrder()` for SQL Server `uniqueidentifier`. `SequentialGuid.PostgresOrder` and `SequentialGuid.SqlServerOrder` are the same thing as an `IGuidGenerator` to hand to something else.
@@ -70,6 +98,66 @@
 
 * **A paused projection on another node shows as `Paused` to `WaitForProjectionsAsync()` only with extended progression on.** Without it the wait runs to its timeout and returns `TimedOut`, which never fails the write.
 
+* **Rebuild one identity of a single-stream projection inside its running shard** ([#1201](https://github.com/JasperFx/jasperfx/issues/1201)). `IProjectionDaemon.RebuildIdentityAsync(projectionName, tenantId, identity)` binds the rebuild to the next batch the shard builds, re-folds that identity over its stream with side effects suppressed, and commits it with the shard's progression. A rebuild that can't run is refused before anything is written with `IdentityRebuildRefusedException`. Store authors get default members for `SupportsIdentityRebuild`, `LoadEventsForIdentityRebuildAsync` and `IProjectionStorage.HardDeleteById`, plus `IdentityRebuildGuard` and the `IdentityRebuildCompliance` suite. See [Parking a Failing Identity](/events/parked-identities#rebuilding-one-identity).
+
+* **`projections --advance` works again** ([#1210](https://github.com/JasperFx/jasperfx/issues/1210)). It advances every selected database's high water mark before a run or rebuild and reports what each mark did, and a failed advance stops before anything runs. A rebuild now covers every selected event store instead of returning after the first.
+
+* **`StreamState.ColdVersion`** ([#1211](https://github.com/JasperFx/jasperfx/issues/1211)) is the last version of a stream in an application-owned cold store, when there is one.
+
+* **A slice that ends with its `Compacted<T>` marker hands the marker to `StoreProjection` as the last event** ([#1214](https://github.com/JasperFx/jasperfx/issues/1214)) instead of null.
+
+## Key Changes in 3.5.0
+
+* **Read your own writes from an async projection** ([marten#6004](https://github.com/JasperFx/marten/issues/6004)). After you commit, wait for the projections you care about to catch up to your events, and only your events:
+
+  ```cs
+  var position = session.LastAppendedPosition;
+  var result = await store.WaitForProjectionsAsync(position, [typeof(TripSummary)], TimeSpan.FromSeconds(5));
+  ```
+
+  `EventStorePosition` is the database, tenant and sequence of what a session committed. It's small, serializes to JSON, and has a compact text form (`ToString()`, `Parse()`, `TryParse()`) to carry in a header from one request to the next. `WaitForProjectionsAsync` takes projection types (or the documents they write) or names, and returns a `ProjectionWaitResult` that says `Reached`, `TimedOut`, `Paused` or `Rebuilding`, with how far each shard got. It never throws on a timeout, because a slow projection shouldn't fail a write that already succeeded. It reads the progression table, so it works from any node. `IEventStore.AsyncShardNamesFor(Type)` lists the shards for a projection type. 3.6.0 renamed the session member to `LastAppendedPosition`.
+
+* **`projections floor`** ([#1205](https://github.com/JasperFx/jasperfx/issues/1205)) shows, pins, sets and clears a projection's start floor, for any store that implements the floor seam:
+
+  ```bash
+  dotnet run -- projections floor --projection Trips
+  dotnet run -- projections floor --projection Trips --pin-current
+  dotnet run -- projections floor --projection Trips --set 12345
+  dotnet run -- projections floor --projection Trips --clear
+  ```
+
+  Showing is the default. A write needs one projection, applies to every selected database, and asks first unless you pass `--yes`.
+
+* **`ForTenant` on the shared document write operations** ([#1202](https://github.com/JasperFx/jasperfx/issues/1202)). `IDocumentWriteOperations.ForTenant(tenantId)` lets store-agnostic code `Insert`, `Update` and `Store` as another tenant without casting to a store's session. A store that hasn't adopted it throws rather than writing to the wrong tenant.
+
+* **A store-wide projection lag read.** `IEventStore.FetchProjectionLagAsync(token)` reads the lag of every shard across every database the store has, composite members included. The `ShardName` overload narrows it to one shard.
+
+* **Warning `JFXEVT009` for a non-public conventional handler** ([#1196](https://github.com/JasperFx/jasperfx/issues/1196)). Generated dispatch only calls public `Apply`, `Create` and `ShouldDelete` methods, so a non-public one compiled, ran and never applied its event. See [Build Diagnostics](/codegen/diagnostics).
+
+* **A warning when a composite member sets a shard setting the composite ignores.** A composite runs as one shard built from its own options, so `BatchSize`, `MaximumHopperSize`, `EnableDocumentTrackingByIdentity`, `GateSideEffectsBehindPriorVersion` and the starting position on a member are never read. The daemon now logs which ones once per composite.
+
+* **`JasperFxOptions.RememberApplicationAssembly`** ([#1204](https://github.com/JasperFx/jasperfx/issues/1204)) lets a host opt out of recording and reusing the process-wide remembered application assembly, and `JasperFxOptions.ResetRememberedApplicationAssembly()` clears it between hosts in a test suite. See [JasperFxOptions](/configuration/jasperfx-options).
+
+* **Event modeling: which stream an emitted event goes to** ([#1203](https://github.com/JasperFx/jasperfx/issues/1203)), with `.Emits<T>().OnStream<TAggregate>()`. See [Declaring the Model in Code](/event-modeling/declaring#which-stream-an-event-goes-to).
+
+## Key Changes in 3.4.0
+
+* **No more broken builds from an aggregate a generated evolver can't name** ([#1194](https://github.com/JasperFx/jasperfx/issues/1194)). For an open generic aggregate, or one nested behind `private` or `protected`, the generator used to emit an evolver that didn't compile, inside a generated file you can't edit. It now emits nothing for it and reports warning `JFXEVT008`, unless something else in the compilation already covers the type. See [Build Diagnostics](/codegen/diagnostics).
+
+## Key Changes in 3.3.0
+
+* **A `[FromKeyedServices]` key that isn't a string now resolves its own registration** ([#1189](https://github.com/JasperFx/jasperfx/issues/1189)). Codegen turned the key into a string before looking it up, so an enum key never matched and silently fell through to the last unkeyed registration of the type. Keys now match the way Microsoft's container matches them. **Watch for:** a keyed parameter whose key has no registration now fails codegen instead of quietly taking the unkeyed service.
+
+* **An aggregate's non-public parameterless constructor now runs** ([#1188](https://github.com/JasperFx/jasperfx/issues/1188)). An aggregate whose only parameterless constructor was private, protected or internal was created without calling it, so the constructor body and every field and property initializer were skipped, and the first `Apply` could throw a `NullReferenceException`. The generated evolver now calls that constructor through `[UnsafeAccessor]`, which stays trim and AOT safe. If you were relying on initializers *not* running, they run now.
+
+* **`IEventStoreOperations.UnArchiveStream(Guid)` and `UnArchiveStream(string)`** ([marten#5476](https://github.com/JasperFx/marten/issues/5476)), so store-agnostic code can do what `ArchivedStreamException` tells it to. The compliance fixture's `UnArchiveStream` hook is obsolete.
+
+* **`IEventBinarySerializer` can write into pooled buffers** ([#1187](https://github.com/JasperFx/jasperfx/issues/1187)). `Serialize(Type, object, IBufferWriter<byte>)` and `Deserialize(Type, ReadOnlySpan<byte>)` are default members over the existing `byte[]` pair, so a serializer built against 3.2 keeps working.
+
+## Key Changes in 3.2.0
+
+* **A `[BoundaryAggregate]` with an `Id` member also gets a string-keyed evolver** ([#1184](https://github.com/JasperFx/jasperfx/issues/1184)). Marten builds every boundary aggregate's projection keyed by string, so `FetchForWritingByTags<T>()` found no dispatcher for a boundary aggregate with, say, a `Guid Id`.
+
 ## Key Changes in 3.1.0
 
 * **Runtime-async is on by default for `net11.0`** ([#1180](https://github.com/JasperFx/jasperfx/issues/1180)). Both switches described under [3.0.0](#foundation) flip:
@@ -85,12 +173,16 @@
 
 * **Extensions that defer `AddJasperFx()` can hand over the registering assembly** ([#1179](https://github.com/JasperFx/jasperfx/issues/1179)). The new overload `AddJasperFx(services, configure, registeredFrom)` uses the assembly the entry point captured before it deferred (for example from an `IHostBuilder.ConfigureServices` callback that runs inside `Build()`), instead of walking the stack inside `Build()`. Without it, a host built by a helper in another assembly was attributed to that helper and `ApplicationAssemblyReuseWarning` fired on a healthy host. Nothing changes for callers of the existing overloads.
 
+## Key Changes in 3.0.1
+
+* **Projection side effects publish under Native AOT** ([#1171](https://github.com/JasperFx/jasperfx/issues/1171)). Publishing a message from a projection batch compiled a delegate with FastExpressionCompiler, which Native AOT refuses, so every side effect failed and paused its shard. It now falls back to the expression interpreter where dynamic code isn't available.
+
 ## Key Changes in 3.0.0
 
 JasperFx 3.0 is the foundation of the Critter Stack .NET 11 release train, alongside Weasel 10, Marten 10, Polecat 6, Fisher 2 and Wolverine 7.
 
-::: warning In progress
-The rest of the .NET 11 release train is still landing, so this section keeps growing through the 3.x releases.
+::: tip
+This section covers 3.0.0 itself. Everything that changed in a later 3.x release is in that release's section above, newest first.
 :::
 
 ### Foundation
@@ -108,7 +200,7 @@ The rest of the .NET 11 release train is still landing, so this section keeps gr
 
 * **`Microsoft.Extensions.*` packages have a 10.0.0 floor.**
 
-* **JasperFx.Aspire targets `net10.0;net11.0` and Aspire 13.6** ([#1055](https://github.com/JasperFx/jasperfx/issues/1055)). The `Aspire.Hosting` packages move from 13.4.6 to 13.6.4, so an AppHost that references JasperFx.Aspire moves with them.
+* **JasperFx.Aspire targets `net10.0;net11.0` and Aspire 13.6** ([#1055](https://github.com/JasperFx/jasperfx/issues/1055)). The `Aspire.Hosting` packages move from 13.4.6 to 13.6.4 (13.6.5 since 3.6.0, for [GHSA-f7vh-h5g3-7jrh](https://github.com/advisories/GHSA-f7vh-h5g3-7jrh)), so an AppHost that references JasperFx.Aspire moves with them.
 
 * **`JasperFx.RuntimeCompiler` compiles with Roslyn 5.9**, and **`FastExpressionCompiler` moves to 6.0**, which itself drops `netstandard2.0` and `net9.0` and renames `ClosureInfo` to `CompilerContext`. Neither name appears in JasperFx's public API, but code of yours that uses FastExpressionCompiler directly will meet the rename.
 
@@ -381,12 +473,13 @@ public class TripProjection : SingleStreamProjection<Trip, Guid>
 `partial` is required only where the dispatcher has to be generated **into the projection class itself**, which the generator reports as `JFXEVT003` at build time:
 
 - an **`EventProjection`** subclass using conventional methods — its dispatcher is an `ApplyAsync` override on your class;
-- a projection whose conventional methods are **instance** methods and which has **no public parameterless constructor** — a DI-activated projection, or an abstract projection base class. Dispatch has to run on the real instance so injected dependencies are populated;
 - a **generic** projection, or one nested behind `private` / `protected`, which a separate type cannot name. Every containing type has to be `partial` too.
 
+In 2.0 a DI-activated projection, one whose conventional methods are instance methods and which has no public parameterless constructor, needed `partial` too. Since 2.48.0 ([#653](https://github.com/JasperFx/jasperfx/issues/653)) the generated evolver is handed the registered projection instance through its constructor, so it doesn't:
+
 ```csharp
-// needs `partial`: dispatch must run on the DI-built instance
-public partial class TripProjection(ILogger<TripProjection> logger) : SingleStreamProjection<Trip, Guid>
+// no `partial` needed: the evolver calls Apply on the DI-built instance
+public class TripProjection(ILogger<TripProjection> logger) : SingleStreamProjection<Trip, Guid>
 {
     public void Apply(Travel e, Trip trip) => logger.LogInformation("...");
 }

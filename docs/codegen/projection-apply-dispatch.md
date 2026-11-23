@@ -37,6 +37,10 @@ The SG emits one of five shapes through `EvolverCodeEmitter`
 | `EventProjection` | Partial `ApplyAsync(TOperations, IEvent, CancellationToken)` override on the user's `JasperFxEventProjectionBase<TOperations>` subclass | The override wins at vtable dispatch. `EventProjectionApplication` is only used when the base `ApplyAsync` is not overridden. |
 | `EventProjectionTypeRegistrationOnly` | Partial constructor that calls `RegisterPublishedType<T>()` for every emitted type | Bookkeeping; does not change dispatch. |
 
+For an `Evolve` method, the generator reads the method body to build the evolver's `EventTypes` filter, which decides which events the store fetches for the aggregate at all. Every type the body matches on counts: a declaration pattern (`case Foo foo:`), a bare type pattern (`case Foo:` or a `Foo =>` switch arm), a `case Foo when ...:` clause, and each type inside an `or` or parenthesized pattern. A `not Foo` pattern is skipped. Before 3.9.0 only declaration patterns counted, so events matched any other way were never fetched (#1243). A body that names no type at all leaves the filter empty, which means every event.
+
+For the list of build diagnostics the generator reports, see [Build Diagnostics](/codegen/diagnostics).
+
 So the runtime contract is: **if the SG ran against the user's assembly and the
 projection / aggregate class is `partial`, the FEC path in
 `AggregateApplication` / `EventProjectionApplication` is never exercised for
@@ -161,9 +165,10 @@ emit shape or a reflective rewrite.
    > evolver (#462) removed the requirement for `SingleStreamProjection` /
    > `MultiStreamProjection` subclasses as well — it survives only where the
    > dispatcher still has to be written into the user's class: an
-   > `EventProjection`, a projection dispatching on a DI-built instance
-   > (marten#4787), and generic or non-visible projections. Reported as
-   > `JFXEVT003` at build time.
+   > `EventProjection`, and generic or non-visible projections. Reported as
+   > `JFXEVT003` at build time. A projection dispatching on a DI-built
+   > instance (marten#4787) needed it too until #653 (2.48.0) handed the
+   > evolver the registered projection through its constructor.
 
 ## What shipped in #276
 
