@@ -180,6 +180,22 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## Two hooks for a host with more to say (0.17.0)
+
+Both are optional, and a host that uses neither renders exactly what 0.16.0 did.
+
+- **`card-badge` slot.** Rendered inside each card, in its bottom-right corner, with
+  `{ element, slice, sliceName }`. CritterWatch uses it to put runtime readings and active alerts on
+  the cards they belong to. The card is a `<button>`, so badge content must not be interactive: a
+  click on a badge is a click on its card, and a badge is about the page its card opens. A card the
+  host renders nothing for gets an empty, hidden badge.
+- **`sliceLabel` prop**, `(slice) => string`. What a slice header says when it should differ from
+  the slice's `name`. The name stays the key everywhere (collapse, outcomes, focus, links, the
+  `slice-click` payload). A host drawing several applications on one canvas qualifies the names to
+  keep them unique, since two services may each have a `PlaceOrder`, and uses this to make the header
+  read `PlaceOrder` again under a chapter band naming the service. A labelled route still gets the
+  method badge.
+
 ## A source disagreement is a badge, not a sticky (0.16.0, jasperfx#1084)
 
 Every hotspot used to render as the same red sticky, so a source disagreement read with the same alarm
