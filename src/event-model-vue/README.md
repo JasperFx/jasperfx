@@ -180,6 +180,12 @@ the features it had just shipped:
   three characters instead of eight, and the path starts where the eye expects it. The name itself
   is untouched; this is only how it is drawn.
 
+## A chapter band's name can be read (0.17.1)
+
+A chapter band faded its fill with `opacity: 0.1`, and opacity applies to the whole element, so the band's name was
+drawn at 10% too and could barely be seen. The fill now carries the alpha (`color-mix` with `currentColor`) and the
+name is drawn at full strength. A dimmed band fades its fill to 5% and its name to 45%.
+
 ## Two hooks for a host with more to say (0.17.0)
 
 Both are optional, and a host that uses neither renders exactly what 0.16.0 did.
