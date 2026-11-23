@@ -117,6 +117,41 @@ public partial class ComplianceNaturalKeyInvoice
         new() { Id = e.StreamId, Code = e.Data.Code, Amount = e.Data.Amount };
 }
 
+public record NaturalKeyTicketOpened(string Code);
+
+/// <summary>Carries a new code only sometimes. Null means "no change", not "remove the key".</summary>
+public record NaturalKeyTicketCodeMaybeChanged(string? NewCode);
+
+public record NaturalKeyTicketCodeCleared;
+
+/// <summary>
+/// jasperfx#1287 (marten#6153): what a null from a key source means. The conditional <c>Apply</c> is bound by reading
+/// the key off the event (an inferred source), so its null leaves the key alone. The static <c>KeyFor</c> returns the
+/// key type (an explicit source), so its null removes the key.
+/// </summary>
+public partial class ComplianceNaturalKeyTicket
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public string? Code { get; set; }
+
+    [NaturalKeySource]
+    public static ComplianceNaturalKeyTicket Create(IEvent<NaturalKeyTicketOpened> e) =>
+        new() { Id = e.StreamId, Code = e.Data.Code };
+
+    [NaturalKeySource]
+    public void Apply(NaturalKeyTicketCodeMaybeChanged e)
+    {
+        if (e.NewCode != null) Code = e.NewCode;
+    }
+
+    [NaturalKeySource]
+    public static string? KeyFor(NaturalKeyTicketCodeCleared e) => null;
+
+    public void Apply(NaturalKeyTicketCodeCleared e) => Code = null;
+}
+
 #endregion
 
 /// <summary>
@@ -244,6 +279,11 @@ public abstract class NaturalKeyCompliance<TFixture, TOperations, TQuerySession>
         config.RegisterValueType<ComplianceOrderNumber>();
         config.Snapshot<ComplianceNaturalKeyOrder>(SnapshotLifecycle.Inline);
         config.Snapshot<ComplianceNaturalKeyInvoice>(SnapshotLifecycle.Inline);
+
+        config.AddEventType<NaturalKeyTicketOpened>();
+        config.AddEventType<NaturalKeyTicketCodeMaybeChanged>();
+        config.AddEventType<NaturalKeyTicketCodeCleared>();
+        config.Snapshot<ComplianceNaturalKeyTicket>(SnapshotLifecycle.Inline);
     };
 
     /// <summary>
@@ -548,6 +588,70 @@ public abstract class NaturalKeyCompliance<TFixture, TOperations, TQuerySession>
         (await EventsFor(query)
             .FetchLatest<ComplianceNaturalKeyOrder, ComplianceOrderNumber>(original, Cancellation))
             .ShouldBeNull();
+    }
+
+    /// <summary>
+    /// jasperfx#1287 (marten#6153): a null from an inferred key source, here a conditional <c>Apply</c> bound by reading
+    /// the key off the event, means the event carried no key. The stream keeps its key, so fetching by it still finds
+    /// the stream instead of starting a new one under the same business key.
+    /// </summary>
+    [Fact]
+    public async Task a_null_from_an_inferred_key_source_keeps_the_key()
+    {
+        SkipUnlessNaturalKeysAreSupported();
+
+        var code = $"TKT-{Guid.NewGuid():N}";
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceNaturalKeyTicket>(streamId, new NaturalKeyTicketOpened(code));
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(streamId, new NaturalKeyTicketCodeMaybeChanged(null));
+            await SaveChangesAsync(session);
+        }
+
+        await using var query = OpenSession();
+
+        var latest = await EventsFor(query).FetchLatest<ComplianceNaturalKeyTicket, string>(code, Cancellation);
+        latest.ShouldNotBeNull();
+        latest.Id.ShouldBe(streamId);
+        latest.Code.ShouldBe(code);
+
+        var stream = await EventsFor(query).FetchForWriting<ComplianceNaturalKeyTicket, string>(code, Cancellation);
+        stream.Id.ShouldBe(streamId);
+    }
+
+    /// <summary>
+    /// jasperfx#1287: a null from an explicit key source, a static method that returns the key type, removes the
+    /// stream's key on purpose.
+    /// </summary>
+    [Fact]
+    public async Task a_null_from_an_explicit_key_source_removes_the_key()
+    {
+        SkipUnlessNaturalKeysAreSupported();
+
+        var code = $"TKT-{Guid.NewGuid():N}";
+        var streamId = Guid.NewGuid();
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).StartStream<ComplianceNaturalKeyTicket>(streamId, new NaturalKeyTicketOpened(code));
+            await SaveChangesAsync(session);
+        }
+
+        await using (var session = OpenSession())
+        {
+            EventsFor(session).Append(streamId, new NaturalKeyTicketCodeCleared());
+            await SaveChangesAsync(session);
+        }
+
+        await using var query = OpenSession();
+        (await EventsFor(query).FetchLatest<ComplianceNaturalKeyTicket, string>(code, Cancellation)).ShouldBeNull();
     }
 
     // ---------- uniqueness ----------
