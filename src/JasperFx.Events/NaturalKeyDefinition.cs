@@ -12,13 +12,33 @@ namespace JasperFx.Events;
 /// </summary>
 public class NaturalKeyEventMapping
 {
-    public NaturalKeyEventMapping(Type eventType, Func<IEvent, object?> extractor)
+    /// <summary>
+    /// A mapping whose null result retires the stream's key: an explicit source.
+    /// </summary>
+    public NaturalKeyEventMapping(Type eventType, Func<IEvent, object?> extractor) : this(eventType, extractor, true)
+    {
+    }
+
+    /// <param name="retiresKeyOnNull">See <see cref="RetiresKeyOnNull" />.</param>
+    public NaturalKeyEventMapping(Type eventType, Func<IEvent, object?> extractor, bool retiresKeyOnNull)
     {
         EventType = eventType;
         Extractor = extractor;
+        RetiresKeyOnNull = retiresKeyOnNull;
     }
 
     public Type EventType { get; }
+
+    /// <summary>
+    /// jasperfx#1287 (marten#6153): what a null from <see cref="Extractor" /> means. True for an explicit source,
+    /// where null is a deliberate "this event removes the key": a <c>[NaturalKeySource]</c> static method that
+    /// returns the key type, and a <c>NaturalKeyFor(x => x.SetBy...)</c> registration. False for a source discovery
+    /// inferred, by reading a key-typed property off the event or by running an aggregation method against a blank
+    /// aggregate. There a null only means the event did not carry a key, as in
+    /// <c>Apply(CodeChanged e) { if (e.NewCode != null) Code = e.NewCode; }</c>, so the stream keeps its key.
+    /// A store checks this before it retires a stream's key.
+    /// </summary>
+    public bool RetiresKeyOnNull { get; }
 
     /// <summary>
     /// Derives the natural key value carried by a single event. Receives the whole <see cref="IEvent" />
@@ -36,16 +56,28 @@ public class NaturalKeyEventMapping
 /// </summary>
 public class NaturalKeySourceProblem
 {
-    public NaturalKeySourceProblem(MethodInfo method, Type eventType, string reason)
+    public NaturalKeySourceProblem(MethodInfo method, Type eventType, string reason) : this(method, eventType, reason, false)
+    {
+    }
+
+    /// <param name="hasOwnFix">See <see cref="HasOwnFix" />.</param>
+    public NaturalKeySourceProblem(MethodInfo method, Type eventType, string reason, bool hasOwnFix)
     {
         Method = method;
         EventType = eventType;
         Reason = reason;
+        HasOwnFix = hasOwnFix;
     }
 
     public MethodInfo Method { get; }
     public Type EventType { get; }
     public string Reason { get; }
+
+    /// <summary>
+    /// jasperfx#1287: true when <see cref="Reason" /> already says what to do, so the refusal does not need the
+    /// general advice about deriving the key from the event alone, which would be wrong for this problem.
+    /// </summary>
+    public bool HasOwnFix { get; }
 
     public override string ToString()
         => $"{Method.DeclaringType?.FullNameInCode()}.{Method.Name}() for event {EventType.FullNameInCode()}: {Reason}";
@@ -194,8 +226,17 @@ public class NaturalKeyDefinition
     /// </summary>
     public void AddOrReplaceMapping(Type eventType, Func<IEvent, object?> extractor)
     {
+        AddOrReplaceMapping(eventType, extractor, true);
+    }
+
+    /// <summary>
+    /// <see cref="AddOrReplaceMapping(Type, Func{IEvent, object?})" />, saying whether a null from the extractor
+    /// retires the stream's key. See <see cref="NaturalKeyEventMapping.RetiresKeyOnNull" />.
+    /// </summary>
+    public void AddOrReplaceMapping(Type eventType, Func<IEvent, object?> extractor, bool retiresKeyOnNull)
+    {
         EventMappings.RemoveAll(x => x.EventType == eventType);
-        EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor));
+        EventMappings.Add(new NaturalKeyEventMapping(eventType, extractor, retiresKeyOnNull));
         _problems.RemoveAll(x => x.EventType == eventType);
     }
 
@@ -204,9 +245,17 @@ public class NaturalKeyDefinition
     /// </summary>
     public void RecordProblem(MethodInfo method, Type eventType, string reason)
     {
+        RecordProblem(method, eventType, reason, false);
+    }
+
+    /// <summary>
+    /// <see cref="RecordProblem(MethodInfo, Type, string)" /> for a problem whose reason already carries its fix.
+    /// </summary>
+    public void RecordProblem(MethodInfo method, Type eventType, string reason, bool hasOwnFix)
+    {
         if (HasMappingFor(eventType)) return;
 
-        _problems.Add(new NaturalKeySourceProblem(method, eventType, reason));
+        _problems.Add(new NaturalKeySourceProblem(method, eventType, reason, hasOwnFix));
     }
 
     /// <summary>
@@ -216,7 +265,7 @@ public class NaturalKeyDefinition
     /// </summary>
     internal void RecordDuplicateSource(MethodInfo method, Type eventType, string reason)
     {
-        _problems.Add(new NaturalKeySourceProblem(method, eventType, reason));
+        _problems.Add(new NaturalKeySourceProblem(method, eventType, reason, true));
     }
 
     /// <summary>

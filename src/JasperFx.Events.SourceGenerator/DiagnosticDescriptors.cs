@@ -151,7 +151,7 @@ internal static class DiagnosticDescriptors
         id: "JFXEVT011",
         title: "Natural keys on one aggregate need distinct types",
         messageFormat:
-            "'{0}' has natural keys '{1}' and '{2}' of the same type '{3}'; every natural key on an aggregate needs a distinct type",
+            "'{0}' has natural keys '{1}' and '{2}' of the same type '{3}'; every natural key on an aggregate needs a distinct type, so wrap one of them in its own strong-typed identifier",
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -195,7 +195,7 @@ internal static class DiagnosticDescriptors
         id: "JFXEVT015",
         title: "A mapped natural key must have the type of its source's natural key",
         messageFormat:
-            "Natural key '{0}.{1}' has type '{2}', but its source '{3}' owns natural key '{4}' of type '{5}'",
+            "Natural key '{0}.{1}' has type '{2}', but its source '{3}' owns natural key '{4}' of type '{5}'; declare it as '{5}', or map it to a projection that owns a key of type '{2}'",
         category: "JasperFx.Events",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);

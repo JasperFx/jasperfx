@@ -219,7 +219,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
                 if (source == null)
                 {
                     problems.Add(
-                        $"{key} reads the natural key lookup of {sourceType.FullNameInCode()}, but no aggregate projection for that type is registered. The source projection maintains the lookup, so it has to be registered too.");
+                        $"{key} reads the natural key lookup of {sourceType.FullNameInCode()}, but no aggregate projection for that type is registered. The source projection maintains the lookup, so it has to be registered too, for example with Snapshot<{sourceType.NameInCode()}>(SnapshotLifecycle.Inline), or by adding its projection class.");
                     continue;
                 }
 
@@ -234,7 +234,7 @@ public abstract class ProjectionGraph<TProjection, TOperations, TQuerySession> :
                 if (owned.OuterType != mapped.OuterType)
                 {
                     problems.Add(
-                        $"{key} has type {mapped.OuterType.FullNameInCode()}, but its source {source.AggregateType.FullNameInCode()} owns natural key {owned.Member.Name} of type {owned.OuterType.FullNameInCode()}.");
+                        $"{key} has type {mapped.OuterType.FullNameInCode()}, but its source {source.AggregateType.FullNameInCode()} owns natural key {owned.Member.Name} of type {owned.OuterType.FullNameInCode()}. Declare it as {owned.OuterType.FullNameInCode()}, or map it to a projection that owns a key of type {mapped.OuterType.FullNameInCode()}.");
                     continue;
                 }
 

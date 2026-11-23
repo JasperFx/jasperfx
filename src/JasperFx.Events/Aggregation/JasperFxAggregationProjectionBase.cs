@@ -160,9 +160,14 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
                 .Select(x => "  * " + x)
                 .Join(System.Environment.NewLine);
 
+            // jasperfx#1287: the general advice only fits a method discovery could not bind. A problem that names its
+            // own fix (not public, no event parameter, two sources for one event) is better left to say it alone.
+            var generalAdvice = NaturalKeyDefinition.DiscoveryProblems.Any(x => !x.HasOwnFix)
+                ? $"{System.Environment.NewLine}Either give the method a signature that derives the key from the event alone — a static method returning {NaturalKeyDefinition.OuterType.FullNameInCode()} that takes the event or IEvent<T> — or register the mapping explicitly with NaturalKeyFor(x => x.SetBy<TEvent>(...))."
+                : "";
+
             throw new InvalidProjectionException(
-                $"Unable to derive the natural key '{keyName}' from every [NaturalKeySource] method on {GetType().FullNameInCode()}:{System.Environment.NewLine}{problems}{System.Environment.NewLine}" +
-                $"Either give the method a signature that derives the key from the event alone — a static method returning {NaturalKeyDefinition.OuterType.FullNameInCode()} that takes the event or IEvent<T> — or register the mapping explicitly with NaturalKeyFor(x => x.SetBy<TEvent>(...)).");
+                $"Unable to derive the natural key '{keyName}' from every [NaturalKeySource] method on {GetType().FullNameInCode()}:{System.Environment.NewLine}{problems}{generalAdvice}");
         }
 
         // An owned key that no event sets has a lookup that is never written, so fetching by it silently
@@ -999,7 +1004,7 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         foreach (var group in all.GroupBy(x => x.OuterType).Where(x => x.Count() > 1))
         {
             problems.Add(
-                $"[NaturalKey] properties {group.Select(x => $"'{x.Member.Name}'").Join(", ")} share the key type {group.Key.FullNameInCode()}. Every natural key on an aggregate needs a distinct type.");
+                $"[NaturalKey] properties {group.Select(x => $"'{x.Member.Name}'").Join(", ")} share the key type {group.Key.FullNameInCode()}. Every natural key on an aggregate needs a distinct type: wrap one of them in its own strong-typed identifier.");
         }
 
         return (owned, mapped.ToArray());
@@ -1059,7 +1064,8 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             if (eventType == null)
             {
                 definition.RecordProblem(method, method.DeclaringType ?? searchType,
-                    "no event parameter could be identified — a [NaturalKeySource] method has to accept the event, either as the event type itself or as IEvent<T>");
+                    "no event parameter could be identified — a [NaturalKeySource] method has to accept the event, either as the event type itself or as IEvent<T>",
+                    true);
                 continue;
             }
 
@@ -1067,17 +1073,19 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             if (!method.IsPublic)
             {
                 definition.RecordProblem(method, eventType,
-                    "it is not public, and discovery only binds public methods — make it public, or register the mapping explicitly with NaturalKeyFor()");
+                    "it is not public, and discovery only binds public methods — make it public, or register the mapping explicitly with NaturalKeyFor()",
+                    true);
                 continue;
             }
 
             Func<IEvent, object?>? extractor = null;
             PropertyInfo? readsEventProperty = null;
+            var explicitSource = false;
             string? reason;
             try
             {
                 extractor = buildExtractor(method, naturalKeyProp, docType, parameters, eventType,
-                    out reason, out readsEventProperty);
+                    out reason, out readsEventProperty, out explicitSource);
             }
             catch (Exception e)
             {
@@ -1110,7 +1118,8 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
 
             if (extractor != null)
             {
-                definition.AddOrReplaceMapping(eventType, extractor);
+                // jasperfx#1287: only an explicit source retires the key with a null
+                definition.AddOrReplaceMapping(eventType, extractor, explicitSource);
             }
             else
             {
@@ -1173,10 +1182,12 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
         ParameterInfo[] parameters,
         Type eventType,
         out string? reason,
-        out PropertyInfo? readsEventProperty)
+        out PropertyInfo? readsEventProperty,
+        out bool explicitSource)
     {
         reason = null;
         readsEventProperty = null;
+        explicitSource = false;
 
         // TKey and TKey? are the same key, wherever either appears
         var keyType = NaturalKeyDefinition.KeyTypeOf(naturalKeyProp.PropertyType);
@@ -1192,6 +1203,8 @@ public abstract partial class JasperFxAggregationProjectionBase<TDoc, TId, TOper
             if (tryBindArguments(eventParam, parameters, eventType, docType, null, out var keyArgs,
                     out var blocker))
             {
+                // A method that returns the key is the one source that can say "no key" on purpose
+                explicitSource = true;
                 return compile(Expression.Convert(Expression.Call(method, keyArgs!), typeof(object)),
                     eventParam);
             }
