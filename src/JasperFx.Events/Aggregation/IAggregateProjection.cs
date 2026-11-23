@@ -28,5 +28,8 @@ public interface IAggregateProjection
     /// <c>[NaturalKey(SourceProjection = ...)]</c> or <c>[MappedNaturalKey&lt;T&gt;]</c>. Each has a distinct
     /// key type, also distinct from <see cref="NaturalKeyDefinition" />'s.
     /// </summary>
-    NaturalKeyDefinition[] MappedNaturalKeyDefinitions { get; }
+    /// <remarks>
+    /// Defaults to none, so an implementation compiled against an older JasperFx keeps loading (jasperfx#933).
+    /// </remarks>
+    NaturalKeyDefinition[] MappedNaturalKeyDefinitions => [];
 }

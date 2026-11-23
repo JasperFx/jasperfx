@@ -156,6 +156,21 @@ namespace Test
     }
 
     [Fact]
+    public void the_natural_key_property_wins_over_the_type_argument()
+    {
+        // Wolverine applies NaturalKey after the constructor, so it is the key that gets loaded
+        var diagnostic = ModelDiagnostics(@"
+    public static class Handlers
+    {
+        public static void A(Command c, [WriteAggregate<Sku>(NaturalKey = typeof(ShelfCode))] Shelf shelf) { }
+        public static void B(Command c, [WriteAggregate<ShelfCode>(NaturalKey = typeof(Unrelated))] Shelf shelf) { }
+    }").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT016");
+        diagnostic.GetMessage().ShouldContain("'Test.Unrelated'");
+    }
+
+    [Fact]
     public void a_nullable_key_type()
     {
         var diagnostic = ModelDiagnostics(@"

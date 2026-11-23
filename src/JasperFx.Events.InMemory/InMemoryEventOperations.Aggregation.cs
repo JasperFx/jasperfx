@@ -117,31 +117,7 @@ public partial class InMemoryEventOperations
     public async Task<IReadOnlyList<IEventStream<T>>> FetchManyForWriting<T, TId>(IReadOnlyList<TId> ids,
         CancellationToken cancellation = default) where T : class where TId : notnull
     {
-        if (Nullable.GetUnderlyingType(typeof(TId)) is { } underlying)
-        {
-            throw new ArgumentException(
-                $"{nameof(FetchManyForWriting)} fetches by {underlying.Name}, not {underlying.Name}?. Drop the null ids before fetching.",
-                nameof(ids));
-        }
-
-        ArgumentNullException.ThrowIfNull(ids);
-
-        var seen = new HashSet<TId>();
-        for (var i = 0; i < ids.Count; i++)
-        {
-            if (ids[i] is null)
-            {
-                throw new ArgumentNullException(nameof(ids),
-                    $"{nameof(FetchManyForWriting)} was given a null id at position {i}. Drop the null ids before fetching.");
-            }
-
-            if (!seen.Add(ids[i]))
-            {
-                throw new ArgumentException(
-                    $"{nameof(FetchManyForWriting)} was given the stream identity '{ids[i]}' more than once. Each stream can be fetched for writing once per call, because two handles on one stream would race each other's expected version.",
-                    nameof(ids));
-            }
-        }
+        IEventStoreOperations.AssertFetchableIds(ids, nameof(ids));
 
         // Nothing is gained by batching in memory, so one fetch per id, in order
         var streams = new IEventStream<T>[ids.Count];

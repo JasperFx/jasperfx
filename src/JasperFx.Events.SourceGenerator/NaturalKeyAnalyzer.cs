@@ -206,10 +206,11 @@ internal static class NaturalKeyAnalyzer
                 continue;
             }
 
-            if (current.Arity == 1) return current.TypeArguments[0];
-
+            // NaturalKey = typeof(...) is set after the constructor runs, so it wins over a type argument
             var named = attribute.NamedArguments.FirstOrDefault(x => x.Key == "NaturalKey");
-            return named.Value.Value as ITypeSymbol;
+            if (named.Value.Value is ITypeSymbol explicitKey) return explicitKey;
+
+            return current.Arity == 1 ? current.TypeArguments[0] : null;
         }
 
         return null;

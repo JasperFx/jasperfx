@@ -281,7 +281,15 @@ public class AggregateWriteCacheSession
                 // stored costs one uncached fetch.
             }
 
-            OnPublished(key, write.Aggregate);
+            try
+            {
+                OnPublished(key, write.Aggregate);
+            }
+            catch (Exception)
+            {
+                // Same reasoning as the cache above: the commit has happened, so a store's own bookkeeping
+                // failing here must not turn it into a SaveChangesAsync that reports failure and is retried.
+            }
         }
     }
 
@@ -298,6 +306,16 @@ public class AggregateWriteCacheSession
     /// <param name="key">The stream's key, carrying its tenant.</param>
     /// <param name="aggregate">The instance written back, which is the one the commit left the stream at.</param>
     protected virtual void OnPublished(AggregateCacheKey key, object aggregate)
+    {
+        OnPublished(key);
+    }
+
+    /// <summary>
+    /// The form of <see cref="OnPublished(AggregateCacheKey, object)" /> without the aggregate, which that one
+    /// calls unless it is overridden. Kept so a store compiled against an older JasperFx still loads and
+    /// still has its override called; override the other form in new code.
+    /// </summary>
+    protected virtual void OnPublished(AggregateCacheKey key)
     {
     }
 
