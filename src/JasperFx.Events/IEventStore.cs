@@ -56,6 +56,33 @@ public interface IEventStore
     bool HasEventStore => true;
 
     /// <summary>
+    /// The aggregate types this store knows about right now (jasperfx#1282): the aggregates of its registered
+    /// projections and snapshots, its registered live aggregations, the self-aggregating types whose
+    /// source-generated evolvers it discovered, and any other type it has built a live aggregator for so far.
+    /// Each type once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The list a store-agnostic consumer enumerates types from, where <see cref="IEventRegistry.AggregateTypeFor" />
+    /// only resolves one alias at a time. Stores answer it from <c>ProjectionGraph.AllAggregateTypes()</c>.
+    /// </para>
+    /// <para>
+    /// Not the types found on stored streams: a stream can be tagged with a type this deployment never
+    /// registers, or with one written by another service. <see cref="IEventDatabase.FetchAggregateStreamStatsAsync" />
+    /// reports what is stored, unresolved aliases included. A type only aggregated live can also join this list
+    /// later, the first time it is aggregated.
+    /// </para>
+    /// <para>
+    /// The default throws <see cref="NotSupportedException" /> naming the implementing type, rather than
+    /// answering an empty list that reads as "no aggregates".
+    /// </para>
+    /// </remarks>
+    /// <exception cref="NotSupportedException">From the default implementation, on a store that has not implemented this.</exception>
+    IReadOnlyList<Type> RegisteredAggregateTypes()
+        => throw new NotSupportedException(
+            $"{GetType().FullName} does not implement {nameof(IEventStore)}.{nameof(RegisteredAggregateTypes)} (jasperfx#1282).");
+
+    /// <summary>
     ///     jasperfx#420 — the configured default cap on how many projection rebuild cells may run
     ///     concurrently within a single database during a rebuild operation. <c>null</c> means
     ///     "unbounded" to JasperFx.Events, which is store-agnostic and has no notion of a connection

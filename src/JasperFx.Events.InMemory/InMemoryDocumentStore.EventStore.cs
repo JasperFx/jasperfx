@@ -101,6 +101,9 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
         => InMemoryDocumentQueryable<StreamState>.Wrap(StreamStates(null).AsQueryable());
 
     /// <inheritdoc />
+    public IReadOnlyList<Type> RegisteredAggregateTypes() => Projections.AllAggregateTypes().ToList();
+
+    /// <inheritdoc />
     public Task CompactStreamAsync(Guid streamId, CancellationToken token = default)
         => throw InMemoryEventRegistry.NotSupported("Compacting a stream");
 
@@ -326,6 +329,45 @@ public partial class InMemoryDocumentStore : IEventStore<IInMemoryDocumentSessio
                                          && (p.TenantId is null || x.TenantId == p.TenantId))?.Timestamp))
                 .ToList();
         }
+    }
+}
+
+public partial class InMemoryDocumentStore
+{
+    /// <summary>
+    /// jasperfx#1282, over the stream rows. This store does not archive streams, so
+    /// <see cref="AggregateStreamStatsRequest.IncludeArchived" /> changes nothing.
+    /// </summary>
+    internal IReadOnlyList<AggregateStreamStats> AggregateStreamStats(AggregateStreamStatsRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        StreamRow[] rows;
+        using (EnterReadGate())
+        {
+            rows = _streams.Values
+                .Where(x => request.TenantId is null || x.TenantId == request.TenantId)
+                .ToArray();
+        }
+
+        return rows
+            .GroupBy(x => x.AggregateType == null ? null : Events.AggregateAliasFor(x.AggregateType))
+            .Select(group => new AggregateStreamStats(
+                group.Key,
+                Events.TryResolveAggregateType(group.Key),
+                group.LongCount(),
+                group.Sum(x => x.Version),
+                group.Max(x => x.Version),
+                request.LengthThresholds
+                    .Select(threshold => new StreamLengthBucket(threshold, group.LongCount(x => x.Version >= threshold)))
+                    .ToArray(),
+                group.OrderByDescending(x => x.Version)
+                    .Take(request.LongestStreams)
+                    .Select(x => x.Id is Guid id
+                        ? new AggregateStreamLength(id, null, x.TenantId, x.Version)
+                        : new AggregateStreamLength(Guid.Empty, (string)x.Id, x.TenantId, x.Version))
+                    .ToArray()))
+            .ToList();
     }
 }
 
