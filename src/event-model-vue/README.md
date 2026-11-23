@@ -187,8 +187,9 @@ Both are optional, and a host that uses neither renders exactly what 0.16.0 did.
 - **`card-badge` slot.** Rendered inside each card, in its bottom-right corner, with
   `{ element, slice, sliceName }`. CritterWatch uses it to put runtime readings and active alerts on
   the cards they belong to. The card is a `<button>`, so badge content must not be interactive: a
-  click on a badge is a click on its card, and a badge is about the page its card opens. A card the
-  host renders nothing for gets an empty, hidden badge.
+  click on a badge is a click on its card, and a badge is about the page its card opens. The badge
+  takes the pointer, so a `title` on its content shows as its own tooltip. A card the host renders
+  nothing for gets an empty, hidden badge.
 - **`sliceLabel` prop**, `(slice) => string`. What a slice header says when it should differ from
   the slice's `name`. The name stays the key everywhere (collapse, outcomes, focus, links, the
   `slice-click` payload). A host drawing several applications on one canvas qualifies the names to

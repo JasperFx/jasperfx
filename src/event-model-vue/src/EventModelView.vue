@@ -122,7 +122,8 @@ defineSlots<{
    * A badge on a card, for a host that has something to say about what the card
    * shows: a reading, an alert. Rendered inside the card, in its bottom-right corner, so it moves and
    * dims with the card. The card is a button, so the content must not be interactive: a click on a
-   * badge is a click on its card, which is the page the badge is about. Nothing is drawn where the
+   * badge is a click on its card, which is the page the badge is about. A `title` on the content
+   * shows, since the badge takes the pointer. Nothing is drawn where the
    * host renders nothing, so a host that never uses the slot (Bobcat) renders exactly as before.
    */
   'card-badge'?(props: {
@@ -1899,10 +1900,9 @@ function outcomeFor(sliceName: string): string | null {
   opacity: 0.9;
 }
 
-/* The origin chevron. Top-left of the card, small, and quiet until hovered — it is a navigation
-   affordance on a card whose subject is its own label. */
-/* the host's badge, bottom right: the origin chevron holds the top left and a
-   disagreement the top right. Pointer-inert, so a click lands on the card the badge is about. */
+/* The host's badge, bottom right: the origin chevron holds the top left and a disagreement the top
+   right. It takes the pointer so its own tooltip shows; a click on it still reaches the card, because
+   it is inside the card's button. */
 .em-card-badge {
   position: absolute;
   bottom: 2px;
@@ -1914,11 +1914,12 @@ function outcomeFor(sliceName: string): string | null {
   font-size: 9px;
   line-height: 1.1;
   white-space: nowrap;
-  pointer-events: none;
 }
 .em-card-badge:empty {
   display: none;
 }
+/* The origin chevron. Top-left of the card, small, and quiet until hovered — it is a navigation
+   affordance on a card whose subject is its own label. */
 .em-origin {
   position: absolute;
   top: 2px;
