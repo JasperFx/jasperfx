@@ -1,5 +1,23 @@
 # Migration Guide
 
+## Key Changes in 3.13.0
+
+* **Mapped and nullable natural keys** ([#1281](https://github.com/JasperFx/jasperfx/pull/1281), [marten#5813](https://github.com/JasperFx/marten/issues/5813)). An aggregate can map a natural key whose lookup another projection owns, with `[MappedNaturalKey<TSource>]` or `[NaturalKey(SourceProjection = typeof(TSource))]`, and a struct key can be declared as `TKey?` on the aggregate, a `[NaturalKeySource]` return type or an event property. An aggregate owns at most one key, maps any number, and every key on it has its own type. Stores support mapped keys separately: Marten 10 does. Polecat and Fisher accept the attribute but can't fetch by a mapped key yet ([polecat#1131](https://github.com/JasperFx/polecat/issues/1131), [fisher#679](https://github.com/JasperFx/fisher/issues/679)).
+
+* **Natural key setups that used to fail silently are refused when projections are registered.** `InvalidProjectionException` for two owned keys on one aggregate, two keys of one type, an owned key that no event sets, a non-public `[NaturalKeySource]` method, two sources for one event that derive the key differently, an owned key on an aggregate inside a composite projection, and a mapped key whose source isn't registered, owns no key or owns a key of another type. An explicit `NaturalKeyFor()` mapping clears the source method refusals.
+
+* **Build-time natural key diagnostics `JFXEVT010` to `JFXEVT017`**, all errors, from the source generator in `JasperFx.Events`. They cover the rules above, and a key type named by Wolverine's `[WriteAggregate<TKey>]`, `[ReadAggregate<TKey>]`, `[WriteModel<TKey>]`, `[ReadModel<TKey>]` or `NaturalKey = typeof(TKey)` that the aggregate doesn't have, or that is `TKey?`.
+
+* **New store members for event store authors, all with defaults**, so a store built against 3.12 still compiles and loads:
+  * `IEventStoreOperations.FetchForWriting<T, TId>(id, expectedVersion)` fetches, then checks the version. A store should override it to check before the stream is enlisted in the session.
+  * `IEventStoreOperations.FetchManyForWriting<T, TId>(ids)` fetches one id at a time, after `IEventStoreOperations.AssertFetchableIds` refuses a `Nullable<T>` id type, a null id and a repeated id.
+  * `IAggregateProjection.MappedNaturalKeyDefinitions` is empty.
+  * `AggregateWriteCacheSession.OnPublished(key, aggregate)` calls the existing `OnPublished(key)`, and an override that throws no longer fails a commit that has already happened.
+  * `NaturalKeyDefinition` gains `SourceProjectionType`, `IsMapped`, `SourceProjectionDefinition`, `LookupAggregateType`, `IsNullable`, `KeyTypeOf()` and `ReadValue()`, and `ProjectionGraph.AllAggregateProjections()` includes composite members.
+  * Compliance suites `MappedNaturalKeyCompliance` (behind the new `SupportsMappedNaturalKeys`) and `NaturalKeyRegistrationCompliance`.
+
+* **A store's aggregate types, and stream counts and lengths by aggregate type** ([#1282](https://github.com/JasperFx/jasperfx/issues/1282)). `IEventStore.RegisteredAggregateTypes()` and `IEventDatabase.FetchAggregateStreamStatsAsync(AggregateStreamStatsRequest)`. Both default to throwing `NotSupportedException`; the in-memory store implements them, and `AggregateStreamStatsCompliance` (behind `SupportsAggregateStreamStats`) is the contract for the stores.
+
 ## Key Changes in 3.12.1
 
 * **A composite projection rebuild that fails now throws** ([#1277](https://github.com/JasperFx/jasperfx/issues/1277)). Rebuilding a composite projection used to return normally when a page failed and the shard ended up paused or stopped, so the rebuild looked finished when it wasn't. It now throws the shard's own failure, the same way a single-stream rebuild always has. A composite rebuild that runs out of time between pages throws `OperationCanceledException`. A full rebuild never parks identities, so `RebuildErrors = Park` behaves like Pause there and throws too.
