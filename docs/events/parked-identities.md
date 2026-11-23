@@ -130,7 +130,7 @@ A composite projection does not park in this version. A parked upstream document
 
 ## Transient failures
 
-A connection pool timeout, a deadlock or a dropped connection isn't the event's fault, so it doesn't park, pause or skip anything at first. The daemon builds the whole batch again through the event store's `ResiliencePipeline`, the same Polly pipeline the store uses elsewhere, for as long as that pipeline retries. That's true under `Park`, `Pause` and `Skip`, for one failing identity or several at once, and for a failure outside your projection code, like loading the stored documents.
+A connection pool timeout, a deadlock or a dropped connection isn't the event's fault, so it doesn't park, pause or skip anything at first. The daemon builds the whole batch again through the Polly pipeline the event store hands it, for as long as that pipeline retries. Marten and Polecat give the daemon its own pipeline, separate from the one their sessions use so the retries don't multiply, and you configure it with `StoreOptions.ConfigureDaemonPolly()`. That's true under `Park`, `Pause` and `Skip`, for one failing identity or several at once, and for a failure outside your projection code, like loading the stored documents.
 
 When the pipeline gives up, the shard pauses, and its `ShardFailure.IsTransient` is true, so Wolverine or CritterWatch can restart it later. With no pipeline (`ResiliencePipeline.Empty`, the default on `IEventStore`), that pause comes on the first failure.
 
@@ -261,4 +261,4 @@ The `MultiStreamParkedIdentityCompliance` suite checks all of it. The in-memory 
 
 A store that supports natural keys fills `ParkedIdentity.NaturalKey` in `IEventDatabase.FetchParkedIdentitiesAsync`, with one natural-key lookup per projection. It's never stored on the parked row.
 
-To have transient batch failures retried, return your store's Polly pipeline from `IEventStore<TOperations, TQuerySession>.ResiliencePipeline`. The daemon only hands it failures it already judged transient, and an `AggregateException` from several identities failing at once is handed over as its first inner exception, so a `ShouldHandle` written against your driver's exceptions works as it is.
+To have transient batch failures retried, return a Polly pipeline from `IEventStore<TOperations, TQuerySession>.ResiliencePipeline`. Make it a pipeline for the daemon rather than the one your sessions already retry through, or a batch's retries multiply with the sessions' own. The daemon only hands it failures it already judged transient, and an `AggregateException` from several identities failing at once is handed over as its first inner exception, so a `ShouldHandle` written against your driver's exceptions works as it is.

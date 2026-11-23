@@ -26,7 +26,13 @@ public static async Task<int> SetupWithCodegenCommand(string[] args)
 
 ## TypeLoadMode
 
-The `TypeLoadMode` enum on `GenerationRules` controls how generated types are loaded at runtime:
+The `TypeLoadMode` enum on `GenerationRules` controls how generated types are loaded at runtime.
+
+::: tip Runtime compilation is a separate package
+Compiling generated code at runtime, which `Dynamic` always does and `Auto` does when a pre-built type is missing, needs the `JasperFx.RuntimeCompiler` package and its Roslyn dependencies, registered with `services.AddRuntimeCompilation()`. Marten and Wolverine register it for you when they need it. `codegen write` needs it too, but an application that only ever runs in `Static` mode doesn't, and leaving it out keeps Roslyn out of the deployment. See [Publishing AOT](/codegen/aot).
+:::
+
+In the `net11.0` build, runtime-compiled code uses .NET 11's runtime-async methods instead of compiler-built async state machines, which allocates less. Turn it off with `GenerationRules.UseRuntimeAsync = false` (Wolverine exposes it as `opts.CodeGeneration.UseRuntimeAsync`) if a profiler or APM agent misbehaves with it. It has no effect in the `net10.0` build.
 
 ### Dynamic
 
@@ -84,7 +90,7 @@ public static void ConfigureStaticMode()
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/CodegenCliSamples.cs#L22-L34' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_type_load_mode_static' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Types must already exist in the pre-built application assembly. If any generated type is missing, the application throws an exception at startup. This provides the fastest startup time and is recommended for production.
+Types must already exist in the pre-built application assembly. If any expected type is missing, the application fails at startup with an `ExpectedTypeMissingException` that says whether nothing generated reached the binary at all or only that type is missing, rather than at first use. This provides the fastest startup time and is recommended for production.
 
 ## Commands
 

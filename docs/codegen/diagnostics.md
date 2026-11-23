@@ -41,4 +41,4 @@ None of the diagnostics above can fire if the generator never ran, for example b
 <JasperFxEventsRequireSourceGenerator>true</JasperFxEventsRequireSourceGenerator>
 ```
 
-The build then fails with `JFXEVT900` when no `JasperFx.Events.SourceGenerator` analyzer is attached to the project. See [Projection Apply Dispatch](/codegen/projection-apply-dispatch#telling-the-generator-never-ran-from-the-generator-declined-your-type-887) for why it's opt-in.
+The build then fails with `JFXEVT900` when no `JasperFx.Events.SourceGenerator` analyzer is attached to the project. See [Projection Apply Dispatch](/codegen/projection-apply-dispatch#telling-the-generator-never-ran-from-the-generator-declined-your-type) for why it's opt-in.

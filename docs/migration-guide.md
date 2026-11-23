@@ -34,7 +34,7 @@
 
 ## Key Changes in 3.11.0
 
-* **Transient failures while building a projection batch are retried through the store's resilience pipeline** ([#1256](https://github.com/JasperFx/jasperfx/issues/1256)). A batch that fails for a transient reason (a timeout, a dropped connection, a driver's transient error) is built again through the store's existing Polly pipeline, under every error policy, whether one slice failed or several. When the pipeline gives up, the shard pauses with `IsTransient = true` so a supervisor such as Wolverine can restart it. Skip no longer retries such a batch without limit. `IEventStore` has a new `ResiliencePipeline` member that defaults to `ResiliencePipeline.Empty`; with the default, a transient failure pauses the shard the first time.
+* **Transient failures while building a projection batch are retried through the store's resilience pipeline** ([#1256](https://github.com/JasperFx/jasperfx/issues/1256)). A batch that fails for a transient reason (a timeout, a dropped connection, a driver's transient error) is built again through a Polly pipeline the store hands the daemon (Marten and Polecat configure it with `StoreOptions.ConfigureDaemonPolly()`), under every error policy, whether one slice failed or several. When the pipeline gives up, the shard pauses with `IsTransient = true` so a supervisor such as Wolverine can restart it. Skip no longer retries such a batch without limit. `IEventStore` has a new `ResiliencePipeline` member that defaults to `ResiliencePipeline.Empty`; with the default, a transient failure pauses the shard the first time.
 
 * **Replaying or discarding a parked identity right after it parks** no longer answers `NotParked` ([#1258](https://github.com/JasperFx/jasperfx/issues/1258)).
 
