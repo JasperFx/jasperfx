@@ -101,6 +101,19 @@ public sealed class AggregateEvolverGenerator : IIncrementalGenerator
             }
         });
 
+        // Pipeline 5b: an owned natural key that nothing in the project sets (JFXEVT018). Off by default; when
+        // it is off, this returns at once without looking at the compilation.
+        var unsetNaturalKeyDiagnostics = context.CompilationProvider
+            .Select(static (compilation, ct) => NaturalKeyAnalyzer.AnalyzeUnsetKeys(compilation, ct));
+
+        context.RegisterSourceOutput(unsetNaturalKeyDiagnostics, static (spc, diagnostics) =>
+        {
+            foreach (var diagnostic in diagnostics)
+            {
+                spc.ReportDiagnostic(diagnostic);
+            }
+        });
+
         // Pipeline 6: the natural key type named by Wolverine's model attributes (JFXEVT016-017)
         var modelNaturalKeyDiagnostics = context.SyntaxProvider.CreateSyntaxProvider(
                 predicate: static (node, _) => NaturalKeyAnalyzer.IsPossibleModelParameter(node),

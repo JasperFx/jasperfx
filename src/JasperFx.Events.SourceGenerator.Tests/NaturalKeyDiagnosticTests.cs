@@ -247,6 +247,70 @@ public class WrongType
     }
 
     [Fact]
+    public void a_mistyped_mapped_key_that_clashes_with_the_owned_key_is_reported_once()
+    {
+        // jasperfx#1287: one mistake (the mapped key has the owned key's type instead of its source's) used
+        // to draw both JFXEVT011 and JFXEVT015. JFXEVT015's fix resolves both, so it is the one reported.
+        var diagnostic = NaturalKeyDiagnostics(@"
+public class Shipment
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public CustomerCode Code { get; set; } = default!;
+
+    [MappedNaturalKey<Order>]
+    public CustomerCode Order { get; set; } = default!;
+}
+").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT015");
+        diagnostic.GetMessage().ShouldContain("'Shipment.Order' has type 'Test.CustomerCode'");
+    }
+
+    [Fact]
+    public void a_mistyped_mapped_key_declared_before_the_owned_key_is_reported_once()
+    {
+        var diagnostic = NaturalKeyDiagnostics(@"
+public class Shipment
+{
+    public Guid Id { get; set; }
+
+    [MappedNaturalKey<Order>]
+    public CustomerCode Order { get; set; } = default!;
+
+    [NaturalKey]
+    public CustomerCode Code { get; set; } = default!;
+}
+").ShouldHaveSingleItem();
+
+        diagnostic.Id.ShouldBe("JFXEVT015");
+    }
+
+    [Fact]
+    public void two_keys_of_one_type_beside_a_mistyped_mapped_key_still_clash()
+    {
+        var diagnostics = NaturalKeyDiagnostics(@"
+public class Shipment
+{
+    public Guid Id { get; set; }
+
+    [NaturalKey]
+    public CustomerCode Code { get; set; } = default!;
+
+    [MappedNaturalKey<CustomerProjection>]
+    public CustomerCode Customer { get; set; } = default!;
+
+    [MappedNaturalKey<Order>]
+    public CustomerCode Order { get; set; } = default!;
+}
+");
+
+        diagnostics.Select(x => x.Id).OrderBy(x => x).ShouldBe(["JFXEVT011", "JFXEVT015"]);
+        diagnostics.Single(x => x.Id == "JFXEVT011").GetMessage().ShouldContain("'Code' and 'Customer'");
+    }
+
+    [Fact]
     public void a_nullable_struct_key_is_the_same_type_as_the_key()
     {
         NaturalKeyDiagnostics(@"

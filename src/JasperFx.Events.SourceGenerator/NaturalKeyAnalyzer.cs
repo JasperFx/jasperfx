@@ -57,9 +57,24 @@ internal static class NaturalKeyAnalyzer
                 type.Name, owned[0].Property.Name, extra.Property.Name));
         }
 
+        var sourceDiagnostics = new List<Diagnostic>();
+
+        // A mapped key whose type is wrong for its source (JFXEVT015) is the one mistake behind a clash with a
+        // key of that type here too (JFXEVT011): declaring it with its source's key type, as JFXEVT015 says,
+        // fixes both. So the clash is left unreported for it (jasperfx#1287).
+        var mistyped = new HashSet<IPropertySymbol>(SymbolEqualityComparer.Default);
+        foreach (var mapped in keys.Where(x => x.Source != null).Where(declaredHere))
+        {
+            var diagnostic = CheckSource(type, mapped);
+            if (diagnostic == null) continue;
+
+            sourceDiagnostics.Add(diagnostic);
+            if (diagnostic.Id == DiagnosticDescriptors.NaturalKeySourceTypeMismatch.Id) mistyped.Add(mapped.Property);
+        }
+
         foreach (var group in keys.GroupBy(x => x.KeyType, SymbolEqualityComparer.Default))
         {
-            var sameType = group.ToList();
+            var sameType = group.Where(x => !mistyped.Contains(x.Property)).ToList();
             foreach (var extra in sameType.Skip(1).Where(declaredHere))
             {
                 diagnostics.Add(Diagnostic.Create(DiagnosticDescriptors.DuplicateNaturalKeyType, extra.Location,
@@ -67,11 +82,7 @@ internal static class NaturalKeyAnalyzer
             }
         }
 
-        foreach (var mapped in keys.Where(x => x.Source != null).Where(declaredHere))
-        {
-            var diagnostic = CheckSource(type, mapped);
-            if (diagnostic != null) diagnostics.Add(diagnostic);
-        }
+        diagnostics.AddRange(sourceDiagnostics);
 
         return diagnostics.ToImmutableArray();
     }
@@ -121,6 +132,162 @@ internal static class NaturalKeyAnalyzer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// JFXEVT018: an owned [NaturalKey] that nothing in this compilation sets. Off unless the project turns the
+    /// diagnostic on, so nothing is scanned otherwise. Even when it is on, every doubt resolves to silence:
+    /// a [NaturalKeySource] method or a NaturalKeyFor() call that could belong to the aggregate counts as
+    /// setting the key, and any AddOrReplaceMapping() call, or a name that does not resolve, silences it.
+    /// </summary>
+    public static ImmutableArray<Diagnostic> AnalyzeUnsetKeys(Compilation compilation, CancellationToken token)
+    {
+        if (!IsTurnedOn(compilation, DiagnosticDescriptors.UnsetNaturalKey.Id, token))
+        {
+            return ImmutableArray<Diagnostic>.Empty;
+        }
+
+        // Every aggregate a NaturalKeyFor() call configures. A null entry is one the call does not pin to a
+        // concrete type, such as a type parameter, and counts as any aggregate.
+        var configured = new List<ITypeSymbol?>();
+
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            token.ThrowIfCancellationRequested();
+
+            SemanticModel? model = null;
+            foreach (var name in tree.GetRoot(token).DescendantNodes().OfType<SimpleNameSyntax>())
+            {
+                var text = name.Identifier.ValueText;
+                if (text != "NaturalKeyFor" && text != "AddOrReplaceMapping") continue;
+
+                model ??= compilation.GetSemanticModel(tree);
+                var info = model.GetSymbolInfo(name, token);
+                var method = (info.Symbol ?? info.CandidateSymbols.FirstOrDefault()) as IMethodSymbol;
+
+                // Can't tell what this is, so it might register anything
+                if (method == null) return ImmutableArray<Diagnostic>.Empty;
+
+                if (text == "AddOrReplaceMapping")
+                {
+                    // A mapping added straight to a NaturalKeyDefinition can't be traced to an aggregate
+                    if (method.ContainingType?.Name == "NaturalKeyDefinition") return ImmutableArray<Diagnostic>.Empty;
+                    continue;
+                }
+
+                if (method.ContainingType is { Name: "JasperFxAggregationProjectionBase", Arity: 4 } projectionBase
+                    && projectionBase.ContainingNamespace.ToDisplayString() == AttributeNamespace)
+                {
+                    configured.Add(projectionBase.TypeArguments[0] as INamedTypeSymbol);
+                }
+            }
+        }
+
+        var sourceTypes = compilation.GetSymbolsWithName(_ => true, SymbolFilter.Type, token)
+            .OfType<INamedTypeSymbol>()
+            .ToList();
+
+        // Types with a [NaturalKeySource] method of their own or inherited
+        var withSources = sourceTypes.Where(HasNaturalKeySource).ToList();
+
+        var diagnostics = new List<Diagnostic>();
+        foreach (var type in sourceTypes)
+        {
+            foreach (var property in type.GetMembers().OfType<IPropertySymbol>())
+            {
+                // Discovery only reads public instance properties
+                if (property.IsStatic || property.DeclaredAccessibility != Accessibility.Public) continue;
+                if (KeyOf(property) is not { Source: null } key) continue;
+
+                if (configured.Any(x => x == null || AreRelated(x, type))) continue;
+
+                if (withSources.Any(x => AreRelated(x, type) || AggregateMightBe(x, type))) continue;
+
+                if (HasNaturalKeySource(type)) continue;
+
+                diagnostics.Add(Diagnostic.Create(DiagnosticDescriptors.UnsetNaturalKey, key.Location,
+                    type.Name, property.Name));
+            }
+        }
+
+        return diagnostics.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// Whether the project turned on a diagnostic that is off by default, in its compilation options, in a
+    /// global config, or in an .editorconfig section for any of its files.
+    /// </summary>
+    private static bool IsTurnedOn(Compilation compilation, string id, CancellationToken token)
+    {
+        static bool on(ReportDiagnostic report) => report is not (ReportDiagnostic.Default or ReportDiagnostic.Suppress);
+
+        if (compilation.Options.SpecificDiagnosticOptions.TryGetValue(id, out var specific) && on(specific)) return true;
+
+        var provider = compilation.Options.SyntaxTreeOptionsProvider;
+        if (provider == null) return false;
+
+        if (provider.TryGetGlobalDiagnosticValue(id, token, out var global) && on(global)) return true;
+
+        return compilation.SyntaxTrees.Any(tree => provider.TryGetDiagnosticValue(tree, id, token, out var value) && on(value));
+    }
+
+    /// <summary>
+    /// A [NaturalKeySource] method on the type or anywhere up its base types, at any accessibility, so that
+    /// one the runtime refuses for another reason does not draw this diagnostic too.
+    /// </summary>
+    private static bool HasNaturalKeySource(INamedTypeSymbol type)
+    {
+        for (var current = type; current != null; current = current.BaseType)
+        {
+            foreach (var method in current.GetMembers().OfType<IMethodSymbol>())
+            {
+                foreach (var attribute in method.GetAttributes())
+                {
+                    for (var attributeClass = attribute.AttributeClass; attributeClass != null; attributeClass = attributeClass.BaseType)
+                    {
+                        if (attributeClass.Name == "NaturalKeySourceAttribute") return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>One type derives from the other, or either is not a concrete type (a type parameter, say).</summary>
+    private static bool AreRelated(ITypeSymbol candidate, INamedTypeSymbol aggregate)
+    {
+        if (candidate is not INamedTypeSymbol named || named.TypeKind == TypeKind.Error) return true;
+
+        return InheritsFrom(named, aggregate) || InheritsFrom(aggregate, named);
+    }
+
+    private static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol ancestor)
+    {
+        for (var current = type; current != null; current = current.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(current.OriginalDefinition, ancestor.OriginalDefinition)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The type is an aggregate projection whose aggregate is, or might be, the given one: the aggregate is
+    /// related to it, or is a type parameter.
+    /// </summary>
+    private static bool AggregateMightBe(INamedTypeSymbol type, INamedTypeSymbol aggregate)
+    {
+        for (var current = type.BaseType; current != null; current = current.BaseType)
+        {
+            if (current is { Name: "JasperFxAggregationProjectionBase", Arity: 4 }
+                && current.ContainingNamespace.ToDisplayString() == AttributeNamespace)
+            {
+                return AreRelated(current.TypeArguments[0], aggregate);
+            }
+        }
+
+        return false;
     }
 
     private static readonly string[] ModelAttributeNames =

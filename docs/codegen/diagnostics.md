@@ -33,6 +33,21 @@ These are all errors, added in 3.13.0. The runtime refuses the same setups when 
 | `JFXEVT016` | A key type named on a Wolverine model attribute (`[WriteAggregate<TKey>]`, `[ReadAggregate<TKey>]`, `[WriteModel<TKey>]`, `[ReadModel<TKey>]` or `NaturalKey = typeof(TKey)`) isn't one of the aggregate's natural keys. |
 | `JFXEVT017` | A key type is named as `TKey?`. Name it by its non-nullable type. |
 
+When a mapped key has the wrong type for its source and that type is also the type of the aggregate's own key, you get only `JFXEVT015`, not `JFXEVT011` as well. Fixing the type fixes both.
+
+### A key that no event sets: `JFXEVT018` (opt-in)
+
+`JFXEVT018` is a warning for an owned `[NaturalKey]` that nothing in the project sets: no `[NaturalKeySource]` method on the aggregate or its projection, and no `NaturalKeyFor()` call. The runtime refuses this when the projection is registered, with "The natural key ... is never set by any event".
+
+It's **off by default**, because a registration can sit where the analyzer can't see it. Another assembly might declare the projection or call `NaturalKeyFor()`, a referenced library might do it in generic code, or code might add a mapping through `IAggregateProjection.NaturalKeyDefinition`. Any of those would make the warning wrong. So turn it on only in a project that holds every natural key registration for the aggregates it declares:
+
+```ini
+# .editorconfig or .globalconfig
+dotnet_diagnostic.JFXEVT018.severity = warning
+```
+
+Even when it's on, it stays silent whenever the project could set the key in a way it can't trace to one aggregate. That covers a `[NaturalKeySource]` method on a generic projection base, a `NaturalKeyFor()` call in generic code, and any direct `NaturalKeyDefinition.AddOrReplaceMapping()` call.
+
 ## Making sure the generator ran at all
 
 None of the diagnostics above can fire if the generator never ran, for example because a project reference excludes the `analyzers` asset. To fail the build in that case, opt in per project:
