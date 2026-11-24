@@ -200,6 +200,27 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    /// <summary>
+    ///     An owned natural key that nothing in this project sets: no <c>[NaturalKeySource]</c> method and no
+    ///     <c>NaturalKeyFor()</c> registration. The runtime refuses it when the projection is registered.
+    ///
+    ///     <para>Off by default (jasperfx#1287). A registration can be made where no analyzer can see it: in
+    ///     another assembly that declares the projection or calls <c>NaturalKeyFor()</c>, in a referenced
+    ///     library's generic helper, or through <c>IAggregateProjection.NaturalKeyDefinition</c>. So the check
+    ///     only holds for a project that contains every natural key registration for its aggregates, and the
+    ///     project says so by turning it on: <c>dotnet_diagnostic.JFXEVT018.severity = warning</c>. Even then it
+    ///     stays silent wherever this project itself could register a mapping it cannot attribute, such as a
+    ///     <c>NaturalKeyFor()</c> call in generic code or any direct <c>AddOrReplaceMapping()</c> call.</para>
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnsetNaturalKey = new(
+        id: "JFXEVT018",
+        title: "A natural key must be set by an event",
+        messageFormat:
+            "Natural key '{0}.{1}' is never set by any event in this project, so its lookup would never be written; mark a method that derives it from an event with [NaturalKeySource], or register the mapping with NaturalKeyFor(x => x.SetBy<TEvent>(...))",
+        category: "JasperFx.Events",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: false);
+
     // ── Wolverine's [WriteAggregate<TKey>] / [ReadAggregate<TKey>] / [WriteModel<TKey>] / [ReadModel<TKey>]
     //    (JFXEVT016-017). Matched by name, so this analyzer needs no reference to Wolverine. The named key
     //    type has to be one the aggregate declares, which is all attributes the checks above already read;
