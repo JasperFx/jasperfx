@@ -9,7 +9,7 @@ public class EnumerationConversion : IConversionProvider
     {
         if (type.GetTypeInfo().IsEnum)
         {
-            return x => Enum.Parse(type, x);
+            return x => Enum.Parse(type, x, ignoreCase: true);
         }
 
         return null;

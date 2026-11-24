@@ -56,6 +56,16 @@ namespace CommandLineTests.Conversion
             assertRoundTrip(UriHostNameType.Basic);
         }
 
+        [Theory]
+        [InlineData("East")]
+        [InlineData("east")]
+        [InlineData("EAST")]
+        public void enumerations_ignore_case(string text)
+        {
+            // GH-1291: the docs and help text write enum flags in lower case, e.g. --format text
+            conversions.Convert(typeof(Directions), text).ShouldBe(Directions.East);
+        }
+
         [Fact]
         public void convert_string_is_passthrough_on_value()
         {
