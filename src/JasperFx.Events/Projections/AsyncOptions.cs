@@ -386,6 +386,31 @@ public class AsyncOptions
     }
 
     /// <summary>
+    /// True when <see cref="SubscribeFromPriorVersionMark" /> was called for any database. A store that can't run
+    /// the named backfill can use this to refuse a projection that would otherwise start from the mark and build its
+    /// documents without their history (jasperfx#1293).
+    /// </summary>
+    public bool StartsFromPriorVersionMark => _strategies.OfType<FromPriorVersionMark>().Any();
+
+    /// <summary>
+    /// The backfill name passed to <see cref="SubscribeFromPriorVersionMark" /> that decides where this projection
+    /// starts, or null when it starts some other way. With a <paramref name="databaseIdentifier" />, this resolves
+    /// the starting position the way the daemon does: a rule for that database wins over a rule for every database.
+    /// Without one, only a rule for every database counts.
+    /// </summary>
+    /// <param name="databaseIdentifier">The database's identifier, or null for the rule that applies to every database</param>
+    public string? PriorVersionMarkBackfillName(string? databaseIdentifier = null)
+    {
+        var strategy = databaseIdentifier.IsEmpty()
+            ? _strategies.FirstOrDefault(x => x.DatabaseIdentifier.IsEmpty())
+            : _strategies.Where(x => x.DatabaseIdentifier.IsNotEmpty())
+                  .FirstOrDefault(x => x.DatabaseIdentifier!.EqualsIgnoreCase(databaseIdentifier!))
+              ?? _strategies.FirstOrDefault(x => x.DatabaseIdentifier.IsEmpty());
+
+        return (strategy as FromPriorVersionMark)?.BackfillName;
+    }
+
+    /// <summary>
     /// Use this option to prevent having to rebuild a projection when you are
     /// simply changing the projection lifecycle from "Inline" to "Async" but are
     /// making no other changes that would force a rebuild
