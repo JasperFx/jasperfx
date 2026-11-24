@@ -200,4 +200,60 @@ public class PriorVersionMarkTests
         EventRangeMarks.BackfillKey("Trips", "year").ShouldBe("backfill:Trips:year");
         EventRangeMarks.CursorKey("rewrite:encrypt").ShouldBe("rewrite:encrypt:cursor");
     }
+
+    // jasperfx#1293: a store can ask whether, and for which backfill, a projection starts from the prior version mark
+    [Fact]
+    public void no_starting_position_is_not_the_prior_version_mark()
+    {
+        var options = new AsyncOptions();
+
+        options.StartsFromPriorVersionMark.ShouldBeFalse();
+        options.PriorVersionMarkBackfillName().ShouldBeNull();
+        options.PriorVersionMarkBackfillName("db1").ShouldBeNull();
+    }
+
+    [Fact]
+    public void prior_version_mark_for_every_database()
+    {
+        var options = new AsyncOptions();
+        options.SubscribeFromPriorVersionMark(Backfill);
+
+        options.StartsFromPriorVersionMark.ShouldBeTrue();
+        options.PriorVersionMarkBackfillName().ShouldBe(Backfill);
+        options.PriorVersionMarkBackfillName("db1").ShouldBe(Backfill);
+    }
+
+    [Fact]
+    public void prior_version_mark_for_one_database_only()
+    {
+        var options = new AsyncOptions();
+        options.SubscribeFromPriorVersionMark(Backfill, "db1");
+
+        options.StartsFromPriorVersionMark.ShouldBeTrue();
+        options.PriorVersionMarkBackfillName().ShouldBeNull();
+        options.PriorVersionMarkBackfillName("DB1").ShouldBe(Backfill);
+        options.PriorVersionMarkBackfillName("db2").ShouldBeNull();
+    }
+
+    [Fact]
+    public void a_database_rule_wins_over_the_prior_version_mark_for_every_database()
+    {
+        var options = new AsyncOptions();
+        options.SubscribeFromPriorVersionMark(Backfill);
+        options.SubscribeFromPresent("db1");
+
+        options.StartsFromPriorVersionMark.ShouldBeTrue();
+        options.PriorVersionMarkBackfillName("db1").ShouldBeNull();
+        options.PriorVersionMarkBackfillName("db2").ShouldBe(Backfill);
+    }
+
+    [Fact]
+    public void another_starting_position_is_not_the_prior_version_mark()
+    {
+        var options = new AsyncOptions();
+        options.SubscribeFromPresent();
+
+        options.StartsFromPriorVersionMark.ShouldBeFalse();
+        options.PriorVersionMarkBackfillName().ShouldBeNull();
+    }
 }
