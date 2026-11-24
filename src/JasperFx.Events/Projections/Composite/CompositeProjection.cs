@@ -30,6 +30,72 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         Stages.SelectMany(x => x.Projections).ToList();
 
     /// <summary>
+    /// jasperfx#684: let the members that did not change keep their documents and their progress when this composite
+    /// replays from the start after a version bump. Off by default, which replays and rebuilds every member, as before.
+    ///
+    /// <para>Each member already runs under its own progression row, named for the member's own
+    /// <see cref="ProjectionBase.Version" />. With this on, bump the version of each member you changed <i>and</i> the
+    /// version of the composite. The composite then replays from the start. A member whose row for its current version
+    /// is ahead of the composite's position skips every event at or below that row, and the members you changed
+    /// (whose new version has no row yet) replay from the start in the same pass. A rebuild works the same way:
+    /// <see cref="MembersToTearDownAsync" /> leaves the kept members standing.</para>
+    ///
+    /// <para>It only applies to a composite with a single stage. A member in a later stage reads the in-flight
+    /// output of the stages before it, which a kept member would not produce, so a multi-stage composite replays every
+    /// member as before (and logs a warning saying so). Turning it on also says that no member enriches itself from
+    /// the stored documents of another member of this composite: a kept member's documents are already at their latest
+    /// state while the changed members replay, so such an enrichment would read the future.</para>
+    /// </summary>
+    public bool KeepUnchangedMembers { get; set; }
+
+    /// <summary>
+    /// <see cref="KeepUnchangedMembers" /> is on and this composite has the single stage it needs.
+    /// </summary>
+    internal bool KeepsUnchangedMembers => KeepUnchangedMembers && Stages.Count(x => x.Projections.Count > 0) <= 1;
+
+    /// <summary>
+    /// jasperfx#684: the members a rebuild of this composite has to tear down, documents and progression rows both. That
+    /// is every member, unless <see cref="KeepUnchangedMembers" /> applies, in which case a member whose progression row
+    /// for its current version is ahead of the composite's own row is left out: it changed neither version nor code since
+    /// it last ran, and the replay skips it up to that row. A member that is itself a composite is always included.
+    ///
+    /// <para>Stores call this from their teardown <b>before</b> deleting any progression row, and must leave a kept
+    /// member's documents and progression row exactly as they are. Removing either one loses the position the replay
+    /// skips it to.</para>
+    /// </summary>
+    /// <param name="database">The database being rebuilt</param>
+    /// <param name="parent">
+    /// The composite's shard name, carrying any tenant binding. Defaults to the store-global name this composite registers.
+    /// </param>
+    /// <param name="token"></param>
+    public async Task<IReadOnlyList<IProjectionSource<TOperations, TQuerySession>>> MembersToTearDownAsync(
+        IEventDatabase database, ShardName? parent = null, CancellationToken token = default)
+    {
+        var members = AllProjections();
+        if (!KeepsUnchangedMembers || members.Count == 0) return members;
+
+        parent ??= ShardName.Compose(Name, version: Version);
+        var compositePosition = await database.ProjectionProgressFor(parent, token).ConfigureAwait(false);
+
+        var stage = Stages.First(x => x.Projections.Count > 0);
+        var toTearDown = new List<IProjectionSource<TOperations, TQuerySession>>();
+        foreach (var member in members)
+        {
+            if (member is CompositeProjection<TOperations, TQuerySession>)
+            {
+                toTearDown.Add(member);
+                continue;
+            }
+
+            var position = await database.ProjectionProgressFor(stage.MemberShardName(member, parent), token)
+                .ConfigureAwait(false);
+            if (position <= compositePosition) toTearDown.Add(member);
+        }
+
+        return toTearDown;
+    }
+
+    /// <summary>
     /// The shard name each member projection runs under — and so the name of the progression row it writes —
     /// when this composite runs as <paramref name="parent"/> (jasperfx#1080). A member that is itself a
     /// composite contributes its own members as well. The composite's own name is not included.
@@ -146,7 +212,10 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         reportIgnoredMemberSettings(logger);
         var executionStages = Stages.Select(x => x.BuildExecution(store, database, loggerFactory, shardName)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
-            logger, executionStages, IsEligibleForReplay());
+            logger, executionStages, IsEligibleForReplay())
+        {
+            KeepsUnchangedMembers = KeepsUnchangedMembers
+        };
     }
 
     ISubscriptionExecution ISubscriptionFactory<TOperations, TQuerySession>.BuildExecution(IEventStore<TOperations, TQuerySession> store, IEventDatabase database, ILogger logger, ShardName shardName)
@@ -154,7 +223,10 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
         reportIgnoredMemberSettings(logger);
         var executionStages = Stages.Select(x => x.BuildExecution(store, database, logger, shardName)).ToArray();
         return new CompositeExecution<TOperations, TQuerySession>(shardName, Options, store, database, this,
-            logger, executionStages, IsEligibleForReplay());
+            logger, executionStages, IsEligibleForReplay())
+        {
+            KeepsUnchangedMembers = KeepsUnchangedMembers
+        };
     }
 
     IReadOnlyList<AsyncShard<TOperations, TQuerySession>> ISubscriptionSource<TOperations, TQuerySession>.Shards()
@@ -177,6 +249,13 @@ public class CompositeProjection<TOperations, TQuerySession> : ProjectionBase, I
     private void reportIgnoredMemberSettings(ILogger logger)
     {
         if (Interlocked.Exchange(ref _ignoredMemberSettingsReported, 1) == 1) return;
+
+        if (KeepUnchangedMembers && !KeepsUnchangedMembers)
+        {
+            logger.LogWarning(
+                "Composite projection '{Composite}' has KeepUnchangedMembers turned on, but it has more than one stage, so every member replays when it does. A member in a later stage reads the output of the stages before it as they replay, which a member that kept its progress would not produce",
+                Name);
+        }
 
         foreach (var (member, settings) in MembersWithIgnoredShardSettings())
         {

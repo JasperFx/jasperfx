@@ -21,6 +21,47 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
         _filtering = projection as EventFilterable ?? new EventFilterable();
     }
 
+    /// <summary>
+    /// jasperfx#684: <see cref="CompositeProjection{TOperations,TQuerySession}.KeepUnchangedMembers" /> applies. Set by
+    /// the composite when it builds this execution.
+    /// </summary>
+    internal bool KeepsUnchangedMembers { get; init; }
+
+    // The position each kept member skips to, read from the members' own progression rows before the first range.
+    // Null until then, and always null when members are not kept.
+    private Dictionary<ISubscriptionExecution, long>? _keptThrough;
+
+    private async Task<IReadOnlyDictionary<ISubscriptionExecution, long>?> keptThroughAsync(EventRange range,
+        CancellationToken token)
+    {
+        if (!KeepsUnchangedMembers) return null;
+
+        if (_keptThrough == null)
+        {
+            var kept = new Dictionary<ISubscriptionExecution, long>();
+            foreach (var execution in _inners.SelectMany(x => x.Executions))
+            {
+                if (execution is CompositeExecution<TOperations, TQuerySession>) continue;
+
+                // A member's row only runs ahead of the composite's when the composite was bumped (or rebuilt) and the
+                // member was not. In lockstep, which is every range after the replay passes it, the two are equal.
+                var position = await _database.ProjectionProgressFor(execution.ShardName, token).ConfigureAwait(false);
+                if (position > range.SequenceFloor)
+                {
+                    kept[execution] = position;
+                    _logger.LogInformation(
+                        "Composite member {Member} kept its progress at {Position}, so it skips the replay of {Composite} up to there",
+                        execution.ShardName.Identity, position, _shardName.Identity);
+                }
+            }
+
+            _keptThrough = kept;
+        }
+
+        // Once every kept member is past its position it is an ordinary member again
+        return _keptThrough.Values.Any(x => x > range.SequenceFloor) ? _keptThrough : null;
+    }
+
     public override bool TryBuildReplayExecutor([NotNullWhen(true)] out IReplayExecutor? executor)
     {
         executor = null;
@@ -43,6 +84,8 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
 
             range.ActiveBatch = batch;
 
+            var keptThrough = await keptThroughAsync(range, cancellationToken).ConfigureAwait(false);
+
             foreach (var stage in _inners)
             {
                 // marten#4729: member executions default to ShardExecutionMode.Continuous and are never
@@ -56,7 +99,7 @@ public class CompositeExecution<TOperations, TQuerySession> : ProjectionExecutio
                     execution.Mode = Mode;
                 }
 
-                await stage.ExecuteDownstreamAsync(range);
+                await stage.ExecuteDownstreamAsync(range, keptThrough);
             }
 
             // Compact each child execution's aggregate caches now that every stage has run.

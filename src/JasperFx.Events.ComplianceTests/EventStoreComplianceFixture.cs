@@ -871,6 +871,18 @@ public abstract class EventStoreComplianceFixture<TOperations, TQuerySession> : 
     /// </remarks>
     public virtual bool SupportsAddingProjectionsToComposites => false;
 
+    /// <summary>
+    /// True in a store whose <see cref="IComplianceCompositeBuilder"/> implements
+    /// <see cref="IComplianceCompositeBuilder.KeepUnchangedMembers"/>, and whose rebuild teardown of a composite tears
+    /// down only <c>CompositeProjection.MembersToTearDownAsync</c>, leaving a kept member's documents and progression row
+    /// as they are (jasperfx#684). Gates <see cref="CompositeKeepUnchangedMembersCompliance{TFixture,TOperations,TQuerySession}"/>.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <strong>false</strong> for the same reason as <see cref="SupportsAddingProjectionsToComposites"/>: the
+    /// builder member carries a throwing default and is reached during store construction.
+    /// </remarks>
+    public virtual bool SupportsKeepingUnchangedCompositeMembers => false;
+
     /// True in a store whose <see cref="IEventDatabase.AllProjectionProgress(System.Threading.CancellationToken)" />
     /// populates <see cref="Projections.ShardState.LastUpdated" /> from the progression row's own
     /// <c>last_updated</c> column. Gates the two liveness facts of

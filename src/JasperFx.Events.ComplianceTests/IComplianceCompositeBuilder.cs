@@ -49,4 +49,13 @@ public interface IComplianceCompositeBuilder
     void Add(Projections.ProjectionBase projection, int stageNumber)
         => throw new System.NotSupportedException(
             $"{GetType().FullName} does not implement Add(ProjectionBase, int), so it cannot add a custom projection to a composite stage.");
+
+    /// <summary>
+    /// Turn on <c>CompositeProjection.KeepUnchangedMembers</c> for the composite (jasperfx#684). The default throws so
+    /// existing builders keep compiling; the suite that calls it is gated on
+    /// <see cref="EventStoreComplianceFixture{TOperations,TQuerySession}.SupportsKeepingUnchangedCompositeMembers"/>.
+    /// </summary>
+    void KeepUnchangedMembers()
+        => throw new System.NotSupportedException(
+            $"{GetType().FullName} does not implement KeepUnchangedMembers(), so it cannot keep unchanged composite members.");
 }
