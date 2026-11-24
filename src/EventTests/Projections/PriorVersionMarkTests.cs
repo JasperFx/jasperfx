@@ -200,4 +200,40 @@ public class PriorVersionMarkTests
         EventRangeMarks.BackfillKey("Trips", "year").ShouldBe("backfill:Trips:year");
         EventRangeMarks.CursorKey("rewrite:encrypt").ShouldBe("rewrite:encrypt:cursor");
     }
+
+    // jasperfx#1293: a store can tell, at configuration time, whether SubscribeFromPriorVersionMark was called
+    [Fact]
+    public void starts_from_prior_version_mark_is_false_by_default()
+    {
+        new AsyncOptions().StartsFromPriorVersionMark.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void starts_from_prior_version_mark_is_false_for_the_other_starting_positions()
+    {
+        var options = new AsyncOptions();
+        options.SubscribeFromPresent();
+        options.SubscribeFromSequence(100, "db2");
+        options.SubscribeFromTime(DateTimeOffset.UtcNow, "db3");
+        options.SubscribeFromFirstRun("db4");
+        options.SubscribeAsInlineToAsync();
+
+        options.StartsFromPriorVersionMark.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void starts_from_prior_version_mark_is_true_for_every_database()
+    {
+        new AsyncOptions().SubscribeFromPriorVersionMark(Backfill).StartsFromPriorVersionMark.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void starts_from_prior_version_mark_is_true_for_only_one_database()
+    {
+        var options = new AsyncOptions();
+        options.SubscribeFromPresent();
+        options.SubscribeFromPriorVersionMark(Backfill, "db2");
+
+        options.StartsFromPriorVersionMark.ShouldBeTrue();
+    }
 }

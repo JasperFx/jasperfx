@@ -386,6 +386,13 @@ public class AsyncOptions
     }
 
     /// <summary>
+    /// jasperfx#1293: true when <see cref="SubscribeFromPriorVersionMark" /> was called on these options, for any
+    /// database or for every database. A store that runs no backfills can read this at configuration time to
+    /// refuse a projection whose new version would start past history it never builds.
+    /// </summary>
+    public bool StartsFromPriorVersionMark => _strategies.OfType<FromPriorVersionMark>().Any();
+
+    /// <summary>
     /// Use this option to prevent having to rebuild a projection when you are
     /// simply changing the projection lifecycle from "Inline" to "Async" but are
     /// making no other changes that would force a rebuild
