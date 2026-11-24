@@ -501,8 +501,9 @@ public interface IEventStoreOperations : IEventOperations, IQueryEventStore
         CancellationToken cancellation = default) where T : class;
 
     /// <summary>
-    /// Advanced usage: register an operation with the current session to overwrite the
-    /// data or headers of an existing event.
+    /// Advanced usage: register an operation with the current session to overwrite an
+    /// existing event. The stored payload is replaced along with its event type (the type
+    /// name and .NET type), and the headers too when headers are enabled.
     /// </summary>
     void OverwriteEvent(IEvent e);
 
