@@ -44,7 +44,9 @@ import {
 import { segmentLabel } from './text'
 import { TRIGGER_ICON, TRIGGER_KIND_LABEL, parseRoute } from './icons'
 import { colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
-import { chaptersOf, domainsOf, hiddenSliceNames, hotspotsOf, isEmptyFilter, type SliceFilter } from './filters'
+import { actorsOf, chaptersOf, domainsOf, hiddenSliceNames, hotspotsOf, isEmptyFilter, type SliceFilter } from './filters'
+import { consistencyBoundaryFor, isDcbSlice, queryTermText, tagsOf } from './boundary'
+import { fieldLabel, fieldTrail, questionsFor, scheduleLabel, shapeOf, unmatchedFields } from './fields'
 import {
   disagreementLines,
   placeDisagreements,
@@ -157,6 +159,15 @@ const filter = ref<SliceFilter>({})
 
 const availableDomains = computed(() => domainsOf(props.descriptor))
 const availableChapters = computed(() => chaptersOf(props.descriptor))
+// jasperfx#1298 — the actor lane of a board, as a filter: "everything the Volunteer does".
+const availableActors = computed(() => actorsOf(props.descriptor))
+
+function toggleActor(actor: string) {
+  const next = new Set(filter.value.actors ?? [])
+  if (next.has(actor)) next.delete(actor)
+  else next.add(actor)
+  updateFilter({ actors: next })
+}
 
 const hidden = computed(() => hiddenSliceNames(props.descriptor, filter.value))
 
@@ -766,8 +777,139 @@ function titleFor(node: { id: string; element: EventModelElement; sliceName: str
   const disagreements = cardDisagreements(node)
   if (disagreements.length > 0) parts.push('Sources disagree', ...disagreementLines(disagreements))
 
+  // jasperfx#1298 — the description, on hover rather than on the card: a card is a name.
+  if (node.element.description) parts.push(node.element.description)
+
+  // jasperfx#1297 — the tags an event carries, spelled out beside the chips.
+  const tags = cardTags(node)
+  if (tags.length > 0) parts.push(`Tags: ${tags.join(', ')}`)
+
   return parts.join('\n')
 }
+
+// ------------------------------------------------------------ jasperfx#1297: consistency boundaries
+
+/** The tags an event card carries, from its slice's `eventTags`. Empty for every other kind. */
+function cardTags(node: { element: EventModelElement; sliceName: string }): string[] {
+  const slice = sliceOf(node)
+  return slice ? tagsOf(slice, node.element) : []
+}
+
+/** A column sits inside a Dynamic Consistency Boundary when its slice reads anything by tag. */
+function isDcb(slice: EventModelSliceDescriptor): boolean {
+  return isDcbSlice(slice)
+}
+
+/**
+ * The slice the selection is in, as a descriptor — what the two detail panels below the canvas are
+ * about. A card selects its slice's panel too, since a boundary is a statement about the slice.
+ */
+const selectedSlice = computed<EventModelSliceDescriptor | null>(() => {
+  const name = sliceOfSelection(selection.value)
+  if (!name) return null
+  return graph.value.slices.find((s) => s.name === name)?.descriptor ?? null
+})
+
+/**
+ * The consistency boundary of the selected slice, resolved against the whole model: each read (model or
+ * projection, by which tag, from which command member), the event types it folds, and the resulting query
+ * in the dcb.events shape. Null when the selection is not a DCB slice.
+ */
+const boundary = computed(() => {
+  const slice = selectedSlice.value
+  return slice ? consistencyBoundaryFor(props.descriptor, slice) : null
+})
+
+function termText(term: { tag: string; member: string | null; eventTypes: { name: string }[] }): string {
+  return queryTermText(term)
+}
+
+// ------------------------------------------------------------------- jasperfx#1298: structure
+
+/** The cadence of a scheduled automation, for the column header. */
+function scheduleFor(slice: EventModelSliceDescriptor): string | null {
+  return scheduleLabel(slice.schedule)
+}
+
+/** The actor on the slice's trigger, for the trigger card's badge. */
+function actorFor(node: { element: EventModelElement; sliceName: string }): string | null {
+  if (node.element.kind !== 'Trigger') return null
+  return sliceOf(node)?.actor?.name ?? null
+}
+
+function actorTitle(slice: EventModelSliceDescriptor): string | null {
+  const actor = slice.actor
+  if (!actor) return null
+  const roles = actor.requiredRoles ?? []
+  return roles.length > 0 ? `${actor.name} — requires ${roles.join(', ')}` : actor.name
+}
+
+/** The slice header's tooltip: the name, then its description when it has one. */
+function sliceTitle(slice: EventModelSliceDescriptor): string {
+  const parts = [labelOf(slice)]
+  if (slice.description) parts.push(slice.description)
+  return parts.join('\n')
+}
+
+// ------------------------------------------------------------------- jasperfx#1299: field trails
+
+/** The field the reader picked in the fields panel, by name, on the selected card's type. */
+const selectedField = ref<string | null>(null)
+
+/** The selected card, when the selection is a card. */
+const selectedNode = computed(() => {
+  const picked = selection.value
+  if (picked?.kind !== 'element') return null
+  return graph.value.nodes.find((n) => n.id === picked.id) ?? null
+})
+
+/** The shape of the selected card's type, when the model carries one — what the fields panel lists. */
+const selectedShape = computed(() => {
+  const node = selectedNode.value
+  return node ? shapeOf(props.descriptor, node.element.type) : null
+})
+
+/** The fields of the selected card's type nothing supplies, by name (jasperfx#1299). */
+const selectedUnmatched = computed(() => {
+  const node = selectedNode.value
+  if (!node?.element.type) return new Set<string>()
+  return unmatchedFields(props.descriptor, node.sliceName, node.element.type)
+})
+
+/** The trail the selected field leaves across the selected card's slice. */
+const trail = computed(() => {
+  const node = selectedNode.value
+  const slice = selectedSlice.value
+  if (!node || !slice || !selectedField.value) return null
+  return fieldTrail(props.descriptor, slice, node.element, selectedField.value)
+})
+
+function pickField(name: string) {
+  selectedField.value = selectedField.value === name ? null : name
+}
+
+/** Where a card stands on the current trail: on it, off it, or no trail at all. */
+function trailState(nodeId: string): 'on' | 'off' | undefined {
+  const current = trail.value
+  if (!current) return undefined
+  return current.elementIds.has(nodeId) ? 'on' : 'off'
+}
+
+/** How many questions the model asks about a slice's fields, for the header badge. */
+function questionCount(sliceName: string): number {
+  return questionsFor(props.descriptor, sliceName).length
+}
+
+function questionsTitle(sliceName: string): string {
+  return questionsFor(props.descriptor, sliceName)
+    .map((q) => q.text)
+    .join('\n')
+}
+
+// A new selection is a new card: a field picked on the last one means nothing on this one.
+watch(selection, () => {
+  selectedField.value = null
+})
 
 /**
  * bobcat#181 — an edge as an SVG polyline. The points are `layout.ts`'s routing decision, not this
@@ -1066,6 +1208,23 @@ function outcomeFor(sliceName: string): string | null {
           </button>
         </div>
 
+        <!-- jasperfx#1298 — actor chips: the grouping an actor lane gives a board, as a filter. In
+             first-appearance order like chapters, because the actors appear along the timeline. -->
+        <div v-if="availableActors.length > 0" class="em-filter-domains em-filter-actors" data-testid="filter-actors">
+          <button
+            v-for="actor in availableActors"
+            :key="actor"
+            type="button"
+            class="em-filter-chip em-filter-chip-actor"
+            :data-actor="actor"
+            :data-on="filter.actors?.has(actor) ? 'true' : undefined"
+            :aria-pressed="filter.actors?.has(actor) ? 'true' : 'false'"
+            @click="toggleActor(actor)"
+          >
+            {{ actor }}
+          </button>
+        </div>
+
         <!-- The drift view. `unbound` is the one that earns its place: on the measured model 125
              of 125 slices had no spec, and "which ones do" is the whole question. -->
         <button
@@ -1207,6 +1366,8 @@ function outcomeFor(sliceName: string): string | null {
               class="em-slice"
               :data-slice="slice.name"
               :data-pattern="slice.descriptor.pattern ?? undefined"
+              :data-dcb="isDcb(slice.descriptor) ? 'true' : undefined"
+              :data-actor="slice.descriptor.actor?.name ?? undefined"
               :data-outcome="outcomeFor(slice.name) ?? undefined"
               :data-dimmed="dimmed(slice.name) ? 'true' : undefined"
               :data-selected="selection?.kind === 'slice' && selection.name === slice.name ? 'true' : undefined"
@@ -1259,10 +1420,18 @@ function outcomeFor(sliceName: string): string | null {
                   <title>{{ triggerTitleFor(slice.descriptor) }}</title>
                   <path :d="triggerIconFor(slice.descriptor) ?? undefined" />
                 </svg>
+                <!-- jasperfx#1298 — the cadence of a scheduled automation, beside the clock glyph. -->
+                <span
+                  v-if="scheduleFor(slice.descriptor)"
+                  class="em-schedule"
+                  data-testid="slice-schedule"
+                  :title="`Fires ${scheduleFor(slice.descriptor)}`"
+                  >{{ scheduleFor(slice.descriptor) }}</span
+                >
                 <button
                   class="em-slice-name"
                   type="button"
-                  :title="labelOf(slice.descriptor)"
+                  :title="sliceTitle(slice.descriptor)"
                   @click="selectSlice(slice.descriptor)"
                 >
                   <template v-if="sliceRouteFor(slice.descriptor)"
@@ -1304,6 +1473,17 @@ function outcomeFor(sliceName: string): string | null {
                   :title="badgeTitle(headerDisagreements(slice.name))"
                   :aria-label="badgeTitle(headerDisagreements(slice.name))"
                 />
+                <!-- jasperfx#1299 — the model's questions about this slice's fields: a value with no source.
+                     A muted "?" rather than a sticky, because it is a question, graded like prose. -->
+                <span
+                  v-if="questionCount(slice.name) > 0"
+                  class="em-questions"
+                  data-testid="slice-questions"
+                  :data-count="questionCount(slice.name)"
+                  :title="questionsTitle(slice.name)"
+                  :aria-label="questionsTitle(slice.name)"
+                  >?{{ questionCount(slice.name) > 1 ? questionCount(slice.name) : '' }}</span
+                >
               </div>
             </div>
 
@@ -1373,6 +1553,8 @@ function outcomeFor(sliceName: string): string | null {
               :data-disagreement="cardDisagreements(node).length > 0 ? 'true' : undefined"
               :data-dimmed="dimmed(node.sliceName) ? 'true' : undefined"
               :data-selected="selection?.kind === 'element' && selection.id === node.id ? 'true' : undefined"
+              :data-trail="trailState(node.id)"
+              :data-tags="cardTags(node).length > 0 ? cardTags(node).join(' ') : undefined"
               :title="titleFor(node)"
               :style="{
                 left: `${node.x}px`,
@@ -1449,11 +1631,91 @@ function outcomeFor(sliceName: string): string | null {
                 ><template v-for="(segment, index) in segmentsFor(node.element)" :key="index"
                   >{{ segment }}<wbr /></template
               ></span>
+              <!-- jasperfx#1297 — the consistency tags an event carries, as chips along the card's foot.
+                   Chips rather than a lane per tag: an event belongs to several boundaries at once, and
+                   a lane-per-tag canvas would draw it once per boundary. -->
+              <span v-if="cardTags(node).length > 0" class="em-tags" data-testid="card-tags">
+                <span v-for="tag in cardTags(node)" :key="tag" class="em-tag" :data-tag="tag">{{ tag }}</span>
+              </span>
+              <!-- jasperfx#1298 — who triggers the slice, on its trigger card. -->
+              <span
+                v-if="actorFor(node)"
+                class="em-actor"
+                data-testid="card-actor"
+                :title="actorTitle(sliceOf(node)!) ?? undefined"
+                >{{ actorFor(node) }}</span
+              >
             </button>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- jasperfx#1297 — the consistency boundary of the selected command slice, as the dcb.events
+           per-command table: what it reads (model or projection, by which tag, from which command member),
+           the event types each read folds, and the query that results. Below the canvas, where the minimap
+           sits, because a boundary is detail about ONE slice and a card is 72px tall. -->
+      <section v-if="boundary" class="em-panel em-boundary" data-testid="consistency-boundary">
+        <h4 class="em-panel-title">Consistency boundary — {{ labelOf(selectedSlice!) }}</h4>
+        <table class="em-boundary-reads">
+          <thead>
+            <tr>
+              <th>Reads</th>
+              <th>Folds</th>
+              <th>By tag</th>
+              <th>From</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(read, index) in boundary.reads" :key="`${read.tag}-${index}`" class="em-boundary-read" :data-kind="read.kind">
+              <td><span class="em-boundary-kind">{{ read.kind }}</span> {{ read.type.name }}</td>
+              <td>{{ read.folded.map((t) => t.name).join(', ') || '—' }}</td>
+              <td><span class="em-tag" :data-tag="read.tag">{{ read.tag }}</span></td>
+              <td>{{ read.member ? `command.${read.member}` : 'by convention' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="em-boundary-query" data-testid="boundary-query">
+          <span class="em-panel-caption">Query</span>
+          <code v-for="term in boundary.query" :key="term.tag" class="em-boundary-term" :data-tag="term.tag">{{ termText(term) }}</code>
+        </div>
+        <div v-if="boundary.untagged.length > 0" class="em-boundary-untagged" data-testid="boundary-untagged">
+          <span class="em-panel-caption">Outside the boundary</span>
+          {{ boundary.untagged.map((t) => t.name).join(', ') }}
+        </div>
+        <div v-if="boundary.refusals.length > 0" class="em-boundary-refusals" data-testid="boundary-refusals">
+          <span class="em-panel-caption">Refuses when</span>
+          <span v-for="reason in boundary.refusals" :key="reason" class="em-refusal">{{ reason }}</span>
+        </div>
+      </section>
+
+      <!-- jasperfx#1299 — the fields of the selected card's type. Pick one and the cards of the slice that
+           carry it light up; a field nothing supplies is marked, from the model's own questions. -->
+      <section v-if="selectedShape" class="em-panel em-fields" data-testid="field-panel">
+        <h4 class="em-panel-title">Fields — {{ selectedNode!.element.label }}</h4>
+        <ul class="em-field-list">
+          <li
+            v-for="field in selectedShape.fields ?? []"
+            :key="field.name"
+            class="em-field"
+            :data-field="field.name"
+            :data-selected="selectedField === field.name ? 'true' : undefined"
+            :data-unmatched="selectedUnmatched.has(field.name) ? 'true' : undefined"
+          >
+            <button type="button" class="em-field-pick" :title="field.description ?? undefined" @click="pickField(field.name)">
+              <span class="em-field-name">{{ fieldLabel(field) }}</span>
+              <span v-if="field.identity" class="em-field-flag" data-flag="identity">id</span>
+              <span v-if="field.tag" class="em-tag" :data-tag="field.tag">{{ field.tag }}</span>
+              <span v-if="field.generated" class="em-field-flag" data-flag="generated">generated</span>
+              <span v-if="field.pii" class="em-field-flag" data-flag="pii">pii</span>
+              <span v-if="field.mapping" class="em-field-mapping"
+                >← {{ field.mapping.source.name }}.{{ field.mapping.field }}</span
+              >
+              <span v-if="selectedUnmatched.has(field.name)" class="em-field-unmatched" title="Nothing in the model supplies this field">?</span>
+            </button>
+          </li>
+        </ul>
+      </section>
 
       <!-- issue #296 — the same graph again, as rects, so a reader can see where they are on a
            canvas several screens wide. Outside the scroller deliberately: it is chrome over the
@@ -2168,6 +2430,223 @@ function outcomeFor(sliceName: string): string | null {
 }
 .em-slice[data-pattern='Query'] .em-slice-pattern {
   display: inline;
+}
+
+/* jasperfx#1297 — a slice inside a Dynamic Consistency Boundary. The same channel the Query column uses,
+   a rule and a wash, in the aggregate's pale yellow: the boundary is the thing the slice decides against,
+   where the dotted green says what it reads. */
+.em-slice[data-dcb='true'] {
+  border-left-style: dotted;
+  border-left-color: #e0c84a;
+  background: rgba(255, 242, 168, 0.12);
+}
+
+/* jasperfx#1297 — tag chips along the foot of an event card. Outlined in the card's own ink, like the
+   route badge, so the fill keeps meaning the element kind. */
+.em-tags {
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  right: 4px;
+  display: flex;
+  gap: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.em-tag {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 1.3;
+  opacity: 0.8;
+}
+/* A card with chips keeps its label clear of them. */
+.em-card[data-tags] {
+  padding-bottom: 16px !important;
+}
+
+/* jasperfx#1298 — a named screen: white like the trigger, told apart by a double frame, since it is the
+   wireframe the trigger happens on. */
+.em-card[data-kind='Screen'] {
+  outline: 1px solid #1f2933;
+  outline-offset: -4px;
+  border-style: solid;
+}
+
+/* jasperfx#1298 — the actor on the trigger card, top left like the origin chevron. */
+.em-actor {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* jasperfx#1298 — the cadence on a scheduled automation's header, in the same voice as the spec badge. */
+.em-schedule {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+/* jasperfx#1299 — the model's questions about a slice's fields. A muted "?" in the header, not a sticky:
+   a question graded like prose, and a canvas of magenta teaches people to ignore magenta. */
+.em-questions {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  opacity: 0.6;
+  cursor: help;
+  pointer-events: auto;
+}
+
+/* jasperfx#1299 — a field's trail. The cards carrying the field come up; the rest of the slice falls back,
+   less than a focus dims, because they are still the slice being read. */
+.em-card[data-trail='on'] {
+  outline: 2px dashed currentColor;
+  outline-offset: 2px;
+}
+.em-card[data-trail='off'] {
+  opacity: 0.35;
+}
+
+/* The two detail panels under the canvas (jasperfx#1297, #1299), in the minimap's idiom: normal flow,
+   never floated over the plot. */
+.em-panel {
+  margin: 6px 12px 0;
+  padding: 6px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 16px;
+  opacity: 0.9;
+}
+.em-panel-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.em-panel-caption {
+  display: inline-block;
+  margin-right: 6px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.em-boundary-reads {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 4px;
+}
+.em-boundary-reads th {
+  text-align: left;
+  font-weight: 600;
+  opacity: 0.7;
+  padding: 0 8px 2px 0;
+}
+.em-boundary-reads td {
+  padding: 1px 8px 1px 0;
+  vertical-align: top;
+}
+.em-boundary-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  opacity: 0.65;
+  margin-right: 3px;
+}
+.em-boundary-query {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+}
+.em-boundary-term {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.em-boundary-untagged,
+.em-boundary-refusals {
+  margin-top: 3px;
+}
+.em-refusal {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.em-field-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.em-field-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.em-field-pick:hover {
+  border-color: currentColor;
+}
+.em-field[data-selected='true'] .em-field-pick {
+  border-color: currentColor;
+  font-weight: 600;
+}
+.em-field-flag {
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.em-field-mapping {
+  font-size: 10px;
+  opacity: 0.7;
+}
+/* A field nothing supplies is the one the panel exists to show: the "?" is magenta, the hotspot colour,
+   because this IS the hotspot — drawn where the field is rather than as a sticky. */
+.em-field[data-unmatched='true'] .em-field-name {
+  text-decoration: underline dotted;
+}
+.em-field-unmatched {
+  color: #e91e63;
+  font-weight: 700;
 }
 
 /* A pattern violation (jasperfx#1003) is a finding about the slice itself: a query that writes. A

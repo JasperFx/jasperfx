@@ -18,7 +18,8 @@ describe('EVENT_MODEL_PALETTE', () => {
       Projection: '#7ED321',
       ReadModel: '#7ED321',
       ExternalSystem: '#F8BBD0',
-      Hotspot: '#E91E63'
+      Hotspot: '#E91E63',
+      Screen: '#FFFFFF'
     })
   })
 
@@ -36,6 +37,7 @@ describe('EVENT_MODEL_PALETTE', () => {
   it('uses dark ink on the two pale stickies', () => {
     expect(inkFor('Trigger')).toBe('#1F2933')
     expect(inkFor('Aggregate')).toBe('#1F2933')
+    expect(inkFor('Screen')).toBe('#1F2933')
     expect(inkFor('Event')).toBe('#0B1F33')
   })
 })

@@ -327,6 +327,180 @@ public sealed record EventModelSliceDescriptor(
     public ViewProjection? ViewProjection { get; init; }
 
     /// <summary>
+    /// The consistency tags each emitted event carries, for the events a source tagged (jasperfx#1297). Empty
+    /// when nothing said. Each entry names an event in <see cref="EmittedEvents"/> and tags in the model's
+    /// <see cref="EventModelDescriptor.Tags"/>.
+    /// </summary>
+    /// <remarks>
+    /// The sibling of <see cref="EmittedEventStreams"/>, kept apart from the stream lane: an event belongs to
+    /// several boundaries at once, which is also why a canvas draws tag chips on the event rather than a lane
+    /// per tag. Declared with <c>Emits&lt;T&gt;().TaggedBy&lt;CourseId&gt;()</c>; the derived rung fills it from
+    /// the store's tag registry and tag rules. Use <see cref="TagsFor"/> to read it.
+    /// </remarks>
+    public IReadOnlyList<EmittedEventTags> EventTags { get; init; } = Array.Empty<EmittedEventTags>();
+
+    /// <summary>The tags <paramref name="emittedEvent"/> carries, or empty when none were recorded (jasperfx#1297).</summary>
+    public IReadOnlyList<string> TagsFor(TypeDescriptor emittedEvent)
+        => EventTags.FirstOrDefault(x => SameType(x.Event, emittedEvent))?.Tags ?? Array.Empty<string>();
+
+    /// <summary>
+    /// What a command slice reads by tag before it decides — a model or a projection, selected by a tag whose
+    /// value a command member supplies (jasperfx#1297). Empty on a slice that reads nothing by tag.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Reads declared, boundary derived.</b> A command never declares its own consistency boundary; the query
+    /// (<see cref="BoundaryQuery"/>) and the append condition are derived from these reads. Declared with
+    /// <c>Reads&lt;TProjection&gt;().By&lt;CourseId&gt;(…)</c> and <c>Decides&lt;TModel&gt;().ByTag&lt;CourseId&gt;(…)</c>;
+    /// the derived rung fills it from the decider model's tag rules and the <c>Load()</c> calls Wolverine can see.
+    /// </para>
+    /// <para>
+    /// Not <see cref="ReadsFrom"/>, which is a read model consulted whole. A read here is by tag, and it is what
+    /// puts the slice inside a Dynamic Consistency Boundary.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<BoundaryReadDescriptor> Reads { get; init; } = Array.Empty<BoundaryReadDescriptor>();
+
+    /// <summary>
+    /// The consistency boundary the slice's <see cref="Reads"/> imply: one term per tag read, each with the
+    /// emitted events carrying that tag (jasperfx#1297). Computed on every read, like <see cref="Elements"/>, so a
+    /// deserializer ignores it and recomputes. Empty when the slice reads nothing by tag.
+    /// </summary>
+    /// <remarks>
+    /// This is the slice's half of the query — what it reads by and what it appends under the same tags. The
+    /// events a read model folds are known only at model level; <see cref="EventModelDescriptor.BoundaryQueryFor"/>
+    /// adds them from the aggregates' applied events and the producing View slices' consumed events.
+    /// </remarks>
+    public BoundaryQueryDescriptor BoundaryQuery
+    {
+        get
+        {
+            if (Reads.Count == 0) return BoundaryQueryDescriptor.Empty;
+
+            var terms = new List<BoundaryQueryTerm>();
+            foreach (var read in Reads)
+            {
+                if (terms.Any(x => string.Equals(x.Tag, read.Tag, StringComparison.Ordinal))) continue;
+
+                var tagged = EmittedEvents
+                    .Where(e => TagsFor(e).Contains(read.Tag, StringComparer.Ordinal))
+                    .ToList();
+
+                terms.Add(new BoundaryQueryTerm(read.Tag, read.Member, tagged));
+            }
+
+            return new BoundaryQueryDescriptor(terms);
+        }
+    }
+
+    /// <summary>
+    /// Projections this slice declares to be <em>outside</em> its consistency boundary — read models fed by
+    /// the slice's events that no decision depends on (jasperfx#1297). Empty when nothing said.
+    /// </summary>
+    /// <remarks>
+    /// The explicit "this one is informational" marker, so a canvas can tell a projection the boundary
+    /// deliberately leaves out from one nobody has thought about. Declared with
+    /// <c>UntaggedProjection&lt;T&gt;()</c>; the projections themselves also appear in <see cref="ProjectionTypes"/>.
+    /// </remarks>
+    public IReadOnlyList<TypeDescriptor> UntaggedProjections { get; init; } = Array.Empty<TypeDescriptor>();
+
+    /// <summary>
+    /// The ways this command slice can refuse — "Course is full", "Student already enrolled" (jasperfx#1297).
+    /// Empty when nothing said.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Filled by declaration (<c>Refuses("Course is full")</c>), by import (a board's <c>errorDescription</c>,
+    /// emlang's <c>x:</c>), and by the <see cref="EventModelProvenance.Specified"/> rung from generated specs.
+    /// The <see cref="EventModelProvenance.Derived"/> rung never fills it: that would mean reading method
+    /// bodies, so no false disagreements arise against the code.
+    /// </para>
+    /// <para>
+    /// Reasons are vocabulary, not competing facts, so <see cref="Merge"/> unions them whatever the rungs. A
+    /// specification refusing with a reason the declared list lacks is a
+    /// <see cref="HotspotOrigin.UndeclaredRejection"/> hotspot.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<string> RejectionReasons { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Who triggers the slice: an actor by name, with the roles the slice requires of them (jasperfx#1298).
+    /// Null when nobody said.
+    /// </summary>
+    /// <remarks>
+    /// Declared with <c>Actor("Volunteer")</c>, or implied by a role verb after <c>TriggeredBy(label, Human)</c>;
+    /// filled on import from actor lanes; the HTTP source fills required roles from authorization metadata.
+    /// Declared and derived required roles may disagree, which <see cref="Merge"/> records as a real finding.
+    /// </remarks>
+    public ActorDescriptor? Actor { get; init; }
+
+    /// <summary>
+    /// Which of the <see cref="ConsumedEvents"/> come from an external system, and which one (jasperfx#1298).
+    /// Empty when none do. Each entry names an event in <see cref="ConsumedEvents"/> and a system in
+    /// <see cref="ExternalSystems"/>.
+    /// </summary>
+    /// <remarks>
+    /// Declared with <c>From&lt;T&gt;().External("Payments")</c>; the derived rung sets it when the consumed type
+    /// arrives on a non-local endpoint and no slice in the model emits it. A canvas draws the event on the stream
+    /// row with the external system's name instead of an aggregate. Use <see cref="ExternalSystemFor"/> to read it.
+    /// </remarks>
+    public IReadOnlyList<ExternalEventDescriptor> ExternalEvents { get; init; } = Array.Empty<ExternalEventDescriptor>();
+
+    /// <summary>The external system <paramref name="consumedEvent"/> comes from, or null when it is the model's own (jasperfx#1298).</summary>
+    public string? ExternalSystemFor(TypeDescriptor consumedEvent)
+        => ExternalEvents.FirstOrDefault(x => SameType(x.Event, consumedEvent))?.ExternalSystem;
+
+    /// <summary>
+    /// The cadence of an automation fired by the scheduler — every so often, a cron expression, or a named
+    /// schedule — beside <see cref="EventModeling.TriggerKind.JobScheduler"/> (jasperfx#1298). Null when nobody said.
+    /// </summary>
+    /// <remarks>
+    /// Declared with <c>Every(TimeSpan)</c>, <c>OnCron("…")</c> or <c>Scheduled("name")</c>; the derived rung fills
+    /// it from registered recurring schedules. A canvas shows it on the automation's card.
+    /// </remarks>
+    public ScheduleDescriptor? Schedule { get; init; }
+
+    /// <summary>
+    /// The name of the screen a human trigger acts through — "Checkout page" — and nothing more (jasperfx#1298).
+    /// Null when nobody said.
+    /// </summary>
+    /// <remarks>
+    /// A name only: no content, images or HTML. Declared with <c>FromScreen("…")</c>; import keeps the board's
+    /// screen title. Renders as a <see cref="EventModelElementKind.Screen"/> element in the wireframe lane,
+    /// beside the trigger.
+    /// </remarks>
+    public string? Screen { get; init; }
+
+    /// <summary>
+    /// Plain text or markdown describing the slice (jasperfx#1298). Null when none.
+    /// </summary>
+    /// <remarks>
+    /// Declared with <c>Describe("…")</c>; import fills it from board text; the derived rung fills it from XML doc
+    /// comments. On a merge the richer text wins and nothing is recorded as a disagreement: two descriptions are
+    /// two drafts of one paragraph, not two claims about the system.
+    /// </remarks>
+    public string? Description { get; init; }
+
+    /// <summary>
+    /// Descriptions of the elements this slice references, by type (jasperfx#1298). Empty when none. Declared with
+    /// <c>Describe&lt;T&gt;("…")</c>; merged as <see cref="Description"/> is, element by element.
+    /// </summary>
+    public IReadOnlyList<ElementDescription> ElementDescriptions { get; init; } = Array.Empty<ElementDescription>();
+
+    /// <summary>The description recorded for <paramref name="type"/>, or null (jasperfx#1298).</summary>
+    public string? DescriptionOf(TypeDescriptor type)
+        => ElementDescriptions.FirstOrDefault(x => SameType(x.Type, type))?.Text;
+
+    /// <summary>
+    /// Whether any claim on this slice came from <paramref name="rung"/>: its summary <see cref="Provenance"/>
+    /// (an unattributed slice reads <see cref="EventModelProvenance.Declared"/>) or any entry of
+    /// <see cref="ClaimedBy"/>. What the information-completeness check asks before raising anything
+    /// (jasperfx#1299): a purely derived model gets no questions.
+    /// </summary>
+    public bool HasRung(EventModelProvenance rung)
+        => (Provenance ?? EventModelProvenance.Declared) == rung || ClaimedBy.Values.Contains(rung);
+
+    /// <summary>
     /// <em>Which</em> source produced this slice, as against <see cref="Provenance"/>'s <em>what rung
     /// it sits on</em> (jasperfx#836). The contributing source's <c>IEventModelDefinitionSource.Subject</c>,
     /// or for the store-derived rung the store's own <c>EventStoreUsage.SubjectUri</c>. Null when the
@@ -425,6 +599,15 @@ public sealed record EventModelSliceDescriptor(
         EventModelRole.AggregateDeclaration => AggregateDeclaration is not null,
         EventModelRole.DeciderModel => DeciderModel is not null,
         EventModelRole.ViewProjection => ViewProjection is not null,
+        EventModelRole.EventTags => EventTags.Count > 0,
+        EventModelRole.Reads => Reads.Count > 0,
+        EventModelRole.UntaggedProjections => UntaggedProjections.Count > 0,
+        EventModelRole.RejectionReasons => RejectionReasons.Count > 0,
+        EventModelRole.Actor => Actor is not null,
+        EventModelRole.ExternalEvents => ExternalEvents.Count > 0,
+        EventModelRole.Schedule => Schedule is not null,
+        EventModelRole.Screen => Screen is not null,
+        EventModelRole.Description => Description is not null || ElementDescriptions.Count > 0,
         _ => false,
     };
 
@@ -878,6 +1061,174 @@ public sealed record EventModelSliceDescriptor(
             return merged.Where(x => emittedEvents.Any(e => SameType(e, x.Event))).ToList();
         }
 
+        // jasperfx#1297. Tags follow the events they sit on, as the stream lanes do: the side that wins
+        // EmittedEvents keeps its tags, the other side's tags on events it alone tagged are kept too, and two
+        // sources tagging one event differently union on the same rung and disagree across rungs -- rendered
+        // like AggregateIdentity, naming the event. Tags on an event no longer emitted go with it.
+        var eventTags = mergeEventTags();
+
+        IReadOnlyList<EmittedEventTags> mergeEventTags()
+        {
+            if (EventTags.Count == 0 && other.EventTags.Count == 0) return Array.Empty<EmittedEventTags>();
+
+            var tookTheirs = theirsWins(EventModelRole.EmittedEvents);
+            var winning = tookTheirs ? other.EventTags : EventTags;
+            var losing = tookTheirs ? EventTags : other.EventTags;
+            var sameRung = ProvenanceFor(EventModelRole.EmittedEvents) == other.ProvenanceFor(EventModelRole.EmittedEvents);
+
+            if (Claims(EventModelRole.EventTags) || other.Claims(EventModelRole.EventTags))
+            {
+                claimedBy[EventModelRole.EventTags] = (Claims(EventModelRole.EventTags) && other.Claims(EventModelRole.EventTags)
+                    ? (tookTheirs ? other.ProvenanceFor(EventModelRole.EmittedEvents) : ProvenanceFor(EventModelRole.EmittedEvents))
+                    : Claims(EventModelRole.EventTags) ? ProvenanceFor(EventModelRole.EventTags) : other.ProvenanceFor(EventModelRole.EventTags))
+                    ?? EventModelProvenance.Declared;
+            }
+
+            var merged = winning.ToList();
+            foreach (var tags in losing)
+            {
+                var index = merged.FindIndex(x => SameType(x.Event, tags.Event));
+                if (index < 0)
+                {
+                    merged.Add(tags);
+                    continue;
+                }
+
+                var existing = merged[index];
+                if (sameSet(existing.Tags, tags.Tags, x => x)) continue;
+
+                if (sameRung || !Claims(EventModelRole.EmittedEvents) || !other.Claims(EventModelRole.EmittedEvents))
+                {
+                    merged[index] = existing with { Tags = union(existing.Tags, tags.Tags, x => x) };
+                    continue;
+                }
+
+                var mine = tookTheirs ? tags : existing;
+                var theirs = tookTheirs ? existing : tags;
+                disagree(EventModelRole.EventTags, tookTheirs,
+                    $"{mine.Event.Name} tagged {render(mine.Tags, x => x)}",
+                    $"{theirs.Event.Name} tagged {render(theirs.Tags, x => x)}");
+            }
+
+            return merged.Where(x => emittedEvents.Any(e => SameType(e, x.Event))).ToList();
+        }
+
+        // jasperfx#1297. A read is one claim -- this type, by this tag, from this member -- so reads merge as
+        // the other lists do: same rung unions, a higher rung replaces and records what it dropped.
+        var reads = mergeList(EventModelRole.Reads, Reads, other.Reads,
+            x => $"{x.Kind}:{(string.IsNullOrEmpty(x.Type.AssemblyName) ? x.Type.Name : x.Type.FullName)}:{x.Tag}:{x.Member}",
+            x => $"{x.Type.Name} by {x.Tag}");
+        var untaggedProjections = mergeTypes(EventModelRole.UntaggedProjections, UntaggedProjections, other.UntaggedProjections);
+
+        // jasperfx#1297. Reasons are vocabulary, not competing facts: they union whatever the rungs. What IS
+        // recorded is a specification refusing for a reason the declared list lacks -- the model not knowing
+        // something the specs do. Only against a non-empty declared list: a model that declares no reasons has
+        // not said anything the specs could contradict.
+        takeOther(EventModelRole.RejectionReasons);
+        var rejectionReasons = union(RejectionReasons, other.RejectionReasons, x => x);
+        if (Claims(EventModelRole.RejectionReasons) && other.Claims(EventModelRole.RejectionReasons))
+        {
+            claimedBy[EventModelRole.RejectionReasons] = higher(ProvenanceFor(EventModelRole.RejectionReasons),
+                other.ProvenanceFor(EventModelRole.RejectionReasons))!.Value;
+
+            var (declared, specified) = (ProvenanceFor(EventModelRole.RejectionReasons), other.ProvenanceFor(EventModelRole.RejectionReasons)) switch
+            {
+                (EventModelProvenance.Declared, EventModelProvenance.Specified) => (RejectionReasons, other.RejectionReasons),
+                (EventModelProvenance.Specified, EventModelProvenance.Declared) => (other.RejectionReasons, RejectionReasons),
+                _ => (null, null),
+            };
+
+            if (declared is not null && specified is not null)
+            {
+                foreach (var reason in specified)
+                {
+                    if (declared.Contains(reason, StringComparer.Ordinal)) continue;
+                    disagreements.Add(HotspotDescriptor.UndeclaredRejection(reason));
+                }
+            }
+        }
+
+        // jasperfx#1298. The actor is one claim, name and roles together: a different name or a different set of
+        // required roles is a real finding, which is why the roles render inside the value.
+        var actor = mergeScalar(EventModelRole.Actor, Actor, other.Actor, x => x.ToString());
+
+        // jasperfx#1298. External events follow the consumed events they flag, as tags follow emitted ones.
+        var externalEvents = mergeExternalEvents();
+
+        IReadOnlyList<ExternalEventDescriptor> mergeExternalEvents()
+        {
+            if (ExternalEvents.Count == 0 && other.ExternalEvents.Count == 0) return Array.Empty<ExternalEventDescriptor>();
+
+            var tookTheirs = theirsWins(EventModelRole.ConsumedEvents);
+            var winning = tookTheirs ? other.ExternalEvents : ExternalEvents;
+            var losing = tookTheirs ? ExternalEvents : other.ExternalEvents;
+
+            if (Claims(EventModelRole.ExternalEvents) || other.Claims(EventModelRole.ExternalEvents))
+            {
+                claimedBy[EventModelRole.ExternalEvents] = (Claims(EventModelRole.ExternalEvents) && other.Claims(EventModelRole.ExternalEvents)
+                    ? (tookTheirs ? other.ProvenanceFor(EventModelRole.ConsumedEvents) : ProvenanceFor(EventModelRole.ConsumedEvents))
+                    : Claims(EventModelRole.ExternalEvents) ? ProvenanceFor(EventModelRole.ExternalEvents) : other.ProvenanceFor(EventModelRole.ExternalEvents))
+                    ?? EventModelProvenance.Declared;
+            }
+
+            var merged = winning.ToList();
+            foreach (var external in losing)
+            {
+                var existing = merged.FirstOrDefault(x => SameType(x.Event, external.Event));
+                if (existing is null)
+                {
+                    merged.Add(external);
+                }
+                else if (!string.Equals(existing.ExternalSystem, external.ExternalSystem, StringComparison.Ordinal)
+                         && Claims(EventModelRole.ConsumedEvents) && other.Claims(EventModelRole.ConsumedEvents))
+                {
+                    var mine = tookTheirs ? external : existing;
+                    var theirs = tookTheirs ? existing : external;
+                    disagree(EventModelRole.ExternalEvents, tookTheirs,
+                        $"{mine.Event.Name} from {mine.ExternalSystem}", $"{theirs.Event.Name} from {theirs.ExternalSystem}");
+                }
+            }
+
+            return merged.Where(x => consumedEvents.Any(e => SameType(e, x.Event))).ToList();
+        }
+
+        var schedule = mergeScalar(EventModelRole.Schedule, Schedule, other.Schedule, x => x.ToString());
+        var screen = mergeScalar(EventModelRole.Screen, Screen, other.Screen, x => x);
+
+        // jasperfx#1298. Descriptions are prose, and two of them are two drafts of one paragraph rather than two
+        // claims about the system: the richer text wins, element by element, and nothing is ever recorded.
+        var (description, elementDescriptions) = mergeDescriptions();
+
+        (string?, IReadOnlyList<ElementDescription>) mergeDescriptions()
+        {
+            if (!Claims(EventModelRole.Description) && !other.Claims(EventModelRole.Description))
+            {
+                return (null, Array.Empty<ElementDescription>());
+            }
+
+            var mineRicher = richer(Description, other.Description) == Description && Description is not null;
+            claimedBy[EventModelRole.Description] = (Claims(EventModelRole.Description) && other.Claims(EventModelRole.Description)
+                ? (mineRicher ? ProvenanceFor(EventModelRole.Description) : other.ProvenanceFor(EventModelRole.Description))
+                : Claims(EventModelRole.Description) ? ProvenanceFor(EventModelRole.Description) : other.ProvenanceFor(EventModelRole.Description))
+                ?? EventModelProvenance.Declared;
+
+            var elements = ElementDescriptions.ToList();
+            foreach (var theirs in other.ElementDescriptions)
+            {
+                var index = elements.FindIndex(x => SameType(x.Type, theirs.Type));
+                if (index < 0)
+                {
+                    elements.Add(theirs);
+                    continue;
+                }
+
+                var kept = richer(elements[index].Text, theirs.Text)!;
+                elements[index] = elements[index] with { Text = kept };
+            }
+
+            return (richer(Description, other.Description), elements);
+        }
+
         // jasperfx#836. Origin merges as any other scalar does, which gives the store dimension the
         // one thing it was missing: two sources that contributed the SAME slice from DIFFERENT stores
         // now leave a SourceDisagreement naming both stores, instead of the survivor carrying nothing
@@ -949,10 +1300,28 @@ public sealed record EventModelSliceDescriptor(
             AggregateDeclaration = aggregateDeclaration,
             DeciderModel = deciderModel,
             ViewProjection = viewProjection,
+            EventTags = eventTags,
+            Reads = reads,
+            UntaggedProjections = untaggedProjections,
+            RejectionReasons = rejectionReasons,
+            Actor = actor,
+            ExternalEvents = externalEvents,
+            Schedule = schedule,
+            Screen = screen,
+            Description = description,
+            ElementDescriptions = elementDescriptions,
             Origin = origin,
             Provenance = higher(Provenance, other.Provenance),
             ClaimedBy = claimedBy,
         };
+    }
+
+    /// <summary>The longer of two texts, or whichever is set. What a description merge keeps (jasperfx#1298).</summary>
+    private static string? richer(string? first, string? second)
+    {
+        if (string.IsNullOrWhiteSpace(first)) return string.IsNullOrWhiteSpace(second) ? null : second;
+        if (string.IsNullOrWhiteSpace(second)) return first;
+        return second!.Length > first!.Length ? second : first;
     }
 
     private static string hotspotKey(HotspotDescriptor hotspot) => $"{hotspot.Origin}:{hotspot.Text}";
@@ -1055,6 +1424,13 @@ public sealed record EventModelSliceDescriptor(
                 ? element with { Provenance = rung }
                 : element;
 
+            // jasperfx#1298. A description rides on the element it describes, so a viewer shows it on hover
+            // without a join back to the slice.
+            if (stamped.Type is { } type && DescriptionOf(type) is { } described)
+            {
+                stamped = stamped with { Description = described };
+            }
+
             elements.Add(stamped);
             return stamped;
         }
@@ -1082,6 +1458,10 @@ public sealed record EventModelSliceDescriptor(
             trigger = add(EventModelElement.ForLabel(Name, EventModelElementKind.Trigger, TriggerOrigin.Label),
                 EventModelRole.TriggerOrigin);
         }
+
+        // jasperfx#1298. The named screen the trigger acts through: a wireframe card by name only, beside the
+        // trigger and pointing at it, since the screen is where the action happens.
+        var screen = Screen is null ? null : add(EventModelElement.ForLabel(Name, EventModelElementKind.Screen, Screen));
 
         var inboundSystems = ExternalSystems
             .Where(x => x.Direction == ExternalSystemDirection.Inbound)
@@ -1148,6 +1528,7 @@ public sealed record EventModelSliceDescriptor(
         var entry = command ?? handler;
         var processor = handler ?? command;
 
+        link(screen, trigger ?? entry);
         link(trigger, entry);
         foreach (var system in inboundSystems) link(system, entry);
         link(command, handler);
@@ -1254,6 +1635,212 @@ public sealed record EventModelDescriptor(
     public IReadOnlyList<HotspotDescriptor> Hotspots { get; init; } = Array.Empty<HotspotDescriptor>();
 
     /// <summary>
+    /// The model's tag catalogue — every consistency tag a Dynamic Consistency Boundary can select events by,
+    /// with its strong type and inner primitive where known (jasperfx#1297). Mirrors <see cref="Aggregates"/>:
+    /// slices point at these by name through <see cref="EventModelSliceDescriptor.EventTags"/> and
+    /// <see cref="EventModelSliceDescriptor.Reads"/>. Never null.
+    /// </summary>
+    public IReadOnlyList<EventTagDescriptor> Tags { get; init; } = Array.Empty<EventTagDescriptor>();
+
+    /// <summary>
+    /// The fields of the model's types — commands, events, read models, aggregates — one shape per type
+    /// (jasperfx#1299). Model level because one type appears in many slices. Never null.
+    /// </summary>
+    /// <remarks>
+    /// Derived by the source generator into the event-model manifest, or by reflection at describe time;
+    /// declared with <c>EventModelBuilder.Shape&lt;T&gt;()</c> for stub-first work. <see cref="Merge"/> keeps the
+    /// higher rung's fields per type, and a declared field the code lacks becomes a model-level
+    /// <see cref="HotspotOrigin.SourceDisagreement"/> on <see cref="EventModelRole.Fields"/>.
+    /// </remarks>
+    public IReadOnlyList<TypeShapeDescriptor> Shapes { get; init; } = Array.Empty<TypeShapeDescriptor>();
+
+    /// <summary>The shape recorded for <paramref name="type"/>, or null when the model carries none (jasperfx#1299).</summary>
+    public TypeShapeDescriptor? ShapeOf(TypeDescriptor type)
+        => Shapes.FirstOrDefault(x => EventModelSliceDescriptor.SameType(x.Type, type));
+
+    /// <summary>The catalogue entry named <paramref name="tag"/>, or null (jasperfx#1297).</summary>
+    public EventTagDescriptor? TagNamed(string tag)
+        => Tags.FirstOrDefault(x => string.Equals(x.Name, tag, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The consistency boundary <paramref name="slice"/>'s reads imply, resolved against the whole model
+    /// (jasperfx#1297): each term carries the emitted events the slice tags with the term's tag <em>and</em> the
+    /// events the read model folds — an aggregate's or decider model's <see cref="AggregateDescriptor.AppliedEvents"/>
+    /// for a model read, the producing View slice's <see cref="EventModelSliceDescriptor.ConsumedEvents"/> for a
+    /// projection read. The dcb.events per-command table: read, event types folded, tags, resulting query.
+    /// </summary>
+    public BoundaryQueryDescriptor BoundaryQueryFor(EventModelSliceDescriptor slice)
+    {
+        ArgumentNullException.ThrowIfNull(slice);
+        var local = slice.BoundaryQuery;
+        if (local.IsEmpty) return local;
+
+        var terms = new List<BoundaryQueryTerm>();
+        foreach (var term in local.Terms)
+        {
+            var types = term.EventTypes.ToList();
+
+            foreach (var read in slice.Reads.Where(x => string.Equals(x.Tag, term.Tag, StringComparison.Ordinal)))
+            {
+                foreach (var folded in FoldedEventsOf(read)) addType(types, folded);
+            }
+
+            terms.Add(term with { EventTypes = types });
+        }
+
+        return new BoundaryQueryDescriptor(terms);
+
+        static void addType(List<TypeDescriptor> list, TypeDescriptor type)
+        {
+            if (!list.Any(x => EventModelSliceDescriptor.SameType(x, type))) list.Add(type);
+        }
+    }
+
+    /// <summary>
+    /// The events the thing a boundary read reads is folded from, as the model knows them (jasperfx#1297): an
+    /// aggregate's applied events for a <see cref="BoundaryReadKind.Model"/> read, the consumed events of the View
+    /// slices producing the read model (or the projection's own consumed events) for a
+    /// <see cref="BoundaryReadKind.Projection"/> read. Empty when the model cannot say.
+    /// </summary>
+    public IReadOnlyList<TypeDescriptor> FoldedEventsOf(BoundaryReadDescriptor read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        var found = new List<TypeDescriptor>();
+
+        void take(IEnumerable<TypeDescriptor> types)
+        {
+            foreach (var type in types)
+            {
+                if (!found.Any(x => EventModelSliceDescriptor.SameType(x, type))) found.Add(type);
+            }
+        }
+
+        foreach (var aggregate in Aggregates.Where(x => EventModelSliceDescriptor.SameType(x.Type, read.Type)))
+        {
+            take(aggregate.AppliedEvents);
+        }
+
+        foreach (var slice in Slices)
+        {
+            var produces = slice.ReadModelTypes.Any(x => EventModelSliceDescriptor.SameType(x, read.Type))
+                           || slice.ProjectionTypes.Any(x => EventModelSliceDescriptor.SameType(x, read.Type));
+            if (produces) take(slice.ConsumedEvents);
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// Fields whose value comes from nowhere the model can see, as <see cref="HotspotOrigin.IncompleteInformation"/>
+    /// hotspots graded as questions (jasperfx#1299). Computed from the merged slices and <see cref="Shapes"/> on
+    /// every read, like <see cref="EventModelSliceDescriptor.PatternViolations"/>, so a deserializer ignores it and
+    /// recomputes. Each hotspot names its slice on <see cref="HotspotDescriptor.SliceName"/> and its field on
+    /// <see cref="HotspotDescriptor.Field"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two questions, one per direction of a slice. A <see cref="SlicePattern.View"/>'s read-model field that matches
+    /// no consumed event's field by name (case-insensitive) or by <see cref="FieldDescriptor.Mapping"/>: where does
+    /// the view get it? An emitted event's field that comes from neither the command, an aggregate or decider model
+    /// the slice decides against, nor a <c>[Generated]</c> value: where does the event get it?
+    /// </para>
+    /// <para>
+    /// Raised only for a slice with a <see cref="EventModelProvenance.Declared"/> or
+    /// <see cref="EventModelProvenance.Specified"/> rung, and only for types whose shape the model carries. A purely
+    /// derived model gets none: the code is the answer there, and the question belongs to design-first work.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<HotspotDescriptor> IncompleteInformation
+        => Slices.SelectMany(IncompleteInformationFor).ToList();
+
+    /// <summary>The <see cref="IncompleteInformation"/> questions about one slice (jasperfx#1299).</summary>
+    public IReadOnlyList<HotspotDescriptor> IncompleteInformationFor(EventModelSliceDescriptor slice)
+    {
+        ArgumentNullException.ThrowIfNull(slice);
+
+        if (!slice.HasRung(EventModelProvenance.Declared) && !slice.HasRung(EventModelProvenance.Specified))
+        {
+            return Array.Empty<HotspotDescriptor>();
+        }
+
+        var questions = new List<HotspotDescriptor>();
+
+        if (slice.Pattern == SlicePattern.View)
+        {
+            var sources = slice.ConsumedEvents;
+            foreach (var readModel in slice.ReadModelTypes)
+            {
+                var shape = ShapeOf(readModel);
+                if (shape is null) continue;
+
+                foreach (var field in shape.Fields)
+                {
+                    if (field.Generated || field.Identity) continue;
+                    if (comesFrom(field, sources)) continue;
+
+                    questions.Add(HotspotDescriptor.IncompleteInformation(slice.Name, readModel.Name, field.Name,
+                        $"{readModel.Name}.{field.Name} comes from none of the events the view consumes" +
+                        (sources.Count == 0 ? "" : $" ({string.Join(", ", sources.Select(x => x.Name))})") +
+                        ". Map it with Field(\"" + field.Name + "\").From<…>(…), or consume the event that carries it"));
+                }
+            }
+        }
+        else if (slice.Pattern is SlicePattern.Command or SlicePattern.Automation or SlicePattern.Translation or null)
+        {
+            var sources = new List<TypeDescriptor>();
+            if (slice.CommandType is { } command) sources.Add(command);
+            sources.AddRange(slice.AggregateTypes);
+            if (slice.DeciderModel is { } decider && !sources.Any(x => EventModelSliceDescriptor.SameType(x, decider))) sources.Add(decider);
+            sources.AddRange(slice.ConsumedEvents.Where(c => !sources.Any(x => EventModelSliceDescriptor.SameType(x, c))));
+            if (sources.Count == 0) return questions;
+
+            foreach (var emitted in slice.EmittedEvents)
+            {
+                var shape = ShapeOf(emitted);
+                if (shape is null) continue;
+
+                foreach (var field in shape.Fields)
+                {
+                    if (field.Generated) continue;
+                    if (comesFrom(field, sources)) continue;
+
+                    questions.Add(HotspotDescriptor.IncompleteInformation(slice.Name, emitted.Name, field.Name,
+                        $"{emitted.Name}.{field.Name} comes from neither the command, the aggregate nor a generated value" +
+                        $" ({string.Join(", ", sources.Select(x => x.Name))}). Map it with Field(\"{field.Name}\").From<…>(…), mark it [Generated], or add it to the command"));
+                }
+            }
+        }
+
+        return questions;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="field"/> is supplied by one of <paramref name="sources"/>: by its mapping, when the
+    /// mapping names one of them; else by a field of the same name (case-insensitive) on a source whose shape the
+    /// model carries. A source with no shape cannot vouch for a field, except through a mapping.
+    /// </summary>
+    private bool comesFrom(FieldDescriptor field, IReadOnlyList<TypeDescriptor> sources)
+    {
+        if (field.Mapping is { } mapping)
+        {
+            foreach (var source in sources)
+            {
+                if (!EventModelSliceDescriptor.SameType(mapping.Source, source)) continue;
+
+                var sourceShape = ShapeOf(source);
+                if (sourceShape is null || sourceShape.Find(mapping.Field) is not null) return true;
+            }
+        }
+
+        foreach (var source in sources)
+        {
+            if (ShapeOf(source)?.Find(field.Name) is not null) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// The cross-slice cause→effect relationships, by element id — computed from the roles every
     /// slice already stamps, on every read (jasperfx#823).
     /// </summary>
@@ -1285,6 +1872,9 @@ public sealed record EventModelDescriptor(
         {
             Slices = Slices.Select(x => x.WithProvenance(provenance)).ToList(),
             Aggregates = Aggregates.Select(x => x.Provenance is null ? x with { Provenance = provenance } : x).ToList(),
+            // jasperfx#1297, jasperfx#1299: the tag catalogue and the shapes rank their claims the same way.
+            Tags = Tags.Select(x => x.Provenance is null ? x with { Provenance = provenance } : x).ToList(),
+            Shapes = Shapes.Select(x => x.Provenance is null ? x with { Provenance = provenance } : x).ToList(),
         };
 
     /// <summary>
@@ -1314,10 +1904,45 @@ public sealed record EventModelDescriptor(
         var hotspotKeys = new HashSet<string>(StringComparer.Ordinal);
         var assignments = new List<DomainAssignmentDescriptor>();
         var declaredAggregates = new List<TypeDescriptor>();
+        var tags = new List<EventTagDescriptor>();
+        var shapes = new List<TypeShapeDescriptor>();
+
+        void record(HotspotDescriptor hotspot)
+        {
+            if (hotspotKeys.Add($"{hotspot.Origin}:{hotspot.Text}")) hotspots.Add(hotspot);
+        }
 
         foreach (var descriptor in descriptors)
         {
             assignments.AddRange(descriptor.DomainAssignments);
+
+            // jasperfx#1297. The catalogue unions by name. A real tag type replaces a declaration, and two
+            // different types for one tag are ranked like an aggregate's identity: the higher rung wins and the
+            // dropped claim is a model-level hotspot on TagType.
+            foreach (var tag in descriptor.Tags)
+            {
+                var existing = tags.FindIndex(x => string.Equals(x.Name, tag.Name, StringComparison.Ordinal));
+                if (existing < 0)
+                {
+                    tags.Add(tag);
+                    continue;
+                }
+
+                tags[existing] = mergeTag(tags[existing], tag, record);
+            }
+
+            // jasperfx#1299. Shapes union by type; TypeShapeDescriptor.Merge holds the field rule.
+            foreach (var shape in descriptor.Shapes)
+            {
+                var existing = shapes.FindIndex(x => EventModelSliceDescriptor.SameType(x.Type, shape.Type));
+                if (existing < 0)
+                {
+                    shapes.Add(shape);
+                    continue;
+                }
+
+                shapes[existing] = shapes[existing].Merge(shape, record);
+            }
 
             // jasperfx#1117. Only aggregates a person declared count: the store derives one for every
             // single-stream projection, which would make every View look like a write model's fold.
@@ -1379,6 +2004,57 @@ public sealed record EventModelDescriptor(
         return new EventModelDescriptor(name, slices)
         {
             Aggregates = aggregates, Hotspots = hotspots, DomainAssignments = domainAssignments,
+            Tags = tags, Shapes = shapes,
+        };
+    }
+
+    /// <summary>
+    /// jasperfx#1297. Two catalogue entries for one tag name: the real type replaces a declaration, the inner
+    /// primitive fills in from whichever side knows it, and two different tag types are ranked by rung with the
+    /// loser recorded on <see cref="EventModelRole.TagType"/>.
+    /// </summary>
+    private static EventTagDescriptor mergeTag(EventTagDescriptor first, EventTagDescriptor second,
+        Action<HotspotDescriptor> disagreement)
+    {
+        var firstRung = first.Provenance ?? EventModelProvenance.Declared;
+        var secondRung = second.Provenance ?? EventModelProvenance.Declared;
+        var takeSecond = secondRung.Outranks(firstRung);
+        var provenance = takeSecond ? second.Provenance : first.Provenance ?? second.Provenance;
+
+        TypeDescriptor? type;
+        if (first.Type is null || second.Type is null)
+        {
+            type = first.Type ?? second.Type;
+        }
+        else if (EventModelSliceDescriptor.SameType(first.Type, second.Type))
+        {
+            type = string.IsNullOrEmpty(first.Type.AssemblyName) ? second.Type : first.Type;
+        }
+        else
+        {
+            type = takeSecond ? second.Type : first.Type;
+
+            var sameName = string.Equals(first.Type.Name, second.Type.Name, StringComparison.Ordinal);
+            string display(TypeDescriptor t) => sameName ? t.FullName : t.Name;
+
+            var firstClaim = new EventModelClaim(firstRung, display(first.Type));
+            var secondClaim = new EventModelClaim(secondRung, display(second.Type));
+            var hotspot = takeSecond
+                ? HotspotDescriptor.SourceDisagreement(EventModelRole.TagType, secondClaim, firstClaim)
+                : HotspotDescriptor.SourceDisagreement(EventModelRole.TagType, firstClaim, secondClaim);
+
+            var prefix = $"{EventModelRole.TagType}:";
+            disagreement(hotspot with
+            {
+                Text = $"{EventModelRole.TagType} of {first.Name}:{hotspot.Text.Substring(prefix.Length)}",
+            });
+        }
+
+        return first with
+        {
+            Type = type,
+            InnerType = (takeSecond ? second.InnerType : first.InnerType) ?? first.InnerType ?? second.InnerType,
+            Provenance = provenance,
         };
     }
 

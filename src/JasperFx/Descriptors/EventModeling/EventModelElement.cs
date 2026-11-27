@@ -39,6 +39,12 @@ public enum EventModelElementKind
 
     /// <summary>A hotspot — an open question, conflict, or pending specification. Magenta / red.</summary>
     Hotspot,
+
+    /// <summary>
+    /// A named screen a human trigger acts through — the wireframe card by name only, no content (jasperfx#1298).
+    /// White, like a trigger, drawn framed. Appended so the existing members keep their wire values.
+    /// </summary>
+    Screen,
 }
 
 /// <summary>
@@ -110,6 +116,13 @@ public sealed record EventModelElement(
     /// </remarks>
     public EventModelProvenance? Provenance { get; init; }
 
+    /// <summary>
+    /// Plain text or markdown describing the element, when the slice carries one for it
+    /// (<see cref="EventModelSliceDescriptor.ElementDescriptions"/>, jasperfx#1298). Null otherwise. Stamped by the
+    /// owning slice so a viewer shows it on hover without a join.
+    /// </summary>
+    public string? Description { get; init; }
+
     /// <summary>The role an element of <paramref name="kind"/> renders, for provenance lookup.</summary>
     /// <remarks>
     /// A trigger is the one kind with three possible sources — <c>TriggerType</c>, <c>TriggerLabel</c>
@@ -126,6 +139,7 @@ public sealed record EventModelElement(
         EventModelElementKind.ReadModel => EventModelRole.ReadModelTypes,
         EventModelElementKind.ExternalSystem => EventModelRole.ExternalSystems,
         EventModelElementKind.Hotspot => EventModelRole.Hotspots,
+        EventModelElementKind.Screen => EventModelRole.Screen,
         _ => null,
     };
 
@@ -135,6 +149,7 @@ public sealed record EventModelElement(
         EventModelElementKind.Trigger => EventModelLane.Wireframe,
         EventModelElementKind.ExternalSystem => EventModelLane.Wireframe,
         EventModelElementKind.Hotspot => EventModelLane.Wireframe,
+        EventModelElementKind.Screen => EventModelLane.Wireframe,
         EventModelElementKind.Command => EventModelLane.Command,
         EventModelElementKind.Handler => EventModelLane.Command,
         EventModelElementKind.Aggregate => EventModelLane.Command,
@@ -173,6 +188,7 @@ public static class EventModelPalette
         EventModelElementKind.ReadModel => "#7ED321",      // read model — green
         EventModelElementKind.ExternalSystem => "#F8BBD0", // external system — pink
         EventModelElementKind.Hotspot => "#E91E63",        // hotspot — magenta
+        EventModelElementKind.Screen => "#FFFFFF",         // screen — white, like a trigger (drawn framed)
         _ => "#CCCCCC",
     };
 }

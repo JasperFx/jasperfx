@@ -6,6 +6,11 @@ using JasperFx.Events.EventModeling;
 // above all — can carry an EventModelSliceDescriptor next to the route they describe. The
 // namespace did not change, so nothing anyone wrote needs editing; these forwards keep assemblies
 // that were compiled against the old home binding without a recompile.
+//
+// Only the types that ever lived in THIS assembly are forwarded. Every descriptor added since the move
+// (EmittedEventStream, EventModelLink, AggregateDeclaration, the jasperfx#1297-#1299 types: EventTagDescriptor,
+// BoundaryReadDescriptor, ActorDescriptor, ScheduleDescriptor, FieldDescriptor, TypeShapeDescriptor, …) was born
+// in JasperFx, so no compiled assembly can be looking for it here, and a forward would be a lie about history.
 [assembly: TypeForwardedTo(typeof(AggregateDescriptor))]
 [assembly: TypeForwardedTo(typeof(AggregateKind))]
 [assembly: TypeForwardedTo(typeof(EventModelDescriptor))]

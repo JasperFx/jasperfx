@@ -59,6 +59,39 @@ unmarked rather than defaulting to green.
 `vue` is the one peer dependency — a consumer supplies its own, because bundling a
 second copy of Vue gives you two reactivity systems that cannot see each other.
 
+## DCB, structure and fields (0.18.0, jasperfx#1297–#1299)
+
+The second Event Modeling wave put three things on the descriptor, and the canvas draws each on a channel
+the cards were not already using.
+
+**Consistency boundaries (jasperfx#1297).** A command slice that reads anything by tag (`reads`) sits
+inside a Dynamic Consistency Boundary. Its column gets `data-dcb="true"` — a dotted rule and a pale-yellow
+wash, the Query column's idiom in the aggregate's colour — and its event cards carry the tags they are
+tagged with as chips along the foot (`eventTags`). Select the slice and a **Consistency boundary** panel
+appears under the canvas in the dcb.events per-command shape: each read (model or projection, by which
+tag, from which command member), the event types it folds, the resulting query, the projections declared
+outside the boundary, and the ways the command refuses. `consistencyBoundaryFor(descriptor, slice)` is the
+pure function behind it; the slice's own `boundaryQuery` is computed upstream and this only adds what the
+read models fold, from `aggregates[].appliedEvents` and the producing View slice. No tag lanes: an event
+belongs to several boundaries at once.
+
+**Structure (jasperfx#1298).** The trigger card badges its `actor`, and the filter bar offers one chip per
+actor — the grouping an actor lane gives a board, as a filter (`actorsOf`, `SliceFilter.actors`). A scheduled
+automation's header shows its cadence (`scheduleLabel`: `every 5m`, `cron 0 9 * * MON`, or the schedule's
+name). A `Screen` element is a new kind, white like the trigger and drawn framed, in the wireframe lane.
+Descriptions ride the tooltips: an element's `description` on its card, the slice's on its header.
+
+**Fields (jasperfx#1299).** Select a card whose type has a shape on `shapes` and a **Fields** panel lists its
+fields with their flags (identity, tag, generated, pii) and mappings. Pick a field and the trail lights up:
+cards in the slice whose type carries the field by name, or that the field's mapping points at, get
+`data-trail="on"` and the rest fall back. A field the model says nothing supplies is marked with a magenta
+`?` — it is the `IncompleteInformation` question from the model's own `incompleteInformation`, joined on
+`sliceName` and `field`, and the slice header carries the count as a muted `?` badge. `fieldTrail`,
+`unmatchedFields` and `questionsFor` are the pure functions.
+
+Every member is optional and absent from any producer below the JasperFx.Events release that added it, so
+an older descriptor renders exactly as it did on 0.17.
+
 ## Provenance, and disagreement between sources (0.4.0)
 
 JasperFx.Events 2.56.0 (jasperfx#703 / #704) gave the descriptor a three-rung ladder —

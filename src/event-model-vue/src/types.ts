@@ -24,6 +24,12 @@ export type EventModelElementKind =
   | 'ReadModel'
   | 'ExternalSystem'
   | 'Hotspot'
+  /**
+   * A named screen a human trigger acts through — the wireframe card by name only, no content
+   * (jasperfx#1298). White like a trigger, drawn framed. Absent from any producer below the
+   * JasperFx.Events release that added it.
+   */
+  | 'Screen'
 
 /** The four lanes of a standard Event Modeling canvas, top to bottom. */
 export type EventModelLane = 'Wireframe' | 'Command' | 'EventStream' | 'ReadModel'
@@ -71,6 +77,11 @@ export type TriggerKind =
  * `PatternViolation` (jasperfx#1003) is a slice carrying a role its pattern rules out — a `Query`
  * that appends events, starts a stream or sends a command. Computed upstream from the merged roles
  * and carried on the slice's `patternViolations`, not its `hotspots`; `role` names the offending role.
+ *
+ * `UndeclaredRejection` (jasperfx#1297) is a specification refusing a command for a reason the slice's
+ * `rejectionReasons` do not declare. `IncompleteInformation` (jasperfx#1299) is a field of a view or an
+ * emitted event that comes from nowhere the model can see; graded as a question like `Prose`, computed
+ * upstream on the model's `incompleteInformation` with `sliceName` and `field` saying which.
  */
 export type HotspotOrigin =
   | 'PendingSpecification'
@@ -80,6 +91,8 @@ export type HotspotOrigin =
   | 'SliceCollision'
   | 'UnresolvedSpecification'
   | 'PatternViolation'
+  | 'UndeclaredRejection'
+  | 'IncompleteInformation'
 
 /**
  * How much authority a source's claim carries — the ladder that decides precedence
@@ -126,6 +139,20 @@ export type EventModelRole =
   | 'ViewProjection'
   | 'AggregateIdentity'
   | 'TriggeredBy'
+  // jasperfx#1297
+  | 'EventTags'
+  | 'Reads'
+  | 'UntaggedProjections'
+  | 'RejectionReasons'
+  | 'TagType'
+  // jasperfx#1298
+  | 'Actor'
+  | 'ExternalEvents'
+  | 'Schedule'
+  | 'Screen'
+  | 'Description'
+  // jasperfx#1299
+  | 'Fields'
 
 /** One source's claim about one role, as it stood before a merge resolved the disagreement. */
 export interface EventModelClaim {
@@ -199,6 +226,11 @@ export interface EventModelElement {
    * deliberately: that is the rung the merge actually treats it as.
    */
   provenance?: EventModelProvenance | null
+  /**
+   * Plain text or markdown describing the element, stamped by the producer from the slice's
+   * `elementDescriptions` (jasperfx#1298). Shown on hover. Absent when nobody described it.
+   */
+  description?: string | null
 }
 
 /** A directed relationship between two elements of a slice, by element id. */
@@ -232,6 +264,14 @@ export interface HotspotDescriptor {
    * role produce two hotspots, each naming the two claims that actually met.
    */
   losingClaim?: EventModelClaim | null
+  /**
+   * The slice a model-level computed hotspot is about. Set only when `origin` is
+   * `IncompleteInformation` (jasperfx#1299), which lives on the model's `incompleteInformation`
+   * rather than on a slice.
+   */
+  sliceName?: string | null
+  /** The field an `IncompleteInformation` hotspot is about, as `{Type}.{Field}` (jasperfx#1299). */
+  field?: string | null
 }
 
 /** An external system on one end of an integration edge. */
@@ -245,6 +285,116 @@ export interface ExternalSystemDescriptor {
 export interface EmittedEventStream {
   event: TypeDescriptor
   aggregate: TypeDescriptor
+}
+
+/** The consistency tags one emitted event carries (jasperfx#1297). */
+export interface EmittedEventTags {
+  event: TypeDescriptor
+  /** Tag names, as the model's `tags` catalogue names them. */
+  tags: string[]
+}
+
+/** What kind of thing a command slice reads by tag (jasperfx#1297). */
+export type BoundaryReadKind = 'Model' | 'Projection'
+
+/**
+ * One declared read of a command slice: a model or a projection, selected by one tag whose value a
+ * command member supplies (jasperfx#1297). Reads are declared; the boundary is derived from them.
+ */
+export interface BoundaryReadDescriptor {
+  kind: BoundaryReadKind
+  type: TypeDescriptor
+  tag: string
+  /** The command member supplying the tag value, or absent when bound by convention. */
+  member?: string | null
+}
+
+/** One term of the derived boundary query: the events carrying `tag` (jasperfx#1297). */
+export interface BoundaryQueryTerm {
+  tag: string
+  member?: string | null
+  /**
+   * The emitted events of the slice that carry the tag. The events a read model FOLDS are a model-level
+   * answer; `consistencyBoundaryFor` in `boundary.ts` adds them from `aggregates` and the producing View slice.
+   */
+  eventTypes?: TypeDescriptor[]
+}
+
+/** The consistency boundary a command slice's reads imply, computed upstream (jasperfx#1297). */
+export interface BoundaryQueryDescriptor {
+  terms?: BoundaryQueryTerm[]
+  isEmpty?: boolean
+}
+
+/** One consistency tag of the model's catalogue (jasperfx#1297). */
+export interface EventTagDescriptor {
+  name: string
+  /** The strong-typed tag type, absent before one exists. */
+  type?: TypeDescriptor | null
+  /** The primitive inside the tag type, when known. */
+  innerType?: TypeDescriptor | null
+  provenance?: EventModelProvenance | null
+}
+
+/** Who triggers a slice: an actor by name, with the roles the slice requires (jasperfx#1298). */
+export interface ActorDescriptor {
+  name: string
+  requiredRoles?: string[]
+}
+
+/** A consumed event that comes from an external system (jasperfx#1298). */
+export interface ExternalEventDescriptor {
+  event: TypeDescriptor
+  externalSystem: string
+}
+
+/** How an automation's schedule is expressed (jasperfx#1298). */
+export type ScheduleKind = 'Interval' | 'Cron' | 'Named'
+
+/** The schedule firing an automation, beside `JobScheduler` (jasperfx#1298). One of the three is set. */
+export interface ScheduleDescriptor {
+  kind: ScheduleKind
+  /** A .NET TimeSpan as STJ writes it: `00:05:00`, `7.00:00:00`. */
+  every?: string | null
+  cron?: string | null
+  name?: string | null
+}
+
+/** Plain text or markdown describing one element a slice references (jasperfx#1298). */
+export interface ElementDescription {
+  type: TypeDescriptor
+  text: string
+}
+
+/** How many values a field holds (jasperfx#1299). */
+export type FieldCardinality = 'One' | 'Many'
+
+/** Where a declared field's value comes from — the board's `mapping` (jasperfx#1299). */
+export interface FieldMappingDescriptor {
+  source: TypeDescriptor
+  field: string
+}
+
+/** One field of a modelled type (jasperfx#1299). */
+export interface FieldDescriptor {
+  name: string
+  /** The field's type — the element type when `cardinality` is `Many`. */
+  type: TypeDescriptor
+  cardinality?: FieldCardinality
+  optional?: boolean
+  identity?: boolean
+  tag?: string | null
+  generated?: boolean
+  pii?: boolean
+  mapping?: FieldMappingDescriptor | null
+  description?: string | null
+}
+
+/** The fields of one modelled type, on the model's `shapes` (jasperfx#1299). */
+export interface TypeShapeDescriptor {
+  type: TypeDescriptor
+  fields?: FieldDescriptor[]
+  provenance?: EventModelProvenance | null
 }
 
 /** Wire descriptor for a single slice of an Event Model. */
@@ -328,6 +478,32 @@ export interface EventModelSliceDescriptor {
    */
   patternViolations?: HotspotDescriptor[]
   externalSystems?: ExternalSystemDescriptor[]
+
+  // jasperfx#1297 — Dynamic Consistency Boundaries. All absent from any producer below the release that added them.
+  /** The consistency tags each emitted event carries. */
+  eventTags?: EmittedEventTags[] | null
+  /** What the slice reads by tag before deciding. Non-empty means the slice sits inside a DCB. */
+  reads?: BoundaryReadDescriptor[] | null
+  /** The boundary the reads imply, computed upstream on every read. */
+  boundaryQuery?: BoundaryQueryDescriptor | null
+  /** Projections the boundary deliberately leaves out. */
+  untaggedProjections?: TypeDescriptor[] | null
+  /** The ways a command slice can refuse — "Course is full". */
+  rejectionReasons?: string[] | null
+
+  // jasperfx#1298 — structural elements.
+  /** Who triggers the slice, with the roles it requires of them. */
+  actor?: ActorDescriptor | null
+  /** Which consumed events come from an external system, and which one. */
+  externalEvents?: ExternalEventDescriptor[] | null
+  /** The cadence of a scheduled automation. */
+  schedule?: ScheduleDescriptor | null
+  /** The name of the screen a human trigger acts through; also a `Screen` element in the wireframe lane. */
+  screen?: string | null
+  /** Plain text or markdown describing the slice. */
+  description?: string | null
+  /** Descriptions of the elements the slice references, by type. Each is also on its element's `description`. */
+  elementDescriptions?: ElementDescription[] | null
 }
 
 /**
@@ -417,6 +593,15 @@ export interface EventModelDescriptor {
   domainAssignments?: DomainAssignmentDescriptor[]
   /** Cross-slice links, computed upstream. Absent on any producer below JasperFx.Events 2.69. */
   links?: EventModelLink[]
+  /** The model's consistency-tag catalogue (jasperfx#1297). Slices refer to these by name. */
+  tags?: EventTagDescriptor[]
+  /** The fields of the model's types, one shape per type (jasperfx#1299). */
+  shapes?: TypeShapeDescriptor[]
+  /**
+   * Fields whose value comes from nowhere the model can see, as `IncompleteInformation` hotspots
+   * computed upstream (jasperfx#1299). Each names its `sliceName` and `field`; a viewer joins on those.
+   */
+  incompleteInformation?: HotspotDescriptor[]
 }
 
 /** Lanes in canonical top-to-bottom order. Rendering order is part of the contract. */

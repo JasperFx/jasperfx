@@ -49,10 +49,26 @@ export interface SliceFilter {
   hotspotsOnly?: boolean
 
   /**
+   * Actors to keep (jasperfx#1298). Empty means every actor, including slices that name none. The
+   * grouping an actor lane gives a board, as a filter: "everything the Volunteer does".
+   */
+  actors?: ReadonlySet<string>
+
+  /**
    * Case-insensitive substring of the slice name. Last resort, and deliberately last: a reader
    * who knows the name does not need a canvas, but one who half-remembers it does.
    */
   search?: string
+}
+
+/** The actors a model's slices name, in first-appearance order (jasperfx#1298). */
+export function actorsOf(descriptor: EventModelDescriptor | null | undefined): string[] {
+  const actors: string[] = []
+  for (const slice of descriptor?.slices ?? []) {
+    const name = slice.actor?.name
+    if (name && !actors.includes(name)) actors.push(name)
+  }
+  return actors
 }
 
 /** The domains a model declares, sorted, with slices declaring none reported as `null`. */
@@ -108,6 +124,10 @@ export function matchesFilter(slice: EventModelSliceDescriptor, filter: SliceFil
 
   if (filter.hotspotsOnly && hotspotsOf(slice).length === 0) return false
 
+  if (filter.actors && filter.actors.size > 0) {
+    if (!slice.actor?.name || !filter.actors.has(slice.actor.name)) return false
+  }
+
   if (filter.search && filter.search.trim().length > 0) {
     if (!slice.name.toLowerCase().includes(filter.search.trim().toLowerCase())) return false
   }
@@ -142,6 +162,7 @@ export function isEmptyFilter(filter: SliceFilter): boolean {
     (!filter.patterns || filter.patterns.size === 0) &&
     (filter.specs === undefined || filter.specs === 'any') &&
     !filter.hotspotsOnly &&
+    (!filter.actors || filter.actors.size === 0) &&
     (filter.search === undefined || filter.search.trim().length === 0)
   )
 }

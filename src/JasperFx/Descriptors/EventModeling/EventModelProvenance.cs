@@ -211,4 +211,76 @@ public enum EventModelRole
     /// compatible derived kind. Appended for the same wire reason as <see cref="Origin"/>.
     /// </summary>
     TriggeredBy,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.EventTags"/> — the consistency tags each emitted event carries
+    /// (jasperfx#1297). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    EventTags,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.Reads"/> — what a command slice reads by tag before deciding
+    /// (jasperfx#1297). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    Reads,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.UntaggedProjections"/> — projections outside the consistency
+    /// boundary (jasperfx#1297). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    UntaggedProjections,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.RejectionReasons"/> — the ways a command slice can refuse
+    /// (jasperfx#1297). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    RejectionReasons,
+
+    /// <summary>
+    /// <see cref="EventTagDescriptor.Type"/> — a tag's strong type in the model-level catalogue (jasperfx#1297). A
+    /// model-level role like <see cref="AggregateIdentity"/>: no slice claims it, and it appears only on the
+    /// <see cref="HotspotDescriptor.Role"/> of a model-level disagreement. Appended for the same wire reason as
+    /// <see cref="Origin"/>.
+    /// </summary>
+    TagType,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.Actor"/> — who triggers the slice, by name and required roles
+    /// (jasperfx#1298). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    Actor,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.ExternalEvents"/> — consumed events that come from an external system
+    /// (jasperfx#1298). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    ExternalEvents,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.Schedule"/> — the cadence of an automation (jasperfx#1298). Appended
+    /// for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    Schedule,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.Screen"/> — the named screen a human trigger acts through
+    /// (jasperfx#1298). Appended for the same wire reason as <see cref="Origin"/>.
+    /// </summary>
+    Screen,
+
+    /// <summary>
+    /// <see cref="EventModelSliceDescriptor.Description"/> and <see cref="EventModelSliceDescriptor.ElementDescriptions"/>
+    /// (jasperfx#1298). Never disagreed about: the richer text wins. Appended for the same wire reason as
+    /// <see cref="Origin"/>.
+    /// </summary>
+    Description,
+
+    /// <summary>
+    /// <see cref="TypeShapeDescriptor.Fields"/> — the fields of a modelled type (jasperfx#1299). A model-level
+    /// role like <see cref="AggregateIdentity"/>: it lives on <see cref="EventModelDescriptor.Shapes"/>, no slice
+    /// claims it, and it appears on the <see cref="HotspotDescriptor.Role"/> of a model-level disagreement and of
+    /// an <see cref="HotspotOrigin.IncompleteInformation"/> hotspot. Appended for the same wire reason as
+    /// <see cref="Origin"/>.
+    /// </summary>
+    Fields,
 }

@@ -19,7 +19,9 @@ export const EVENT_MODEL_PALETTE: Record<EventModelElementKind, string> = {
   Projection: '#7ED321',
   ReadModel: '#7ED321',
   ExternalSystem: '#F8BBD0',
-  Hotspot: '#E91E63'
+  Hotspot: '#E91E63',
+  // jasperfx#1298 — a named screen: white like the trigger it belongs to, told apart by its frame.
+  Screen: '#FFFFFF'
 }
 
 /** Hex colour for an element kind. Unknown kinds fall back to the upstream neutral. */
@@ -36,5 +38,5 @@ export const DASHED_KINDS: readonly EventModelElementKind[] = ['Message'] as con
 
 /** Text colour that stays legible on a given sticky. White and pale yellow need dark ink. */
 export function inkFor(kind: EventModelElementKind): string {
-  return kind === 'Trigger' || kind === 'Aggregate' ? '#1F2933' : '#0B1F33'
+  return kind === 'Trigger' || kind === 'Aggregate' || kind === 'Screen' ? '#1F2933' : '#0B1F33'
 }

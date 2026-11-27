@@ -96,6 +96,37 @@ public enum HotspotOrigin
     /// is fixed. Appended for the same wire reason as <see cref="SliceCollision"/>.
     /// </remarks>
     PatternViolation,
+
+    /// <summary>
+    /// A specification refuses a command for a reason the slice does not declare (jasperfx#1297). The
+    /// <see cref="EventModelProvenance.Specified"/> rung brought a rejection reason that the slice's declared
+    /// <see cref="EventModelSliceDescriptor.RejectionReasons"/> lack — like a spec whose command no slice handles,
+    /// it is the model not knowing something the specs do. <see cref="HotspotDescriptor.Text"/> names the reason
+    /// and the <c>Refuses("…")</c> that would declare it.
+    /// </summary>
+    /// <remarks>
+    /// Raised by <see cref="EventModelSliceDescriptor.Merge"/> when the declared list is non-empty and lacks the
+    /// reason, and by a spec source (Bobcat) that can name the specification. Never raised against the
+    /// <see cref="EventModelProvenance.Derived"/> rung, which does not read method bodies and so never claims
+    /// rejection reasons. Appended for the same wire reason as <see cref="SliceCollision"/>.
+    /// </remarks>
+    UndeclaredRejection,
+
+    /// <summary>
+    /// A field of a view or an emitted event comes from nowhere the model can see (jasperfx#1299): a view field that
+    /// matches no consumed event's field by name or mapping, or an emitted-event field that comes from neither the
+    /// command, the aggregate nor a <c>[Generated]</c> value. Graded as a question, like <see cref="Prose"/>, never
+    /// as a disagreement.
+    /// </summary>
+    /// <remarks>
+    /// Computed on <see cref="EventModelDescriptor.IncompleteInformation"/> from the merged slices and shapes on
+    /// every read, like <see cref="EventModelSliceDescriptor.PatternViolations"/>, and raised only for a slice that
+    /// has a <see cref="EventModelProvenance.Declared"/> or <see cref="EventModelProvenance.Specified"/> rung — a
+    /// purely derived model gets none. <see cref="HotspotDescriptor.SliceName"/> and
+    /// <see cref="HotspotDescriptor.Field"/> are the structured form. Appended for the same wire reason as
+    /// <see cref="SliceCollision"/>.
+    /// </remarks>
+    IncompleteInformation,
 }
 
 /// <summary>
@@ -257,6 +288,50 @@ public sealed record HotspotDescriptor(
     /// </remarks>
     public IReadOnlyList<string> CollapsedModelNames { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// The slice a model-level computed hotspot is about, when <see cref="Origin"/> is
+    /// <see cref="HotspotOrigin.IncompleteInformation"/>; otherwise null (jasperfx#1299). A hotspot stored on a
+    /// slice has no need of it; one computed on the model has nowhere else to say which slice it means.
+    /// </summary>
+    public string? SliceName { get; init; }
+
+    /// <summary>
+    /// The field the hotspot is about as <c>{Type}.{Field}</c>, when <see cref="Origin"/> is
+    /// <see cref="HotspotOrigin.IncompleteInformation"/>; otherwise null (jasperfx#1299). The structured form a
+    /// viewer marks the field with, so nothing is parsed back out of <see cref="Text"/>.
+    /// </summary>
+    public string? Field { get; init; }
+
+    /// <summary>
+    /// A hotspot for a specification refusing for a reason the slice does not declare — see
+    /// <see cref="HotspotOrigin.UndeclaredRejection"/> (jasperfx#1297).
+    /// </summary>
+    /// <param name="reason">The rejection reason the specification named.</param>
+    /// <param name="specificationIdentity">The <c>{Feature}/{Scenario}</c> identity of the specification, when the caller knows it.</param>
+    public static HotspotDescriptor UndeclaredRejection(string reason, string? specificationIdentity = null)
+        => new(HotspotOrigin.UndeclaredRejection,
+            $"A specification refuses with '{reason}', which the slice does not declare. Declare it with Refuses(\"{reason}\")",
+            specificationIdentity)
+        {
+            Role = EventModelRole.RejectionReasons,
+        };
+
+    /// <summary>
+    /// A hotspot for a field whose value comes from nowhere the model can see — see
+    /// <see cref="HotspotOrigin.IncompleteInformation"/> (jasperfx#1299).
+    /// </summary>
+    /// <param name="sliceName">The slice the field is read or written in.</param>
+    /// <param name="typeName">The type the field belongs to.</param>
+    /// <param name="fieldName">The field.</param>
+    /// <param name="text">The question, rendered.</param>
+    public static HotspotDescriptor IncompleteInformation(string sliceName, string typeName, string fieldName, string text)
+        => new(HotspotOrigin.IncompleteInformation, text)
+        {
+            Role = EventModelRole.Fields,
+            SliceName = sliceName,
+            Field = $"{typeName}.{fieldName}",
+        };
+
     /// <summary>A hotspot for a specification that is pending (jasperfx#689).</summary>
     public static HotspotDescriptor PendingSpecification(string specificationIdentity)
         => new(HotspotOrigin.PendingSpecification, specificationIdentity, specificationIdentity);
@@ -379,6 +454,8 @@ public sealed record HotspotDescriptor(
            && WinningClaim == other.WinningClaim
            && LosingClaim == other.LosingClaim
            && ServiceName == other.ServiceName
+           && SliceName == other.SliceName
+           && Field == other.Field
            && CollapsedModelNames.SequenceEqual(other.CollapsedModelNames, StringComparer.Ordinal);
 
     /// <inheritdoc />
@@ -392,6 +469,8 @@ public sealed record HotspotDescriptor(
         hash.Add(WinningClaim);
         hash.Add(LosingClaim);
         hash.Add(ServiceName);
+        hash.Add(SliceName);
+        hash.Add(Field);
         foreach (var name in CollapsedModelNames) hash.Add(name, StringComparer.Ordinal);
 
         return hash.ToHashCode();

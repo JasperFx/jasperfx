@@ -44,11 +44,12 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
     expect(
       members<EventModelElementKind>({
         Trigger: true, Command: true, Handler: true, Aggregate: true, Event: true,
-        Message: true, Projection: true, ReadModel: true, ExternalSystem: true, Hotspot: true
+        Message: true, Projection: true, ReadModel: true, ExternalSystem: true, Hotspot: true,
+        Screen: true
       })
     ).toEqual([
       'Aggregate', 'Command', 'Event', 'ExternalSystem', 'Handler',
-      'Hotspot', 'Message', 'Projection', 'ReadModel', 'Trigger'
+      'Hotspot', 'Message', 'Projection', 'ReadModel', 'Screen', 'Trigger'
     ])
   })
 
@@ -73,7 +74,7 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
     ).toEqual(['External', 'Grpc', 'Http', 'Human', 'JobScheduler', 'MessageHandler'])
   })
 
-  it('pins HotspotOrigin including the jasperfx#704, #837, #954, #995 and #1003 additions', () => {
+  it('pins HotspotOrigin including the jasperfx#704, #837, #954, #995, #1003, #1297 and #1299 additions', () => {
     expect(
       members<HotspotOrigin>({
         PendingSpecification: true,
@@ -82,11 +83,13 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         ModelCollapse: true,
         SliceCollision: true,
         UnresolvedSpecification: true,
-        PatternViolation: true
+        PatternViolation: true,
+        UndeclaredRejection: true,
+        IncompleteInformation: true
       })
     ).toEqual([
-      'ModelCollapse', 'PatternViolation', 'PendingSpecification', 'Prose', 'SliceCollision',
-      'SourceDisagreement', 'UnresolvedSpecification'
+      'IncompleteInformation', 'ModelCollapse', 'PatternViolation', 'PendingSpecification', 'Prose',
+      'SliceCollision', 'SourceDisagreement', 'UndeclaredRejection', 'UnresolvedSpecification'
     ])
   })
 
@@ -111,14 +114,17 @@ describe('the descriptor contract, as of JasperFx.Events 2.56.0', () => {
         ExternalSystems: true, Hotspots: true, Specifications: true, Domain: true,
         ConsumedEvents: true, ReadsFrom: true, Chapter: true, Origin: true, StartsStream: true,
         AggregateDeclaration: true, DeciderModel: true, ViewProjection: true, AggregateIdentity: true,
-        TriggeredBy: true
+        TriggeredBy: true,
+        EventTags: true, Reads: true, UntaggedProjections: true, RejectionReasons: true, TagType: true,
+        Actor: true, ExternalEvents: true, Schedule: true, Screen: true, Description: true, Fields: true
       })
     ).toEqual([
-      'AggregateDeclaration', 'AggregateIdentity', 'AggregateTypes', 'Chapter', 'CommandType', 'ConsumedEvents', 'DeciderModel',
-      'Domain', 'EmittedEvents',
-      'ExternalSystems', 'HandlerType', 'Hotspots', 'Origin', 'Pattern', 'ProjectionTypes',
-      'PublishedMessages', 'ReadModelTypes', 'ReadsFrom', 'Specifications', 'StartsStream',
-      'TriggerKind', 'TriggerLabel', 'TriggerOrigin', 'TriggerType', 'TriggeredBy', 'ViewProjection'
+      'Actor', 'AggregateDeclaration', 'AggregateIdentity', 'AggregateTypes', 'Chapter', 'CommandType',
+      'ConsumedEvents', 'DeciderModel', 'Description', 'Domain', 'EmittedEvents', 'EventTags',
+      'ExternalEvents', 'ExternalSystems', 'Fields', 'HandlerType', 'Hotspots', 'Origin', 'Pattern',
+      'ProjectionTypes', 'PublishedMessages', 'ReadModelTypes', 'Reads', 'ReadsFrom', 'RejectionReasons',
+      'Schedule', 'Screen', 'Specifications', 'StartsStream', 'TagType', 'TriggerKind', 'TriggerLabel',
+      'TriggerOrigin', 'TriggerType', 'TriggeredBy', 'UntaggedProjections', 'ViewProjection'
     ])
   })
 
