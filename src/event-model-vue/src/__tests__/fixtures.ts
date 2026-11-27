@@ -464,3 +464,112 @@ export function queryModel(): EventModelDescriptor {
     ]
   }
 }
+
+/**
+ * jasperfx#1297–#1299 — a course-enrolment model carrying the round-two members: a DCB command slice with
+ * tags, reads, a boundary query, an untagged projection and refusals; an actor, a screen, a schedule, an
+ * external event and descriptions; and field shapes with a mapping and one unanswered question.
+ */
+export function enrolmentModel(): EventModelDescriptor {
+  return {
+    name: 'Enrolments',
+    tags: [
+      { name: 'courseId', type: { name: 'CourseId', fullName: 'School.CourseId', assemblyName: 'School' }, innerType: { name: 'Guid', fullName: 'System.Guid', assemblyName: 'System.Private.CoreLib' } },
+      { name: 'studentId', type: { name: 'StudentId', fullName: 'School.StudentId', assemblyName: 'School' } }
+    ],
+    aggregates: [
+      { type: { name: 'CourseEnrolment', fullName: 'School.CourseEnrolment', assemblyName: 'School' }, kind: 'WriteAggregate', appliedEvents: [{ name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }, { name: 'CourseOpened', fullName: 'School.CourseOpened', assemblyName: 'School' }] }
+    ],
+    shapes: [
+      { type: { name: 'EnrolStudent', fullName: 'School.EnrolStudent', assemblyName: 'School' }, provenance: 'Declared', fields: [
+        { name: 'CourseId', type: { name: 'CourseId', fullName: 'School.CourseId', assemblyName: 'School' }, tag: 'courseId' },
+        { name: 'StudentId', type: { name: 'StudentId', fullName: 'School.StudentId', assemblyName: 'School' }, tag: 'studentId' }
+      ] },
+      { type: { name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }, provenance: 'Declared', fields: [
+        { name: 'CourseId', type: { name: 'CourseId', fullName: 'School.CourseId', assemblyName: 'School' }, tag: 'courseId' },
+        { name: 'StudentId', type: { name: 'StudentId', fullName: 'School.StudentId', assemblyName: 'School' }, tag: 'studentId', pii: true },
+        { name: 'EnrolledAt', type: { name: 'DateTimeOffset', fullName: 'System.DateTimeOffset', assemblyName: 'System.Private.CoreLib' }, generated: true },
+        { name: 'Seat', type: { name: 'Int32', fullName: 'System.Int32', assemblyName: 'System.Private.CoreLib' } }
+      ] },
+      { type: { name: 'StudentSchedule', fullName: 'School.StudentSchedule', assemblyName: 'School' }, provenance: 'Declared', fields: [
+        { name: 'Id', type: { name: 'StudentId', fullName: 'School.StudentId', assemblyName: 'School' }, identity: true },
+        { name: 'Courses', type: { name: 'CourseId', fullName: 'School.CourseId', assemblyName: 'School' }, cardinality: 'Many', mapping: { source: { name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }, field: 'CourseId' } }
+      ] }
+    ],
+    incompleteInformation: [
+      { origin: 'IncompleteInformation', text: 'StudentEnrolled.Seat comes from neither the command, the aggregate nor a generated value (EnrolStudent, CourseEnrolment). Map it with Field("Seat").From<…>(…), mark it [Generated], or add it to the command', role: 'Fields', sliceName: 'EnrolStudent', field: 'StudentEnrolled.Seat' }
+    ],
+    slices: [
+      {
+        name: 'EnrolStudent',
+        pattern: 'Command',
+        triggerKind: 'Http',
+        triggeredBy: 'Human',
+        triggerLabel: 'Student clicks Enrol',
+        actor: { name: 'Student', requiredRoles: ['student'] },
+        screen: 'Course page',
+        description: 'A student takes a seat on a course with room left.',
+        elementDescriptions: [{ type: { name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }, text: 'The seat is taken.' }],
+        deciderModel: { name: 'CourseEnrolment', fullName: 'School.CourseEnrolment', assemblyName: 'School' },
+        aggregateDeclaration: 'DeciderModel',
+        readsFrom: [{ name: 'StudentSchedule', fullName: 'School.StudentSchedule', assemblyName: 'School' }],
+        reads: [
+          { kind: 'Model', type: { name: 'CourseEnrolment', fullName: 'School.CourseEnrolment', assemblyName: 'School' }, tag: 'courseId', member: 'CourseId' },
+          { kind: 'Projection', type: { name: 'StudentSchedule', fullName: 'School.StudentSchedule', assemblyName: 'School' }, tag: 'studentId', member: 'StudentId' }
+        ],
+        eventTags: [{ event: { name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }, tags: ['courseId', 'studentId'] }],
+        boundaryQuery: { terms: [
+          { tag: 'courseId', member: 'CourseId', eventTypes: [{ name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }] },
+          { tag: 'studentId', member: 'StudentId', eventTypes: [{ name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }] }
+        ], isEmpty: false },
+        untaggedProjections: [{ name: 'EnrolmentReport', fullName: 'School.EnrolmentReport', assemblyName: 'School' }],
+        rejectionReasons: ['Course is full', 'Student already enrolled'],
+        elements: [
+          { id: 'EnrolStudent/Trigger/Student clicks Enrol', kind: 'Trigger', lane: 'Wireframe', label: 'Student clicks Enrol' },
+          { id: 'EnrolStudent/Screen/Course page', kind: 'Screen', lane: 'Wireframe', label: 'Course page' },
+          { id: 'EnrolStudent/Command/School.EnrolStudent', kind: 'Command', lane: 'Command', label: 'EnrolStudent', type: { name: 'EnrolStudent', fullName: 'School.EnrolStudent', assemblyName: 'School' } },
+          { id: 'EnrolStudent/Event/School.StudentEnrolled', kind: 'Event', lane: 'EventStream', label: 'StudentEnrolled', type: { name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' }, description: 'The seat is taken.' },
+          { id: 'EnrolStudent/Projection/School.EnrolmentReport', kind: 'Projection', lane: 'ReadModel', label: 'EnrolmentReport', type: { name: 'EnrolmentReport', fullName: 'School.EnrolmentReport', assemblyName: 'School' } },
+          { id: 'EnrolStudent/ReadModel/School.StudentSchedule', kind: 'ReadModel', lane: 'ReadModel', label: 'StudentSchedule', type: { name: 'StudentSchedule', fullName: 'School.StudentSchedule', assemblyName: 'School' } }
+        ],
+        edges: [
+          { fromId: 'EnrolStudent/Screen/Course page', toId: 'EnrolStudent/Trigger/Student clicks Enrol' },
+          { fromId: 'EnrolStudent/Trigger/Student clicks Enrol', toId: 'EnrolStudent/Command/School.EnrolStudent' },
+          { fromId: 'EnrolStudent/Command/School.EnrolStudent', toId: 'EnrolStudent/Event/School.StudentEnrolled' }
+        ]
+      },
+      {
+        name: 'StudentSchedule',
+        pattern: 'View',
+        elements: [
+          { id: 'StudentSchedule/Event/School.StudentEnrolled', kind: 'Event', lane: 'EventStream', label: 'StudentEnrolled', type: { name: 'StudentEnrolled', fullName: 'School.StudentEnrolled', assemblyName: 'School' } },
+          { id: 'StudentSchedule/Event/School.StudentWithdrew', kind: 'Event', lane: 'EventStream', label: 'StudentWithdrew', type: { name: 'StudentWithdrew', fullName: 'School.StudentWithdrew', assemblyName: 'School' } },
+          { id: 'StudentSchedule/ReadModel/School.StudentSchedule', kind: 'ReadModel', lane: 'ReadModel', label: 'StudentSchedule', type: { name: 'StudentSchedule', fullName: 'School.StudentSchedule', assemblyName: 'School' } }
+        ],
+        edges: []
+      },
+      {
+        name: 'RecordPayment',
+        pattern: 'Translation',
+        triggerKind: 'External',
+        externalEvents: [{ event: { name: 'PaymentCaptured', fullName: 'Payments.PaymentCaptured', assemblyName: 'Payments' }, externalSystem: 'Payments' }],
+        externalSystems: [{ name: 'Payments', direction: 'Inbound' }],
+        elements: [
+          { id: 'RecordPayment/ExternalSystem/Payments', kind: 'ExternalSystem', lane: 'Wireframe', label: 'Payments' },
+          { id: 'RecordPayment/Event/Payments.PaymentCaptured', kind: 'Event', lane: 'EventStream', label: 'PaymentCaptured', type: { name: 'PaymentCaptured', fullName: 'Payments.PaymentCaptured', assemblyName: 'Payments' } }
+        ],
+        edges: []
+      },
+      {
+        name: 'SendWeeklyDigest',
+        pattern: 'Automation',
+        triggerKind: 'JobScheduler',
+        schedule: { kind: 'Cron', cron: '0 9 * * MON' },
+        elements: [
+          { id: 'SendWeeklyDigest/Command/School.SendWeeklyDigest', kind: 'Command', lane: 'Command', label: 'SendWeeklyDigest', type: { name: 'SendWeeklyDigest', fullName: 'School.SendWeeklyDigest', assemblyName: 'School' } }
+        ],
+        edges: []
+      }
+    ]
+  }
+}

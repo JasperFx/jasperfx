@@ -53,6 +53,31 @@ public class EventModelSliceBuilder
     private readonly List<TypeDescriptor> _projectionTypes = new();
     private readonly List<ExternalSystemDescriptor> _externalSystems = new();
 
+    // jasperfx#1297
+    private readonly List<EmittedEventTags> _eventTags = new();
+    private readonly List<BoundaryReadDescriptor> _reads = new();
+    private readonly List<TypeDescriptor> _untaggedProjections = new();
+    private readonly List<string> _rejectionReasons = new();
+    private (BoundaryReadKind kind, TypeDescriptor type)? _lastBoundaryRead;
+
+    // jasperfx#1298
+    private string? _actorName;
+    private readonly List<string> _requiredRoles = new();
+    private TypeDescriptor? _lastConsumed;
+    private readonly List<ExternalEventDescriptor> _externalEvents = new();
+    private ScheduleDescriptor? _schedule;
+    private string? _screen;
+    private string? _description;
+    private readonly List<ElementDescription> _elementDescriptions = new();
+
+    /// <summary>
+    /// The tag types this slice referred to by type, so the model builder can put them in the catalogue
+    /// with their type (jasperfx#1297). Keyed by tag name.
+    /// </summary>
+    internal IReadOnlyDictionary<string, TypeDescriptor?> UsedTags => _usedTags;
+
+    private readonly Dictionary<string, TypeDescriptor?> _usedTags = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Create a slice builder. <see cref="EventModelBuilder.Slice"/> wires this up — author
     /// code never instantiates it directly.
@@ -287,6 +312,24 @@ public class EventModelSliceBuilder
     /// <summary>The stream lane of the last emitted event, by aggregate name, before its type exists.</summary>
     public EventModelSliceBuilder OnStream(string aggregateName) => onStream(Declared(aggregateName));
 
+    /// <summary>
+    /// The event declared by the <see cref="Emits{T}"/> just before this call carries the consistency tag
+    /// <typeparamref name="TTag"/> (jasperfx#1297). Call once per tag; an event may carry several. The tag joins
+    /// the model's catalogue (<see cref="EventModelDescriptor.Tags"/>) under
+    /// <see cref="EventTagDescriptor.NameFor(Type)"/> if it is not there yet.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Command&lt;EnrolStudent&gt;()
+    ///     .Emits&lt;StudentEnrolled&gt;().TaggedBy&lt;CourseId&gt;().TaggedBy&lt;StudentId&gt;();
+    /// </code>
+    /// </example>
+    /// <exception cref="InvalidOperationException">No event has been declared with <c>Emits</c> yet.</exception>
+    public EventModelSliceBuilder TaggedBy<TTag>() => taggedBy(useTag(typeof(TTag)));
+
+    /// <summary>The last emitted event carries the tag named <paramref name="tag"/>, before the tag type exists.</summary>
+    public EventModelSliceBuilder TaggedBy(string tag) => taggedBy(useTag(tag));
+
     /// <summary>A non-event message the slice publishes. Call once per message.</summary>
     public EventModelSliceBuilder Publishes<T>() => add(_publishedMessages, TypeDescriptor.For(typeof(T)));
 
@@ -297,10 +340,57 @@ public class EventModelSliceBuilder
     /// An event the slice reacts to or reads — an automation's trigger event, or an event a view folds.
     /// Call once per event.
     /// </summary>
-    public EventModelSliceBuilder On<T>() => add(_consumedEvents, TypeDescriptor.For(typeof(T)));
+    public EventModelSliceBuilder On<T>() => consume(TypeDescriptor.For(typeof(T)));
 
     /// <summary>An event the slice reacts to or reads, by name, before its type exists.</summary>
-    public EventModelSliceBuilder On(string name) => add(_consumedEvents, Declared(name));
+    public EventModelSliceBuilder On(string name) => consume(Declared(name));
+
+    /// <summary>
+    /// The event declared by the <see cref="On{T}"/> / <see cref="From{T}"/> just before this call comes from
+    /// outside the model: an external system's event, translated in (jasperfx#1298). Ties the consumed event to
+    /// the external system named <paramref name="externalSystem"/>, which joins the slice's
+    /// <see cref="ExternalSystem"/>s as an inbound system if it is not there yet.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Translation("RecordPayment")
+    ///     .From&lt;PaymentCaptured&gt;().External("Payments")
+    ///     .Emits&lt;PaymentRecorded&gt;();
+    /// </code>
+    /// </example>
+    /// <exception cref="InvalidOperationException">No event has been declared with <c>On</c> / <c>From</c> yet.</exception>
+    public EventModelSliceBuilder External(string externalSystem)
+    {
+        if (string.IsNullOrWhiteSpace(externalSystem))
+        {
+            throw new ArgumentException("An external event needs the name of the system it comes from", nameof(externalSystem));
+        }
+
+        if (_lastConsumed is null)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' marks an event as external from '{externalSystem}' before any consumed event. Call External() right after the On() or From() it applies to");
+        }
+
+        var existing = _externalEvents.FirstOrDefault(x => EventModelSliceDescriptor.SameType(x.Event, _lastConsumed));
+        if (existing is not null)
+        {
+            if (string.Equals(existing.ExternalSystem, externalSystem, StringComparison.Ordinal)) return this;
+
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' already says {_lastConsumed.Name} comes from {existing.ExternalSystem}, so it cannot also come from {externalSystem}");
+        }
+
+        _externalEvents.Add(new ExternalEventDescriptor(_lastConsumed, externalSystem));
+
+        if (!_externalSystems.Any(x => x.Direction == ExternalSystemDirection.Inbound
+                                       && string.Equals(x.Name, externalSystem, StringComparison.Ordinal)))
+        {
+            _externalSystems.Add(new ExternalSystemDescriptor(externalSystem, ExternalSystemDirection.Inbound));
+        }
+
+        return this;
+    }
 
     /// <summary>Same as <see cref="On{T}"/>, reading better on a view: <c>View&lt;X&gt;().From&lt;E&gt;()</c>.</summary>
     public EventModelSliceBuilder From<T>() => On<T>();
@@ -310,12 +400,193 @@ public class EventModelSliceBuilder
 
     /// <summary>
     /// A read model the slice reads from — the "given the screen shows this" of a decision, or what a
-    /// <see cref="SlicePattern.Query"/> slice reads and returns (jasperfx#1003).
+    /// <see cref="SlicePattern.Query"/> slice reads and returns (jasperfx#1003). Follow it with
+    /// <see cref="By{TTag}()"/> to read it <em>by tag</em>, inside a consistency boundary (jasperfx#1297).
     /// </summary>
-    public EventModelSliceBuilder Reads<T>() => add(_readsFrom, TypeDescriptor.For(typeof(T)));
+    public EventModelSliceBuilder Reads<T>() => read(BoundaryReadKind.Projection, TypeDescriptor.For(typeof(T)), _readsFrom);
 
     /// <summary>A read model the slice reads from, by name, before its type exists.</summary>
-    public EventModelSliceBuilder Reads(string name) => add(_readsFrom, Declared(name));
+    public EventModelSliceBuilder Reads(string name) => read(BoundaryReadKind.Projection, Declared(name), _readsFrom);
+
+    /// <summary>
+    /// This slice decides through the Dynamic Consistency Boundary decider model <typeparamref name="TModel"/>,
+    /// read by tag (jasperfx#1297). The same as <see cref="DeciderModel{T}"/>, plus a read of the model that
+    /// <see cref="ByTag{TTag}()"/> binds to a tag — the dcb.events rule that a command declares what it reads and
+    /// the boundary is derived.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Command&lt;EnrolStudent&gt;()
+    ///     .Decides&lt;CourseEnrolment&gt;().ByTag&lt;CourseId&gt;(x => x.CourseId)
+    ///     .Emits&lt;StudentEnrolled&gt;().TaggedBy&lt;CourseId&gt;().TaggedBy&lt;StudentId&gt;();
+    /// </code>
+    /// </example>
+    public EventModelSliceBuilder Decides<TModel>() => decides(TypeDescriptor.For(typeof(TModel)));
+
+    /// <summary>The DCB decider model the slice decides through, read by tag, by name, before its type exists.</summary>
+    public EventModelSliceBuilder Decides(string modelName) => decides(Declared(modelName));
+
+    /// <summary>
+    /// The read declared by the <see cref="Reads{T}()"/> or <see cref="Decides{TModel}()"/> just before this call
+    /// is <em>by</em> the tag <typeparamref name="TTag"/>, whose value the command member named like the tag
+    /// supplies (jasperfx#1297). Call it once per tag the read selects by.
+    /// </summary>
+    /// <typeparam name="TTag">The strong-typed tag, named in the catalogue by <see cref="EventTagDescriptor.NameFor(Type)"/>.</typeparam>
+    public EventModelSliceBuilder By<TTag>() => by(useTag(typeof(TTag)), null);
+
+    /// <summary>
+    /// The read just before this call is by the tag <typeparamref name="TTag"/>, whose value comes from the
+    /// command member <paramref name="commandMember"/> (jasperfx#1297).
+    /// </summary>
+    public EventModelSliceBuilder By<TTag>(string commandMember) => by(useTag(typeof(TTag)), commandMember);
+
+    /// <summary>
+    /// The read just before this call is by the tag <typeparamref name="TTag"/>, whose value comes from the
+    /// command member <paramref name="member"/> names — <c>x =&gt; x.CourseId</c> (jasperfx#1297). The typed form
+    /// of <see cref="By{TTag}(string)"/>, so a rename keeps the model in step.
+    /// </summary>
+    /// <typeparam name="TCommand">The slice's command type.</typeparam>
+    /// <typeparam name="TTag">The strong-typed tag.</typeparam>
+    public EventModelSliceBuilder By<TCommand, TTag>(System.Linq.Expressions.Expression<Func<TCommand, object?>> member)
+        => by(useTag(typeof(TTag)), MemberNameOf(member));
+
+    /// <summary>The read just before this call is by the tag named <paramref name="tag"/>, bound by convention.</summary>
+    public EventModelSliceBuilder By(string tag) => by(useTag(tag), null);
+
+    /// <summary>The read just before this call is by the tag named <paramref name="tag"/>, from <paramref name="commandMember"/>.</summary>
+    public EventModelSliceBuilder By(string tag, string commandMember) => by(useTag(tag), commandMember);
+
+    /// <summary>Same as <see cref="By{TTag}()"/>, reading better after <see cref="Decides{TModel}()"/>.</summary>
+    public EventModelSliceBuilder ByTag<TTag>() => By<TTag>();
+
+    /// <summary>Same as <see cref="By{TTag}(string)"/>, reading better after <see cref="Decides{TModel}()"/>.</summary>
+    public EventModelSliceBuilder ByTag<TTag>(string commandMember) => By<TTag>(commandMember);
+
+    /// <summary>Same as <see cref="By{TCommand,TTag}"/>, reading better after <see cref="Decides{TModel}()"/>.</summary>
+    public EventModelSliceBuilder ByTag<TCommand, TTag>(System.Linq.Expressions.Expression<Func<TCommand, object?>> member)
+        => By<TCommand, TTag>(member);
+
+    /// <summary>Same as <see cref="By(string)"/>.</summary>
+    public EventModelSliceBuilder ByTag(string tag) => By(tag);
+
+    /// <summary>Same as <see cref="By(string, string)"/>.</summary>
+    public EventModelSliceBuilder ByTag(string tag, string commandMember) => By(tag, commandMember);
+
+    /// <summary>
+    /// A projection fed by this slice's events that sits <em>outside</em> its consistency boundary — informational,
+    /// consulted by no decision (jasperfx#1297). Also records it as a projection of the slice.
+    /// </summary>
+    public EventModelSliceBuilder UntaggedProjection<T>() => untagged(TypeDescriptor.For(typeof(T)));
+
+    /// <summary>An untagged projection, by name, before its type exists.</summary>
+    public EventModelSliceBuilder UntaggedProjection(string name) => untagged(Declared(name));
+
+    /// <summary>
+    /// A reason this command slice can refuse — "Course is full" (jasperfx#1297). Call once per reason. A
+    /// specification that refuses for a reason the slice does not declare becomes a
+    /// <see cref="HotspotOrigin.UndeclaredRejection"/> hotspot; Wolverine's scaffold writes a guard per reason.
+    /// </summary>
+    public EventModelSliceBuilder Refuses(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new ArgumentException("A rejection reason needs text", nameof(reason));
+        }
+
+        reason = reason.Trim();
+        if (!_rejectionReasons.Contains(reason, StringComparer.Ordinal)) _rejectionReasons.Add(reason);
+        return this;
+    }
+
+    /// <summary>
+    /// Who triggers the slice, by name — the actor lane of the board (jasperfx#1298). Required roles may
+    /// follow with <see cref="RequiringRole"/>.
+    /// </summary>
+    public EventModelSliceBuilder Actor(string name, params string[] requiredRoles)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("An actor needs a name", nameof(name));
+        }
+
+        _actorName = name.Trim();
+        foreach (var role in requiredRoles) RequiringRole(role);
+        return this;
+    }
+
+    /// <summary>
+    /// An authorization role the actor needs for this slice (jasperfx#1298). With no <see cref="Actor"/> named,
+    /// the actor is the trigger's label — <c>TriggeredBy("Volunteer", TriggerKind.Human).RequiringRole("volunteer")</c>.
+    /// </summary>
+    public EventModelSliceBuilder RequiringRole(string role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+        {
+            throw new ArgumentException("A required role needs a name", nameof(role));
+        }
+
+        role = role.Trim();
+        if (!_requiredRoles.Contains(role, StringComparer.Ordinal)) _requiredRoles.Add(role);
+        return this;
+    }
+
+    /// <summary>Several roles at once; see <see cref="RequiringRole"/>.</summary>
+    public EventModelSliceBuilder RequiringRoles(params string[] roles)
+    {
+        foreach (var role in roles) RequiringRole(role);
+        return this;
+    }
+
+    /// <summary>
+    /// This automation fires every <paramref name="interval"/> (jasperfx#1298). Stamps
+    /// <see cref="EventModeling.TriggerKind.JobScheduler"/> as the trigger kind when nothing else has claimed one.
+    /// </summary>
+    public EventModelSliceBuilder Every(TimeSpan interval) => schedule(ScheduleDescriptor.EveryInterval(interval));
+
+    /// <summary>This automation fires on the cron <paramref name="expression"/> (jasperfx#1298).</summary>
+    public EventModelSliceBuilder OnCron(string expression) => schedule(ScheduleDescriptor.OnCron(expression));
+
+    /// <summary>This automation fires on the host's schedule named <paramref name="name"/> (jasperfx#1298).</summary>
+    public EventModelSliceBuilder Scheduled(string name) => schedule(ScheduleDescriptor.Named(name));
+
+    /// <summary>
+    /// The screen a human trigger acts through, by name only — "Checkout page" (jasperfx#1298). Renders as a
+    /// screen card in the wireframe lane beside the trigger. No content, images or HTML.
+    /// </summary>
+    public EventModelSliceBuilder FromScreen(string screen)
+    {
+        if (string.IsNullOrWhiteSpace(screen))
+        {
+            throw new ArgumentException("A screen needs a name", nameof(screen));
+        }
+
+        _screen = screen.Trim();
+        return this;
+    }
+
+    /// <summary>
+    /// Describe the slice in plain text or markdown (jasperfx#1298). Shown on hover; carried into stubs and
+    /// specs as comments. On a merge the richer text wins and nothing is ever a disagreement.
+    /// </summary>
+    public EventModelSliceBuilder Describe(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("A description needs text", nameof(text));
+        }
+
+        _description = text.Trim();
+        return this;
+    }
+
+    /// <summary>
+    /// Describe one element of the slice — its command, an event, a read model — by type (jasperfx#1298).
+    /// By type rather than "the last one declared", so the chain's order never changes what a description is about.
+    /// </summary>
+    public EventModelSliceBuilder Describe<TElement>(string text) => describe(TypeDescriptor.For(typeof(TElement)), text);
+
+    /// <summary>Describe one element of the slice by name, before its type exists.</summary>
+    public EventModelSliceBuilder Describe(string elementName, string text) => describe(Declared(elementName), text);
 
     /// <summary>A read model the slice produces. Call once per read model.</summary>
     public EventModelSliceBuilder Produces<T>() => add(_readModelTypes, TypeDescriptor.For(typeof(T)));
@@ -420,6 +691,153 @@ public class EventModelSliceBuilder
         }
 
         return new TypeDescriptor(name, name, string.Empty);
+    }
+
+    /// <summary>
+    /// The member a <c>x =&gt; x.Member</c> expression names, through any boxing conversion. Anything else — a
+    /// method call, an arithmetic expression — is refused: a tag value is a member of the command, not a computation.
+    /// </summary>
+    internal static string MemberNameOf(System.Linq.Expressions.LambdaExpression member)
+    {
+        var body = member.Body;
+        while (body is System.Linq.Expressions.UnaryExpression { NodeType: System.Linq.Expressions.ExpressionType.Convert or System.Linq.Expressions.ExpressionType.ConvertChecked } unary)
+        {
+            body = unary.Operand;
+        }
+
+        if (body is System.Linq.Expressions.MemberExpression { Expression: System.Linq.Expressions.ParameterExpression } access)
+        {
+            return access.Member.Name;
+        }
+
+        throw new ArgumentException(
+            $"'{member}' does not name a member of the command. Write x => x.CourseId, or pass the member's name as a string",
+            nameof(member));
+    }
+
+    private string useTag(Type tagType)
+    {
+        var name = EventTagDescriptor.NameFor(tagType);
+        _usedTags[name] = TypeDescriptor.For(tagType);
+        return name;
+    }
+
+    private string useTag(string tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
+        {
+            throw new ArgumentException("A tag needs a name", nameof(tag));
+        }
+
+        tag = tag.Trim();
+        _usedTags.TryAdd(tag, null);
+        return tag;
+    }
+
+    private EventModelSliceBuilder taggedBy(string tag)
+    {
+        if (_lastEmitted is null)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' tags an event with {tag} before any emitted event. Call TaggedBy() right after the Emits() it applies to");
+        }
+
+        var index = _eventTags.FindIndex(x => EventModelSliceDescriptor.SameType(x.Event, _lastEmitted));
+        if (index < 0)
+        {
+            _eventTags.Add(new EmittedEventTags(_lastEmitted, [tag]));
+        }
+        else if (!_eventTags[index].Tags.Contains(tag, StringComparer.Ordinal))
+        {
+            _eventTags[index] = _eventTags[index] with { Tags = [.._eventTags[index].Tags, tag] };
+        }
+
+        return this;
+    }
+
+    private EventModelSliceBuilder read(BoundaryReadKind kind, TypeDescriptor type, List<TypeDescriptor> list)
+    {
+        _lastBoundaryRead = (kind, type);
+        return add(list, type);
+    }
+
+    private EventModelSliceBuilder decides(TypeDescriptor model)
+    {
+        deciderModel(model);
+        _lastBoundaryRead = (BoundaryReadKind.Model, model);
+        return this;
+    }
+
+    private EventModelSliceBuilder by(string tag, string? member)
+    {
+        if (_lastBoundaryRead is not { } last)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' reads by the {tag} tag before anything to read. Call By() right after the Reads<T>() or Decides<T>() it applies to");
+        }
+
+        var read = new BoundaryReadDescriptor(last.kind, last.type, tag, member);
+        if (!_reads.Any(x => x.Kind == read.Kind && EventModelSliceDescriptor.SameType(x.Type, read.Type)
+                             && string.Equals(x.Tag, read.Tag, StringComparison.Ordinal)
+                             && string.Equals(x.Member, read.Member, StringComparison.Ordinal)))
+        {
+            _reads.Add(read);
+        }
+
+        return this;
+    }
+
+    private EventModelSliceBuilder untagged(TypeDescriptor projection)
+    {
+        add(_projectionTypes, projection);
+        return add(_untaggedProjections, projection);
+    }
+
+    private EventModelSliceBuilder consume(TypeDescriptor type)
+    {
+        _lastConsumed = type;
+        return add(_consumedEvents, type);
+    }
+
+    private EventModelSliceBuilder schedule(ScheduleDescriptor schedule)
+    {
+        _schedule = schedule;
+        _triggerKind ??= EventModeling.TriggerKind.JobScheduler;
+        return this;
+    }
+
+    private EventModelSliceBuilder describe(TypeDescriptor type, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("A description needs text", nameof(text));
+        }
+
+        var index = _elementDescriptions.FindIndex(x => EventModelSliceDescriptor.SameType(x.Type, type));
+        var description = new ElementDescription(type, text.Trim());
+        if (index < 0) _elementDescriptions.Add(description);
+        else _elementDescriptions[index] = description;
+
+        return this;
+    }
+
+    /// <summary>
+    /// The actor, when one was named or implied: a named <see cref="Actor"/>, else the trigger label of a
+    /// <see cref="EventModeling.TriggerKind.Human"/> trigger once a role verb made it one (jasperfx#1298).
+    /// </summary>
+    private ActorDescriptor? resolveActor()
+    {
+        if (_actorName is not null) return new ActorDescriptor(_actorName, _requiredRoles.ToList());
+
+        if (_requiredRoles.Count == 0) return null;
+
+        if (_triggerLabel is null)
+        {
+            throw new InvalidOperationException(
+                $"Slice '{_sliceName}' requires the roles {string.Join(", ", _requiredRoles)} of an actor nobody named. Call Actor(\"…\") or TriggeredBy(\"…\", TriggerKind.Human) first");
+        }
+
+        return new ActorDescriptor(_triggerLabel, _requiredRoles.ToList());
     }
 
     private EventModelSliceBuilder emit(TypeDescriptor type)
@@ -565,6 +983,16 @@ public class EventModelSliceBuilder
             ReadModelTypes = _readModelTypes.ToList(),
             ProjectionTypes = _projectionTypes.ToList(),
             ExternalSystems = _externalSystems.ToList(),
+            EventTags = _eventTags.ToList(),
+            Reads = _reads.ToList(),
+            UntaggedProjections = _untaggedProjections.ToList(),
+            RejectionReasons = _rejectionReasons.ToList(),
+            Actor = resolveActor(),
+            ExternalEvents = _externalEvents.ToList(),
+            Schedule = _schedule,
+            Screen = _screen,
+            Description = _description,
+            ElementDescriptions = _elementDescriptions.ToList(),
         };
 
         return _externallyOwned is null ? slice : slice.Merge(_externallyOwned.ToSlice(_sliceName));

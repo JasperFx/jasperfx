@@ -248,7 +248,11 @@ namespace EventTests.EventModeling
 
             // and the who-versus-how trigger role after that
             ((int)EventModelRole.TriggeredBy).ShouldBe((int)EventModelRole.AggregateIdentity + 1);
-            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.TriggeredBy);
+
+            // jasperfx#1297-#1299 appended eleven more, in issue order; DcbBoundaryTests pins each integer
+            ((int)EventModelRole.EventTags).ShouldBe((int)EventModelRole.TriggeredBy + 1);
+            ((int)EventModelRole.Fields).ShouldBe((int)EventModelRole.TriggeredBy + 11);
+            Enum.GetValues<EventModelRole>().Max().ShouldBe(EventModelRole.Fields);
         }
 
         [Fact]

@@ -17,12 +17,25 @@ public sealed class EventModelDefinitionSource : IEventModelDefinitionSource
 
     private readonly string _name;
     private readonly Func<IServiceProvider, EventModelDefinition?> _resolve;
+    private IReadOnlyList<TypeShapeDescriptor> _shapes = Array.Empty<TypeShapeDescriptor>();
 
     private EventModelDefinitionSource(string name, Func<IServiceProvider, EventModelDefinition?> resolve)
     {
         _name = name;
         _resolve = resolve;
         Subject = new Uri($"{Scheme}://{Uri.EscapeDataString(name)}");
+    }
+
+    /// <summary>
+    /// The field shapes the source generator derived for the types this definition refers to (jasperfx#1299),
+    /// read from the assembly's <c>JasperFx.Generated.DiscoveredEventModels</c> manifest by
+    /// <c>AddDiscoveredEventModels</c>. Appended to the definition's descriptor on the
+    /// <see cref="EventModelProvenance.Derived"/> rung: the definition declares, the generator read the code.
+    /// </summary>
+    public EventModelDefinitionSource WithShapes(IReadOnlyList<TypeShapeDescriptor> shapes)
+    {
+        _shapes = shapes ?? Array.Empty<TypeShapeDescriptor>();
+        return this;
     }
 
     /// <summary>
@@ -85,6 +98,19 @@ public sealed class EventModelDefinitionSource : IEventModelDefinitionSource
         {
             Slices = descriptor.Slices.Select(x => x.Origin is null ? x with { Origin = Subject } : x).ToList(),
         };
+
+        // jasperfx#1299. Generated shapes are what the code says about the types the definition names, so they
+        // sit on the Derived rung beside the declared ones and win field by field; a declared field the code
+        // lacks is recorded by the merge. Each generated shape says Derived itself; this is the safety net.
+        if (_shapes.Count > 0)
+        {
+            var generated = _shapes
+                .Select(x => x.Provenance is null ? x with { Provenance = EventModelProvenance.Derived } : x)
+                .ToList();
+
+            descriptor = EventModelDescriptor.Merge(descriptor.Name,
+                [descriptor, new EventModelDescriptor(descriptor.Name, []) { Shapes = generated }]);
+        }
 
         return Task.FromResult<EventModelDescriptor?>(descriptor);
     }

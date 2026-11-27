@@ -111,6 +111,16 @@ Every role takes either a type or a name:
 | `Produces<T>()` | A read model the slice produces |
 | `Projects<T>()` | A projection that consumes the slice's events |
 | `ExternalSystem(name, direction)` | A system outside on one end of the slice |
+| `TaggedBy<TTag>()` | A consistency tag the event from the `Emits<T>()` just before carries -- see [Consistency boundaries](#consistency-boundaries) |
+| `Decides<TModel>()` / `ByTag<TTag>(...)` | The DCB decider model the slice decides through, read by tag |
+| `Reads<T>()` + `By<TTag>(...)` | A read model consulted *by tag*, inside the consistency boundary |
+| `UntaggedProjection<T>()` | A projection the boundary deliberately leaves out |
+| `Refuses(reason)` | A way the command can refuse |
+| `Actor(name, roles...)` / `RequiringRole(role)` | Who triggers the slice -- see [Actors, screens, schedules and external events](#actors-screens-schedules-and-external-events) |
+| `FromScreen(name)` | The screen a human trigger acts through, by name |
+| `Every(TimeSpan)` / `OnCron(expr)` / `Scheduled(name)` | The cadence of a scheduled automation |
+| `External(system)` | The event from the `On<T>()` / `From<T>()` just before comes from an external system |
+| `Describe(text)` / `Describe<T>(text)` | Prose about the slice, or about one of its elements |
 
 Calling any of these twice with the same type is harmless.
 
@@ -215,6 +225,204 @@ public class LeadConversion : EventModelDefinition
 The lane is optional for each event. Leave it off and tooling like Wolverine's scaffolding falls back to working out the stream from the aggregates' `Apply` and `Create` methods. The aggregate has to be one the slice decides against or starts, or building the model throws. Don't confuse `OnStream<T>()` with `On<T>()`, which is an event the slice *reacts* to.
 
 The lanes are on the slice descriptor as `EmittedEventStreams`, and `StreamFor(event)` reads one.
+
+## Consistency Boundaries
+
+A Dynamic Consistency Boundary (DCB) command does not decide against one stream. It reads a model folded over the events that carry a *tag* -- a strong-typed id such as `AgentId` -- and appends events carrying the same tag. The model can now say all of that:
+
+<!-- snippet: sample_dcb_stub_types -->
+<a id='snippet-sample_dcb_stub_types'></a>
+```cs
+// A strong-typed id is a consistency tag: events carry it, and a boundary query selects by it
+public record AgentId(Guid Value);
+
+public record AssignIncident(IncidentId IncidentId, AgentId AgentId);
+public record IncidentAssigned(IncidentId IncidentId, AgentId AgentId);
+
+// The decider model: how many incidents an agent holds, folded over the events tagged with their id
+public class AgentWorkload;
+
+// A read model consulted before deciding, and one the boundary deliberately leaves out
+public class AgentRoster;
+public class AssignmentReport;
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/RoundTwoSamples.cs#L10-L25' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_dcb_stub_types' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: sample_declaring_consistency_boundaries -->
+<a id='snippet-sample_declaring_consistency_boundaries'></a>
+```cs
+public class IncidentAssignment : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        // The tag catalogue. AgentId is the tag "agentId", a Guid inside; IncidentId is "incidentId"
+        model.Tag<AgentId, Guid>();
+        model.Tag<IncidentId>();
+
+        model.Command<AssignIncident>()
+            // What the command reads, and by which tag. The boundary is derived from these
+            .Decides<AgentWorkload>().ByTag<AssignIncident, AgentId>(x => x.AgentId)
+            .Reads<AgentRoster>().By<AssignIncident, AgentId>(x => x.AgentId)
+            // What it appends, and the tags the event carries
+            .Emits<IncidentAssigned>().TaggedBy<AgentId>().TaggedBy<IncidentId>()
+            // A projection fed by the event that no decision depends on
+            .UntaggedProjection<AssignmentReport>()
+            // The ways it can refuse
+            .Refuses("Agent is at capacity")
+            .Refuses("Incident is already assigned");
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/RoundTwoSamples.cs#L27-L53' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_consistency_boundaries' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+Three rules, and the first is the one borrowed from [dcb.events](https://dcb.events):
+
+- **Reads are declared, the boundary is derived.** A command never declares its own consistency boundary. You say what it reads (`Decides<TModel>().ByTag<TTag>(...)` for the decider model, `Reads<TProjection>().By<TTag>(...)` for a projection), and `BoundaryQuery` on the slice descriptor is computed from those reads: one term per tag, with the emitted events carrying that tag. `EventModelDescriptor.BoundaryQueryFor(slice)` adds the events the read models fold, from the aggregates' applied events and the View slices producing them.
+- **Only consistency tags enter the model.** `Tag<T>()` declares one in the model-level catalogue (`EventModelDescriptor.Tags`), named in camelCase after its type (`AgentId` is `agentId`); `Tag<TTag, TInner>()` says what primitive is inside, and `Tag("agentId", typeof(Guid))` does the same before the type exists. A tag an event is `TaggedBy` joins the catalogue on its own. Informational labels never go on the model.
+- **Refusals are vocabulary.** `Refuses("Agent is at capacity")` records a way the command can refuse on `RejectionReasons`. Bobcat's generated specs fill the same list from the specifications, and a spec refusing for a reason the model does not declare is a [hotspot](/event-modeling/hotspots#an-undeclared-refusal-is-a-hotspot). Code never fills it: that would mean reading method bodies.
+
+The typed `By<TCommand, TTag>(x => x.AgentId)` says which command member supplies the tag value, so a rename keeps the model in step; `By<TTag>("AgentId")` and `By("agentId", "AgentId")` are the string forms, and `By<TTag>()` alone binds by convention. `UntaggedProjection<T>()` is the one that says "this projection is fed by the event but no decision depends on it", which is how a canvas tells a projection the boundary deliberately leaves out from one nobody has thought about.
+
+Once the code exists, Wolverine's derived model fills tags and reads from the store's tag registry and the decider's tag rules; a tag the declaration puts on an event that the code does not is a disagreement on `EventTags`, rendered like an [aggregate identity](#identity-types) disagreement, naming the event.
+
+<!-- JEREMY: whether "the decider's tag rules and Load() calls" is the right description of what wolverine#6005 will read -->
+
+## Actors, Screens, Schedules and External Events
+
+Five things every board has that the descriptor could not say:
+
+<!-- snippet: sample_structural_stub_types -->
+<a id='snippet-sample_structural_stub_types'></a>
+```cs
+public record PaymentCaptured;
+public record PaymentRecorded;
+public record SendShiftDigest;
+public class ShiftRoster;
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/RoundTwoSamples.cs#L55-L62' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_structural_stub_types' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+<!-- snippet: sample_declaring_structural_elements -->
+<a id='snippet-sample_declaring_structural_elements'></a>
+```cs
+public class HelpdeskStructure : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        model.Command<AssignIncident>()
+            // Who triggers the slice, and what they act through
+            .TriggeredBy("Coordinator assigns the incident", TriggerKind.Human)
+            .Actor("Coordinator", "dispatch")
+            .FromScreen("Assignment board")
+            // Prose, for the slice and for one of its elements
+            .Describe("A coordinator hands an open incident to an agent with room for it.")
+            .Describe<IncidentAssigned>("The incident now counts against the agent's capacity.");
+
+        // An event from outside the model, translated in
+        model.Translation("RecordPayment")
+            .From<PaymentCaptured>().External("Payments")
+            .Emits<PaymentRecorded>();
+
+        // A scheduled automation, with its cadence
+        model.Automation<SendShiftDigest>()
+            .Every(TimeSpan.FromHours(8))
+            .Reads<ShiftRoster>();
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/RoundTwoSamples.cs#L64-L93' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_structural_elements' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+- **Actor.** `Actor("Coordinator", "dispatch")` names who triggers the slice and the roles the slice requires of them; `RequiringRole(role)` after a `TriggeredBy("Coordinator", TriggerKind.Human)` makes the label the actor. It lands on `Actor` as a name plus `RequiredRoles`. Wolverine fills the required roles from authorization metadata where it can, and a difference between what you declared and what the endpoint requires is a real finding, reported as a disagreement on `Actor`.
+- **Screen.** `FromScreen("Assignment board")` is the screen's name and nothing else -- no content, no images, no HTML. It renders as a `Screen` element in the wireframe lane, pointing at the trigger.
+- **Schedule.** `Every(TimeSpan)`, `OnCron("0 9 * * MON")` or `Scheduled("month-end")` put the cadence of a scheduled automation on `Schedule`, beside `TriggerKind.JobScheduler`, which they stamp if nothing else has claimed the trigger kind. The derived model fills it from the registered recurring schedules.
+- **External events.** `From<PaymentCaptured>().External("Payments")` flags the consumed event as coming from outside the model and ties it to the slice's external system, adding an inbound `ExternalSystem` if there is none yet. The canvas draws the event on a stream row named for the system rather than an aggregate. The derived model sets the flag when the consumed type arrives on a non-local endpoint and no slice in the model emits it.
+- **Descriptions.** `Describe("…")` is prose about the slice; `Describe<T>("…")` is prose about one of its elements, by type rather than by position in the chain, so the order of the calls never changes what a description is about. Plain text or markdown, shown on hover, carried into stubs and specs as comments. On a merge the richer text wins and nothing is ever recorded: two descriptions are two drafts of one paragraph, not two claims about the system.
+
+## Fields
+
+The descriptor used to carry types as names and know nothing about what was inside them. A *shape* is the fields of one modelled type -- flat fields plus one level of nesting by reference, where a field whose type is itself a modelled type is a reference to that element. No schema language.
+
+Once the code exists, the fields come from it. The `JasperFx.SourceGenerator` reads the public properties of every type an `EventModelDefinition` names through a type-first verb and writes their shapes into the same manifest `AddDiscoveredEventModels` already reads, so the console path never reflects over a record. The flags reflection cannot see come from attributes:
+
+<!-- snippet: sample_field_attributes -->
+<a id='snippet-sample_field_attributes'></a>
+```cs
+public record IncidentEscalatedToAgent(
+    // The system mints it, so no command has to supply it
+    [property: Generated] Guid EscalationId,
+    IncidentId IncidentId,
+    // Personally identifiable; a canvas and an export mark it
+    [property: Pii] string AgentEmail,
+    DateTimeOffset? Deadline);
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/RoundTwoSamples.cs#L95-L105' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_field_attributes' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+| Flag | Set by |
+|------|--------|
+| `Identity` | `[Identity]` (JasperFx), `[Key]` (data annotations), or a member named `Id` |
+| `Generated` | `[Generated]` (JasperFx) or `[DatabaseGenerated]` |
+| `Pii` | `[Pii]` (JasperFx) |
+| `Optional` | A nullable type, unless `[Required]` or the `required` modifier says otherwise |
+| `Cardinality` | `Many` for an array or anything enumerable, with the element type as the field's type |
+| `Description` | The member's `<summary>`, or the record's `<param>` for a positional parameter |
+
+Nothing is inferred from a method body. Tags on fields come from the store's registry, on Wolverine's side.
+
+For stub-first work -- a board import, a feature designed before the stubs have members -- declare the shapes:
+
+<!-- snippet: sample_declaring_field_shapes -->
+<a id='snippet-sample_declaring_field_shapes'></a>
+```cs
+public class HelpdeskShapes : EventModelDefinition
+{
+    public override string Name => "Helpdesk";
+
+    public override void Configure(EventModelBuilder model)
+    {
+        model.Command<AssignIncident>()
+            .Against<Incident>()
+            .Emits<IncidentAssigned>();
+
+        model.View<AgentRoster>().From<IncidentAssigned>();
+
+        // The fields the stubs will have, declared before they do. Once the types exist, the
+        // source generator reads the real fields and these become the to-do list
+        model.Shape<AssignIncident>()
+            .Field("IncidentId").OfType<IncidentId>().Identity()
+            .Field("AgentId").OfType<AgentId>().Tagged<AgentId>();
+
+        model.Shape<IncidentAssigned>()
+            .Field("IncidentId").OfType<IncidentId>().Identity()
+            .Field("AgentId").OfType<AgentId>().Tagged<AgentId>()
+            .Field("AssignedAt").OfType<DateTimeOffset>().Generated();
+
+        model.Shape<AgentRoster>()
+            .Field("Id").OfType<AgentId>().Identity()
+            // Named differently from the event's field, so say where it comes from
+            .Field("Incidents").OfType<IncidentId>().Many().From<IncidentAssigned>(x => x.IncidentId)
+            .Field("Notes").Optional().Describe("Free text the coordinator keeps per agent");
+    }
+}
+```
+<sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/RoundTwoSamples.cs#L107-L140' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_declaring_field_shapes' title='Start of snippet'>anchor</a></sup>
+<!-- endSnippet -->
+
+`Shape<T>()` opens a shape on the model; each `Field(name)` takes a type (`OfType<T>()`, default `string`), a cardinality (`Many()`), and the flags (`Optional()`, `Identity()`, `Tagged<TTag>()`, `Generated()`, `Pii()`). `From<TSource>(x => x.Member)` is the board's *mapping*: where the value comes from when the names differ, which is what the information-completeness check follows. Example values stay on the scenario, never on the field.
+
+Two rules decide what happens when the code shows up:
+
+- **A declared field the code lacks is a disagreement; a derived field the declaration lacks is not.** The merge keeps the code's fields per type and records every declared field with no counterpart as a model-level `SourceDisagreement` on `Fields`. Code may carry more than the board knew, so the other direction is silent. A declared field's mapping, tag and description travel onto the derived field, as a stream lane travels onto a derived event.
+- **A field from nowhere is a question.** Once the slices and shapes are merged, the model asks where each view field and each emitted-event field comes from -- see [A field from nowhere is a question](/event-modeling/hotspots#a-field-from-nowhere-is-a-question). Only for a slice with a declared or specified rung: a purely derived model gets none.
+
+<!-- JEREMY: the "once the type exists" reading -- an empty stub record IS a type with no fields, so every declared field on it is a disagreement until bobcat#851 writes typed stubs. Is that the to-do list you want, or should an empty derived shape stay silent? -->
 
 ## A Default Aggregate
 

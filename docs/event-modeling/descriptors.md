@@ -37,6 +37,16 @@ One slice. The positional constructor is the original 2.x shape and is kept sour
 | `AggregateDeclaration` | **Declared** | *Why* the slice has its aggregate: `Default` (from `ForAggregate`), `Explicit`, `None` or `DeciderModel` |
 | `DeciderModel` | **Declared** | The Dynamic Consistency Boundary decider model the slice decides through |
 | `Origin` | Any source | *Which* source contributed the slice — a file path, a suite or assembly name, a store URI. Stamp it and a [source disagreement](/event-modeling/hotspots#a-rung-is-not-an-identity) names a party rather than a rung |
+| `EventTags` | Either | The consistency tags each emitted event carries, by tag name — see [Consistency boundaries](#consistency-boundaries) |
+| `Reads` | Either | What a command slice reads *by tag* before deciding: a model or a projection, the tag, and the command member supplying its value |
+| `BoundaryQuery` | Computed | The boundary the reads imply: one term per tag with the emitted events carrying it. Computed on every read like `Elements` |
+| `UntaggedProjections` | **Declared** | Projections the boundary deliberately leaves out |
+| `RejectionReasons` | Declared, Specified | The ways a command slice can refuse. Never derived: that would mean reading method bodies |
+| `Actor` | Either | Who triggers the slice, by name, with the roles the slice requires |
+| `ExternalEvents` | Either | Which consumed events come from an external system, and which one |
+| `Schedule` | Either | The cadence of a scheduled automation: an interval, a cron expression or a named schedule |
+| `Screen` | **Declared** | The name of the screen a human trigger acts through; also a `Screen` element in the wireframe lane |
+| `Description` / `ElementDescriptions` | Either | Prose about the slice and about each element, by type. The richer text wins a merge; never a disagreement |
 
 ### What a slice reads
 
@@ -149,7 +159,7 @@ var derived = new EventModelSliceDescriptor(
 
 ## `EventModelDescriptor`
 
-The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind, applied events and identity type), model-level `Hotspots`, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
+The whole model: its `Slices`, the `Aggregates` those slices reference by type (each with its kind, applied events and identity type), the `Tags` catalogue, the `Shapes` of its types, model-level `Hotspots`, the computed `IncompleteInformation` questions, the cross-slice `Links`, and `DomainAssignments` -- the declared policies putting handlers and endpoints into domains (see [Modules are Domains](/event-modeling/declaring#modules-are-domains)).
 
 A type declared by name -- a `TypeDescriptor` with no namespace and no assembly -- is the same type as the real one once it exists. `EventModelSliceDescriptor.SameType()` is that rule: full names when both sides are real types, simple names when either side is a declaration. The merge, the links, the rendered elements and the model's aggregates all use it, so a declaration and its real type are one element, never two.
 
@@ -162,6 +172,30 @@ A type declared by name -- a `TypeDescriptor` with no namespace and no assembly 
 > ⚠ `AggregateIdentity of Incident: Derived claims Guid; Declared claims IncidentId`
 
 Which aggregate entry survives a merge hasn't changed: the first one, unless a real type replaces a declaration.
+
+### Consistency boundaries
+
+`Reads` is a command slice's declared reads, each a `BoundaryReadDescriptor`: a `Kind` (`Model` or `Projection`), the `Type` read, the `Tag` it is read by, and the command `Member` whose value the tag takes (null when bound by convention). `EventTags` says which tags each emitted event carries, as `EmittedEventTags` entries keyed by event; `TagsFor(event)` reads one.
+
+`BoundaryQuery` is computed from the two: one `BoundaryQueryTerm` per distinct tag read, carrying the tag, the member, and every emitted event of the slice tagged with it — the slice's own append condition. The events a read model *folds* are a model-level answer, so `EventModelDescriptor.BoundaryQueryFor(slice)` resolves the full dcb.events query: an aggregate's or decider model's `AppliedEvents` for a `Model` read, the producing View slice's `ConsumedEvents` for a `Projection` read. `FoldedEventsOf(read)` is that lookup on its own.
+
+The catalogue lives on `EventModelDescriptor.Tags` as `EventTagDescriptor`s: `Name`, the strong `Type` when one exists, the `InnerType` primitive when known, and `Provenance`. `EventTagDescriptor.NameFor(type)` is the one naming rule, camelCase of the simple name. The merge unions the catalogue by name, lets a real type replace a declaration, and ranks two different types for one tag like an aggregate's identity: a model-level `SourceDisagreement` with `Role = TagType`.
+
+> ⚠ `TagType of courseId: Derived claims StudentId; Declared claims CourseId`
+
+### Shapes
+
+`EventModelDescriptor.Shapes` is one `TypeShapeDescriptor` per modelled type: the `Type`, its `Fields` and a `Provenance`. A `FieldDescriptor` is a `Name` and a `Type` (the element type when `Cardinality` is `Many`), plus `Optional`, `Identity`, `Tag`, `Generated`, `Pii`, an optional `Mapping` (`FieldMappingDescriptor`: the source type and field the value comes from) and a `Description`. `ShapeOf(type)` finds one; `shape.Find(name)` finds a field, case-insensitively.
+
+The source generator writes shapes into the `DiscoveredEventModels` manifest under `Shapes`, keyed by definition type, and `AddDiscoveredEventModels(assembly)` attaches them to each definition's source on the `Derived` rung (`EventModelDefinitionSource.WithShapes`). An assembly built with an older generator has no `Shapes` member and contributes none.
+
+`Merge` keeps the higher rung's fields per type, carries a lower-rung field's mapping, tag and description onto the matching field, and records every lower-rung field with no counterpart as a `SourceDisagreement` on `Fields`:
+
+> ⚠ `Fields of OrderPlaced: Derived claims OrderId, Total, PlacedAt; Declared also declares Note, which Derived lacks`
+
+### `IncompleteInformation`
+
+Computed on the model, like `PatternViolations` is on a slice: one `IncompleteInformation` hotspot per field the model cannot source, each with `SliceName` and `Field` (`{Type}.{Field}`) as the structured form. A View slice's read-model field is sourced when a consumed event's shape has a field of the same name or the field's `Mapping` names a consumed event; an emitted-event field when the command, an aggregate or decider model the slice decides against, or a consumed event supplies it, or the field is `Generated`. Only slices with a `Declared` or `Specified` rung are asked (`slice.HasRung`), and only about types whose shape the model carries. `IncompleteInformationFor(slice)` is the per-slice form.
 
 ## The rendering contract
 
@@ -220,6 +254,7 @@ foreach (var edge in slice.Edges)
 | `Trigger` | Wireframe | `#FFFFFF` white |
 | `ExternalSystem` | Wireframe | `#F8BBD0` pink |
 | `Hotspot` | Wireframe | `#E91E63` magenta |
+| `Screen` | Wireframe | `#FFFFFF` white, framed |
 | `Command` | Command | `#5B9BD5` blue |
 | `Handler` | Command | `#5B9BD5` blue, outlined |
 | `Aggregate` | Command | `#FFF2A8` pale yellow |
@@ -354,7 +389,7 @@ var json = JsonSerializer.Serialize(model, options);
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L144-L154' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_serializing_an_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-Because `Elements`, `Edges`, `Links` and `PatternViolations` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
+Because `Elements`, `Edges`, `Links`, `PatternViolations`, `BoundaryQuery` and `IncompleteInformation` are computed properties, they go **out** on the wire — a viewer gets the rendering contract without a second transform — and are ignored coming back in. A payload whose `links` disagree with its roles is recomputed rather than believed.
 
 ## Where the slices come from
 

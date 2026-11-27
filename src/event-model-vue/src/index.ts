@@ -15,6 +15,7 @@ export {
   MAX_LABEL_LINES
 } from './layout'
 export {
+  actorsOf,
   chaptersOf,
   domainsOf,
   hiddenSliceNames,
@@ -23,6 +24,12 @@ export {
   matchesFilter,
   patternsOf
 } from './filters'
+// jasperfx#1297 — the consistency boundary a command slice's reads imply, resolved against the model.
+export { consistencyBoundaryFor, isDcbSlice, tagsOf } from './boundary'
+export type { ConsistencyBoundary, ResolvedBoundaryRead, ResolvedBoundaryTerm } from './boundary'
+// jasperfx#1299 — field shapes and the trail a field leaves across a slice.
+export { fieldTrail, questionsFor, scheduleLabel, shapeOf, unmatchedFields } from './fields'
+export type { FieldTrail } from './fields'
 export type { SliceFilter } from './filters'
 // jasperfx#1084 — a source disagreement as a badge on the disputed card. Exported so a host's legend
 // and selection detail key what the canvas actually draws, not the raw hotspot list.
@@ -84,8 +91,24 @@ export type {
 export { EVENT_MODEL_PALETTE, colorFor, inkFor, DASHED_KINDS, OUTLINED_KINDS } from './palette'
 export { LANE_ORDER, LANE_LABEL, PROVENANCE_ORDER, PROVENANCE_LABEL } from './types'
 export type {
+  ActorDescriptor,
   AggregateDescriptor,
   AggregateKind,
+  BoundaryQueryDescriptor,
+  BoundaryQueryTerm,
+  BoundaryReadDescriptor,
+  BoundaryReadKind,
+  ElementDescription,
+  EmittedEventStream,
+  EmittedEventTags,
+  EventTagDescriptor,
+  ExternalEventDescriptor,
+  FieldCardinality,
+  FieldDescriptor,
+  FieldMappingDescriptor,
+  ScheduleDescriptor,
+  ScheduleKind,
+  TypeShapeDescriptor,
   EventModelClaim,
   EventModelDescriptor,
   EventModelEdge,

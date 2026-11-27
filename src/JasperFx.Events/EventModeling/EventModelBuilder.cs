@@ -20,6 +20,8 @@ public class EventModelBuilder
     private readonly List<HotspotDescriptor> _hotspots = new();
     private readonly List<AggregateDescriptor> _aggregates = new();
     private readonly List<DomainAssignmentDescriptor> _domainAssignments = new();
+    private readonly List<EventTagDescriptor> _tags = new();
+    private readonly List<TypeShapeBuilder> _shapes = new();
     private string? _defaultDomain;
     private string? _defaultChapter;
     private TypeDescriptor? _defaultAggregate;
@@ -303,10 +305,120 @@ public class EventModelBuilder
     }
 
     /// <summary>
+    /// Declare a consistency tag of the model — a strong-typed id events carry and Dynamic Consistency
+    /// Boundary queries select by (jasperfx#1297). Named by <see cref="EventTagDescriptor.NameFor(Type)"/>:
+    /// <c>CourseId</c> is the tag <c>courseId</c>. A tag an event is <c>TaggedBy</c> or a read is <c>By</c>
+    /// joins the catalogue on its own; declare it here to say so up front, or to name its inner primitive.
+    /// </summary>
+    /// <typeparam name="TTag">The strong-typed tag.</typeparam>
+    /// <returns>This builder for chaining.</returns>
+    public EventModelBuilder Tag<TTag>() => addTag(EventTagDescriptor.NameFor(typeof(TTag)), TypeDescriptor.For(typeof(TTag)), null);
+
+    /// <summary>
+    /// Declare a consistency tag whose strong type is <typeparamref name="TTag"/> and whose inner primitive is
+    /// <typeparamref name="TInner"/> — <c>Tag&lt;CourseId, Guid&gt;()</c> (jasperfx#1297).
+    /// </summary>
+    public EventModelBuilder Tag<TTag, TInner>()
+        => addTag(EventTagDescriptor.NameFor(typeof(TTag)), TypeDescriptor.For(typeof(TTag)), TypeDescriptor.For(typeof(TInner)));
+
+    /// <summary>
+    /// Declare a consistency tag by name, with the primitive its values are — <c>Tag("courseId", typeof(Guid))</c>
+    /// — before a strong-typed id exists for it (jasperfx#1297).
+    /// </summary>
+    /// <param name="name">The tag's name.</param>
+    /// <param name="innerType">The primitive a tag value is.</param>
+    public EventModelBuilder Tag(string name, Type innerType)
+    {
+        ArgumentNullException.ThrowIfNull(innerType);
+        return addTag(name, null, TypeDescriptor.For(innerType));
+    }
+
+    /// <summary>Declare a consistency tag by name alone (jasperfx#1297).</summary>
+    public EventModelBuilder Tag(string name) => addTag(name, null, null);
+
+    private EventModelBuilder addTag(string name, TypeDescriptor? type, TypeDescriptor? inner)
+    {
+        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("A tag needs a name", nameof(name));
+        name = name.Trim();
+
+        var index = _tags.FindIndex(x => string.Equals(x.Name, name, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            _tags.Add(new EventTagDescriptor(name, type) { InnerType = inner });
+            return this;
+        }
+
+        var existing = _tags[index];
+        if (existing.Type is not null && type is not null && !EventModelSliceDescriptor.SameType(existing.Type, type))
+        {
+            throw new InvalidOperationException(
+                $"The tag '{name}' is already declared with the type {existing.Type.Name}, so it cannot also be {type.Name}");
+        }
+
+        _tags[index] = existing with { Type = existing.Type ?? type, InnerType = existing.InnerType ?? inner };
+        return this;
+    }
+
+    /// <summary>
+    /// Declare the fields of a modelled type — a command, an event, a read model — for stub-first work before
+    /// the type has members (jasperfx#1299). Once the type exists, the fields derived from it win; a declared
+    /// field the code lacks becomes a model-level disagreement, a derived field the declaration lacks does not.
+    /// </summary>
+    /// <example>
+    /// <code>
+    /// model.Shape&lt;OrderSummary&gt;()
+    ///     .Field("Id").OfType&lt;Guid&gt;().Identity()
+    ///     .Field("Total").OfType&lt;decimal&gt;().From&lt;OrderPlaced&gt;(x => x.OrderTotal)
+    ///     .Field("Lines").OfType&lt;OrderLine&gt;().Many();
+    /// </code>
+    /// </example>
+    /// <typeparam name="T">The modelled type.</typeparam>
+    public TypeShapeBuilder Shape<T>() => shape(TypeDescriptor.For(typeof(T)));
+
+    /// <summary>Declare the fields of a type that has no type yet, by name.</summary>
+    public TypeShapeBuilder Shape(string typeName) => shape(EventModelSliceBuilder.Declared(typeName));
+
+    private TypeShapeBuilder shape(TypeDescriptor type)
+    {
+        var existing = _shapes.FirstOrDefault(x => EventModelSliceDescriptor.SameType(x.Type, type));
+        if (existing is not null) return existing;
+
+        var builder = new TypeShapeBuilder(type);
+        _shapes.Add(builder);
+        return builder;
+    }
+
+    /// <summary>
     /// The slice name a type-first verb gives a type: its short name, or its short name in code for a
     /// generic — the same rule Wolverine uses when it derives the slice, so the two merge by name.
     /// </summary>
     internal static string SliceNameFor(Type type) => type.IsGenericType ? type.ShortNameInCode() : type.Name;
+
+    /// <summary>
+    /// The tag catalogue as built: what was declared with <see cref="Tag{TTag}"/>, plus every tag a slice used
+    /// through <c>TaggedBy</c> or <c>By</c>, carrying its type where the slice named one (jasperfx#1297).
+    /// </summary>
+    private IReadOnlyList<EventTagDescriptor> buildTags()
+    {
+        var tags = _tags.ToList();
+        foreach (var slice in _slices)
+        {
+            foreach (var (name, type) in slice.UsedTags)
+            {
+                var index = tags.FindIndex(x => string.Equals(x.Name, name, StringComparison.Ordinal));
+                if (index < 0)
+                {
+                    tags.Add(new EventTagDescriptor(name, type));
+                }
+                else if (tags[index].Type is null && type is not null)
+                {
+                    tags[index] = tags[index] with { Type = type };
+                }
+            }
+        }
+
+        return tags;
+    }
 
     /// <summary>
     /// Snapshot the configured slices as descriptor records. Called by the discovery layer once
@@ -327,5 +439,7 @@ public class EventModelBuilder
             Hotspots = _hotspots.ToList(),
             Aggregates = _aggregates.ToList(),
             DomainAssignments = _domainAssignments.ToList(),
+            Tags = buildTags(),
+            Shapes = _shapes.Select(x => x.Build()).ToList(),
         };
 }

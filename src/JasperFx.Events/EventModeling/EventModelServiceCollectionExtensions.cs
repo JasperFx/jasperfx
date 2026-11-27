@@ -50,7 +50,14 @@ public static class EventModelServiceCollectionExtensions
     {
         if (TryReadDefinitionManifest(assembly, out var definitionTypes))
         {
-            foreach (var type in definitionTypes) services.AddEventModel(type);
+            var shapes = ReadShapeManifest(assembly);
+            foreach (var type in definitionTypes)
+            {
+                var source = EventModelDefinitionSource.For(type);
+                if (shapes is not null && shapes.TryGetValue(type, out var generated)) source.WithShapes(generated);
+                services.AddEventModelSource(source);
+            }
+
             return services;
         }
 
@@ -105,6 +112,25 @@ public static class EventModelServiceCollectionExtensions
             .ToList();
 
         return true;
+    }
+
+    /// <summary>
+    /// The field shapes the manifest derived per definition (jasperfx#1299), or null when the manifest was
+    /// written by a generator that predates shapes. The lookup is by name for the same reason the definition
+    /// list's is: the manifest is <c>internal</c> to the assembly it describes.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "JasperFx.Generated.DiscoveredEventModels is emitted by JasperFx.SourceGenerator into the consuming assembly as ordinary code; when it has been trimmed away the lookup degrades to 'no shapes'.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075:DynamicallyAccessedMembers",
+        Justification = "Same as IL2026: Shapes is a generated public static property of the manifest type.")]
+    internal static IReadOnlyDictionary<Type, IReadOnlyList<TypeShapeDescriptor>>? ReadShapeManifest(Assembly assembly)
+    {
+        if (assembly.IsDynamic) return null;
+
+        var manifestType = assembly.GetType("JasperFx.Generated.DiscoveredEventModels");
+        var property = manifestType?.GetProperty("Shapes", BindingFlags.Public | BindingFlags.Static);
+
+        return property?.GetValue(null) as IReadOnlyDictionary<Type, IReadOnlyList<TypeShapeDescriptor>>;
     }
 
     /// <summary>

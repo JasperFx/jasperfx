@@ -195,6 +195,24 @@ A `Query` slice reads and changes no state. If one emits events, starts a stream
 
 You never write this one either. It's computed from the slice's roles on every read and exposed on `EventModelSliceDescriptor.PatternViolations`, not stored in `Hotspots`, so it disappears once the code or the model is fixed. `hotspot.Role` says which role broke the rule.
 
+## An undeclared refusal is a hotspot
+
+A command slice declares the ways it can refuse with `Refuses("Course is full")`, and Bobcat's generated specifications fill the same `RejectionReasons` from what the specs actually refuse with. The two union: a reason is vocabulary, not a competing fact. But when a specification refuses for a reason the slice's declared list does not carry, the merge records an `UndeclaredRejection` hotspot naming it:
+
+> ⚠ `A specification refuses with 'Student already enrolled', which the slice does not declare. Declare it with Refuses("Student already enrolled")`
+
+It is raised only against a non-empty declared list: a model that declares no reasons has not said anything the specs could contradict, and takes theirs silently. The derived rung never claims a reason, because that would mean reading method bodies, so there are no false disagreements against the code. A spec source that knows which specification refused sets `SpecificationIdentity` on the hotspot.
+
+<!-- JEREMY: the "non-empty declared list" rule is my reading of "a spec refusal naming an undeclared reason is a hotspot"; the stricter reading would raise it for every spec refusal on a slice that declares no Refuses at all -->
+
+## A field from nowhere is a question
+
+With [shapes](/event-modeling/declaring#fields) on the model, the merge can ask where each field's value comes from. An `IncompleteInformation` hotspot is a view field that matches no consumed event's field by name or mapping, or an emitted-event field that comes from neither the command, the aggregate nor a `[Generated]` value:
+
+> ⚠ `OrderSummary.ShippedAt comes from none of the events the view consumes (OrderPlaced). Map it with Field("ShippedAt").From<…>(…), or consume the event that carries it`
+
+It is graded as a question, like prose, never as a disagreement: nobody claimed anything wrong, the board just has not said. So it lives on `EventModelDescriptor.IncompleteInformation`, computed on every read and never stored, with `SliceName` and `Field` as the structured form, and the canvas marks the field rather than drawing a sticky. It is asked only of a slice with a `Declared` or `Specified` rung; a purely derived model gets none, because there the code is the answer.
+
 ## Prefer the pending spec
 
 ::: tip
@@ -240,4 +258,4 @@ foreach (var hotspot in helpdesk.Hotspots)
 <sup><a href='https://github.com/JasperFx/jasperfx/blob/master/src/DocSamples/EventModeling/EventModelUsageSamples.cs#L43-L67' title='Snippet source file'>snippet source</a> | <a href='#snippet-sample_assembling_the_event_model' title='Start of snippet'>anchor</a></sup>
 <!-- endSnippet -->
 
-`HotspotOrigin` tells them apart; `SpecificationIdentity` is populated only for the pending-spec form, `Role` / `WinningClaim` / `LosingClaim` only for a source disagreement, and `ServiceName` / `CollapsedModelNames` only for a model collapse. Hotspots from different sources are unioned and deduplicated on origin plus text — so prose and a pending spec that happen to share a string stay two distinct hotspots, because they mean two different things.
+`HotspotOrigin` tells them apart; `SpecificationIdentity` is populated only for the pending-spec form (and an undeclared refusal whose spec is known), `Role` / `WinningClaim` / `LosingClaim` only for a source disagreement, `ServiceName` / `CollapsedModelNames` only for a model collapse, and `SliceName` / `Field` only for an incomplete-information question. Hotspots from different sources are unioned and deduplicated on origin plus text — so prose and a pending spec that happen to share a string stay two distinct hotspots, because they mean two different things.
